@@ -41,7 +41,7 @@ final class EditorCommandLayoutPolicyTests: XCTestCase {
         XCTAssertTrue(editor.contains("guard requestedChartID == chart.id else { return }"),
                        "A stale confirmation must not clear another chart")
         XCTAssertTrue(editor.contains("Button(\"Cancel\", role: .cancel) {}"))
-        XCTAssertTrue(editor.contains("This removes all unrendered chord and barline writing. Rendered notation and Free Ink stay unchanged."))
+        XCTAssertTrue(editor.contains("This removes all unrendered chord, barline, repeat-sign, and ending writing. Rendered notation and Free Ink stay unchanged."))
     }
 
     func testQuickStartPreparesEnoughMeasuresForItsChordExercise() {
@@ -97,7 +97,7 @@ final class EditorCommandLayoutPolicyTests: XCTestCase {
     func testQuickStartKeepsOptionalExitAndCoreTargetsClear() {
         XCTAssertNil(IChartEditorGuidedTourStep.setup.forwardActionTitle)
         XCTAssertEqual(IChartEditorGuidedTourStep.writeChords.targetText, "Write & Render • write C, F, G, C")
-        XCTAssertEqual(IChartEditorGuidedTourStep.renderChords.targetText, "Render Chords / Review & Render")
+        XCTAssertEqual(IChartEditorGuidedTourStep.renderChords.targetText, "Check notation • review remaining ink")
         XCTAssertEqual(IChartEditorGuidedTourStep.shapeForm.targetText, "Measures • Add / Layout / Delete")
         XCTAssertEqual(IChartEditorGuidedTourStep.addCue.targetText, "Tools > Text")
         XCTAssertEqual(IChartEditorGuidedTourStep.export.forwardActionTitle, "Skip Export")

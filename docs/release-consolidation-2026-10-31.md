@@ -43,12 +43,19 @@ build must retain the compatible decoder and local reader.
 Local validation passed:
 
 - Full SwiftPM: 1,810 passed, 0 failed, 91 skipped (1,901 total).
-- Combined native gate: 1,447 passed, 0 failed, 14 optional fixture skips
-  (1,461 total). All 88 requested filters selected tests; two captured-fixture
-  suites had only optional skips. The configured simulator was verified.
-- Backend/workflow contracts: 762 passed, 0 failed, 0 skipped.
-- Focused consent integration: 59 passed, 0 failed, 0 skipped, included in the
-  combined native gate rather than an additional independent total.
+- Entire native app suite: 3,071 passed, 0 failed, 114 skips (3,185 total).
+  Execution on the configured iPad A16 simulator and the integration regression
+  classes was verified from the result bundle.
+- Backend/workflow contracts: 778 passed, 0 failed, 0 skipped, including the
+  updated 24 wrapper, seven selector and four workflow-scope checks.
+- The 59 focused consent regressions are included in the native total.
+
+CI selects the real A16 fixture used by the keyboard/viewport tests. Its wrapper
+ensures a real software keyboard and restores the original host keyboard and
+simulator accessibility preferences, including absence and integer/boolean
+values, on success, failure and cancellation. Keyboard telemetry tests use real
+first-responder/keyboard transitions and await queue cleanup before removing
+fixtures.
 
 Fresh hosted validation is recorded with the consolidation pull request. Private device receipts retain complete before/after inventories;
 raw chart/ink data, physical-device identifiers and local operator configuration

@@ -3,7 +3,9 @@
 # accessibility tree, reproduced with the service disabled on iOS 26.4.1.
 # This undocumented Simulator preference initializes that test service.
 # It is not an app fix or a device configuration.
-# Restore only this key, including its original type or absence, on every exit.
+# UI regressions also require the real software keyboard. Disable the host
+# Simulator hardware-keyboard connection while tests run. Restore only these
+# two keys, including their original types or absence, on every exit.
 set -euo pipefail
 
 usage() {
@@ -47,6 +49,10 @@ preference_domain="com.apple.Accessibility"
 preference_key="ApplicationAccessibilityEnabled"
 prior_snapshot=""
 restore_needed=false
+keyboard_preference_domain="com.apple.iphonesimulator"
+keyboard_preference_key="ConnectHardwareKeyboard"
+keyboard_prior_snapshot=""
+keyboard_restore_needed=false
 command_pid=""
 launch_in_progress=false
 pending_signal=""
@@ -93,11 +99,78 @@ except Exception as error:
 ' "$preference_key"
 }
 
+read_keyboard_snapshot() {
+  local domains domain_presence exported
+  domains="$(defaults domains)" || return
+  domain_presence="$(printf '%s' "$domains" | python3 -c '
+import sys
+domains = [item.strip() for item in sys.stdin.read().split(",")]
+print("present" if sys.argv[1] in domains else "absent")
+' "$keyboard_preference_domain")" || return
+  if [[ "$domain_presence" == "absent" ]]; then
+    printf 'absent\n'
+    return
+  fi
+  exported="$(defaults export "$keyboard_preference_domain" -)" || return
+  printf '%s' "$exported" | python3 -c '
+import plistlib
+import sys
+try:
+    preferences = plistlib.loads(sys.stdin.buffer.read())
+    if not isinstance(preferences, dict):
+        raise ValueError("preference export must be a dictionary")
+    key = sys.argv[1]
+    if key not in preferences:
+        print("absent")
+    else:
+        value = preferences[key]
+        if type(value) is bool:
+            print("boolean:" + str(int(value)))
+        elif type(value) is int and value in (0, 1):
+            print("integer:" + str(value))
+        else:
+            raise ValueError("expected a boolean or integer 0/1")
+except Exception as error:
+    print("Cannot snapshot host Simulator keyboard preference: " + str(error), file=sys.stderr)
+    sys.exit(65)
+' "$keyboard_preference_key"
+}
+
 cleanup() {
   local original_status="$?" current_snapshot restore_boolean restore_status=0
+  local restoration_failed=false
   trap - EXIT
   trap '' INT TERM
   set +e
+  if [[ "$keyboard_restore_needed" == true ]]; then
+    current_snapshot="$(read_keyboard_snapshot)"
+    if [[ $? -ne 0 || "$current_snapshot" != "$keyboard_prior_snapshot" ]]; then
+      case "$keyboard_prior_snapshot" in
+        absent)
+          defaults delete "$keyboard_preference_domain" "$keyboard_preference_key"
+          restore_status=$?
+          ;;
+        boolean:*)
+          restore_boolean=NO
+          [[ "$keyboard_prior_snapshot" == "boolean:1" ]] && restore_boolean=YES
+          defaults write "$keyboard_preference_domain" "$keyboard_preference_key" -bool "$restore_boolean"
+          restore_status=$?
+          ;;
+        integer:*)
+          defaults write "$keyboard_preference_domain" "$keyboard_preference_key" -int "${keyboard_prior_snapshot#integer:}"
+          restore_status=$?
+          ;;
+      esac
+    fi
+    current_snapshot="$(read_keyboard_snapshot)"
+    if [[ $? -ne 0 || $restore_status -ne 0 || "$current_snapshot" != "$keyboard_prior_snapshot" ]]; then
+      log "ERROR: host keyboard restoration could not be verified (expected $keyboard_prior_snapshot; observed ${current_snapshot:-unavailable}; command exit $original_status)."
+      restoration_failed=true
+    else
+      log "restored and verified host $keyboard_preference_key=$keyboard_prior_snapshot"
+    fi
+  fi
+  restore_status=0
   if [[ "$restore_needed" == true ]]; then
     # A failed enable command may not have changed the key. Avoid deleting an
     # already absent key, but still verify the snapshot before reporting success.
@@ -123,10 +196,12 @@ cleanup() {
     current_snapshot="$(read_snapshot)"
     if [[ $? -ne 0 || $restore_status -ne 0 || "$current_snapshot" != "$prior_snapshot" ]]; then
       log "ERROR: restoration could not be verified (expected $prior_snapshot; observed ${current_snapshot:-unavailable}; command exit $original_status)."
-      exit 70
+      restoration_failed=true
+    else
+      log "restored and verified $preference_key=$prior_snapshot"
     fi
-    log "restored and verified $preference_key=$prior_snapshot"
   fi
+  [[ "$restoration_failed" == false ]] || exit 70
   exit "$original_status"
 }
 
@@ -193,6 +268,7 @@ esac
 xcrun simctl bootstatus "$simulator_id" -b
 
 prior_snapshot="$(read_snapshot)"
+keyboard_prior_snapshot="$(read_keyboard_snapshot)"
 log "undocumented Simulator-only test-service initialization; prior $preference_key=$prior_snapshot"
 # Arm restoration before the write, including failures that partially apply.
 restore_needed=true
@@ -202,7 +278,16 @@ enabled_snapshot="$(read_snapshot)"
   log "ERROR: enabled accessibility preference was not verified: $enabled_snapshot"
   exit 65
 }
-log "verified enabled preference; executing tests on $destination"
+log "verified enabled accessibility preference"
+
+keyboard_restore_needed=true
+defaults write "$keyboard_preference_domain" "$keyboard_preference_key" -bool NO
+keyboard_disabled_snapshot="$(read_keyboard_snapshot)"
+[[ "$keyboard_disabled_snapshot" == "boolean:0" || "$keyboard_disabled_snapshot" == "integer:0" ]] || {
+  log "ERROR: disabled hardware-keyboard connection was not verified: $keyboard_disabled_snapshot"
+  exit 65
+}
+log "verified software-keyboard configuration; prior host $keyboard_preference_key=$keyboard_prior_snapshot; executing tests on $destination"
 
 # Job control gives this one owned child a distinct process group and preserves
 # SIGINT handling for an asynchronous command. Never signal the CI shell group.

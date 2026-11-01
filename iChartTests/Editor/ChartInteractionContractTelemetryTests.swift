@@ -240,57 +240,103 @@ final class ChartInteractionContractTelemetryTests: XCTestCase {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive })
         let previous = scene.windows.first(where: \.isKeyWindow)
+        previous?.endEditing(true)
         let window = UIWindow(windowScene: scene)
         let controller = UIViewController(); window.rootViewController = controller
+        let trace = InteractionWindowNotificationTrace(window: window)
         window.makeKeyAndVisible()
         let fixture = try makeService()
         IChartTelemetry.configure(fixture.service)
         let scroll = UIScrollView(frame: CGRect(x: 0, y: 50, width: 700, height: 400))
+        scroll.contentInsetAdjustmentBehavior = .never
         scroll.contentSize = CGSize(width: 700, height: 1_200)
         scroll.contentOffset = CGPoint(x: 0, y: 100)
         controller.view.addSubview(scroll)
-        let field = InteractionFocusedField(frame: CGRect(x: 10, y: 250, width: 200, height: 44))
+        let field = UITextField(frame: CGRect(x: 10, y: 250, width: 200, height: 44))
+        field.keyboardType = .asciiCapable
+        field.autocorrectionType = .no
+        field.spellCheckingType = .no
+        field.autocapitalizationType = .none
         scroll.addSubview(field)
         let action = ChartKeyboardActionProbeView(frame: CGRect(x: 10, y: 1_800, width: 180, height: 44))
         action.isRequiredForKeyboardTelemetry = true
         action.isEnabledForKeyboardTelemetry = false
         scroll.addSubview(action)
         let probe = ChartKeyboardContractProbe(scrollView: scroll)
-        defer {
+        addTeardownBlock { @MainActor in
+            trace.stop()
             probe.stop(); fixture.consent.setConsentGranted(false); IChartTelemetry.configure(nil)
+            await fixture.service.consentDidChange()
+            await fixture.consent.waitForPendingPersistence()
             fixture.session.invalidateAndCancel(); window.endEditing(true)
             window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible()
             UserDefaults.standard.removePersistentDomain(forName: fixture.suite)
             try? FileManager.default.removeItem(at: fixture.directory)
         }
-        // Controlled notification geometry tests the production capture path;
-        // the separate review UI gate requires the actual software keyboard.
-        let localKeyboard = CGRect(x: 0, y: 500, width: window.bounds.width,
-            height: max(100, window.bounds.height - 500))
-        func keyboardChanged() {
-            let screen = window.convert(localKeyboard, to: window.screen.coordinateSpace)
-            NotificationCenter.default.post(name: UIResponder.keyboardDidChangeFrameNotification, object: nil,
-                userInfo: [UIResponder.keyboardFrameEndUserInfoKey: NSValue(cgRect: screen)])
+        // A UIWindowScene can replace a new window's initial bounds/orientation
+        // on the next layout pass. Establish real focus only after the scene is
+        // stable, then let UIKit deliver the keyboard geometry to production.
+        try await waitForStableWindow(window, controller: controller)
+        let diagnostics = {
+            "app=\(UIApplication.shared.applicationState.rawValue), scene=\(scene.activationState.rawValue), key=\(window.isKeyWindow), window=\(window.bounds), scroll=\(scroll.bounds), offset=\(scroll.contentOffset), field=\(field.convert(field.bounds, to: window)), focused=\(field.isFirstResponder), authorization=\(IChartTelemetry.diagnosticAuthorization() != nil)\nNotifications:\n\(trace.entries.joined(separator: "\n"))"
         }
-        keyboardChanged()
-        _ = try await waitForEvents(fixture.queue, matching: { $0.properties["reason"] == .string("keyboard_controls_reachable") })
-        // No new focus or keyboard event accompanies the enabled/layout change.
+        var keyboardEventCount = trace.keyboardEventCount
+        XCTAssertTrue(field.becomeFirstResponder())
+        try await waitForKeyboard(visible: true, after: keyboardEventCount, field: field,
+                                  window: window, trace: trace)
+        _ = try await waitForEvents(fixture.queue, matching: { $0.properties["reason"] == .string("keyboard_controls_reachable") }, diagnostics: diagnostics)
+        // Rechecking the registered action must not need a fresh focus or
+        // keyboard event once the onscreen keyboard has settled.
+        keyboardEventCount = trace.keyboardEventCount
         action.isEnabledForKeyboardTelemetry = true
         let failure = try await waitForEvents(fixture.queue,
-            matching: { $0.properties["reason"] == .string("keyboard_action_unreachable") })
+            matching: { $0.properties["reason"] == .string("keyboard_action_unreachable") }, diagnostics: diagnostics)
+        XCTAssertEqual(trace.keyboardEventCount, keyboardEventCount,
+                       "The enabled-action change itself must trigger the recheck")
         XCTAssertEqual(failure.properties["expected_count"], .int(2))
         XCTAssertEqual(failure.properties["actual_count"], .int(1))
 
         action.isEnabledForKeyboardTelemetry = false
-        keyboardChanged()
+        keyboardEventCount = trace.keyboardEventCount
         fixture.consent.setConsentGranted(false)
         await fixture.service.consentDidChange()
         fixture.consent.setConsentGranted(true)
         await fixture.service.consentDidChange()
         try await Task.sleep(nanoseconds: 800_000_000)
+        XCTAssertEqual(trace.keyboardEventCount, keyboardEventCount,
+                       "The withdrawal test must retain the earlier keyboard epoch")
         XCTAssertTrue(try fixture.queue.loadEvents().isEmpty, "The old keyboard epoch cannot adopt the new grant")
-        keyboardChanged()
-        _ = try await waitForEvents(fixture.queue, matching: { $0.properties["reason"] == .string("keyboard_controls_reachable") })
+        XCTAssertTrue(field.resignFirstResponder())
+        try await waitForKeyboard(visible: false, after: keyboardEventCount, field: field,
+                                  window: window, trace: trace)
+        keyboardEventCount = trace.keyboardEventCount
+        XCTAssertTrue(field.becomeFirstResponder())
+        try await waitForKeyboard(visible: true, after: keyboardEventCount, field: field,
+                                  window: window, trace: trace)
+        _ = try await waitForEvents(fixture.queue, matching: { $0.properties["reason"] == .string("keyboard_controls_reachable") }, diagnostics: diagnostics)
+    }
+
+    @MainActor
+    private func waitForKeyboard(visible: Bool, after eventCount: Int, field: UITextField,
+        window: UIWindow, trace: InteractionWindowNotificationTrace) async throws {
+        // Keyboard startup is a separate UI readiness phase, not an extension
+        // of the production telemetry event deadline below.
+        for _ in 0..<160 {
+            window.layoutIfNeeded()
+            let hasFreshGeometry = trace.keyboardEventCount > eventCount
+            if visible {
+                if hasFreshGeometry, field.isFirstResponder, window.isKeyWindow,
+                   let frame = trace.keyboardInWindow, frame.height >= 180,
+                   let stableSince = trace.keyboardFrameStableSince,
+                   ProcessInfo.processInfo.systemUptime - stableSince >= 0.2 { return }
+            } else if hasFreshGeometry, !field.isFirstResponder, trace.keyboardInWindow == nil,
+                      trace.lastKeyboardNotification == UIResponder.keyboardDidHideNotification {
+                return
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTFail("The interaction fixture requires an actual \(visible ? "onscreen software keyboard" : "keyboard dismissal"); notifications: \(trace.entries)")
+        throw InteractionFixtureError.keyboardUnavailable
     }
 
     @MainActor
@@ -305,8 +351,10 @@ final class ChartInteractionContractTelemetryTests: XCTestCase {
         let viewport = LeadSheetDocumentViewport(documentView: UIView())
         controller.view.addSubview(viewport)
         IChartTelemetry.configure(fixture.service)
-        defer {
+        addTeardownBlock { @MainActor in
             fixture.consent.setConsentGranted(false); IChartTelemetry.configure(nil)
+            await fixture.service.consentDidChange()
+            await fixture.consent.waitForPendingPersistence()
             fixture.session.invalidateAndCancel(); window.endEditing(true)
             window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible()
             UserDefaults.standard.removePersistentDomain(forName: fixture.suite)
@@ -357,14 +405,60 @@ final class ChartInteractionContractTelemetryTests: XCTestCase {
         return (service, consent, queue, session, directory, suite)
     }
 
-    private func waitForEvents(_ queue: IChartTelemetryQueueStore,
-        matching predicate: (IChartTelemetryEvent) -> Bool) async throws -> IChartTelemetryEvent {
+    @MainActor
+    private func waitForStableWindow(_ window: UIWindow, controller: UIViewController) async throws {
+        var previousBounds: CGRect?
+        var previousOrientation: UIInterfaceOrientation?
+        var stableSince: TimeInterval?
         for _ in 0..<80 {
-            if let event = try queue.loadEvents().first(where: predicate) { return event }
+            window.layoutIfNeeded()
+            controller.view.layoutIfNeeded()
+            let orientation = window.windowScene?.effectiveGeometry.interfaceOrientation
+            let bounds = window.bounds
+            let ready = window.isKeyWindow && window.windowScene?.activationState == .foregroundActive
+                && UIApplication.shared.applicationState == .active
+                && bounds.width > 0 && bounds.height > 0
+                && controller.view.bounds.size == bounds.size
+                && orientation != nil && orientation != .unknown
+            let now = ProcessInfo.processInfo.systemUptime
+            if ready, previousBounds == bounds, previousOrientation == orientation {
+                if let stableSince, now - stableSince >= 0.2 { return }
+                if stableSince == nil { stableSince = now }
+            } else {
+                stableSince = nil
+            }
+            previousBounds = bounds
+            previousOrientation = orientation
             try await Task.sleep(nanoseconds: 50_000_000)
         }
-        XCTFail("The actual interaction hook must reach the production telemetry queue")
-        throw CocoaError(.fileReadUnknown)
+        XCTFail("The interaction fixture requires a key foreground window with stable real scene geometry")
+        throw InteractionFixtureError.unstableWindow
+    }
+
+    @MainActor
+    private func waitForEvents(_ queue: IChartTelemetryQueueStore,
+        matching predicate: (IChartTelemetryEvent) -> Bool,
+        diagnostics: (() -> String)? = nil,
+        file: StaticString = #filePath, line: UInt = #line) async throws -> IChartTelemetryEvent {
+        var observedReasons: Set<String> = []
+        for _ in 0..<80 {
+            let events = try queue.loadEvents()
+            for event in events {
+                if case let .string(reason)? = event.properties["reason"] { observedReasons.insert(reason) }
+            }
+            if let event = events.first(where: predicate) { return event }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        let details = diagnostics?() ?? ""
+        if !details.isEmpty {
+            let attachment = XCTAttachment(string: details)
+            attachment.name = "Interaction probe state at missing event"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        XCTFail("The actual interaction hook must reach the production telemetry queue; observed reasons: \(observedReasons.sorted())\n\(details)",
+                file: file, line: line)
+        throw InteractionFixtureError.eventNotRecorded
     }
 
     private func keyboard() -> ChartInteractionContractTelemetry.KeyboardSnapshot {
@@ -399,8 +493,50 @@ final class ChartInteractionContractTelemetryTests: XCTestCase {
     }
 }
 
-@MainActor private final class InteractionFocusedField: UITextField {
-    override var isFirstResponder: Bool { true }
+private enum InteractionFixtureError: Error {
+    case unstableWindow
+    case keyboardUnavailable
+    case eventNotRecorded
+}
+
+@MainActor private final class InteractionWindowNotificationTrace: NSObject {
+    private weak var window: UIWindow?
+    private(set) var entries: [String] = []
+    private(set) var keyboardEventCount = 0
+    private(set) var lastKeyboardNotification: Notification.Name?
+    private(set) var keyboardInWindow: CGRect?
+    private(set) var keyboardFrameStableSince: TimeInterval?
+    init(window: UIWindow) {
+        self.window = window
+        super.init()
+        for name in [UIResponder.keyboardDidShowNotification, UIResponder.keyboardDidChangeFrameNotification,
+                     UIResponder.keyboardDidHideNotification, UIApplication.willResignActiveNotification,
+                     UIApplication.didBecomeActiveNotification, UIWindow.didBecomeKeyNotification,
+                     UIWindow.didResignKeyNotification] {
+            NotificationCenter.default.addObserver(self, selector: #selector(observe(_:)), name: name, object: nil)
+        }
+    }
+    deinit { NotificationCenter.default.removeObserver(self) }
+    func stop() { NotificationCenter.default.removeObserver(self) }
+    @objc private func observe(_ note: Notification) {
+        let frame = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
+        let now = ProcessInfo.processInfo.systemUptime
+        if note.name == UIResponder.keyboardDidHideNotification {
+            keyboardEventCount += 1
+            lastKeyboardNotification = note.name
+            keyboardInWindow = nil
+            keyboardFrameStableSince = nil
+        } else if let frame, let window {
+            keyboardEventCount += 1
+            lastKeyboardNotification = note.name
+            let converted = window.convert(frame, from: window.screen.coordinateSpace).intersection(window.bounds)
+            let visibleFrame = !converted.isNull && converted.height > 0 ? converted : nil
+            if keyboardInWindow != visibleFrame { keyboardFrameStableSince = now }
+            keyboardInWindow = visibleFrame
+        }
+        entries.append("\(now) \(note.name.rawValue), keyboard=\(String(describing: frame)), key=\(window?.isKeyWindow == true), bounds=\(String(describing: window?.bounds))")
+        if entries.count > 40 { entries.removeFirst(entries.count - 40) }
+    }
 }
 
 @MainActor private final class InteractionNavigationTouch: UITouch {

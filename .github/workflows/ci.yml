@@ -189,11 +189,15 @@ jobs:
         if: steps.app_changes.outputs.run_tests == 'true'
         run: python3 -m unittest discover -s scripts -p 'test_personal_comparison_packaging.py' -v
 
+      - name: Verify simulator selection with mocked devices
+        if: steps.app_changes.outputs.run_tests == 'true'
+        run: python3 .github/scripts/test_simulator_selection.py -v
+
       - name: Select iPad simulator
         if: steps.app_changes.outputs.run_tests == 'true'
         run: .github/scripts/select-ipad-simulator.sh
 
-      - name: Verify simulator accessibility wrapper with mocked commands
+      - name: Verify simulator accessibility and keyboard restoration with mocked commands
         if: steps.app_changes.outputs.run_tests == 'true'
         run: python3 .github/scripts/test_simulator_accessibility.py -v
 
