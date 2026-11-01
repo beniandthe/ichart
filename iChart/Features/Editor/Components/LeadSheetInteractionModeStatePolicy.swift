@@ -137,7 +137,8 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
         PersistentInkCoordinateSpace(
             size: frame.size,
             measureAnchors: measureAnchors(in: pageLayout, relativeTo: frame),
-            chordAnchors: chordAnchors(in: pageLayout, relativeTo: frame)
+            chordAnchors: chordAnchors(in: pageLayout, relativeTo: frame),
+            engravingPreset: pageLayout.engravingPreset
         )
     }
 
@@ -145,9 +146,7 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
         _ coordinateSpace: PersistentInkCoordinateSpace?,
         chart: Chart
     ) -> PersistentInkCoordinateSpace? {
-        // Free Ink belongs to the paper, not inferred musical objects. Keep
-        // legacy source metadata intact when opening or rotating a chart.
-        coordinateSpace
+        LeadSheetFreeInkStaffGeometryPolicy.sourceCoordinateSpace(coordinateSpace, chart: chart)
     }
 
     static func sourceCoordinateSpace(
@@ -171,8 +170,7 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
         relativeTo frame: CGRect
     ) -> [PersistentInkMeasureAnchor] {
         pageLayout.systems
-            .flatMap(\.measures)
-            .compactMap { measureLayout in
+            .flatMap { system in system.measures.compactMap { measureLayout in
                 guard let measureID = measureLayout.sourceMeasureID else {
                     return nil
                 }
@@ -183,9 +181,13 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
                 )
                 return PersistentInkMeasureAnchor(
                     measureID: measureID,
-                    frame: anchorFrame
+                    frame: anchorFrame,
+                    staffFrame: system.staffLineYPositions.count == 5
+                        ? measureLayout.staffFrame.insetBy(dx: 0, dy: 2).offsetBy(
+                            dx: -frame.minX, dy: -frame.minY)
+                        : nil
                 )
-            }
+            } }
     }
 
     static func chordAnchors(
@@ -277,12 +279,12 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
             return drawing
         }
 
-        // Page spaces carry musical anchors as layout metadata, but Free Ink
-        // must retain its exact paper coordinates. The editor and PDF exporter
-        // preserve that paper's logical width; rotation only changes the view.
+        // Rotation only changes the viewport. A new engraving preset actually
+        // moves/resizes the staff: project from the authored staff geometry so
+        // handwritten notes retain their line/space positions.
         if isPageCoordinateSpace(sourceCoordinateSpace)
             || isPageCoordinateSpace(targetCoordinateSpace) {
-            return drawing
+            return staffRelativeDrawing(drawing, from: sourceCoordinateSpace, to: targetCoordinateSpace)
         }
 
         // Header, chord and rhythmic canvases retain their existing mapping.
@@ -326,6 +328,139 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
 
     private static func isPageCoordinateSpace(_ space: PersistentInkCoordinateSpace) -> Bool {
         space.measureAnchors?.isEmpty == false || space.chordAnchors?.isEmpty == false
+    }
+
+    static func changesStaffEngraving(
+        from source: PersistentInkCoordinateSpace,
+        to target: PersistentInkCoordinateSpace
+    ) -> Bool {
+        guard let sourcePreset = source.engravingPreset,
+              let targetPreset = target.engravingPreset else { return false }
+        return sourcePreset != targetPreset
+    }
+
+    private struct StaffRow {
+        var anchors: [PersistentInkMeasureAnchor]
+        var staff: CGRect
+        var top: CGFloat
+    }
+
+    private static func staffRelativeDrawing(
+        _ drawing: PKDrawing,
+        from source: PersistentInkCoordinateSpace,
+        to target: PersistentInkCoordinateSpace
+    ) -> PKDrawing {
+        guard changesStaffEngraving(from: source, to: target) else { return drawing }
+        let sourceAnchors = (source.measureAnchors ?? []).filter { validStaffFrame($0.staffFrame) }
+        let targetAnchors = Dictionary((target.measureAnchors ?? []).filter {
+            validStaffFrame($0.staffFrame)
+        }.map { ($0.measureID, $0) }, uniquingKeysWith: { first, _ in first })
+        guard !sourceAnchors.isEmpty, !targetAnchors.isEmpty else { return drawing }
+
+        // Every stroke on a row uses one transform, including beams spanning
+        // barlines and notes made from separate notehead/stem/accidental strokes.
+        // Never assign these pieces to separate chord hit regions.
+        var rows: [StaffRow] = []
+        for anchor in sourceAnchors.sorted(by: { $0.staffFrame!.y < $1.staffFrame!.y }) {
+            let staff = anchor.staffFrame!.rect
+            if let index = rows.indices.last, abs(rows[index].staff.minY - staff.minY) < 0.01 {
+                rows[index].anchors.append(anchor)
+                rows[index].staff = rows[index].staff.union(staff)
+                rows[index].top = min(rows[index].top, anchor.frame.rect.minY)
+            } else {
+                rows.append(StaffRow(anchors: [anchor], staff: staff, top: anchor.frame.rect.minY))
+            }
+        }
+        let transforms: [CGAffineTransform?] = rows.map { row in
+            let matches = row.anchors.compactMap { targetAnchors[$0.measureID]?.staffFrame?.rect }
+            guard matches.count == row.anchors.count, let first = matches.first,
+                  matches.allSatisfy({ abs($0.minY - first.minY) < 0.01
+                      && abs($0.height - first.height) < 0.01 }) else { return nil }
+            let destination = matches.reduce(CGRect.null) { $0.union($1) }
+            return staffTransform(from: row.staff, to: destination)
+        }
+
+        var strokes = drawing.strokes
+        let padding = rows.map { $0.staff.height / 4 }.min()! * 0.25
+        for indices in connectedStrokeGroups(strokes, padding: padding) {
+            let bounds = indices.reduce(CGRect.null) { $0.union(strokes[$1].renderBounds) }
+            guard bounds.maxY >= rows[0].top else { continue }
+            let index = rows.indices.last(where: { bounds.midY >= rows[$0].top }) ?? 0
+            // Headers and drawings in blank paper beyond the last staff are
+            // paper annotations. Only row-local handwriting follows engraving.
+            if index == rows.count - 1,
+               bounds.minY > rows[index].staff.maxY + max(80, rows[index].staff.height * 2) {
+                continue
+            }
+            let transform: CGAffineTransform?
+            if let rowTransform = transforms[index] {
+                transform = rowTransform
+            } else {
+                // Compact engraving can move measures onto different rows.
+                // Follow the annotation's measure ID, keeping its connected
+                // strokes together rather than leaving a whole row behind.
+                let owner = rows[index].anchors.min { first, second in
+                    horizontalDistance(bounds.midX, to: first.staffFrame!.rect)
+                        < horizontalDistance(bounds.midX, to: second.staffFrame!.rect)
+                }
+                transform = owner.flatMap { anchor in
+                    targetAnchors[anchor.measureID]?.staffFrame.flatMap {
+                        staffTransform(from: anchor.staffFrame!.rect, to: $0.rect)
+                    }
+                }
+            }
+            guard let transform else { continue }
+            let projected = PKDrawing(strokes: indices.map { strokes[$0] }).transformed(using: transform)
+            for (offset, strokeIndex) in indices.enumerated() {
+                strokes[strokeIndex] = projected.strokes[offset]
+            }
+        }
+        return PKDrawing(strokes: strokes)
+    }
+
+    private static func staffTransform(from source: CGRect, to target: CGRect) -> CGAffineTransform? {
+        let sx = target.width / source.width
+        let sy = target.height / source.height
+        let tx = target.minX - source.minX * sx
+        let ty = target.minY - source.minY * sy
+        guard sx.isFinite, sy.isFinite, sx > 0, sy > 0,
+              tx.isFinite, ty.isFinite else { return nil }
+        return CGAffineTransform(a: sx, b: 0, c: 0, d: sy,
+            tx: tx, ty: ty)
+    }
+
+    private static func horizontalDistance(_ x: CGFloat, to frame: CGRect) -> CGFloat {
+        if x < frame.minX { return frame.minX - x }
+        if x > frame.maxX { return x - frame.maxX }
+        return 0
+    }
+
+    private static func connectedStrokeGroups(_ strokes: [PKStroke], padding: CGFloat) -> [[Int]] {
+        let bounds = strokes.map { $0.renderBounds.insetBy(dx: -padding, dy: -padding) }
+        var parents = Array(strokes.indices)
+        func root(_ index: Int) -> Int {
+            var cursor = index
+            while parents[cursor] != cursor { cursor = parents[cursor] }
+            return cursor
+        }
+        let ordered = strokes.indices.sorted { bounds[$0].minX < bounds[$1].minX }
+        for (offset, first) in ordered.enumerated() {
+            for second in ordered.dropFirst(offset + 1) {
+                if bounds[second].minX > bounds[first].maxX { break }
+                if bounds[first].intersects(bounds[second]) {
+                    parents[root(second)] = root(first)
+                }
+            }
+        }
+        var groups: [Int: [Int]] = [:]
+        for index in strokes.indices { groups[root(index), default: []].append(index) }
+        return groups.values.sorted { $0[0] < $1[0] }
+    }
+
+    private static func validStaffFrame(_ frame: PersistentInkFrame?) -> Bool {
+        guard let frame else { return false }
+        return frame.x.isFinite && frame.y.isFinite && frame.width.isFinite
+            && frame.height.isFinite && frame.width > 0 && frame.height > 0
     }
 }
 

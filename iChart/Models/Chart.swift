@@ -27,23 +27,27 @@ struct PersistentInkCoordinateSpace: Codable, Hashable {
     var height: Double
     var measureAnchors: [PersistentInkMeasureAnchor]?
     var chordAnchors: [PersistentInkChordAnchor]?
+    var engravingPreset: EngravingPreset?
 
     init(
         width: Double,
         height: Double,
         measureAnchors: [PersistentInkMeasureAnchor]? = nil,
-        chordAnchors: [PersistentInkChordAnchor]? = nil
+        chordAnchors: [PersistentInkChordAnchor]? = nil,
+        engravingPreset: EngravingPreset? = nil
     ) {
         self.width = width
         self.height = height
         self.measureAnchors = measureAnchors?.isEmpty == true ? nil : measureAnchors
         self.chordAnchors = chordAnchors?.isEmpty == true ? nil : chordAnchors
+        self.engravingPreset = engravingPreset
     }
 
     init?(
         size: CGSize,
         measureAnchors: [PersistentInkMeasureAnchor]? = nil,
-        chordAnchors: [PersistentInkChordAnchor]? = nil
+        chordAnchors: [PersistentInkChordAnchor]? = nil,
+        engravingPreset: EngravingPreset? = nil
     ) {
         guard size.width > 0,
               size.height > 0,
@@ -56,6 +60,7 @@ struct PersistentInkCoordinateSpace: Codable, Hashable {
         self.height = Double(size.height)
         self.measureAnchors = measureAnchors?.isEmpty == true ? nil : measureAnchors
         self.chordAnchors = chordAnchors?.isEmpty == true ? nil : chordAnchors
+        self.engravingPreset = engravingPreset
     }
 
     var size: CGSize {
@@ -112,14 +117,16 @@ struct PersistentInkPoint: Codable, Hashable {
 struct PersistentInkMeasureAnchor: Codable, Hashable {
     var measureID: UUID
     var frame: PersistentInkFrame
+    var staffFrame: PersistentInkFrame?
 
-    init?(measureID: UUID, frame: CGRect) {
+    init?(measureID: UUID, frame: CGRect, staffFrame: CGRect? = nil) {
         guard let persistentFrame = PersistentInkFrame(rect: frame) else {
             return nil
         }
 
         self.measureID = measureID
         self.frame = persistentFrame
+        self.staffFrame = staffFrame.flatMap(PersistentInkFrame.init(rect:))
     }
 }
 
