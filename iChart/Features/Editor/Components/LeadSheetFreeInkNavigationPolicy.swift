@@ -2,7 +2,7 @@
 import UIKit
 
 enum LeadSheetFreeInkNavigationPolicy {
-    static let hintText = "Pinch to zoom. Use two fingers to pan."
+    static let hintText = "One finger scrolls. Two fingers pan and zoom."
 
     static func usesTwoFingerPan(in interactionMode: EditorCanvasMode) -> Bool {
         interactionMode == .freeHand

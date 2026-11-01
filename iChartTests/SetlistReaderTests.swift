@@ -175,6 +175,68 @@ final class SetlistReaderTests: XCTestCase {
         XCTAssertNil(savedName, "Editing a setlist name remains a draft until Save")
     }
 
+    func testPDFImportTitleDefaultsToFilenameAndRemainsADraftWhileEditing() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("Friday Paper Chart.pdf")
+        let pdfStore = IChartPDFLibraryStore(baseDirectory: directory.appendingPathComponent("Library", isDirectory: true))
+        var importedItem: IChartPDFLibraryItem?
+        let host = UIHostingController(rootView: IChartPDFImportConfirmationView(sourceURL: source) { importedItem = $0 }
+            .environmentObject(pdfStore))
+        let window = try makeWindow(host: host)
+        defer { window.close() }
+        var titleField: IChartTypedUITextField?
+        for _ in 0..<20 {
+            titleField = descendants(host.view).compactMap { $0 as? IChartTypedUITextField }
+                .first { $0.placeholder == "Chart Title" }
+            if titleField != nil { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        let field = try XCTUnwrap(titleField)
+        XCTAssertEqual(field.text, "Friday Paper Chart")
+        field.text = "Saturday Show"
+        field.sendActions(for: .editingChanged)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(field.text, "Saturday Show")
+        XCTAssertNil(importedItem)
+        XCTAssertTrue(pdfStore.items.isEmpty, "Choosing a file and editing its title must not commit an import")
+        attachScreenshot(window, name: "PDF import title confirmation - draft before import")
+    }
+
+    func testImportedMultipagePDFRendersInSetlistAfterSourceRemovalAndStoreReload() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = try writePDF(title: "Personal Paper Chart", pageCount: 2, in: directory)
+        let libraryDirectory = directory.appendingPathComponent("Library", isDirectory: true)
+        let setlistDirectory = directory.appendingPathComponent("Setlists", isDirectory: true)
+        let pdfStore = IChartPDFLibraryStore(baseDirectory: libraryDirectory)
+        let item = try await pdfStore.importPDF(from: source, title: "Imported Gig Song")
+        let setlistStore = IChartPDFSetlistStore(baseDirectory: setlistDirectory)
+        let setlist = try setlistStore.create(name: "Offline Import Proof")
+        let entry = try setlistStore.add(pdfItem: item, to: setlist.id)
+        try FileManager.default.removeItem(at: source)
+
+        let reopenedPDFStore = IChartPDFLibraryStore(baseDirectory: libraryDirectory)
+        let reopenedSetlistStore = IChartPDFSetlistStore(baseDirectory: setlistDirectory)
+        let reader = IChartSetlistPerformanceReader(setlistID: setlist.id, startingEntryID: entry.id)
+            .environmentObject(reopenedSetlistStore)
+            .environmentObject(reopenedPDFStore)
+            .environmentObject(ChartLibraryStore(charts: [], entitlements: AppEntitlements(subscription: .basic)))
+        let host = UIHostingController(rootView: reader)
+        let window = try makeWindow(host: host)
+        defer { window.close() }
+        let pdfView = try await waitForPDFView(in: host.view)
+        let document = try XCTUnwrap(pdfView.document)
+        XCTAssertEqual(document.pageCount, 2)
+        XCTAssertTrue(document.string?.contains("Personal Paper Chart") == true)
+        XCTAssertEqual(pdfView.currentPage, document.page(at: 0))
+        pdfView.go(to: try XCTUnwrap(document.page(at: 1)))
+        XCTAssertEqual(pdfView.currentPage, document.page(at: 1))
+        XCTAssertEqual(reopenedPDFStore.items.first?.source, .personalImport)
+        XCTAssertNil(reopenedPDFStore.items.first?.transpositionText)
+        attachScreenshot(window, name: "Imported original PDF - page two after source removal and reload")
+    }
+
     func testLibrarySetlistControlsVisibleWithHiddenOuterNavigation() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }

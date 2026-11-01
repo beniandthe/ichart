@@ -1,6 +1,26 @@
 import XCTest
 
 final class ProjectConfigurationTests: XCTestCase {
+    func testTelemetryIsConfiguredBeforeStartupLibraryLoadCanScheduleReopenChecks() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let appText = try String(contentsOf: projectRoot.appendingPathComponent("iChart/App/IChartApp.swift"))
+        let start = try XCTUnwrap(appText.range(of: "    init() {"))
+        let end = try XCTUnwrap(appText.range(of: "    var body: some Scene", range: start.upperBound..<appText.endIndex))
+        let initialization = String(appText[start.upperBound..<end.lowerBound])
+        let clients = try XCTUnwrap(initialization.range(of: "let supabaseClients = IChartSupabaseClientFactory.liveClients()"))
+        let telemetry = try XCTUnwrap(initialization.range(of: "IChartTelemetry.configure(IChartTelemetryService.live(clients: supabaseClients))"))
+        let library = try XCTUnwrap(initialization.range(of: "let libraryStore = ChartLibraryStore.live()"))
+        let pdfLibrary = try XCTUnwrap(initialization.range(of: "let pdfLibraryStore = IChartPDFLibraryStore.live()"))
+        let launched = try XCTUnwrap(initialization.range(of: "\"app.launched\""))
+
+        XCTAssertLessThan(clients.lowerBound, telemetry.lowerBound)
+        XCTAssertLessThan(telemetry.lowerBound, library.lowerBound,
+                          "The real library loader schedules chart.load/ink.reopen immediately; its destination must already exist")
+        XCTAssertLessThan(telemetry.lowerBound, pdfLibrary.lowerBound)
+        XCTAssertLessThan(library.lowerBound, launched.lowerBound, "Launch counts still come from the loaded library")
+    }
+
     func testNativeDependencyLockRetainsVerifiedPackageGraph() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -178,19 +198,19 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(confirmationSheetText.contains("Chord Repeat"))
         XCTAssertTrue(confirmationSheetText.contains("Use chord repeat symbol"))
         XCTAssertTrue(batchSheetText.contains("IChartTypedTextField("))
-        XCTAssertTrue(batchSheetText.contains("IChartTypedSheetScrollSupport()"))
+        XCTAssertTrue(batchSheetText.contains("IChartTypedSheetScrollSupport(monitorsKeyboardReachability: true)"))
         XCTAssertTrue(batchSheetText.contains(".presentationDetents([.large])"))
         XCTAssertFalse(batchSheetText.contains("title: \"Edit\""))
         XCTAssertTrue(batchSheetText.contains("onKeyboardRequested: { requestKeyboard(for: confirmation.id) }"))
         XCTAssertTrue(batchSheetText.contains("onNext: nextConfirmationID(after:"))
         XCTAssertTrue(batchSheetText.contains("else if focusedConfirmationID == confirmation.id"))
         XCTAssertFalse(batchSheetText.contains("TextField(\n                \"Chord\""))
-        XCTAssertTrue(correctionSheetText.contains("Text(\"Enter Chord\")"))
+        XCTAssertTrue(correctionSheetText.contains("Text(\"Edit Chord\")"))
         XCTAssertTrue(correctionSheetText.contains("IChartTypedTextField("))
         XCTAssertTrue(correctionSheetText.contains("correction.quickChoiceTexts"))
         XCTAssertTrue(correctionSheetText.contains("_candidateText = State(initialValue: correction.currentDisplayText)"))
-        XCTAssertTrue(correctionSheetText.contains("title: \"Confirm\""))
-        XCTAssertTrue(correctionSheetText.contains("ChordInkReviewButton(title: \"Cancel\")"))
+        XCTAssertTrue(correctionSheetText.contains("title: \"Save\""))
+        XCTAssertTrue(correctionSheetText.contains("ChordInkReviewButton(title: \"Cancel\", isRequiredForKeyboardTelemetry: true)"))
         XCTAssertTrue(correctionSheetText.contains(".interactiveDismissDisabled(true)"))
         XCTAssertFalse(correctionSheetText.contains("Text(\"Update Chord\")"))
         XCTAssertFalse(correctionSheetText.contains("Text(\"Update\")"))
@@ -256,9 +276,37 @@ final class ProjectConfigurationTests: XCTestCase {
         // The editor delegates the synchronous live-drawing transaction to
         // the canvas, rather than authorizing erasure from cached chart ink.
         XCTAssertTrue(editorText.contains("chordDraftRenderCoordinator.render(chart: chart, state: committedState)"))
-        XCTAssertTrue(hostText.contains("currentDrawing: pageInkCanvasView.drawing"))
-        XCTAssertTrue(hostText.contains("guard outcome.canConsumeSource else { return outcome }"))
-        XCTAssertTrue(coordinatorText.contains("preparedChart.commitChordInkDraftBatch(state)"))
+        let atomicRenderText = try XCTUnwrap(
+            hostText.components(separatedBy: "func renderChordDraftAtomically(").last?
+                .components(separatedBy: "func rewriteChordDraftAtomically(").first
+        )
+        XCTAssertTrue(atomicRenderText.contains("let sourceDrawing = pageInkCanvasView.drawing"))
+        XCTAssertTrue(atomicRenderText.contains("currentDrawing: sourceDrawing"))
+        let consumptionGuard = try XCTUnwrap(atomicRenderText.range(of: "guard outcome.canConsumeSource else {"))
+        let guardOpen = atomicRenderText.index(before: consumptionGuard.upperBound)
+        var braceDepth = 0
+        var guardClose: String.Index?
+        for index in atomicRenderText[guardOpen...].indices {
+            if atomicRenderText[index] == "{" { braceDepth += 1 }
+            if atomicRenderText[index] == "}" {
+                braceDepth -= 1
+                if braceDepth == 0 {
+                    guardClose = index
+                    break
+                }
+            }
+        }
+        let rejectionEnd = try XCTUnwrap(guardClose)
+        let rejectedBranch = String(atomicRenderText[guardOpen...rejectionEnd])
+        // Read-only diagnostics may observe a rejection. They must not allow
+        // that branch to consume the live canvas before returning the outcome.
+        XCTAssertTrue(rejectedBranch.contains("return outcome"))
+        XCTAssertFalse(rejectedBranch.contains("clearChordDraftInkCanvas()"))
+        XCTAssertFalse(rejectedBranch.contains("recordPendingPersistedInk("))
+        let canvasConsumption = try XCTUnwrap(atomicRenderText.range(of: "clearChordDraftInkCanvas()"))
+        XCTAssertLessThan(rejectionEnd, canvasConsumption.lowerBound)
+        XCTAssertTrue(coordinatorText.contains("preparedChart.commitChordInkDraftBatch(state,"))
+        XCTAssertTrue(coordinatorText.contains("automaticContinuationSourceLayout: automaticContinuationSourceLayout"))
         XCTAssertTrue(draftText.contains("barlineSpacingMode: ChordDraftBarlineSpacingMode = .drawn"))
         XCTAssertTrue(draftText.contains("ChordInkDraftSourceCoveragePolicy.hasCompleteCoverage(chart: self, state: state)"))
         XCTAssertTrue(hostText.contains("clearsDirtyAuthoringRole: flow != .draftPreview"))
@@ -1175,8 +1223,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("Add A Cue And Review"))
         XCTAssertTrue(libraryText.contains("Export When Ready"))
         XCTAssertTrue(libraryText.contains("Quick Start prepares four measures"))
-        XCTAssertTrue(libraryText.contains("Tap Write & Render, write C, F, G, C, check the previews, and tap Render Chords or Review & Render."))
-        XCTAssertTrue(libraryText.contains("If Confirm Chords opens, correct the text or choose a suggestion, then tap Render All."))
+        XCTAssertTrue(libraryText.contains("Tap Write & Render and write C, F, G, C with space between chords. Chords render automatically after a pause."))
+        XCTAssertTrue(libraryText.contains("For previews and a Render button, turn on Manual Render with Preview in app Settings."))
         XCTAssertTrue(libraryText.contains("Need a specific command? How To keeps the complete tool reference."))
         XCTAssertFalse(libraryText.contains("checkmark.shield"))
         XCTAssertTrue(libraryText.contains("\"How To\""))
@@ -1190,13 +1238,13 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("You can switch directly between Write & Render, Free Ink, Measures, and Tools without returning to Select first."))
         XCTAssertTrue(libraryText.contains("Use Write & Render to turn handwritten chords, barlines, and repeat signs into chart notation."))
         XCTAssertTrue(libraryText.contains("Write in the highlighted Corridor Lane above the staff."))
-        XCTAssertTrue(libraryText.contains("The small text under your writing is the preview."))
+        XCTAssertTrue(libraryText.contains("Turn on Manual Render with Preview in app Settings to check the small preview text"))
         XCTAssertTrue(libraryText.contains("Draw a barline in the same lane when you want it placed with the chords."))
         XCTAssertTrue(libraryText.contains("Draw repeat bars with two dots on the right to start a repeat"))
         XCTAssertTrue(libraryText.contains("If an end repeat has no matching start, Render asks whether to repeat from the beginning."))
         XCTAssertTrue(libraryText.contains("When review opens, correct the chord text or choose a suggestion before rendering."))
         XCTAssertTrue(libraryText.contains("Erasing just that writing and rewriting it is another option."))
-        XCTAssertTrue(libraryText.contains("Use Render Chords or Review & Render to finish your chord, barline, and repeat-sign writing."))
+        XCTAssertTrue(libraryText.contains("Turn on Manual Render with Preview in app Settings when you want to review your writing before it becomes notation."))
         XCTAssertTrue(libraryText.contains("If review is needed, the button says Review & Render and opens Confirm Chords."))
         XCTAssertTrue(libraryText.contains("Add chord means a chord needs an entry. You can still open review; type the chord or choose a suggestion."))
         XCTAssertTrue(libraryText.contains("Each entry needs a supported chord before the final render is available."))
@@ -1338,8 +1386,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(editorText.contains("case export"))
         XCTAssertTrue(editorText.contains("Quick Start Complete"))
         XCTAssertTrue(editorText.contains("Tap Write & Render and write C, F, G, C in the first four measures."))
-        XCTAssertTrue(editorText.contains("Check the previews, then tap Render Chords or Review & Render."))
-        XCTAssertTrue(editorText.contains("If Confirm Chords opens, correct the text or choose a suggestion, then tap Render All."))
+        XCTAssertTrue(editorText.contains("Double-tap a rendered chord to edit it. Use Fix Writing if handwriting needs attention."))
+        XCTAssertTrue(editorText.contains("If Manual Render with Preview is on in app Settings, check the previews and tap Render Chords or Review & Render."))
         XCTAssertTrue(editorText.contains("Tap Measures. Select a measure, then use Add, Layout, or Delete."))
         XCTAssertTrue(editorText.contains("Open Tools > Text, choose a measure, then Above or Below."))
         XCTAssertTrue(editorText.contains("Tap Done. In Select, tap anything you want to move, edit, resize, or delete."))
@@ -1432,7 +1480,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(editorText.contains("configuration.isPressed"))
         XCTAssertTrue(editorText.contains("selectedColor: EditorToolAccent.persistentInk"))
         XCTAssertTrue(editorText.contains("recognizesChordInk: true"))
-        XCTAssertTrue(editorText.contains("\"chordToolInputMode\": \"draftPreview\""))
+        XCTAssertTrue(editorText.contains("\"chordToolInputMode\": manualRenderWithPreview ? \"draftPreview\" : \"automatic\""))
         XCTAssertTrue(editorText.contains("isSelected: chart.headerInputMode == .typed"))
         XCTAssertTrue(editorText.contains("isSelected: chart.headerInputMode == .handwritten"))
         XCTAssertFalse(headerSheetText.contains("private var headerModePicker"))
@@ -1707,8 +1755,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(projectText.contains("https://github.com/supabase/supabase-swift.git"))
         XCTAssertTrue(projectText.contains("product: Supabase"))
         XCTAssertTrue(projectText.contains("path: iChart/App/Info.plist"))
-        XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.2.3\""))
-        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"90\""))
+        XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.2.4\""))
+        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"103\""))
         // The requested build identity is pinned above. Also validate the
         // strictly positive numeric format required by the bundle contract.
         XCTAssertNotNil(projectText.range(

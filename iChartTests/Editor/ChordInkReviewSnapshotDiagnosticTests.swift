@@ -47,7 +47,7 @@ final class ChordInkReviewSnapshotDiagnosticTests: XCTestCase {
             XCTAssertTrue(guardSource.contains("hasBatchReview: pendingChordInkBatchConfirmation != nil"))
             XCTAssertTrue(guardSource.contains("hasCorrection: pendingChordCorrection != nil"))
         }
-        let sheetStart = try XCTUnwrap(editor.range(of: ".sheet(item: $pendingChordInkBatchConfirmation)"))
+        let sheetStart = try XCTUnwrap(editor.range(of: ".sheet(item: $pendingChordInkBatchConfirmation"))
         let sheetEnd = try XCTUnwrap(editor.range(of: ".sheet(item: $pendingChordCorrection)",
                                                  range: sheetStart.upperBound..<editor.endIndex))
         XCTAssertTrue(editor[sheetStart.lowerBound..<sheetEnd.lowerBound].contains(".id(batch.id)"),

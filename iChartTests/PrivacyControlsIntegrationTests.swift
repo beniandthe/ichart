@@ -12,8 +12,22 @@ final class PrivacyControlsIntegrationTests: XCTestCase {
         XCTAssertEqual(IChartLegalLinks.termsURL.absoluteString, "https://useichart.com/terms.html")
         XCTAssertTrue(IChartLegalLinks.subscriptionNotice.contains("renew automatically"))
         XCTAssertTrue(IChartLegalLinks.diagnosticsNotice.contains("account identifier"))
+        XCTAssertTrue(IChartLegalLinks.diagnosticsNotice.contains("same chart"))
+        XCTAssertTrue(IChartLegalLinks.diagnosticsNotice.contains("ink counts and data sizes"))
+        XCTAssertTrue(IChartLegalLinks.diagnosticsNotice.contains("No chart text, chords, handwriting, PDFs, screenshots, or source-content hashes are sent."))
         XCTAssertTrue(IChartLegalLinks.diagnosticsWithdrawalNotice.contains("already sent may finish"))
         XCTAssertTrue(IChartLegalLinks.diagnosticsWithdrawalNotice.contains("does not delete reports already received"))
+    }
+
+    func testPublicPolicySeparatesTechnicalChartChecksFromRawContentAndResearch() throws {
+        let policy = try String(contentsOf: root.appendingPathComponent("public-site/useichart/privacy.html"))
+        XCTAssertTrue(policy.contains("opaque chart reference"))
+        XCTAssertTrue(policy.contains("fingerprints and original chart identifiers are not uploaded"))
+        XCTAssertTrue(policy.contains("local diagnostic checkpoints"))
+        XCTAssertTrue(policy.contains("do not grant permission to use saved handwriting for recognition research or model training"))
+        XCTAssertTrue(policy.contains("technical task history can remain after its event evidence is removed"))
+        XCTAssertTrue(policy.contains("Earlier app versions did not include this switch"))
+        XCTAssertTrue(policy.contains("Verified iChart accounts currently receive Pro access at no charge"))
     }
 
     func testConsentIsAccessibleAndBothPurchaseSurfacesHaveLegalLinks() throws {

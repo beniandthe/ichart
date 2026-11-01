@@ -178,6 +178,28 @@ struct RecognitionStudyVisionChordRecognizer: Sendable {
     }
 
     func recognize(strokes: [InkStroke]) throws -> Result {
+        // The study's existing entry point has no cancellation scope and keeps
+        // its original grammar, raster recipe and consensus decision.
+        try recognizeCurrent(strokes: strokes, isCurrent: nil)
+            ?? Result(decision: .noRead(.noVisionText), candidates: [])
+    }
+
+    /// A source-bound caller can stop obsolete work between raster passes and
+    /// cancel an executing Vision request from its progress callback. Vision
+    /// may invoke that callback on another queue, so the predicate must be
+    /// thread-safe and must not read a view or other main-thread-only state.
+    func recognize(
+        strokes: [InkStroke],
+        isCurrent: @escaping () -> Bool
+    ) throws -> Result? {
+        try recognizeCurrent(strokes: strokes, isCurrent: isCurrent)
+    }
+
+    private func recognizeCurrent(
+        strokes: [InkStroke],
+        isCurrent: (() -> Bool)?
+    ) throws -> Result? {
+        guard isCurrent?() != false else { return nil }
         try Self.validate(configuration)
         let pointCount = try Self.validatedPointCount(
             strokes,
@@ -191,19 +213,24 @@ struct RecognitionStudyVisionChordRecognizer: Sendable {
         evidenceByPass.reserveCapacity(configuration.strokeWidths.count)
 
         for (passIndex, strokeWidth) in configuration.strokeWidths.enumerated() {
+            guard isCurrent?() != false else { return nil }
             let raster = try Self.rasterize(
                 strokes: strokes,
                 strokeWidth: strokeWidth,
                 configuration: configuration
             )
+            guard isCurrent?() != false else { return nil }
             evidenceByPass.append(
                 try visionCandidates(
                     image: raster.image,
-                    passIndex: passIndex
+                    passIndex: passIndex,
+                    isCurrent: isCurrent
                 )
             )
+            guard isCurrent?() != false else { return nil }
         }
 
+        guard isCurrent?() != false else { return nil }
         return Self.decide(
             evidenceByPass: evidenceByPass,
             configuration: configuration
@@ -452,20 +479,35 @@ struct RecognitionStudyVisionChordRecognizer: Sendable {
 
     private func visionCandidates(
         image: CGImage,
-        passIndex: Int
+        passIndex: Int,
+        isCurrent: (() -> Bool)? = nil
     ) throws -> [Candidate] {
+        guard isCurrent?() != false else { return [] }
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = false
         request.recognitionLanguages = ["en-US"]
         request.minimumTextHeight = 0.02
+        if let isCurrent {
+            request.progressHandler = { request, _, _ in
+                if !isCurrent() { request.cancel() }
+            }
+        }
 
         let handler = VNImageRequestHandler(
             cgImage: image,
             orientation: .up,
             options: [:]
         )
-        try handler.perform([request])
+        guard isCurrent?() != false else { request.cancel(); return [] }
+        do {
+            try handler.perform([request])
+        } catch {
+            // A cancelled source is not a new technical recognition failure.
+            guard isCurrent?() != false else { return [] }
+            throw error
+        }
+        guard isCurrent?() != false else { return [] }
 
         let observations = (request.results ?? []).sorted { lhs, rhs in
             if abs(lhs.boundingBox.minX - rhs.boundingBox.minX) > 0.001 {
@@ -480,6 +522,7 @@ struct RecognitionStudyVisionChordRecognizer: Sendable {
 
         var beams = [Beam(text: "", confidences: [])]
         for observation in observations {
+            guard isCurrent?() != false else { return [] }
             let componentCandidates = observation.topCandidates(
                 configuration.maximumCandidatesPerObservation
             )

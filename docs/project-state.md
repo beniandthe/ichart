@@ -1,9 +1,16 @@
 # Project state and next Apple build
 
-Updated: 2026-10-15. This is the current release handoff. Historical reports are
-evidence for their recorded revisions, not an automatically expanding backlog.
+Updated: 2026-10-31. Use `main` as the integration baseline for regular iChart
+work. The combined 1.2.4 (103) scope and storage boundaries are recorded in the
+[regular app consolidation](release-consolidation-2026-10-31.md). Graph/MyScript,
+training and model experiments remain parked. Keep private device evidence and
+unapproved listing drafts local. Delivery checks and physical acceptance are
+separate from source consolidation.
 
-## Current repair checkpoint: public free Pro and atomic Forum publication
+The checkpoints below are historical evidence for their recorded revisions.
+They are not current version, deployment or device-status claims.
+
+## Historical checkpoint: public free Pro and atomic Forum publication
 
 The approved public-facing title is **Pro — Free**. The app now says Pro is
 currently free with an iChart account, allows leaving/rejoining in Settings, and

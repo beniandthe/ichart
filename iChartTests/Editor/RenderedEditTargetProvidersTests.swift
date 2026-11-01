@@ -527,7 +527,7 @@ final class RenderedEditTargetProvidersTests: XCTestCase {
         )
     }
 
-    func testStructuralProvidersOpenExistingEditorsWithoutMutationTargets() throws {
+    func testStructuralProvidersOpenEditorsOrSelectAnEndingBeforeEditing() throws {
         var fixture = pageFixture()
         let repeatID = UUID()
         let endingID = UUID()
@@ -579,7 +579,7 @@ final class RenderedEditTargetProvidersTests: XCTestCase {
             )
         )
         XCTAssertEqual(endingTarget.objectID, .endingSpan(endingID))
-        XCTAssertEqual(endingTarget.action, .openInspector)
+        XCTAssertEqual(endingTarget.action, .select)
         XCTAssertEqual(endingTarget.mutationRisk, .nonMutating)
         XCTAssertNil(
             router.dragTarget(

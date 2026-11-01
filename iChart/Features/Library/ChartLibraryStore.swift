@@ -33,6 +33,7 @@ final class ChartLibraryStore: ObservableObject {
 
     private let repository: ChartRepository?
     private let chordDiagnosticsResetter: (() -> Void)?
+    private let persistenceDiagnostics: ChartPersistenceContractDiagnostics?
     private var persistenceEnabled = false
     private var cloudSyncNotificationsEnabled = true
     private let asyncPersistenceQueue = DispatchQueue(label: "com.ichart.chart-library-store.persistence", qos: .utility)
@@ -52,7 +53,8 @@ final class ChartLibraryStore: ObservableObject {
         cloudMetadata: ChartCloudMetadata = ChartCloudMetadata(),
         projects: [ChartProject] = [],
         repository: ChartRepository? = nil,
-        chordDiagnosticsResetter: (() -> Void)? = nil
+        chordDiagnosticsResetter: (() -> Void)? = nil,
+        persistenceDiagnostics: ChartPersistenceContractDiagnostics? = nil
     ) {
         self.charts = charts
         self.entitlements = entitlements
@@ -62,6 +64,12 @@ final class ChartLibraryStore: ObservableObject {
         self.projects = Self.normalizedProjects(projects, charts: charts)
         self.repository = repository
         self.chordDiagnosticsResetter = chordDiagnosticsResetter
+        #if canImport(UIKit)
+        self.persistenceDiagnostics = persistenceDiagnostics
+            ?? ChartExperienceContractTelemetry.makeDiagnostics(repository: repository)
+        #else
+        self.persistenceDiagnostics = persistenceDiagnostics
+        #endif
         self.persistenceStatus = repository == nil ? .notTracking : .ready
         persistenceEnabled = true
     }
@@ -503,7 +511,11 @@ final class ChartLibraryStore: ObservableObject {
         }
     }
 
-    static func live(repository: ChartRepository = FileChartRepository.live()) -> ChartLibraryStore {
+    static func live(
+        repository: ChartRepository = FileChartRepository.live(),
+        persistenceDiagnostics: ChartPersistenceContractDiagnostics? = nil
+    ) -> ChartLibraryStore {
+        let loadStartedAt = ProcessInfo.processInfo.systemUptime
         let loadedSnapshot: ChartLibrarySnapshot?
         let loadError: Error?
         do {
@@ -513,6 +525,7 @@ final class ChartLibraryStore: ObservableObject {
             loadedSnapshot = nil
             loadError = error
         }
+        let loadDurationMilliseconds = (ProcessInfo.processInfo.systemUptime - loadStartedAt) * 1_000
 
         let snapshot: ChartLibrarySnapshot
         #if DEBUG && targetEnvironment(simulator)
@@ -564,12 +577,19 @@ final class ChartLibraryStore: ObservableObject {
             cloudMetadata: snapshot.cloudMetadata,
             projects: snapshot.projects,
             repository: repository,
-            chordDiagnosticsResetter: chordDiagnosticsResetter
+            chordDiagnosticsResetter: chordDiagnosticsResetter,
+            persistenceDiagnostics: persistenceDiagnostics
         )
         if let loadError {
             store.persistenceStatus = .failed(message: loadError.localizedDescription)
         } else if loadedSnapshot != nil {
             store.persistenceStatus = .saved(at: .now)
+        }
+        if !showsEditorUIFixture, let diagnostics = store.persistenceDiagnostics {
+            // Reopen hashing and checkpoint reads never run on the UI thread.
+            store.asyncPersistenceQueue.async {
+                diagnostics.didLoad(loadedSnapshot, error: loadError, durationMilliseconds: loadDurationMilliseconds)
+            }
         }
         return store
     }
@@ -616,7 +636,9 @@ final class ChartLibraryStore: ObservableObject {
 
         pendingAsyncPersistence = nil
         asyncPersistenceInFlight = true
+        let diagnostics = persistenceDiagnostics
         asyncPersistenceQueue.async { [weak self, repository] in
+            let saveStartedAt = ProcessInfo.processInfo.systemUptime
             let result: Result<Void, Error>
             do {
                 try repository.saveSnapshot(pendingPersistence.snapshot)
@@ -624,6 +646,7 @@ final class ChartLibraryStore: ObservableObject {
             } catch {
                 result = .failure(error)
             }
+            let saveDurationMilliseconds = (ProcessInfo.processInfo.systemUptime - saveStartedAt) * 1_000
 
             DispatchQueue.main.async { [weak self] in
                 guard let self else {
@@ -647,6 +670,15 @@ final class ChartLibraryStore: ObservableObject {
 
                 self.scheduleAsyncPersistenceIfNeeded(repository: repository)
             }
+            let saveError: Error?
+            switch result {
+            case .success: saveError = nil
+            case let .failure(error): saveError = error
+            }
+            diagnostics?.didSave(
+                pendingPersistence.snapshot, repository: repository, error: saveError,
+                durationMilliseconds: saveDurationMilliseconds
+            )
         }
     }
 
@@ -655,15 +687,24 @@ final class ChartLibraryStore: ObservableObject {
         repository: ChartRepository,
         notifyCloudSync: Bool
     ) -> Bool {
+        let saveStartedAt = ProcessInfo.processInfo.systemUptime
         do {
             try repository.saveSnapshot(snapshot)
             persistenceStatus = .saved(at: .now)
             if notifyCloudSync {
                 onSnapshotSaved?(snapshot)
             }
+            persistenceDiagnostics?.didSave(
+                snapshot, repository: repository, error: nil,
+                durationMilliseconds: (ProcessInfo.processInfo.systemUptime - saveStartedAt) * 1_000
+            )
             return true
         } catch {
             persistenceStatus = .failed(message: error.localizedDescription)
+            persistenceDiagnostics?.didSave(
+                snapshot, repository: repository, error: error,
+                durationMilliseconds: (ProcessInfo.processInfo.systemUptime - saveStartedAt) * 1_000
+            )
             return false
         }
     }

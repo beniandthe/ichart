@@ -36,7 +36,7 @@ enum ChordInkDraftSourceCoveragePolicy {
                   !fragments.isEmpty, fragments.allSatisfy(claim) else { return false }
         }
 
-        if !state.draftBarlines.isEmpty {
+        if !state.draftBarlines.isEmpty || !state.draftEndings.isEmpty {
             // Use the detector's normal visibility/remapping contract only to
             // verify barlines. Its claims still debit the full source multiset.
             guard let pageSize = state.layoutPageSize,
@@ -48,14 +48,43 @@ enum ChordInkDraftSourceCoveragePolicy {
             let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
             let context = ChordInkDraftVisibleStrokePolicy.repeatAwareVisibleDrawingContext(
                 from: source, chordFrame: chordFrame, pageLayout: layout)
-            let fresh = ChordDraftBarlineRecognizer.recognizeIncludingRepeats(
-                strokes: PencilKitInkAdapter.inkStrokes(from: context.drawing),
+            let strokes = PencilKitInkAdapter.inkStrokes(from: context.drawing)
+            let freshEndings = ChordDraftEndingRecognizer.recognize(
+                strokes: strokes, chordFrame: chordFrame, pageLayout: layout)
+            let safeEndings = context.endingRecognitionWithUnambiguousSourceStrokes(freshEndings)
+            let remappedEndings = context.remappedEndingRecognition(safeEndings)
+            let endingsByIdentity = Dictionary(grouping: remappedEndings.endings, by: \.identitySignature)
+            let fresh = ChordDraftEndingRecognizer.recognizeBarlinesExcludingEndings(
+                strokes: strokes,
                 chordFrame: chordFrame, pageLayout: layout)
             let safe = context.barlineRecognitionWithUnambiguousSourceStrokes(fresh)
             let remapped = context.remappedBarlineRecognition(safe)
             let freshByIdentity = Dictionary(grouping: remapped.barlines, by: \.identitySignature)
             let visibleBySource = Dictionary(grouping: context.originalStrokeIndices.indices,
                 by: { context.originalStrokeIndices[$0] })
+            for ending in state.draftEndings {
+                guard let matches = endingsByIdentity[ending.identitySignature], matches.count == 1,
+                      let current = matches.first,
+                      current.start == ending.start, current.end == ending.end,
+                      current.layoutPageSize == ending.layoutPageSize else { return false }
+                var currentFragments: [PKStroke] = []
+                for index in ending.sourceStrokeIndices.sorted() {
+                    guard source.strokes.indices.contains(index),
+                          let visible = visibleBySource[index], visible.count == 1 else { return false }
+                    currentFragments.append(context.drawing.strokes[visible[0]])
+                }
+                if ending.isReviewed {
+                    guard let receipt = ending.reviewedSourceInkData,
+                          let reviewed = try? PKDrawing(data: receipt),
+                          hasIdenticalVisibleInk(expected: reviewed,
+                            current: PKDrawing(strokes: currentFragments)) else { return false }
+                }
+                for index in ending.sourceStrokeIndices {
+                    guard source.strokes.indices.contains(index),
+                          let visible = visibleBySource[index], visible.count == 1,
+                          claim(context.drawing.strokes[visible[0]]) else { return false }
+                }
+            }
             for barline in state.draftBarlines {
                 guard let sourceIndex = barline.sourceStrokeIndex,
                       source.strokes.indices.contains(sourceIndex),

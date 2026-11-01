@@ -49,14 +49,71 @@ if name == "xcodebuild":
         sys.exit(128 + received)
     signal.signal(signal.SIGINT, cancelled)
     signal.signal(signal.SIGTERM, cancelled)
+    assert state["keyboard_preference"] is False, "Tests require the real software keyboard"
+    record("command_keyboard", [state["keyboard_preference"]])
     if "command_preference" in state:
         state["preference"] = state["command_preference"]
+        save()
+    if "command_keyboard_preference" in state:
+        state["keyboard_preference"] = state["command_keyboard_preference"]
         save()
     Path(os.environ["ICHART_SIMULATOR_TEST_STARTED"]).write_text(str(os.getpid()))
     if state.get("command_wait"):
         while True:
             time.sleep(0.05)
     sys.exit(state.get("command_exit", 0))
+
+if name == "defaults":
+    operation = args[0]
+    if operation == "domains":
+        fail("keyboard_domains_failure", 43)
+        if state.get("keyboard_restoration_called"):
+            fail("keyboard_restore_read_failure", 44)
+        print("com.example.HostUnrelated" + (", com.apple.iphonesimulator" if state.get("keyboard_domain_present", True) else ""))
+        sys.exit(0)
+    assert args[1] == "com.apple.iphonesimulator", args
+    if operation == "export":
+        assert args[2] == "-", args
+        fail("keyboard_export_failure", 45)
+        if state.get("keyboard_malformed_export"):
+            print("not a plist")
+        else:
+            preferences = {"UnrelatedHostPreference": "keep"}
+            if state["keyboard_preference"] is not None:
+                preferences["ConnectHardwareKeyboard"] = state["keyboard_preference"]
+            sys.stdout.buffer.write(plistlib.dumps(preferences))
+        sys.exit(0)
+    assert args[2] == "ConnectHardwareKeyboard", args
+    if operation == "write":
+        disabling = args[3:] == ["-bool", "NO"] and not state.get("keyboard_disabled")
+        if disabling:
+            state["keyboard_disabled"] = True
+            state["keyboard_domain_present"] = True
+            if not state.get("keyboard_disable_verification_failure"):
+                state["keyboard_preference"] = False
+            save()
+            fail("keyboard_disable_failure", 46)
+        else:
+            state["keyboard_restoration_called"] = True
+            save()
+            fail("keyboard_restore_failure", 47)
+            if not state.get("keyboard_restore_verification_failure"):
+                if args[3] == "-bool":
+                    assert args[4] in ("YES", "NO"), args
+                    state["keyboard_preference"] = args[4] == "YES"
+                else:
+                    assert args[3] == "-int", args
+                    state["keyboard_preference"] = int(args[4])
+            save()
+        sys.exit(0)
+    if operation == "delete":
+        state["keyboard_restoration_called"] = True
+        save()
+        fail("keyboard_restore_failure", 47)
+        state["keyboard_preference"] = None
+        save()
+        sys.exit(0)
+    raise AssertionError(args)
 
 assert name == "xcrun" and args[0] == "simctl", args
 if args[1:5] == ["list", "devices", "available", "-j"]:
@@ -137,7 +194,7 @@ class SimulatorAccessibilityWrapperTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix="ichart-ax-wrapper-")
         self.addCleanup(self.temporary.cleanup)
         self.directory = Path(self.temporary.name)
-        for name in ("xcrun", "xcodebuild"):
+        for name in ("xcrun", "xcodebuild", "defaults"):
             executable = self.directory / name
             executable.write_text(MOCK_CLI)
             executable.chmod(0o755)
@@ -155,7 +212,8 @@ class SimulatorAccessibilityWrapperTests(unittest.TestCase):
                 "-destination", command_destination, "-parallel-testing-enabled", "NO"]
 
     def configure(self, preference=False, **flags):
-        state = dict(preference=preference, domain_present=True)
+        state = dict(preference=preference, domain_present=True,
+                     keyboard_preference=True, keyboard_domain_present=True)
         state.update(flags)
         self.state_path.write_text(json.dumps(state))
 
@@ -173,6 +231,11 @@ class SimulatorAccessibilityWrapperTests(unittest.TestCase):
         self.assertIs(type(value), type(expected))
         self.assertEqual(value, expected)
 
+    def assert_keyboard_preference(self, expected):
+        value = json.loads(self.state_path.read_text())["keyboard_preference"]
+        self.assertIs(type(value), type(expected))
+        self.assertEqual(value, expected)
+
     def test_restores_prior_boolean_integer_and_absent_states(self):
         for value in (False, True, 0, 1, None):
             with self.subTest(prior=value, value_type=type(value)):
@@ -181,6 +244,64 @@ class SimulatorAccessibilityWrapperTests(unittest.TestCase):
                 self.assertIn("restored and verified", result.stderr)
         self.assertTrue(all(call[1][2] == SIMULATOR_ID for call in self.calls()
                             if call[0] == "xcrun" and call[1][1] != "list"))
+
+    def test_real_software_keyboard_is_configured_and_prior_host_type_is_restored(self):
+        for value in (False, True, 0, 1, None):
+            with self.subTest(prior=value, value_type=type(value)):
+                self.log_path.unlink(missing_ok=True)
+                result = self.run_wrapper(keyboard_preference=value)
+                self.assert_keyboard_preference(value)
+                self.assertIn(["command_keyboard", [False]], self.calls())
+                self.assertIn("restored and verified host ConnectHardwareKeyboard", result.stderr)
+                self.assertTrue(all(call[1][1] == "com.apple.iphonesimulator"
+                                    for call in self.calls() if call[0] == "defaults" and call[1][0] != "domains"))
+
+    def test_absent_host_domain_restores_only_the_keyboard_key_to_absent(self):
+        self.run_wrapper(keyboard_preference=None, keyboard_domain_present=False)
+        self.assert_keyboard_preference(None)
+
+    def test_host_keyboard_snapshot_failure_prevents_all_preference_mutations(self):
+        for flag, status in (("keyboard_domains_failure", 43), ("keyboard_export_failure", 45),
+                             ("keyboard_malformed_export", 65)):
+            with self.subTest(flag=flag):
+                self.log_path.unlink(missing_ok=True)
+                self.run_wrapper(expected_status=status, **{flag: True})
+                self.assert_preference(False)
+                self.assert_keyboard_preference(True)
+                self.assertFalse(any(call[0] == "xcodebuild" or "write" in call[1] for call in self.calls()))
+
+    def test_unsupported_host_keyboard_type_is_rejected_before_mutation(self):
+        self.run_wrapper(expected_status=65, keyboard_preference="unexpected")
+        self.assert_preference(False)
+        self.assert_keyboard_preference("unexpected")
+        self.assertFalse(any(call[0] == "xcodebuild" or "write" in call[1] for call in self.calls()))
+
+    def test_partial_host_keyboard_disable_failure_restores_both_preferences(self):
+        self.run_wrapper(expected_status=46, keyboard_disable_failure=True)
+        self.assert_keyboard_preference(True)
+        self.assert_preference(False)
+        self.assertFalse(any(call[0] == "xcodebuild" for call in self.calls()))
+
+    def test_host_keyboard_disable_verification_failure_stops_before_tests(self):
+        self.run_wrapper(expected_status=65, keyboard_disable_verification_failure=True)
+        self.assert_keyboard_preference(True)
+        self.assert_preference(False)
+        self.assertFalse(any(call[0] == "xcodebuild" for call in self.calls()))
+
+    def test_host_keyboard_restoration_failure_still_restores_accessibility(self):
+        for flag in ("keyboard_restore_failure", "keyboard_restore_verification_failure", "keyboard_restore_read_failure"):
+            with self.subTest(flag=flag):
+                result = self.run_wrapper(expected_status=70, **{flag: True})
+                self.assertIn("ERROR: host keyboard restoration could not be verified", result.stderr)
+                self.assert_preference(False)
+
+    def test_host_keyboard_restoration_failure_overrides_failed_test_exit(self):
+        self.run_wrapper(expected_status=70, command_exit=55, keyboard_restore_failure=True)
+        self.assert_preference(False)
+
+    def test_host_keyboard_is_restored_when_test_changes_it(self):
+        self.run_wrapper(keyboard_preference=1, command_keyboard_preference=False)
+        self.assert_keyboard_preference(1)
 
     def test_absent_domain_is_restored_to_absent_key(self):
         self.run_wrapper(None, domain_present=False)
@@ -203,6 +324,7 @@ class SimulatorAccessibilityWrapperTests(unittest.TestCase):
     def test_preserves_failed_test_exit_and_restores_preference(self):
         self.run_wrapper(expected_status=55, command_exit=55)
         self.assert_preference(False)
+        self.assert_keyboard_preference(True)
 
     def test_preparation_failures_do_not_run_xcodebuild(self):
         for flag, status in (("list_failure", 1), ("boot_failure", 31), ("bootstatus_failure", 32),
@@ -291,12 +413,17 @@ fi' DEBUG
                     stdout, stderr = process.communicate(timeout=5)
                     self.assertEqual(process.returncode, 128 + received, stdout + stderr)
                     self.assert_preference(False)
+                    self.assert_keyboard_preference(True)
                     calls = self.calls()
                     child_signal_index = next(index for index, call in enumerate(calls) if call[0] == "test_signal")
                     restore_index = next(index for index, call in enumerate(calls)
                                          if call == ["xcrun", ["simctl", "spawn", SIMULATOR_ID, "defaults", "write",
                                                                 "com.apple.Accessibility", "ApplicationAccessibilityEnabled", "-bool", "NO"]])
                     self.assertLess(child_signal_index, restore_index)
+                    keyboard_restore_index = next(index for index, call in enumerate(calls)
+                                                  if call == ["defaults", ["write", "com.apple.iphonesimulator",
+                                                                           "ConnectHardwareKeyboard", "-bool", "YES"]])
+                    self.assertLess(child_signal_index, keyboard_restore_index)
                     with self.assertRaises(ProcessLookupError):
                         os.kill(int(self.started_path.read_text()), 0)
                 finally:

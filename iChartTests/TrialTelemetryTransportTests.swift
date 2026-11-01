@@ -296,6 +296,125 @@ final class TrialTelemetryTransportTests: XCTestCase {
         XCTAssertTrue(try queue.loadEvents().isEmpty)
     }
 
+    func testPartialIDAcknowledgmentQuarantinesRejectionAndRetriesOnlyUnknownIDs() async throws {
+        let queue = makeQueue()
+        let inputs = (0..<3).map { _ in event() }
+        for input in inputs { try queue.append(input) }
+        let partial = try JSONSerialization.data(withJSONObject: [
+            "accepted": true,
+            "stored_count": 1,
+            "rejected_count": 1,
+            "accepted_event_ids": [inputs[0].clientEventID.uuidString],
+            "rejected_event_ids": [inputs[1].clientEventID.uuidString]
+        ])
+        TrialTelemetryHTTPStub.configure([.reply(202, partial), .offline, .status(202)])
+        let telemetry = service(queue)
+        await telemetry.flush()
+        XCTAssertEqual(try queue.loadEvents().map(\.clientEventID), [inputs[2].clientEventID])
+        XCTAssertEqual(try queue.loadQuarantinedEvents().map(\.clientEventID), [inputs[1].clientEventID])
+        XCTAssertEqual(try queue.healthSnapshot().serverRejectedEventCount, 1)
+        await telemetry.flush()
+        XCTAssertEqual(try sentIDs(), inputs.map(\.clientEventID) + [inputs[2].clientEventID, inputs[2].clientEventID])
+        XCTAssertTrue(try queue.loadEvents().isEmpty)
+        XCTAssertEqual(try queue.healthSnapshot().serverRejectedEventCount, 1)
+    }
+
+    func testLegacyPartialCountsDoNotLoseAnyUnidentifiedEvent() async throws {
+        let queue = makeQueue()
+        let inputs = (0..<2).map { _ in event() }
+        for input in inputs { try queue.append(input) }
+        TrialTelemetryHTTPStub.configure([.reply(202, Data("{\"accepted\":true,\"stored_count\":1,\"rejected_count\":1}".utf8))])
+        await service(queue).flush()
+        XCTAssertEqual(try queue.loadEvents().map(\.clientEventID), inputs.map(\.clientEventID))
+        XCTAssertEqual(try queue.healthSnapshot().unacknowledgedBatchCount, 1)
+    }
+
+    func testAcknowledgmentWithForeignIDsCannotDequeueTheBatch() async throws {
+        let queue = makeQueue()
+        let input = event()
+        try queue.append(input)
+        let acknowledgment = try JSONSerialization.data(withJSONObject: [
+            "accepted": true, "stored_count": 1, "rejected_count": 0,
+            "accepted_event_ids": [UUID().uuidString], "rejected_event_ids": []
+        ])
+        TrialTelemetryHTTPStub.configure([.reply(202, acknowledgment)])
+        await service(queue).flush()
+        XCTAssertEqual(try queue.loadEvents().map(\.clientEventID), [input.clientEventID])
+        XCTAssertEqual(try queue.healthSnapshot().unacknowledgedBatchCount, 1)
+    }
+
+    func testRecordedChartReferenceIsStableWithinInstallationAndRotatesOnConsentWithdrawal() async throws {
+        let queue = makeQueue()
+        let consent = makeConsentStore(granted: true)
+        let telemetry = service(queue, consentStore: consent, installationID: nil)
+        let chartID = UUID()
+        TrialTelemetryHTTPStub.configure([.offline, .offline])
+        await telemetry.record("editor.opened", properties: ["build_source": .string("spoofed"), "chart_reference": .string("spoofed")], chartID: chartID)
+        await telemetry.record("editor.closed", chartID: chartID)
+        let firstEvents = try queue.loadEvents()
+        XCTAssertEqual(firstEvents.count, 2)
+        let firstReference = try XCTUnwrap(firstEvents.first?.properties["chart_reference"])
+        XCTAssertEqual(firstEvents.last?.properties["chart_reference"], firstReference)
+        XCTAssertEqual(firstEvents.first?.properties["build_source"], .string(IChartTelemetryBuildSource.value))
+        if case .string(let reference) = firstReference {
+            XCTAssertEqual(reference.count, 64)
+            XCTAssertNotEqual(reference, chartID.uuidString.lowercased())
+        } else {
+            XCTFail("Expected opaque chart reference")
+        }
+        consent.setConsentGranted(false)
+        await telemetry.consentDidChange()
+        XCTAssertTrue(try queue.loadEvents().isEmpty)
+        consent.setConsentGranted(true)
+        await telemetry.record("editor.opened", chartID: chartID)
+        let replacement = try XCTUnwrap(try queue.loadEvents().first)
+        XCTAssertNotEqual(replacement.properties["chart_reference"], firstReference)
+        XCTAssertNotEqual(replacement.installationID, firstEvents.first?.installationID)
+    }
+
+    func testInvalidContractIsCountedLocallyWithoutUploadingUnboundedReason() async throws {
+        let queue = makeQueue()
+        TrialTelemetryHTTPStub.configure([.status(202)])
+        await service(queue).record("feature.contract_checked", properties: [
+            "contract_id": .string("chart.save"), "contract_version": .int(1),
+            "operation_id": .string(UUID().uuidString), "outcome": .string("violated"),
+            "reason": .string("Do not upload chart content through this field")
+        ])
+        XCTAssertTrue(try queue.loadEvents().isEmpty)
+        XCTAssertEqual(try queue.healthSnapshot().locallyRejectedEventCount, 1)
+        XCTAssertTrue(TrialTelemetryHTTPStub.requests.isEmpty)
+    }
+
+    func testLaunchReportsPriorCollectionGapsAndWithdrawalClearsTheirTotals() async throws {
+        let queue = IChartTelemetryQueueStore(url: FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .appendingPathComponent("queue.json"), maxEventCount: 2)
+        let consent = makeConsentStore(granted: true)
+        let telemetry = service(queue, consentStore: consent)
+        let inputs = (0..<3).map { _ in event() }
+        for input in inputs { try queue.append(input) }
+        try queue.acknowledge(acceptedIDs: [], rejectedIDs: [inputs[1].clientEventID])
+        try queue.recordLocalRejection()
+        try queue.recordUnacknowledgedBatch()
+        TrialTelemetryHTTPStub.configure([.offline, .offline])
+        await telemetry.record("app.launched")
+        let launch = try XCTUnwrap(try queue.loadEvents().last)
+        XCTAssertEqual(launch.properties["queue_overflow_count"], .int(1))
+        XCTAssertEqual(launch.properties["queue_rejected_count"], .int(2))
+        XCTAssertEqual(launch.properties["queue_quarantine_overflow_count"], .int(0))
+        XCTAssertEqual(launch.properties["queue_unacknowledged_batch_count"], .int(1))
+
+        consent.setConsentGranted(false)
+        await telemetry.consentDidChange()
+        consent.setConsentGranted(true)
+        await telemetry.record("app.launched")
+        let freshLaunch = try XCTUnwrap(try queue.loadEvents().last)
+        XCTAssertEqual(freshLaunch.properties["queue_overflow_count"], .int(0))
+        XCTAssertEqual(freshLaunch.properties["queue_rejected_count"], .int(0))
+        XCTAssertEqual(freshLaunch.properties["queue_quarantine_overflow_count"], .int(0))
+        XCTAssertEqual(freshLaunch.properties["queue_unacknowledged_batch_count"], .int(0))
+    }
+
     private func makeQueue() -> IChartTelemetryQueueStore {
         IChartTelemetryQueueStore(url: FileManager.default.temporaryDirectory
             .appendingPathComponent("iChart-trial-telemetry-tests", isDirectory: true)
@@ -361,7 +480,7 @@ final class TrialTelemetryTransportTests: XCTestCase {
 }
 
 private final class TrialTelemetryHTTPStub: URLProtocol {
-    enum Response { case status(Int), offline, held }
+    enum Response { case status(Int), reply(Int, Data), offline, held }
     struct CapturedRequest {
         let body: Data
         let apiKey: String?
@@ -424,15 +543,22 @@ private final class TrialTelemetryHTTPStub: URLProtocol {
         case .held:
             break
         case .status(let status):
-            guard let url = request.url,
-                  let result = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: ["Content-Type": "application/json"]) else {
-                client?.urlProtocol(self, didFailWithError: URLError(.badURL))
-                return
-            }
-            client?.urlProtocol(self, didReceive: result, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: Data("{\"accepted\":true}".utf8))
-            client?.urlProtocolDidFinishLoading(self)
+            let count = ((try? JSONSerialization.jsonObject(with: capture.body)) as? [String: Any])?["events"] as? [Any]
+            respond(status: status, data: Data("{\"accepted\":true,\"stored_count\":\(count?.count ?? 0),\"rejected_count\":0}".utf8))
+        case .reply(let status, let data):
+            respond(status: status, data: data)
         }
+    }
+
+    private func respond(status: Int, data: Data) {
+        guard let url = request.url,
+              let result = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: ["Content-Type": "application/json"]) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        client?.urlProtocol(self, didReceive: result, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
     }
 
     override func stopLoading() {

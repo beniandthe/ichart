@@ -4,7 +4,7 @@ import XCTest
 @testable import iChart
 
 final class FlexibleEndingHitTargetTests: XCTestCase {
-    func testCustomEndingAndEveryContinuationOpenTheSameInspector() throws {
+    func testCustomEndingAndEveryContinuationSelectTheSameEndingBeforeEditing() throws {
         for style in ChartLayoutStyle.allCases {
             var chart = Chart.blank(title: "Custom ending targets", measureCount: 12, layoutStyle: style)
             let ids = chart.measures.map(\.id)
@@ -26,7 +26,7 @@ final class FlexibleEndingHitTargetTests: XCTestCase {
                 let location = CGPoint(x: segment.frame.midX, y: segment.frame.minY + 3)
                 let target = try XCTUnwrap(RenderedEditRouter().tapTarget(at: location, in: context))
                 XCTAssertEqual(target.objectID, .endingSpan(id))
-                XCTAssertEqual(target.action, .openInspector)
+                XCTAssertEqual(target.action, .select)
                 XCTAssertEqual(target.mutationRisk, .nonMutating)
                 XCTAssertNil(RenderedEditRouter().dragTarget(at: location, in: context))
                 if segment.showsText {

@@ -65,8 +65,8 @@ final class LeadSheetDocumentViewportTests: XCTestCase {
             XCTAssertEqual(viewport.contentOffset, offset)
             XCTAssertFalse(viewport.panGestureRecognizer.isEnabled,
                 "A model or mode update must not release an active drag's scroll lock.")
-            XCTAssertEqual(viewport.panGestureRecognizer.minimumNumberOfTouches,
-                mode.allowsAnyInkEditing ? 2 : 1)
+            XCTAssertEqual(viewport.panGestureRecognizer.minimumNumberOfTouches, 2,
+                "Single-touch vertical scrolling is owned separately from native two-finger pan.")
         }
         let directTouches = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
         XCTAssertEqual(viewport.panGestureRecognizer.allowedTouchTypes, directTouches)
