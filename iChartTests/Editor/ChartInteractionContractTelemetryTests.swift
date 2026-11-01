@@ -247,6 +247,7 @@ final class ChartInteractionContractTelemetryTests: XCTestCase {
         window.makeKeyAndVisible()
         let fixture = try makeService()
         IChartTelemetry.configure(fixture.service)
+        var expectedAuthorization = try XCTUnwrap(IChartTelemetry.diagnosticAuthorization())
         let scroll = UIScrollView(frame: CGRect(x: 0, y: 50, width: 700, height: 400))
         scroll.contentInsetAdjustmentBehavior = .never
         scroll.contentSize = CGSize(width: 700, height: 1_200)
@@ -277,20 +278,63 @@ final class ChartInteractionContractTelemetryTests: XCTestCase {
         // on the next layout pass. Establish real focus only after the scene is
         // stable, then let UIKit deliver the keyboard geometry to production.
         try await waitForStableWindow(window, controller: controller)
+        var probeSnapshots: [String] = []
+        var previousProbeSnapshot = ""
+        func captureProbeState() {
+            let values = Dictionary(uniqueKeysWithValues: Mirror(reflecting: probe).children.compactMap { child in
+                child.label.map { ($0, child.value) }
+            })
+            let capturedAuthorization = values["authorization"].flatMap { value in
+                Mirror(reflecting: value).children.first?.value as? IChartTelemetry.DiagnosticAuthorization
+            }
+            let capturedOrientation = values["keyboardOrientation"].flatMap { value in
+                Mirror(reflecting: value).children.first?.value as? UIInterfaceOrientation
+            }
+            let completedEpoch = values["completedEpoch"].flatMap { value in
+                Mirror(reflecting: value).children.first?.value as? UUID
+            }
+            let currentAuthorization = IChartTelemetry.diagnosticAuthorization()
+            var details = ["globalMatches=\(currentAuthorization?.matches(expectedAuthorization) == true)",
+                "capturedMatches=\(capturedAuthorization?.matches(expectedAuthorization) == true)",
+                "capturedCurrent=\(capturedAuthorization?.isCurrent == true)",
+                "fixtureCurrent=\(expectedAuthorization.isCurrent)",
+                "orientation=\(scene.effectiveGeometry.interfaceOrientation.rawValue)",
+                "capturedOrientation=\(capturedOrientation.map { String($0.rawValue) } ?? "nil")",
+                "persistedIdentity=\(UserDefaults(suiteName: fixture.suite)?.string(forKey: IChartTelemetryConsentStore.installationIDPreferenceKey) != nil)"]
+            if completedEpoch != nil, let health = try? fixture.queue.healthSnapshot() {
+                details.append("queueHealth=\(health)")
+            }
+            for name in ["keyboardFrame", "keyboardWindowBounds", "epoch", "completedEpoch",
+                         "samplesRemaining", "workItem", "observation"] {
+                details.append("\(name)=\(values[name].map { String(describing: $0) } ?? "missing")")
+            }
+            let snapshot = details.joined(separator: "; ")
+            if snapshot != previousProbeSnapshot {
+                probeSnapshots.append("\(ProcessInfo.processInfo.systemUptime) \(snapshot)")
+                if probeSnapshots.count > 100 { probeSnapshots.removeFirst(probeSnapshots.count - 100) }
+                previousProbeSnapshot = snapshot
+            }
+        }
         let diagnostics = {
-            "app=\(UIApplication.shared.applicationState.rawValue), scene=\(scene.activationState.rawValue), key=\(window.isKeyWindow), window=\(window.bounds), scroll=\(scroll.bounds), offset=\(scroll.contentOffset), field=\(field.convert(field.bounds, to: window)), focused=\(field.isFirstResponder), authorization=\(IChartTelemetry.diagnosticAuthorization() != nil)\nNotifications:\n\(trace.entries.joined(separator: "\n"))"
+            "app=\(UIApplication.shared.applicationState.rawValue), scene=\(scene.activationState.rawValue), key=\(window.isKeyWindow), window=\(window.bounds), scroll=\(scroll.bounds), offset=\(scroll.contentOffset), field=\(field.convert(field.bounds, to: window)), focused=\(field.isFirstResponder), authorization=\(IChartTelemetry.diagnosticAuthorization() != nil)\nNotifications:\n\(trace.entries.joined(separator: "\n"))\nProbe snapshots:\n\(probeSnapshots.joined(separator: "\n"))"
+        }
+        addTeardownBlock { @MainActor in
+            let attachment = XCTAttachment(string: diagnostics())
+            attachment.name = "Interaction probe diagnostic timeline"
+            attachment.lifetime = .keepAlways
+            self.add(attachment)
         }
         var keyboardEventCount = trace.keyboardEventCount
         XCTAssertTrue(field.becomeFirstResponder())
         try await waitForKeyboard(visible: true, after: keyboardEventCount, field: field,
                                   window: window, trace: trace)
-        _ = try await waitForEvents(fixture.queue, matching: { $0.properties["reason"] == .string("keyboard_controls_reachable") }, diagnostics: diagnostics)
+        _ = try await waitForEvents(fixture.queue, matching: { $0.properties["reason"] == .string("keyboard_controls_reachable") }, diagnostics: diagnostics, onPoll: captureProbeState)
         // Rechecking the registered action must not need a fresh focus or
         // keyboard event once the onscreen keyboard has settled.
         keyboardEventCount = trace.keyboardEventCount
         action.isEnabledForKeyboardTelemetry = true
         let failure = try await waitForEvents(fixture.queue,
-            matching: { $0.properties["reason"] == .string("keyboard_action_unreachable") }, diagnostics: diagnostics)
+            matching: { $0.properties["reason"] == .string("keyboard_action_unreachable") }, diagnostics: diagnostics, onPoll: captureProbeState)
         XCTAssertEqual(trace.keyboardEventCount, keyboardEventCount,
                        "The enabled-action change itself must trigger the recheck")
         XCTAssertEqual(failure.properties["expected_count"], .int(2))
@@ -302,6 +346,7 @@ final class ChartInteractionContractTelemetryTests: XCTestCase {
         await fixture.service.consentDidChange()
         fixture.consent.setConsentGranted(true)
         await fixture.service.consentDidChange()
+        expectedAuthorization = try XCTUnwrap(IChartTelemetry.diagnosticAuthorization())
         try await Task.sleep(nanoseconds: 800_000_000)
         XCTAssertEqual(trace.keyboardEventCount, keyboardEventCount,
                        "The withdrawal test must retain the earlier keyboard epoch")
@@ -313,7 +358,7 @@ final class ChartInteractionContractTelemetryTests: XCTestCase {
         XCTAssertTrue(field.becomeFirstResponder())
         try await waitForKeyboard(visible: true, after: keyboardEventCount, field: field,
                                   window: window, trace: trace)
-        _ = try await waitForEvents(fixture.queue, matching: { $0.properties["reason"] == .string("keyboard_controls_reachable") }, diagnostics: diagnostics)
+        _ = try await waitForEvents(fixture.queue, matching: { $0.properties["reason"] == .string("keyboard_controls_reachable") }, diagnostics: diagnostics, onPoll: captureProbeState)
     }
 
     @MainActor
@@ -439,9 +484,11 @@ final class ChartInteractionContractTelemetryTests: XCTestCase {
     private func waitForEvents(_ queue: IChartTelemetryQueueStore,
         matching predicate: (IChartTelemetryEvent) -> Bool,
         diagnostics: (() -> String)? = nil,
+        onPoll: (() -> Void)? = nil,
         file: StaticString = #filePath, line: UInt = #line) async throws -> IChartTelemetryEvent {
         var observedReasons: Set<String> = []
         for _ in 0..<80 {
+            onPoll?()
             let events = try queue.loadEvents()
             for event in events {
                 if case let .string(reason)? = event.properties["reason"] { observedReasons.insert(reason) }
@@ -534,7 +581,7 @@ private enum InteractionFixtureError: Error {
             if keyboardInWindow != visibleFrame { keyboardFrameStableSince = now }
             keyboardInWindow = visibleFrame
         }
-        entries.append("\(now) \(note.name.rawValue), keyboard=\(String(describing: frame)), key=\(window?.isKeyWindow == true), bounds=\(String(describing: window?.bounds))")
+        entries.append("\(now) \(note.name.rawValue), keyboard=\(String(describing: frame)), key=\(window?.isKeyWindow == true), bounds=\(String(describing: window?.bounds)), orientation=\(String(describing: window?.windowScene?.effectiveGeometry.interfaceOrientation.rawValue)), app=\(UIApplication.shared.applicationState.rawValue)")
         if entries.count > 40 { entries.removeFirst(entries.count - 40) }
     }
 }

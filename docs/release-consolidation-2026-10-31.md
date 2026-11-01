@@ -59,6 +59,12 @@ fixtures. Review-action tests wait for stable layout and presentation geometry
 before initiating their separate scroll, so visibility during focus motion does
 not count as a settled viewport.
 
+An intermittent first-event capture in the hosted keyboard telemetry check remains
+under investigation. The check retains its original event deadline and
+consent/action assertions. Bounded state traces now distinguish probe
+invalidation from completed observation with missing delivery. No product cause
+has been established from the available evidence.
+
 Fresh hosted validation is recorded with the consolidation pull request. Private device receipts retain complete before/after inventories;
 raw chart/ink data, physical-device identifiers and local operator configuration
 are intentionally absent from this publication. Automated checks establish their
