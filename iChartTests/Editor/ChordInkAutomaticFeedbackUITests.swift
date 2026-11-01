@@ -183,11 +183,72 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
         try activate(status)
         let fields = try await waitForReviewFields(in: mounted.window, count: 2, requiresFocus: false)
         XCTAssertEqual(fields.map(\.text), ["C", "Bb"])
+        try await establishReviewKeyboardWindow(for: fields[1], in: mounted)
         fields[1].keyboardButton.sendActions(for: .touchUpInside)
         _ = try await waitForReviewFields(in: mounted.window, count: 2)
         XCTAssertTrue(fields[1].isFirstResponder)
+        try await establishReviewKeyboardWindow(for: fields[1], in: mounted)
         fields[1].keyboardButton.sendActions(for: .touchUpInside)
         return fields
+    }
+
+    private func establishReviewKeyboardWindow(for field: IChartTypedUITextField,
+        in mounted: Mounted) async throws {
+        let editingWindow = try XCTUnwrap(field.window, "The current review field must be attached before keyboard focus")
+        // A mounted field can exist before its sheet's appearance transaction
+        // completes. Observe bounded presentation readiness; a broken
+        // transition must fail rather than hang or retry the keyboard request.
+        // The sheet may own a different window from the editor, so establish
+        // ownership on the actual field window.
+        var presentationReady = false
+        var presentationDiagnostics = ""
+        for _ in 0..<60 {
+            editingWindow.layoutIfNeeded()
+            let controller = editingWindow.rootViewController?.presentedViewController
+                ?? editingWindow.rootViewController
+            let transitioning = controller?.transitionCoordinator != nil
+            let appearing = controller?.isBeingPresented == true
+            let dismissing = controller?.isBeingDismissed == true
+            let attached = editingWindow.rootViewController?.viewIfLoaded?.window === editingWindow
+            presentationDiagnostics = "\(keyboardWindowDiagnostics(field: field, mountedWindow: mounted.window)); appearing=\(appearing), dismissing=\(dismissing), transitioning=\(transitioning), rootAttached=\(attached)"
+            if field.window === editingWindow, !editingWindow.isHidden,
+               editingWindow.windowScene?.activationState == .foregroundActive,
+               attached, !appearing, !dismissing, !transitioning {
+                presentationReady = true
+                break
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        guard presentationReady else {
+            XCTFail("The review's actual window must finish presentation before keyboard focus. \(presentationDiagnostics)")
+            throw Failure.missingReviewWindow
+        }
+        let before = keyboardWindowDiagnostics(field: field, mountedWindow: mounted.window)
+        guard field.window === editingWindow, !editingWindow.isHidden,
+              editingWindow.windowScene?.activationState == .foregroundActive,
+              editingWindow.rootViewController?.viewIfLoaded?.window === editingWindow else {
+            XCTFail("The review's actual window must be visible and active before keyboard focus. \(before)")
+            throw Failure.missingReviewWindow
+        }
+        editingWindow.makeKey()
+        let after = keyboardWindowDiagnostics(field: field, mountedWindow: mounted.window)
+        let attachment = XCTAttachment(string: "Before key handoff:\n\(before)\nAfter key handoff:\n\(after)")
+        attachment.name = "Landscape keyboard - actual review field window ownership"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        guard field.window === editingWindow, editingWindow.isKeyWindow else {
+            XCTFail("The review field's actual window must own key status before keyboard focus. \(after)")
+            throw Failure.missingReviewWindow
+        }
+    }
+
+    private func keyboardWindowDiagnostics(field: IChartTypedUITextField, mountedWindow: UIWindow) -> String {
+        func describe(_ window: UIWindow?) -> String {
+            guard let window else { return "nil" }
+            return "\(type(of: window))@\(ObjectIdentifier(window)): key=\(window.isKeyWindow), hidden=\(window.isHidden), bounds=\(window.bounds), sceneState=\(String(describing: window.windowScene?.activationState)), root=\(String(describing: window.rootViewController.map { type(of: $0) }))"
+        }
+        let keyWindows = field.window?.windowScene?.windows.filter(\.isKeyWindow).map { describe($0) } ?? []
+        return "mountedWindow=\(describe(mountedWindow)); fieldWindow=\(describe(field.window)); sameWindow=\(field.window === mountedWindow); focused=\(field.isFirstResponder); sceneKeys=\(keyWindows)"
     }
 
     private func waitForSoftwareKeyboard(_ probe: FeedbackSoftwareKeyboardProbe,
@@ -622,6 +683,12 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
             "The actual scene must match the requested viewport. Geometry request error: \(geometryError ?? "none reported"). \(afterGeometry)")
         XCTAssertGreaterThanOrEqual(stableGeometrySamples, 3,
             "Exact orientation and window geometry must settle before opening the software keyboard")
+        // Rotation can hand key status back to the application window after
+        // the fixture's first appearance. Reclaim this controlled editor host
+        // before presentation; keyboard focus later uses the field's window.
+        window.makeKey()
+        XCTAssertTrue(host.hasAppeared && window.isKeyWindow && scene.activationState == .foregroundActive,
+            "The appeared fixture must own an active key window after rotation. \(afterGeometry)")
         XCTAssertEqual(window.bounds.width, viewport.width, accuracy: 0.5,
             "The real scene must provide the requested test viewport width")
         XCTAssertEqual(window.bounds.height, viewport.height, accuracy: 0.5,
@@ -711,7 +778,7 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
     }
 
     private func descendants(_ root: UIView) -> [UIView] { root.subviews.flatMap { [$0] + descendants($0) } }
-    private enum Failure: Error { case missingCanvas, missingStatus, missingReview, missingSoftwareKeyboard }
+    private enum Failure: Error { case missingCanvas, missingStatus, missingReview, missingReviewWindow, missingSoftwareKeyboard }
 
     @MainActor
     private struct Mounted {

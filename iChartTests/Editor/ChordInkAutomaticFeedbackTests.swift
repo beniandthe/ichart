@@ -357,13 +357,17 @@ final class ChordInkAutomaticFeedbackTests: XCTestCase {
         view.chordDraftRenderCoordinator = coordinator
         let controller = UIViewController()
         controller.view = view
+        let previousKeyWindow = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows).first(where: \.isKeyWindow)
         let window = UIWindow(frame: CGRect(origin: .zero, size: pageSize))
         window.rootViewController = controller
         window.makeKeyAndVisible()
         defer {
             view.recognizesChordInk = false
+            window.endEditing(true)
             window.isHidden = true
             window.rootViewController = nil
+            previousKeyWindow?.makeKeyAndVisible()
         }
         view.layoutIfNeeded()
         let canvas = try XCTUnwrap(view.subviews.compactMap { $0 as? PKCanvasView }.last)
@@ -427,6 +431,8 @@ final class ChordInkAutomaticFeedbackTests: XCTestCase {
         coordinator.automaticCensusReplayer = { [weak view] in view?.replayCurrentAutomaticChordCensus() ?? false }
         let controller = UIViewController()
         controller.view = view
+        let previousKeyWindow = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows).first(where: \.isKeyWindow)
         let window = UIWindow(frame: CGRect(origin: .zero, size: pageSize))
         window.rootViewController = controller
         window.makeKeyAndVisible()
@@ -434,8 +440,10 @@ final class ChordInkAutomaticFeedbackTests: XCTestCase {
             view.onChordInkDraftPreviewChanged = nil
             recognizer.release.signal()
             view.recognizesChordInk = false
+            window.endEditing(true)
             window.isHidden = true
             window.rootViewController = nil
+            previousKeyWindow?.makeKeyAndVisible()
         }
         view.layoutIfNeeded()
         let canvas = try XCTUnwrap(view.subviews.compactMap { $0 as? PKCanvasView }.last)
