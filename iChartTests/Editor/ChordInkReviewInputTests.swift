@@ -151,7 +151,7 @@ final class ChordInkReviewInputTests: XCTestCase {
         let buttons = descendants(host.view).compactMap { $0 as? PencilOnlyUIButton }
         let back = try XCTUnwrap(buttons.first { $0.accessibilityLabel == "Back to Writing" })
         back.sendActions(for: .touchUpInside)
-        let local = try XCTUnwrap(buttons.first { $0.accessibilityLabel == "Rewrite this chord in measure 1" })
+        let local = try XCTUnwrap(buttons.first { $0.accessibilityLabel == "Rewrite chord 1 in measure 1" })
         local.sendActions(for: .touchUpInside)
         XCTAssertEqual(backCount, 1)
         XCTAssertEqual(localRewriteCount, 1)

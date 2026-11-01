@@ -152,7 +152,7 @@ enum EditorCanvasMode: Hashable {
         case .headerEntry:
             return "Write in the page header."
         case .chordEntry:
-            return "Write chords and barlines in the blue lanes."
+            return "Write chords, barlines, and endings in the blue lanes."
         case .noteEdit:
             return "Select a rendered rhythm note."
         case .freeHand:

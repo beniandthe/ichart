@@ -33,7 +33,10 @@ enum ChordInkDraftLocalRewritePolicy {
               state.draftChords.first(where: { $0.id == draft.id }) == draft,
               let plan = plan(for: draft, source: source),
               !state.draftBarlines.contains(where: { barline in
-                  barline.sourceStrokeIndex.map(plan.originalStrokeIndices.contains) ?? false
+                  !barline.ownedSourceStrokeIndices.isDisjoint(with: plan.originalStrokeIndices)
+              }),
+              !state.draftEndings.contains(where: {
+                  !$0.sourceStrokeIndices.isDisjoint(with: plan.originalStrokeIndices)
               }) else { return nil }
         let selectedFragments = plan.originalStrokeIndices.flatMap { index in
             PencilKitInkAdapter.visibleStrokeFragments(from: source.strokes[index])

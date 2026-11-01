@@ -48,6 +48,7 @@ enum ChordDraftRepeatReviewPolicy {
               chart.layoutStyle == request.layoutStyle,
               currentState.draftChords == request.state.draftChords,
               currentState.draftBarlines == request.state.draftBarlines,
+              currentState.draftEndings == request.state.draftEndings,
               currentState.layoutPageSize == request.state.layoutPageSize,
               blockingMessage(for: currentState) == nil,
               ChordInkRepeatSignPairingPolicy.review(state: currentState).unconfirmedEndIDs.first == request.draftID,

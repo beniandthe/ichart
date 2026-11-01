@@ -3438,7 +3438,7 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(rightMeasure.beatGridPreset, .eighthSubdivision)
     }
 
-    func testSplitOpenRhythmSectionMeasureRejectsCommittedOrContentfulMeasures() throws {
+    func testSplitOpenRhythmSectionMeasureRejectsCommittedMeasureAndRedistributesFreeChords() throws {
         var chart = Chart.draft(title: "Guard Rhythm Split", layoutStyle: .rhythmSectionSheet)
         chart.completeInitialSetup(
             title: "Guard Rhythm Split",
@@ -3460,8 +3460,15 @@ final class ChartEditingTests: XCTestCase {
         )
 
         XCTAssertNil(chart.splitOpenRhythmSectionMeasure(committedMeasureID, atFraction: 0.5))
-        XCTAssertNil(chart.splitOpenRhythmSectionMeasure(openMeasureID, atFraction: 0.5))
-        XCTAssertEqual(chart.measures.count, 2)
+        let originalChord = try XCTUnwrap(chart.measure(id: openMeasureID)?.chordEvents.first)
+        let rightMeasureID = try XCTUnwrap(chart.splitOpenRhythmSectionMeasure(openMeasureID, atFraction: 0.5))
+        XCTAssertEqual(chart.measures.count, 3)
+        XCTAssertEqual(chart.measure(id: openMeasureID)?.chordEvents.map(\.id), [originalChord.id])
+        XCTAssertTrue(try XCTUnwrap(chart.measure(id: rightMeasureID)).chordEvents.isEmpty)
+        XCTAssertEqual(chart.measure(id: openMeasureID)?.chordEvents.first?.symbol, originalChord.symbol)
+        XCTAssertEqual(chart.measure(id: openMeasureID)?.chordEvents.first?.duration, originalChord.duration)
+        XCTAssertEqual(chart.measure(id: openMeasureID)?.authoringState, .committed)
+        XCTAssertEqual(chart.measure(id: rightMeasureID)?.authoringState, .open)
     }
 
     func testSplitOpenRhythmSectionMeasureRejectsAnchoredObjectsThatWouldNeedRedistribution() throws {

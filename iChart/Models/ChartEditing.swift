@@ -1010,23 +1010,26 @@ extension Chart {
 
         leftMeasure.chordEvents = []
         for event in originalMeasure.chordEvents {
-            let sourceFraction = simpleChordLaneFraction(for: event, meter: meter)
-            if sourceFraction < splitFraction {
-                leftMeasure.chordEvents.append(
-                    simpleChordLanePositionedChordEvent(
-                        event,
-                        at: sourceFraction / splitFraction,
-                        meter: meter
-                    )
-                )
+            // Automatic rendering keeps a precise visual fraction independent
+            // of its provisional musical insertion slot. A subsequently drawn
+            // boundary follows the visible glyph, not that older beat slot.
+            let sourceFraction = event.manualVisualLaneFraction.map(ChordEvent.clampedManualLaneFraction)
+                ?? simpleChordLaneFraction(for: event, meter: meter)
+            let localFraction = sourceFraction < splitFraction
+                ? sourceFraction / splitFraction
+                : (sourceFraction - splitFraction) / max(0.0001, 1 - splitFraction)
+            let positioned: ChordEvent
+            if event.manualVisualLaneFraction != nil {
+                var visuallyPositioned = event
+                visuallyPositioned.manualVisualLaneFraction = clampedLaneFraction(localFraction)
+                positioned = visuallyPositioned
             } else {
-                rightMeasure.chordEvents.append(
-                    simpleChordLanePositionedChordEvent(
-                        event,
-                        at: (sourceFraction - splitFraction) / max(0.0001, 1 - splitFraction),
-                        meter: meter
-                    )
-                )
+                positioned = simpleChordLanePositionedChordEvent(event, at: localFraction, meter: meter)
+            }
+            if sourceFraction < splitFraction {
+                leftMeasure.chordEvents.append(positioned)
+            } else {
+                rightMeasure.chordEvents.append(positioned)
             }
         }
 
@@ -1038,8 +1041,26 @@ extension Chart {
         flattenedMeasures[flattenedIndex] = leftMeasure
         flattenedMeasures.insert(rightMeasure, at: flattenedIndex + 1)
         rebuildSystems(using: flattenedMeasures)
+        extendRangeEndpointsAcrossSplit(from: originalMeasure.id, through: rightMeasure.id)
         updatedAt = .now
         return rightMeasure.id
+    }
+
+    /// A range which ended after the original measure still covers all of its
+    /// musical material after that measure becomes two segments. Point markers
+    /// remain anchored to the original left segment.
+    private mutating func extendRangeEndpointsAcrossSplit(from originalMeasureID: UUID, through rightMeasureID: UUID) {
+        for index in roadmapObjects.indices where
+            (roadmapObjects[index].type == .repeatSpan || roadmapObjects[index].type.isEnding)
+                && roadmapObjects[index].endMeasureID == originalMeasureID
+                && canPreserveRangeEndpointAcrossSplit(roadmapObjects[index]) {
+            let id = roadmapObjects[index].id
+            let startID = roadmapObjects[index].startMeasureID
+            roadmapObjects[index].endMeasureID = rightMeasureID
+            removeRoadmapObjectIDFromMeasures(id)
+            attachRoadmapObject(id, to: startID)
+            attachRoadmapObject(id, to: rightMeasureID)
+        }
     }
 
     @discardableResult
@@ -2024,13 +2045,19 @@ extension Chart {
         let originalMeasure = flattenedMeasures[flattenedIndex]
         guard originalMeasure.authoringState == .open,
               originalMeasure.meterOverride == nil,
-              originalMeasure.chordEvents.isEmpty,
+              originalMeasure.chordEvents.allSatisfy({ $0.mappedRhythmSlotIndex == nil }),
               originalMeasure.rhythmMap == nil,
               originalMeasure.pitchedNoteEvents.isEmpty,
               originalMeasure.handwrittenRhythmicNotationData == nil,
               originalMeasure.handwrittenRhythmicNotationCoordinateSpace == nil,
               originalMeasure.cueTextIDs.isEmpty,
-              originalMeasure.roadmapObjectIDs.isEmpty,
+              originalMeasure.roadmapObjectIDs.allSatisfy({ id in
+                  let matches = roadmapObjects.filter { $0.id == id }
+                  return matches.count == 1 && matches.allSatisfy {
+                      ($0.startMeasureID == measureID || $0.endMeasureID == measureID)
+                          && canPreserveRangeEndpointAcrossSplit($0)
+                  }
+              }),
               !hasAttachmentsBlockingOpenRhythmSectionSplit(for: originalMeasure.id) else {
             return nil
         }
@@ -2040,11 +2067,36 @@ extension Chart {
         var rightMeasure = originalMeasure
         rightMeasure.id = UUID()
         rightMeasure.index = originalMeasure.index + 1
+        rightMeasure.roadmapObjectIDs = []
 
         leftMeasure.authoringState = .committed
         leftMeasure.barlineAfter = barlineAfter
         rightMeasure.authoringState = .open
         rightMeasure.barlineAfter = .single
+
+        let meter = originalMeasure.resolvedMeter(defaultMeter: defaultMeter)
+        leftMeasure.chordEvents = []
+        rightMeasure.chordEvents = []
+        for event in originalMeasure.chordEvents {
+            let sourceFraction = event.manualVisualLaneFraction.map(ChordEvent.clampedManualLaneFraction)
+                ?? simpleChordLaneFraction(for: event, meter: meter)
+            let localFraction = sourceFraction < splitFraction
+                ? sourceFraction / splitFraction
+                : (sourceFraction - splitFraction) / max(0.0001, 1 - splitFraction)
+            var positioned = event
+            if event.manualVisualLaneFraction != nil {
+                // Preserve the independent musical slot/duration while the
+                // authoring boundary redistributes its source-based position.
+                positioned.manualVisualLaneFraction = clampedLaneFraction(localFraction)
+            } else {
+                // Unpinned free chords retain the same positional fallback as
+                // Simple Chart splits, without replacing duration/tie intent.
+                positioned.startPosition = simpleChordLanePrecisePosition(for: localFraction, meter: meter)
+                positioned.manualLaneFraction = clampedLaneFraction(localFraction)
+            }
+            if sourceFraction < splitFraction { leftMeasure.chordEvents.append(positioned) }
+            else { rightMeasure.chordEvents.append(positioned) }
+        }
 
         if let manualLayoutWidth = originalMeasure.manualLayoutWidth {
             leftMeasure.manualLayoutWidth = Double(max(1, CGFloat(manualLayoutWidth) * CGFloat(splitFraction)))
@@ -2054,8 +2106,18 @@ extension Chart {
         flattenedMeasures[flattenedIndex] = leftMeasure
         flattenedMeasures.insert(rightMeasure, at: flattenedIndex + 1)
         rebuildSystems(using: flattenedMeasures)
+        extendRangeEndpointsAcrossSplit(from: originalMeasure.id, through: rightMeasure.id)
         updatedAt = .now
         return rightMeasure.id
+    }
+
+    private func canPreserveRangeEndpointAcrossSplit(_ object: RoadmapObject) -> Bool {
+        guard object.type == .repeatSpan || object.type.isEnding,
+              let endID = object.endMeasureID,
+              roadmapObjects.filter({ $0.id == object.id }).count == 1,
+              let start = measureLocation(id: object.startMeasureID),
+              let end = measureLocation(id: endID) else { return false }
+        return flattenedMeasureIndex(for: start) <= flattenedMeasureIndex(for: end)
     }
 
     private func hasAttachmentsBlockingOpenRhythmSectionSplit(for measureID: UUID) -> Bool {
@@ -2063,7 +2125,10 @@ extension Chart {
             || timeSignatureChanges.contains { $0.afterMeasureID == measureID }
             || sectionLabels.contains { $0.anchorMeasureID == measureID }
             || cueTexts.contains { $0.anchorMeasureID == measureID }
-            || roadmapObjects.contains { $0.startMeasureID == measureID || $0.endMeasureID == measureID }
+            || roadmapObjects.contains {
+                ($0.startMeasureID == measureID || $0.endMeasureID == measureID)
+                    && !canPreserveRangeEndpointAcrossSplit($0)
+            }
             || freehandSymbols.contains { $0.anchorMeasureID == measureID }
     }
 

@@ -14,10 +14,12 @@ struct IChartApp: App {
 
     init() {
         let appInitSpan = IChartPerformanceTrace.start("app.init")
+        let supabaseClients = IChartSupabaseClientFactory.liveClients()
+        // Loading schedules background chart/ink reopen checks immediately.
+        // Configure their consented destination before that work can begin.
+        IChartTelemetry.configure(IChartTelemetryService.live(clients: supabaseClients))
         let libraryStore = ChartLibraryStore.live()
         let pdfLibraryStore = IChartPDFLibraryStore.live()
-        let supabaseClients = IChartSupabaseClientFactory.liveClients()
-        IChartTelemetry.configure(IChartTelemetryService.live(clients: supabaseClients))
         IChartTelemetry.record(
             "app.launched",
             properties: [

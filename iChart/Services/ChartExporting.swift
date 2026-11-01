@@ -3,9 +3,10 @@ import Foundation
 struct ExportedPDF: Identifiable, Hashable {
     let url: URL
     let chartTitle: String
-    let layoutStyle: ChartLayoutStyle
-    let transpositionView: TranspositionView
-    let chordTranspositionSemitones: Int
+    // Personal PDFs retain their page content and have no native chart settings.
+    let layoutStyle: ChartLayoutStyle?
+    let transpositionView: TranspositionView?
+    let chordTranspositionSemitones: Int?
     let pageCount: Int
     let fileSizeBytes: Int
     let exportedAt: Date
@@ -32,16 +33,13 @@ struct ExportedPDF: Identifiable, Hashable {
         )
     }
 
-    var transpositionText: String {
+    var transpositionText: String? {
+        guard let transpositionView, let chordTranspositionSemitones else { return nil }
         guard chordTranspositionSemitones != 0 else {
             return transpositionView.displayText
         }
 
-        return "\(transpositionView.displayText) · \(chordTranspositionDisplayText)"
-    }
-
-    private var chordTranspositionDisplayText: String {
-        Chart.intervalDisplayText(forNormalizedSemitones: chordTranspositionSemitones)
+        return "\(transpositionView.displayText) · \(Chart.intervalDisplayText(forNormalizedSemitones: chordTranspositionSemitones))"
     }
 }
 

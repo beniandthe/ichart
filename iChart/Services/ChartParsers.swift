@@ -94,7 +94,7 @@ enum ChordSymbolParser {
             let nextIndex = text.index(after: text.startIndex)
             let second = text[nextIndex]
 
-            if second == "#" || second == "b" || second == "B" {
+            if second.isPitchAccidental {
                 return ChordPitch.parse(root + String(second))
             }
         }
@@ -108,7 +108,7 @@ enum ChordSymbolParser {
         let secondIndex = text.index(after: text.startIndex)
         let second = text[secondIndex]
 
-        if second == "#" || second == "b" || second == "B" {
+        if second.isPitchAccidental {
             return text.index(after: secondIndex)
         }
 
@@ -563,6 +563,11 @@ enum ChordSymbolParser {
 }
 
 private extension Character {
+    /// Exact pitch-token aliases; no character deletion or punctuation repair.
+    var isPitchAccidental: Bool {
+        self == "#" || self == "b" || self == "B" || self == "♯" || self == "＃" || self == "♭"
+    }
+
     var isMajorTriangleQuality: Bool {
         self == "△" || self == "Δ" || self == "∆"
     }

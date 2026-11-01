@@ -34,7 +34,10 @@ jobs:
         with:
           persist-credentials: false
       - name: Verify client and ingest allowlists agree
-        run: node --test supabase/functions/_shared/telemetry_ingest.test.mjs
+        run: node --test supabase/functions/_shared/telemetry_ingest.test.mjs supabase/functions/_shared/feature_contract_schema.test.mjs
+
+      - name: Verify categorized telemetry task export
+        run: python3 -m unittest discover -s scripts -p 'test_telemetry_work_queue.py' -v
 
       - name: Verify complimentary offers and subscription/account contracts
         run: >-
@@ -60,6 +63,9 @@ jobs:
           set -euo pipefail
           command -v pg_config >/dev/null || { echo "PostgreSQL server binaries are required for the Forum concurrency regression." >&2; exit 1; }
           ICHART_POSTGRES_BIN="$(pg_config --bindir)" node --test scripts/test_forum_publish_concurrency.mjs
+
+      - name: Verify telemetry incident pipeline in isolated PostgreSQL
+        run: ICHART_POSTGRES_BIN="$(pg_config --bindir)" node --test scripts/test_telemetry_pipeline.mjs
 
   swift-package:
     name: SwiftPM tests

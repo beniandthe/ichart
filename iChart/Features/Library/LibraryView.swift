@@ -288,7 +288,7 @@ private struct IChartQuickStartStep: Identifiable {
         IChartQuickStartStep(
             id: "chords",
             title: "Write And Render Chords",
-            detail: "Tap Write & Render, write C, F, G, C, check the previews, and tap Render Chords or Review & Render. If Confirm Chords opens, correct the text or choose a suggestion, then tap Render All."
+            detail: "Tap Write & Render and write C, F, G, C with space between chords. Chords render automatically after a pause. For previews and a Render button, turn on Manual Render with Preview in app Settings."
         ),
         IChartQuickStartStep(
             id: "form",
@@ -352,7 +352,8 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Use Write & Render to turn handwritten chords, barlines, and repeat signs into chart notation.",
             bullets: [
                 "Write in the highlighted Corridor Lane above the staff.",
-                "The small text under your writing is the preview.",
+                "Chords render automatically after a pause. Leave space between chords so each chord can be read separately.",
+                "Turn on Manual Render with Preview in app Settings to check the small preview text before tapping Render Chords or Review & Render.",
                 "Draw a barline in the same lane when you want it placed with the chords.",
                 "Draw repeat bars with two dots on the right to start a repeat, on the left to end one, or on both sides to end one repeat and start another.",
                 "Complete each start repeat with an end repeat. If an end repeat has no matching start, Render asks whether to repeat from the beginning.",
@@ -361,13 +362,14 @@ private struct IChartHelpArticleSection: Identifiable {
         ),
         IChartHelpArticleSection(
             id: "editor-render-chords",
-            title: "Render Chords",
+            title: "Manual Render with Preview",
             systemImageName: "checkmark.circle",
-            body: "Use Render Chords or Review & Render to finish your chord, barline, and repeat-sign writing.",
+            body: "Turn on Manual Render with Preview in app Settings when you want to review your writing before it becomes notation.",
             bullets: [
                 "Tap Render Chords when the previews are ready. If review is needed, the button says Review & Render and opens Confirm Chords.",
                 "Add chord means a chord needs an entry. You can still open review; type the chord or choose a suggestion.",
                 "In Confirm Chords, correct the text or choose a suggestion, then tap Render Chord or Render All. Each entry needs a supported chord before the final render is available.",
+                "Turn the setting off to return to automatic chord rendering after a pause.",
                 "Clear Draft Ink removes all unrendered chord and barline writing after confirmation. Rendered notation and Free Ink stay unchanged."
             ]
         ),
@@ -723,6 +725,8 @@ struct LibraryView: View {
     @AppStorage("iChartHasSeenGuidedTourOffer") private var hasSeenGuidedTourOffer = false
     @AppStorage(IChartTelemetryConsentStore.preferenceKey) private var telemetryConsentVersion = ""
     @AppStorage("iChartPendingSimpleChartTour") private var pendingSimpleChartTour = false
+    @AppStorage(ChordInkWorkflowSettings.manualRenderWithPreviewKey)
+    private var manualRenderWithPreview = ChordInkWorkflowSettings.defaultManualRenderWithPreview
     #if DEBUG && targetEnvironment(simulator)
     @AppStorage(IChartRuntimeDiagnostics.rhythmRecognitionDiagnosticsKey)
     private var rhythmDiagnosticsEnabled = false
@@ -1081,7 +1085,7 @@ struct LibraryView: View {
         }
         .sheet(item: $selectedPDFLibraryItem) { item in
             if let exportedPDF = pdfLibraryStore.exportedPDF(for: item) {
-                PDFExportPreviewView(exportedPDF: exportedPDF)
+                PDFExportPreviewView(exportedPDF: exportedPDF, source: item.source)
             } else {
                 NavigationStack {
                     ContentUnavailableView(
@@ -1307,6 +1311,10 @@ struct LibraryView: View {
                         .foregroundStyle(.orange)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                IChartPDFImportButton(identifier: "pdf.library.import") { item in
+                    selectedPDFLibraryItem = item
+                }
+                .buttonStyle(.borderedProminent)
                 librarySelectionBar(
                     isSelecting: $isSelectingPDFs,
                     selectedIDs: $selectedPDFIDs,
@@ -1443,6 +1451,27 @@ struct LibraryView: View {
                             systemImageName: "doc.text",
                             theme: homeTheme
                         )
+                    }
+                }
+
+                IChartHomePanel(
+                    title: "Chord Recognition",
+                    systemImageName: "pencil.and.scribble",
+                    theme: homeTheme
+                ) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Toggle(ChordInkWorkflowSettings.manualRenderWithPreviewTitle, isOn: $manualRenderWithPreview)
+                            .tint(IChartHomeBrand.blue)
+                            .foregroundStyle(homeTheme.panelTitle)
+                            .accessibilityIdentifier("manual-render-with-preview-toggle")
+                            .accessibilityHint("Off uses automatic rendering. On shows previews and waits for you to tap Render.")
+
+                        Text(manualRenderWithPreview
+                            ? ChordInkWorkflowSettings.manualRenderingDescription
+                            : ChordInkWorkflowSettings.automaticRenderingDescription)
+                            .font(.caption)
+                            .foregroundStyle(homeTheme.panelSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
 
@@ -2654,7 +2683,7 @@ private struct IChartPDFLibraryHomeView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Exports and forum downloads appear here so you can preview, share, or remove them later.")
+            Text("Import a PDF from Files, or find your exports and forum downloads here. Add saved PDFs to a setlist for offline reading.")
                 .font(.subheadline)
                 .foregroundStyle(theme.panelSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -2773,8 +2802,12 @@ private struct IChartPDFLibraryRow: View {
 
                 HStack(spacing: 7) {
                     metadataPill(item.source.itemTitle)
-                    metadataPill(item.layoutStyle.displayText)
-                    metadataPill(item.transpositionText)
+                    if let layoutStyle = item.layoutStyle {
+                        metadataPill(layoutStyle.displayText)
+                    }
+                    if let transpositionText = item.transpositionText {
+                        metadataPill(transpositionText)
+                    }
                     metadataPill(item.pageCountText)
                     metadataPill(item.fileSizeText)
                 }
@@ -2789,6 +2822,7 @@ private struct IChartPDFLibraryRow: View {
             }
             .buttonStyle(.bordered)
             .accessibilityLabel("Open \(item.displayTitle)")
+            .accessibilityIdentifier("pdf.library.open.\(item.id.uuidString)")
 
             Button(role: .destructive, action: onDelete) {
                 Image(systemName: "trash")

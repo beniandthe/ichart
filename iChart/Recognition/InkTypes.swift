@@ -193,6 +193,15 @@ struct ChordInkRecognitionOptions: Hashable {
     )
 }
 
+/// Actual attempted providers for an automatic no-read recovery. Candidate
+/// suggestions remain separate from the primary recognizer's trust evidence.
+struct ChordInkRecognitionFallbackEvidence: Hashable {
+    var engineIdentifier: String
+    var engineVersion: String
+    var candidateTexts: [String]
+    var durationMilliseconds: Double
+}
+
 struct ChordInkRecognitionResult: Hashable {
     var rawCandidates: [String]
     var glyphCandidates: [[GlyphCandidate]]
@@ -218,7 +227,16 @@ struct ChordInkRecognitionResult: Hashable {
     /// Request-local ownership context, never part of the recognizer cache.
     /// A partial erase cannot establish that the remaining root is complete.
     var requiresEditReview: Bool = false
+    var fallbackEvidence: [ChordInkRecognitionFallbackEvidence] = []
     var metrics: ChordInkRecognitionMetrics = ChordInkRecognitionMetrics()
+
+    func fallbackPipelineVersion(for candidateText: String) -> String? {
+        guard let chosen = ChordRecognitionCompendium.match(candidateText)?.displayText,
+              let provider = fallbackEvidence.last(where: { evidence in
+                  evidence.candidateTexts.contains { ChordRecognitionCompendium.match($0)?.displayText == chosen }
+              }) else { return nil }
+        return "\(ChordInkRecognitionPipelineIdentity.version)+automatic-fallback:\(provider.engineIdentifier)@\(provider.engineVersion)"
+    }
 }
 
 enum ChordInkTrustEvidenceOutcome: String, Codable, Hashable, CaseIterable {

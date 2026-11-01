@@ -94,9 +94,9 @@ struct ChordPitch: Codable, Hashable {
         } else if trimmed.count == 2 {
             let accidentalCharacter = trimmed[trimmed.index(after: trimmed.startIndex)]
             switch accidentalCharacter {
-            case "#":
+            case "#", "♯", "＃":
                 accidental = .sharp
-            case "b", "B":
+            case "b", "B", "♭":
                 accidental = .flat
             default:
                 return nil

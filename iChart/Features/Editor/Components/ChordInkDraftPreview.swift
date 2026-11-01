@@ -101,6 +101,30 @@ struct ChordInkDraftVisibleDrawingContext {
         )
     }
 
+    func remappedEndingRecognition(_ recognition: ChordDraftEndingRecognition) -> ChordDraftEndingRecognition {
+        let endings = recognition.endings.map { ending in
+            var remapped = ending
+            remapped.sourceStrokeIndices = originalStrokeIndices(for: ending.sourceStrokeIndices)
+            return remapped
+        }
+        return ChordDraftEndingRecognition(endings: endings,
+            strokeIndices: originalStrokeIndices(for: recognition.strokeIndices))
+    }
+
+    func endingRecognitionWithUnambiguousSourceStrokes(
+        _ recognition: ChordDraftEndingRecognition
+    ) -> ChordDraftEndingRecognition {
+        let counts = originalStrokeIndices.reduce(into: [Int: Int]()) { $0[$1, default: 0] += 1 }
+        let endings = recognition.endings.filter { ending in
+            !ending.sourceStrokeIndices.isEmpty && ending.sourceStrokeIndices.allSatisfy { visibleIndex in
+                originalStrokeIndices.indices.contains(visibleIndex)
+                    && counts[originalStrokeIndices[visibleIndex]] == 1
+            }
+        }
+        return ChordDraftEndingRecognition(endings: endings,
+            strokeIndices: endings.reduce(into: Set<Int>()) { $0.formUnion($1.sourceStrokeIndices) })
+    }
+
     /// A draft barline can be deleted only by removing its original PencilKit
     /// stroke from the live canvas. Bitmap erasing can split one original
     /// stroke into several visible fragments, so treating one of those
@@ -161,12 +185,16 @@ enum ChordInkDraftVisibleStrokePolicy {
             originalStrokeIndices: originalIndices,
             invisibleStrokeIndices: []
         )
-        let repeats = ChordDraftRepeatSignRecognizer.recognize(
-            strokes: PencilKitInkAdapter.inkStrokes(from: fullContext.drawing),
+        let allStrokes = PencilKitInkAdapter.inkStrokes(from: fullContext.drawing)
+        let endings = ChordDraftEndingRecognizer.recognize(
+            strokes: allStrokes, chordFrame: chordFrame, pageLayout: pageLayout)
+        let repeats = ChordDraftEndingRecognizer.recognizeBarlinesExcludingEndings(
+            strokes: allStrokes,
             chordFrame: chordFrame,
             pageLayout: pageLayout
         )
         let promotedIndices = fullContext.barlineRecognitionWithUnambiguousSourceStrokes(repeats).strokeIndices
+            .union(fullContext.endingRecognitionWithUnambiguousSourceStrokes(endings).strokeIndices)
         guard !promotedIndices.isEmpty else { return visibleDrawingContext(from: drawing) }
         let included = fragments.indices.filter { isVisible(fragments[$0]) || promotedIndices.contains($0) }
         let keptOriginalIndices = included.map { originalIndices[$0] }
@@ -868,11 +896,12 @@ struct ChordPreviewState: Equatable {
 
     var draftChords: [ChordInkDraft] = []
     var draftBarlines: [DraftBarline] = []
+    var draftEndings: [DraftEnding] = []
     var layoutPageSize: CGSize?
     var updatedAt: Date?
 
     var isEmpty: Bool {
-        draftChords.isEmpty && draftBarlines.isEmpty
+        draftChords.isEmpty && draftBarlines.isEmpty && draftEndings.isEmpty
     }
 
     var renderableDraftChords: [ChordInkDraft] {
@@ -899,12 +928,15 @@ struct ChordPreviewState: Equatable {
         draftBarlines.count - renderableBarlines.count
     }
 
+    var renderableEndings: [DraftEnding] { draftEndings.filter(\.isRenderable) }
+    var unresolvedEndingCount: Int { draftEndings.count - renderableEndings.count }
+
     var canRenderAllDraftChords: Bool {
         !draftChords.isEmpty && unresolvedChordCount == 0
     }
 
     var canRenderAny: Bool {
-        canRenderAllDraftChords || !renderableBarlines.isEmpty
+        canRenderAllDraftChords || !renderableBarlines.isEmpty || !draftEndings.isEmpty
     }
 
     /// Review can recover a represented unread chord without granting it a
@@ -1169,6 +1201,26 @@ struct ChordPreviewState: Equatable {
         self.updatedAt = updatedAt
     }
 
+    mutating func replaceDraftEndings(with endings: [DraftEnding], updatedAt: Date = .now) {
+        let previous = Dictionary(draftEndings.map { ($0.identitySignature, $0) },
+            uniquingKeysWith: { first, _ in first })
+        draftEndings = endings.sorted { $0.visualOrder < $1.visualOrder }.map { ending in
+            var resolved = ending
+            if let old = previous[ending.identitySignature] {
+                resolved.id = old.id
+                resolved.label = old.label
+                resolved.endStyle = old.endStyle
+                resolved.isReviewed = old.isReviewed
+                resolved.reviewedSourceInkData = old.reviewedSourceInkData
+                resolved.reviewedMeasureRange = old.reviewedMeasureRange
+                resolved.reviewedRangeContext = old.reviewedRangeContext
+            }
+            return resolved
+        }
+        layoutPageSize = endings.compactMap(\.layoutPageSize).first ?? layoutPageSize
+        self.updatedAt = updatedAt
+    }
+
     @discardableResult
     mutating func removeDraftBarline(id: UUID, updatedAt: Date = .now) -> DraftBarline? {
         guard let index = draftBarlines.firstIndex(where: { $0.id == id }) else {
@@ -1183,6 +1235,7 @@ struct ChordPreviewState: Equatable {
     mutating func discard() {
         draftChords = []
         draftBarlines = []
+        draftEndings = []
         layoutPageSize = nil
         updatedAt = nil
     }
@@ -1723,6 +1776,7 @@ struct ChordInkDraftBatchRenderResult: Equatable {
     var renderedBarlineIDs: [UUID]
     var unresolvedDraftIDs: [UUID]
     var didRejectIncompleteSourceCoverage = false
+    var renderedEndingIDs: [UUID] = []
 
     var renderedChordCount: Int {
         renderedChordIDs.count
@@ -1731,6 +1785,8 @@ struct ChordInkDraftBatchRenderResult: Equatable {
     var renderedBarlineCount: Int {
         renderedBarlineIDs.count
     }
+
+    var renderedEndingCount: Int { renderedEndingIDs.count }
 }
 
 extension Chart {
@@ -1738,6 +1794,8 @@ extension Chart {
         var renderedBarlineIDs: [UUID]
         var segmentMeasureIDsByOriginalMeasureID: [UUID: [UUID]]
         var boundaryFractionsByOriginalMeasureID: [UUID: [Double]]
+        var sourceBoundaryFractionsByOriginalMeasureID: [UUID: [Double]] = [:]
+        var sourceRepeatBoundaries: [ChordInkRepeatSignCommitPolicy.Boundary] = []
         var unresolvedDraftIDs: [UUID]
     }
 
@@ -1763,20 +1821,24 @@ extension Chart {
     @discardableResult
     mutating func commitChordInkDraftBatch(
         _ state: ChordPreviewState,
-        barlineSpacingMode: ChordDraftBarlineSpacingMode = .drawn
+        barlineSpacingMode: ChordDraftBarlineSpacingMode = .drawn,
+        automaticContinuationSourceLayout: LeadSheetPageLayout? = nil
     ) -> ChordInkDraftBatchRenderResult {
         // Stage every measure/barline/chord mutation together. A changed source
         // or one invalid target cannot leave a partially rendered chart behind.
         var staged = self
-        let result = staged.applyChordInkDraftBatch(state, barlineSpacingMode: barlineSpacingMode)
+        let result = staged.applyChordInkDraftBatch(state, barlineSpacingMode: barlineSpacingMode,
+            automaticContinuationSourceLayout: automaticContinuationSourceLayout)
         guard !result.didRejectIncompleteSourceCoverage,
               result.unresolvedDraftIDs.isEmpty,
               state.unresolvedChordCount == 0,
-              state.unresolvedBarlineCount == 0 else {
+              state.unresolvedBarlineCount == 0,
+              state.unresolvedEndingCount == 0 else {
             let unresolved = Set(result.unresolvedDraftIDs)
                 .union(state.draftChords.filter { !$0.isRenderable }.map(\.id))
                 .union(state.draftBarlines.filter { !$0.isRenderable }.map(\.id))
-            let orderedDraftIDs = state.draftChords.map(\.id) + state.draftBarlines.map(\.id)
+                .union(state.draftEndings.filter { !$0.isRenderable }.map(\.id))
+            let orderedDraftIDs = state.draftChords.map(\.id) + state.draftBarlines.map(\.id) + state.draftEndings.map(\.id)
             return ChordInkDraftBatchRenderResult(
                 renderedChordIDs: [], renderedBarlineIDs: [],
                 unresolvedDraftIDs: orderedDraftIDs.filter { unresolved.contains($0) },
@@ -1789,7 +1851,8 @@ extension Chart {
 
     private mutating func applyChordInkDraftBatch(
         _ state: ChordPreviewState,
-        barlineSpacingMode: ChordDraftBarlineSpacingMode
+        barlineSpacingMode: ChordDraftBarlineSpacingMode,
+        automaticContinuationSourceLayout: LeadSheetPageLayout?
     ) -> ChordInkDraftBatchRenderResult {
         // A skipped/oversized target is not an empty patch of canvas. Nothing
         // may be materialized or globally cleared until every current visible
@@ -1799,6 +1862,24 @@ extension Chart {
                 renderedChordIDs: [], renderedBarlineIDs: [], unresolvedDraftIDs: [],
                 didRejectIncompleteSourceCoverage: true
             )
+        }
+        let invalidReviewedRanges = state.draftEndings.filter { ending in
+            guard ending.reviewedMeasureRange != nil || ending.reviewedRangeContext != nil else { return false }
+            guard let range = ending.reviewedMeasureRange, range.lowerBound > 0,
+                  let context = ending.reviewedRangeContext else { return true }
+            return !context.matches(chart: self, state: state)
+        }
+        guard invalidReviewedRanges.isEmpty else {
+            return ChordInkDraftBatchRenderResult(renderedChordIDs: [], renderedBarlineIDs: [],
+                unresolvedDraftIDs: invalidReviewedRanges.map(\.id))
+        }
+        let explicitRanges = state.draftEndings.filter { $0.reviewedMeasureRange != nil }
+        if !explicitRanges.isEmpty {
+            guard let count = draftEndingReviewMeasureCount(state: state),
+                  explicitRanges.allSatisfy({ ($0.reviewedMeasureRange?.upperBound ?? Int.max) <= count }) else {
+                return ChordInkDraftBatchRenderResult(renderedChordIDs: [], renderedBarlineIDs: [],
+                    unresolvedDraftIDs: explicitRanges.map(\.id))
+            }
         }
         let repeatReview = ChordInkRepeatSignPairingPolicy.review(state: state)
         guard repeatReview.canRender else {
@@ -1815,10 +1896,15 @@ extension Chart {
                 includesChordInkContinuationLanes: true
             )
         }
-        materializeSimpleChordDraftRowsIfNeeded(
+        guard materializeSimpleChordDraftRowsIfNeeded(
             for: state.renderableDraftChords,
-            barlines: renderableBarlines
-        )
+            barlines: renderableBarlines,
+            endings: state.draftEndings,
+            automaticContinuationSourceLayout: automaticContinuationSourceLayout
+        ) else {
+            return ChordInkDraftBatchRenderResult(renderedChordIDs: [], renderedBarlineIDs: [],
+                unresolvedDraftIDs: state.draftChords.map(\.id) + state.draftBarlines.map(\.id) + state.draftEndings.map(\.id))
+        }
         let commitLayout = state.layoutPageSize.map {
             LeadSheetPageLayoutEngine.pageLayout(
                 for: self,
@@ -1830,7 +1916,8 @@ extension Chart {
             renderableBarlines,
             spacingMode: barlineSpacingMode,
             sourcePageLayout: sourceLayout,
-            commitPageLayout: commitLayout
+            commitPageLayout: commitLayout,
+            requiresCompleteSplits: !state.draftEndings.isEmpty
         )
         guard barlinePlan.unresolvedDraftIDs.isEmpty else {
             return ChordInkDraftBatchRenderResult(
@@ -1889,7 +1976,8 @@ extension Chart {
                     to: measureID,
                     atFraction: renderTarget.fraction,
                     sourceInkData: draft.drawingData,
-                    sourceCandidateSignature: draft.sourceCandidateSignature
+                    sourceCandidateSignature: draft.sourceCandidateSignature,
+                    sourceRecognitionPipelineVersion: draft.recognitionResult?.fallbackPipelineVersion(for: previewText)
                   ) else {
                 unresolvedDraftIDs.append(draft.id)
                 continue
@@ -1903,45 +1991,276 @@ extension Chart {
             renderedChordIDs.append(chordEventID)
         }
 
+        let endingResult = commitDraftEndings(
+            state.draftEndings, sourcePageLayout: sourceLayout, commitPageLayout: commitLayout,
+            barlinePlan: barlinePlan
+        )
+        unresolvedDraftIDs.append(contentsOf: endingResult.unresolved)
+
         if unresolvedDraftIDs.isEmpty,
-           !renderedChordIDs.isEmpty || !barlinePlan.renderedBarlineIDs.isEmpty {
+           !renderedChordIDs.isEmpty || !barlinePlan.renderedBarlineIDs.isEmpty || !endingResult.rendered.isEmpty {
             _ = setPageHandwrittenChordDrawing(nil)
         }
 
         return ChordInkDraftBatchRenderResult(
             renderedChordIDs: renderedChordIDs,
             renderedBarlineIDs: barlinePlan.renderedBarlineIDs,
-            unresolvedDraftIDs: unresolvedDraftIDs
+            unresolvedDraftIDs: unresolvedDraftIDs,
+            renderedEndingIDs: endingResult.rendered
         )
     }
 
+    private mutating func commitDraftEndings(
+        _ endings: [DraftEnding], sourcePageLayout: LeadSheetPageLayout?,
+        commitPageLayout: LeadSheetPageLayout?, barlinePlan: ChordDraftBarlineCommitPlan
+    ) -> (rendered: [UUID], unresolved: [UUID]) {
+        guard !endings.isEmpty else { return ([], []) }
+        guard let sourcePageLayout, let commitPageLayout,
+              let sourceData = pageHandwrittenChordData,
+              let source = try? PKDrawing(data: sourceData) else { return ([], endings.map(\.id)) }
+        let finalIDs = measures.map(\.id)
+        let positions = Dictionary(uniqueKeysWithValues: finalIDs.enumerated().map { ($0.element, $0.offset) })
+
+
+        var rendered: [UUID] = [], unresolved: [UUID] = []
+        for ending in endings {
+            let startID: UUID?
+            let endID: UUID?
+            if let range = ending.reviewedMeasureRange {
+                let validRange = ending.reviewedRangeContext != nil && range.lowerBound > 0
+                    && range.upperBound <= finalIDs.count
+                startID = validRange ? finalIDs[range.lowerBound - 1] : nil
+                endID = validRange ? finalIDs[range.upperBound - 1] : nil
+            } else if ending.reviewedRangeContext != nil {
+                startID = nil
+                endID = nil
+            } else {
+                startID = draftEndingEndpointMeasureID(ending.start, isStart: true,
+                    sourcePageLayout: sourcePageLayout, commitPageLayout: commitPageLayout, barlinePlan: barlinePlan)
+                endID = draftEndingEndpointMeasureID(ending.end, isStart: false,
+                    sourcePageLayout: sourcePageLayout, commitPageLayout: commitPageLayout, barlinePlan: barlinePlan)
+            }
+            guard ending.isRenderable,
+                  let startID, let endID,
+                  let startIndex = positions[startID], let endIndex = positions[endID], startIndex <= endIndex,
+                  !ending.sourceStrokeIndices.isEmpty,
+                  ending.sourceStrokeIndices.allSatisfy({ source.strokes.indices.contains($0) }),
+                  !roadmapObjects.contains(where: {
+                      $0.type.isEnding && $0.startMeasureID == startID && $0.endMeasureID == endID
+                          && $0.resolvedEndingDisplayText == ending.normalizedLabel
+                          && $0.resolvedEndingEndStyle == ending.endStyle
+                  }),
+                  let endingID = addEndingSpan(.ending1, startMeasureID: startID, endMeasureID: endID,
+                    displayText: ending.normalizedLabel, endStyle: ending.endStyle),
+                  let objectIndex = roadmapObjects.firstIndex(where: { $0.id == endingID }) else {
+                unresolved.append(ending.id)
+                continue
+            }
+            roadmapObjects[objectIndex].sourceInkData = PKDrawing(strokes:
+                ending.sourceStrokeIndices.sorted().map { source.strokes[$0] }).dataRepresentation()
+            rendered.append(ending.id)
+        }
+        return (rendered, unresolved)
+    }
+
+    private func draftEndingEndpointMeasureID(
+        _ endpoint: DraftEndingEndpoint, isStart: Bool,
+        sourcePageLayout: LeadSheetPageLayout, commitPageLayout: LeadSheetPageLayout,
+        barlinePlan: ChordDraftBarlineCommitPlan
+    ) -> UUID? {
+        guard endpoint.fraction.isFinite, endpoint.laneLocation.fraction.isFinite,
+              let sourceSystem = sourcePageLayout.systems.first(where: {
+                  $0.index == endpoint.laneLocation.systemIndex
+              }),
+              let materializedSystem = commitPageLayout.systems.first(where: {
+                  $0.index == endpoint.laneLocation.systemIndex
+              }),
+              let laneFrame = LeadSheetActiveInkScope.chordWritingSystemLaneFrame(for: sourceSystem,
+                  paperFrame: sourcePageLayout.paperFrame(for: sourceSystem)) else { return nil }
+        let finalIDs = measures.map(\.id)
+        let positions = Dictionary(uniqueKeysWithValues: finalIDs.enumerated().map { ($0.element, $0.offset) })
+        var candidates: [ChordInkEndingCommitPolicy.PageBoundary] = []
+        let terminalRepeatOwnsRowEdge = LeadSheetSimpleChordTerminalBarlineGeometry.usesTerminalBarlineAsTrailingRepeatBoundary(
+            for: sourceSystem, paperFrame: sourcePageLayout.paperFrame(for: sourceSystem), layoutStyle: layoutStyle)
+
+        for (sourceIndex, measure) in sourceSystem.measures.enumerated() {
+            let materializedID: UUID?
+            if let sourceID = measure.sourceMeasureID {
+                materializedID = sourceID
+            } else if materializedSystem.measures.indices.contains(sourceIndex) {
+                let materialized = materializedSystem.measures[sourceIndex]
+                materializedID = materialized.sourceMeasureID ?? materialized.chordInkTargetMeasureID
+            } else {
+                materializedID = nil
+            }
+            guard let materializedID else { continue }
+            let segments = barlinePlan.segmentMeasureIDsByOriginalMeasureID[materializedID] ?? [materializedID]
+            let fractions = barlinePlan.sourceBoundaryFractionsByOriginalMeasureID[materializedID] ?? []
+            guard !segments.isEmpty, segments.count == fractions.count + 1,
+                  let firstPosition = segments.first.flatMap({ positions[$0] }),
+                  let lastPosition = segments.last.flatMap({ positions[$0] }) else { continue }
+            let display = LeadSheetSimpleChordTerminalBarlineGeometry.displayMeasure(measure,
+                in: sourceSystem, paperFrame: sourcePageLayout.paperFrame(for: sourceSystem), layoutStyle: layoutStyle)
+            let frame = chordDraftBarlineSegmentFrame(for: display)
+            func boundary(at index: Int, ranges: [ClosedRange<CGFloat>]) -> ChordInkEndingCommitPolicy.PageBoundary {
+                let left: UUID? = index > 0 ? segments[index - 1]
+                    : (firstPosition > 0 ? finalIDs[firstPosition - 1] : nil)
+                let right: UUID? = index < segments.count ? segments[index]
+                    : (lastPosition + 1 < finalIDs.count ? finalIDs[lastPosition + 1] : nil)
+                return .init(leftMeasureID: left, rightMeasureID: right, sourceRanges: ranges)
+            }
+            candidates.append(boundary(at: 0, ranges: [frame.minX...frame.minX]))
+            for (index, fraction) in fractions.enumerated() {
+                let x = frame.minX + frame.width * CGFloat(fraction)
+                candidates.append(boundary(at: index + 1, ranges: [x...x]))
+            }
+            // A closing repeat may be painted at the row edge across an empty
+            // open continuation. That visible glyph still belongs to the
+            // preceding measure, not the continuation's extended writing box.
+            let isUnpaintedContinuationEdge = terminalRepeatOwnsRowEdge
+                && sourceSystem.measures.last?.id == measure.id && measure.isOpen
+                && measure.repeatMarkerLayouts.isEmpty
+            if !isUnpaintedContinuationEdge {
+                candidates.append(boundary(at: segments.count, ranges: [frame.maxX...frame.maxX]))
+            }
+
+            for marker in measure.repeatMarkerLayouts {
+                let metrics = LeadSheetRepeatReadabilityMetrics(chart: self, staffHeight: marker.frame.height)
+                let terminalLineX = marker.edge == .trailing
+                    ? LeadSheetSimpleChordTerminalBarlineGeometry.terminalTrailingRepeatLineX(after: measure,
+                        in: sourceSystem, paperFrame: sourcePageLayout.paperFrame(for: sourceSystem), layoutStyle: layoutStyle)
+                    : nil
+                let trailingLineX = terminalLineX ?? marker.frame.midX + metrics.separation / 2
+                let leadingLineX = terminalLineX.map { $0 - metrics.separation }
+                    ?? marker.frame.midX - metrics.separation / 2
+                var lower = leadingLineX - metrics.lineWidth / 2
+                var upper = trailingLineX + metrics.lineWidth / 2
+                if marker.edge == .trailing {
+                    lower = min(lower, leadingLineX - metrics.dotOffset - metrics.dotRadius)
+                    if repeatWings {
+                        lower = min(lower, trailingLineX - metrics.wingLength - metrics.wingLineWidth / 2)
+                    }
+                } else {
+                    upper = max(upper, trailingLineX + metrics.dotOffset + metrics.dotRadius)
+                    if repeatWings {
+                        upper = max(upper, leadingLineX + metrics.wingLength + metrics.wingLineWidth / 2)
+                    }
+                }
+                candidates.append(boundary(at: marker.edge == .leading ? 0 : segments.count,
+                    ranges: [lower...upper]))
+            }
+        }
+        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: sourcePageLayout)
+        for boundary in barlinePlan.sourceRepeatBoundaries where
+            boundary.draft.laneLocation?.systemIndex == endpoint.laneLocation.systemIndex {
+            guard !boundary.draft.sourceStrokeGeometry.isEmpty else { continue }
+            let bounds = InkBounds.enclosing(boundary.draft.sourceStrokeGeometry.map(\.bounds))
+            guard bounds.minX.isFinite, bounds.maxX.isFinite,
+                  bounds.minX <= bounds.maxX, bounds.width <= Double(laneFrame.width) else { continue }
+            let lower = CGFloat(bounds.minX) + chordFrame.minX
+            let upper = CGFloat(bounds.maxX) + chordFrame.minX
+            candidates.append(.init(leftMeasureID: boundary.leftMeasureID,
+                rightMeasureID: boundary.rightMeasureID, sourceRanges: [lower...upper]))
+        }
+        let sourceX = laneFrame.minX + laneFrame.width * CGFloat(endpoint.laneLocation.fraction)
+        return ChordInkEndingCommitPolicy.measureID(atSourceX: sourceX, boundaries: candidates, isStart: isStart)
+    }
+
+    /// A temporary split plan gives review the same musical range that commit
+    /// will use. Neither chart fields nor source ink change during this query.
+    func draftEndingMeasureRange(
+        for ending: DraftEnding, state: ChordPreviewState, ignoringReviewedRange: Bool = false
+    ) -> ClosedRange<Int>? {
+        guard state.draftEndings.contains(where: { $0.identitySignature == ending.identitySignature }),
+              let mapping = stagedDraftEndingMapping(state: state) else { return nil }
+        if !ignoringReviewedRange, ending.reviewedMeasureRange != nil || ending.reviewedRangeContext != nil {
+            guard let range = ending.reviewedMeasureRange, range.lowerBound > 0,
+                  range.upperBound <= mapping.chart.measures.count,
+                  let context = ending.reviewedRangeContext, context.matches(chart: self, state: state) else { return nil }
+            return range
+        }
+        guard let start = mapping.chart.draftEndingEndpointMeasureID(ending.start, isStart: true,
+                sourcePageLayout: mapping.sourceLayout, commitPageLayout: mapping.materializedLayout, barlinePlan: mapping.plan),
+              let end = mapping.chart.draftEndingEndpointMeasureID(ending.end, isStart: false,
+                sourcePageLayout: mapping.sourceLayout, commitPageLayout: mapping.materializedLayout, barlinePlan: mapping.plan),
+              let startIndex = mapping.chart.measures.firstIndex(where: { $0.id == start }),
+              let endIndex = mapping.chart.measures.firstIndex(where: { $0.id == end }), startIndex <= endIndex else { return nil }
+        return (startIndex + 1)...(endIndex + 1)
+    }
+
+    func draftEndingReviewMeasureCount(state: ChordPreviewState) -> Int? {
+        stagedDraftEndingMapping(state: state)?.chart.measures.count
+    }
+
+    private func stagedDraftEndingMapping(state: ChordPreviewState) -> (
+        chart: Chart, sourceLayout: LeadSheetPageLayout, materializedLayout: LeadSheetPageLayout,
+        plan: ChordDraftBarlineCommitPlan
+    )? {
+        guard let pageSize = state.layoutPageSize,
+              pageSize.width.isFinite, pageSize.height.isFinite,
+              pageSize.width > 0, pageSize.height > 0 else { return nil }
+        let sourceLayout = LeadSheetPageLayoutEngine.pageLayout(for: self, pageSize: pageSize,
+            includesChordInkContinuationLanes: true)
+        var staged = self
+        guard staged.materializeSimpleChordDraftRowsIfNeeded(for: state.draftChords,
+            barlines: state.renderableBarlines, endings: state.draftEndings) else { return nil }
+        let materializedLayout = LeadSheetPageLayoutEngine.pageLayout(for: staged, pageSize: pageSize,
+            includesChordInkContinuationLanes: true)
+        let plan = staged.commitDraftBarlinesBeforeChordRender(state.renderableBarlines,
+            spacingMode: .drawn, sourcePageLayout: sourceLayout,
+            commitPageLayout: materializedLayout, requiresCompleteSplits: true)
+        guard plan.unresolvedDraftIDs.isEmpty else { return nil }
+        return (staged, sourceLayout, materializedLayout, plan)
+    }
+
+    @discardableResult
     private mutating func materializeSimpleChordDraftRowsIfNeeded(
         for drafts: [ChordInkDraft],
-        barlines: [DraftBarline] = []
-    ) {
+        barlines: [DraftBarline] = [],
+        endings: [DraftEnding] = [],
+        automaticContinuationSourceLayout: LeadSheetPageLayout? = nil
+    ) -> Bool {
         guard layoutStyle == .simpleChordSheet,
               let targetSystemIndex = (
                 drafts.compactMap { $0.laneLocation?.systemIndex }
                     + barlines.compactMap { $0.laneLocation?.systemIndex }
+                    + endings.flatMap { [$0.start.laneLocation.systemIndex, $0.end.laneLocation.systemIndex] }
               ).max(),
               targetSystemIndex > 0 else {
-            return
+            return true
         }
 
         while systems.count <= targetSystemIndex {
-            guard materializeNextSimpleChordDraftRow() else {
-                return
+            guard materializeNextSimpleChordDraftRow(
+                automaticContinuationSourceLayout: automaticContinuationSourceLayout
+            ) else {
+                return false
             }
         }
+        return true
     }
 
-    private mutating func materializeNextSimpleChordDraftRow() -> Bool {
+    private mutating func materializeNextSimpleChordDraftRow(
+        automaticContinuationSourceLayout: LeadSheetPageLayout?
+    ) -> Bool {
         guard layoutStyle == .simpleChordSheet else {
             return false
         }
 
         let newOpenMeasureID: UUID
-        if measures.contains(where: { $0.authoringState == .open }) {
+        var closingSource: (measureID: UUID, frame: CGRect, chordBandFrame: CGRect)?
+        if let openMeasure = measures.first(where: { $0.authoringState == .open }) {
+            if let sourceLayout = automaticContinuationSourceLayout {
+                guard let source = automaticContinuationSourceMeasure(for: openMeasure.id,
+                    sourceLayout: sourceLayout) else { return false }
+                closingSource = (openMeasure.id, source.measure.frame, source.measure.chordBandFrame)
+                if openMeasure.manualLayoutWidth == nil {
+                    guard preserveAutomaticContinuationWidth(for: openMeasure.id,
+                        sourceSystem: source.system, sourceMeasure: source.measure, sourceLayout: sourceLayout) else {
+                        return false
+                    }
+                }
+            }
             guard let committedOpenMeasureID = commitOpenMeasure(barlineAfter: .single) else {
                 return false
             }
@@ -1950,7 +2269,74 @@ extension Chart {
             newOpenMeasureID = appendMeasure(authoringState: .open)
         }
 
-        return insertSimpleSystemBreak(before: newOpenMeasureID)
+        guard insertSimpleSystemBreak(before: newOpenMeasureID) else { return false }
+        if let sourceLayout = automaticContinuationSourceLayout, let closingSource {
+            let committedLayout = LeadSheetPageLayoutEngine.pageLayout(for: self,
+                pageSize: sourceLayout.pageBounds.size, includesChordInkContinuationLanes: true)
+            guard let committedMeasure = committedLayout.systems.flatMap(\.measures).first(where: {
+                $0.sourceMeasureID == closingSource.measureID
+            }), automaticContinuationFramesMatch(closingSource.frame, committedMeasure.frame),
+                automaticContinuationFramesMatch(closingSource.chordBandFrame, committedMeasure.chordBandFrame) else {
+                // Custom width intent and overfull row weights remain intact.
+                // If they cannot retain the displayed source geometry, reject
+                // this staged transaction instead of silently contracting it.
+                return false
+            }
+        }
+        return true
+    }
+
+    /// Opening a continuation lane closes the previous open measure. Its
+    /// default compact width must not replace the width on which the visible
+    /// automatic glyph fractions were authored. This runs only inside the
+    /// explicitly requested automatic value transaction; custom widths retain
+    /// their authority and ordinary manual rendering keeps its existing path.
+    private mutating func preserveAutomaticContinuationWidth(
+        for measureID: UUID, sourceSystem: LeadSheetSystemLayout,
+        sourceMeasure: LeadSheetMeasureLayout, sourceLayout: LeadSheetPageLayout
+    ) -> Bool {
+        let width = sourceMeasure.frame.width
+        guard width.isFinite, width > 0 else { return false }
+        let storedWidth = LeadSheetPageLayoutEngine.simpleChordSheetManualLayoutWidthForTargetRowWidth(
+            width, chart: self, maxSystemWidth: sourceLayout.paperFrame(for: sourceSystem).width - 68)
+        guard storedWidth.isFinite,
+              storedWidth >= Measure.minimumManualLayoutWidth,
+              storedWidth <= Measure.maximumManualLayoutWidth else { return false }
+        return setMeasureManualLayoutWidth(storedWidth, for: measureID) != nil
+    }
+
+    private func automaticContinuationSourceMeasure(
+        for measureID: UUID, sourceLayout: LeadSheetPageLayout
+    ) -> (system: LeadSheetSystemLayout, measure: LeadSheetMeasureLayout)? {
+        // A model system can be packed into more than one displayed row.
+        // Existing measure identity is the authority before any row-index
+        // fallback for an ID which has not been materialized in the source.
+        let realMatches = sourceLayout.systems.flatMap { system in
+            system.measures.compactMap { measure -> (LeadSheetSystemLayout, LeadSheetMeasureLayout)? in
+                measure.sourceMeasureID == measureID ? (system, measure) : nil
+            }
+        }
+        if realMatches.count == 1, let real = realMatches.first { return real }
+        guard realMatches.isEmpty else { return nil }
+        guard let systemIndex = systems.firstIndex(where: { system in
+            system.measures.contains { $0.id == measureID }
+        }), let sourceSystem = sourceLayout.systems.first(where: { $0.index == systemIndex }) else { return nil }
+        // One batch may materialize several virtual continuation rows. Their
+        // future measure IDs do not yet exist in the source layout; use the
+        // verified single open ghost lane at the matching index.
+        let sourceOpenIDs = Set(sourceLayout.systems.flatMap(\.measures).compactMap {
+            $0.isOpen ? $0.sourceMeasureID : nil
+        })
+        guard sourceSystem.measures.count == 1,
+              let ghost = sourceSystem.measures.first, ghost.sourceMeasureID == nil,
+              let originalOpenID = ghost.chordInkTargetMeasureID,
+              sourceOpenIDs.contains(originalOpenID) else { return nil }
+        return (sourceSystem, ghost)
+    }
+
+    private func automaticContinuationFramesMatch(_ first: CGRect, _ second: CGRect) -> Bool {
+        abs(first.minX - second.minX) < 0.01 && abs(first.minY - second.minY) < 0.01
+            && abs(first.width - second.width) < 0.01 && abs(first.height - second.height) < 0.01
     }
 
     @discardableResult
@@ -1996,13 +2382,15 @@ extension Chart {
         _ barlines: [DraftBarline],
         spacingMode: ChordDraftBarlineSpacingMode,
         sourcePageLayout: LeadSheetPageLayout?,
-        commitPageLayout: LeadSheetPageLayout?
+        commitPageLayout: LeadSheetPageLayout?,
+        requiresCompleteSplits: Bool = false
     ) -> ChordDraftBarlineCommitPlan {
-        let hasRepeatDrafts = barlines.contains { $0.kind.isRepeat }
+        let hasRepeatDrafts = requiresCompleteSplits || barlines.contains { $0.kind.isRepeat }
         var renderedBarlineIDs = [UUID]()
         var unresolvedDraftIDs = [UUID]()
         var segmentMeasureIDsByOriginalMeasureID = [UUID: [UUID]]()
         var boundaryFractionsByOriginalMeasureID = [UUID: [Double]]()
+        var sourceBoundaryFractionsByOriginalMeasureID = [UUID: [Double]]()
         var repeatBoundaries = [ChordInkRepeatSignCommitPolicy.Boundary]()
         var endpointRepeats = [(draft: DraftBarline, placement: ChordInkRepeatSignCommitPolicy.BoundaryPlacement)]()
         let resolution = resolvedDraftBarlinesForCommit(
@@ -2041,6 +2429,7 @@ extension Chart {
             }
             segmentMeasureIDsByOriginalMeasureID[measureID] = [measureID]
             boundaryFractionsByOriginalMeasureID[measureID] = []
+            sourceBoundaryFractionsByOriginalMeasureID[measureID] = []
             let boundaryFractions = spacingMode.boundaryFractions(for: splitBarlines.map(\.fraction))
             var previousBoundaryFraction = Double(0)
 
@@ -2067,6 +2456,7 @@ extension Chart {
                 }
                 segmentMeasureIDsByOriginalMeasureID[measureID, default: [measureID]].append(newSegmentMeasureID)
                 boundaryFractionsByOriginalMeasureID[measureID, default: []].append(boundaryFraction)
+                sourceBoundaryFractionsByOriginalMeasureID[measureID, default: []].append(barline.fraction)
                 previousBoundaryFraction = boundaryFraction
                 if barline.kind.isRepeat {
                     repeatBoundaries.append(.init(draft: barline,
@@ -2125,6 +2515,8 @@ extension Chart {
                 return ChordDraftBarlineCommitPlan(renderedBarlineIDs: [],
                     segmentMeasureIDsByOriginalMeasureID: segmentMeasureIDsByOriginalMeasureID,
                     boundaryFractionsByOriginalMeasureID: boundaryFractionsByOriginalMeasureID,
+                    sourceBoundaryFractionsByOriginalMeasureID: sourceBoundaryFractionsByOriginalMeasureID,
+                    sourceRepeatBoundaries: repeatBoundaries,
                     unresolvedDraftIDs: repeatBoundaries.map { $0.draft.id })
             }
             for span in repeatPlan.spans {
@@ -2152,6 +2544,8 @@ extension Chart {
             renderedBarlineIDs: renderedBarlineIDs.filter { seenRendered.insert($0).inserted },
             segmentMeasureIDsByOriginalMeasureID: segmentMeasureIDsByOriginalMeasureID,
             boundaryFractionsByOriginalMeasureID: boundaryFractionsByOriginalMeasureID,
+            sourceBoundaryFractionsByOriginalMeasureID: sourceBoundaryFractionsByOriginalMeasureID,
+            sourceRepeatBoundaries: repeatBoundaries,
             unresolvedDraftIDs: unresolvedDraftIDs.filter { seenUnresolved.insert($0).inserted }
         )
     }

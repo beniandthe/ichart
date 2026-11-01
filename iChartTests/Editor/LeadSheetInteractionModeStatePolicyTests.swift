@@ -4520,7 +4520,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
     }
 
     func testWritingToolNamesExplainTheirPurposeWithoutChangingInputRoutingOrTelemetry() {
-        XCTAssertEqual(EditorCanvasMode.chordEntry.activeToolInstruction, "Write chords and barlines in the blue lanes.")
+        XCTAssertEqual(EditorCanvasMode.chordEntry.activeToolInstruction, "Write chords, barlines, and endings in the blue lanes.")
         XCTAssertEqual(EditorCanvasMode.freeHand.activeToolInstruction, "Draw notes and marks that stay as handwriting.")
         XCTAssertTrue(EditorCanvasMode.chordEntry.allowsChordInkEditing)
         XCTAssertFalse(EditorCanvasMode.chordEntry.allowsPageInkEditing)

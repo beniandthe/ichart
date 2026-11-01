@@ -7,17 +7,20 @@ struct RenderedEditContext {
     var layoutStyle: ChartLayoutStyle
     var selection: RenderedEditSelectionState
     var committedChordBarlineMeasures: [LeadSheetMeasureLayout]
+    var screenPointsPerDisplayedPoint: CGFloat
 
     init(
         pageLayout: LeadSheetPageLayout,
         layoutStyle: ChartLayoutStyle = .leadSheet,
         selection: RenderedEditSelectionState = RenderedEditSelectionState(),
-        committedChordBarlineMeasures: [LeadSheetMeasureLayout] = []
+        committedChordBarlineMeasures: [LeadSheetMeasureLayout] = [],
+        screenPointsPerDisplayedPoint: CGFloat = 1
     ) {
         self.pageLayout = pageLayout
         self.layoutStyle = layoutStyle
         self.selection = selection
         self.committedChordBarlineMeasures = committedChordBarlineMeasures
+        self.screenPointsPerDisplayedPoint = screenPointsPerDisplayedPoint
     }
 }
 
@@ -392,18 +395,36 @@ struct RepeatSpanRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
 
 struct EndingSpanRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
     func hitTargets(in context: RenderedEditContext) -> [RenderedEditHitTarget] {
-        context.pageLayout.systems.flatMap { system in
+        var targets = context.pageLayout.systems.flatMap { system in
             system.endingLayouts.map { ending in
-                RenderedEditHitTarget(
+                let selected = context.selection.contains(.endingSpan(ending.roadmapObjectID))
+                return RenderedEditHitTarget(
                     objectID: .endingSpan(ending.roadmapObjectID),
-                    action: .openInspector,
+                    action: selected ? .openInspector : .select,
                     priority: .objectBodySelect,
                     frame: ending.frame.insetBy(dx: -6, dy: -8),
-                    requiresSelection: false,
+                    requiresSelection: selected,
                     mutationRisk: .nonMutating
                 )
             }
         }
+        guard case .endingSpan(let endingID) = context.selection.selectedObjectID else { return targets }
+        for controls in LeadSheetEndingEditOverlay.controlFrames(for: endingID, in: context.pageLayout,
+            screenPointsPerDisplayedPoint: context.screenPointsPerDisplayedPoint) {
+            func control(_ frame: CGRect, action: RenderedEditAction, priority: RenderedEditHitPriority) {
+                targets.append(RenderedEditHitTarget(objectID: .endingSpan(endingID), action: action,
+                    priority: priority, frame: frame, requiresSelection: true, mutationRisk: .structural))
+                // A tap on a visible drag control keeps its selection instead
+                // of activating a chart object painted beneath the chip.
+                targets.append(RenderedEditHitTarget(objectID: .endingSpan(endingID), action: .select,
+                    priority: priority, frame: frame, requiresSelection: true, mutationRisk: .nonMutating))
+            }
+            control(controls.moveHandle, action: .move, priority: .selectedObjectEditControl)
+            if let length = controls.lengthenHandle {
+                control(length, action: .resizeTrailing, priority: .selectedObjectResizeHandle)
+            }
+        }
+        return targets
     }
 }
 

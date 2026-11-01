@@ -380,13 +380,22 @@ private enum IChartTypingAccessory {
 /// Finger scrolling uses UIKit's native pan. A separate Pencil pan starts only
 /// outside owned text controls so it cannot compete with field-bound Scribble.
 struct IChartTypedSheetScrollSupport: UIViewRepresentable {
-    func makeUIView(context: Context) -> ScrollMarker { ScrollMarker() }
+    var monitorsKeyboardReachability = false
+
+    func makeUIView(context: Context) -> ScrollMarker {
+        let view = ScrollMarker()
+        view.monitorsKeyboardReachability = monitorsKeyboardReachability
+        return view
+    }
     func updateUIView(_ view: ScrollMarker, context: Context) {
+        view.monitorsKeyboardReachability = monitorsKeyboardReachability
         DispatchQueue.main.async { [weak view] in view?.configureScrollView() }
     }
     static func dismantleUIView(_ view: ScrollMarker, coordinator: ()) { view.detachScrollView() }
 
     final class ScrollMarker: UIView, UIGestureRecognizerDelegate {
+        var monitorsKeyboardReachability = false
+        private var keyboardContractProbe: ChartKeyboardContractProbe?
         private weak var scrollView: UIScrollView?
         private var originalPanTouchTypes: [NSNumber]?
         private var startingOffset = CGPoint.zero
@@ -409,6 +418,7 @@ struct IChartTypedSheetScrollSupport: UIViewRepresentable {
                 if let scrollView = view as? UIScrollView {
                     guard self.scrollView !== scrollView else {
                         pencilPan.isEnabled = scrollView.isScrollEnabled
+                        updateKeyboardContractProbe(for: scrollView)
                         return
                     }
                     detachScrollView()
@@ -419,13 +429,26 @@ struct IChartTypedSheetScrollSupport: UIViewRepresentable {
                         .filter { $0 != pencil }
                     scrollView.addGestureRecognizer(pencilPan)
                     pencilPan.isEnabled = scrollView.isScrollEnabled
+                    updateKeyboardContractProbe(for: scrollView)
                     return
                 }
                 ancestor = view.superview
             }
         }
 
+        private func updateKeyboardContractProbe(for scrollView: UIScrollView) {
+            if monitorsKeyboardReachability {
+                if keyboardContractProbe == nil { keyboardContractProbe = ChartKeyboardContractProbe(scrollView: scrollView) }
+                keyboardContractProbe?.requestObservation()
+            } else {
+                keyboardContractProbe?.stop()
+                keyboardContractProbe = nil
+            }
+        }
+
         func detachScrollView() {
+            keyboardContractProbe?.stop()
+            keyboardContractProbe = nil
             if let scrollView {
                 scrollView.removeGestureRecognizer(pencilPan)
                 if let originalPanTouchTypes { scrollView.panGestureRecognizer.allowedTouchTypes = originalPanTouchTypes }
@@ -471,5 +494,61 @@ struct IChartTypedSheetScrollSupport: UIViewRepresentable {
                 break
             }
         }
+    }
+}
+
+/// A layout-neutral marker for explicitly required review actions. Its title,
+/// accessibility text and callback are deliberately outside diagnostic capture.
+struct ChartKeyboardActionTelemetryMarker: UIViewRepresentable {
+    var isRequired: Bool
+    var isEnabled: Bool
+
+    func makeUIView(context: Context) -> ChartKeyboardActionProbeView {
+        let view = ChartKeyboardActionProbeView()
+        view.isUserInteractionEnabled = false
+        view.isAccessibilityElement = false
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ view: ChartKeyboardActionProbeView, context: Context) {
+        view.isRequiredForKeyboardTelemetry = isRequired
+        view.isEnabledForKeyboardTelemetry = isEnabled
+    }
+}
+
+final class ChartKeyboardActionProbeView: UIView {
+    static let stateChangedNotification = Notification.Name("iChart.keyboardContractActionChanged")
+    var isRequiredForKeyboardTelemetry = false {
+        didSet {
+            if oldValue != isRequiredForKeyboardTelemetry { notifyContractChange() }
+        }
+    }
+    var isEnabledForKeyboardTelemetry = true {
+        didSet {
+            if oldValue != isEnabledForKeyboardTelemetry, isRequiredForKeyboardTelemetry { notifyContractChange() }
+        }
+    }
+    private var lastTelemetryFrame: CGRect?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard isRequiredForKeyboardTelemetry, let window, IChartTelemetry.isRecordingEnabled else { return }
+        let current = convert(bounds, to: window)
+        if lastTelemetryFrame != current {
+            lastTelemetryFrame = current
+            notifyContractChange()
+        }
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        lastTelemetryFrame = nil
+        if isRequiredForKeyboardTelemetry { notifyContractChange() }
+    }
+
+    private func notifyContractChange() {
+        guard IChartTelemetry.isRecordingEnabled else { return }
+        NotificationCenter.default.post(name: Self.stateChangedNotification, object: self)
     }
 }
