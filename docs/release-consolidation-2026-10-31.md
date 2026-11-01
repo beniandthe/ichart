@@ -55,7 +55,9 @@ ensures a real software keyboard and restores the original host keyboard and
 simulator accessibility preferences, including absence and integer/boolean
 values, on success, failure and cancellation. Keyboard telemetry tests use real
 first-responder/keyboard transitions and await queue cleanup before removing
-fixtures.
+fixtures. Review-action tests wait for stable layout and presentation geometry
+before initiating their separate scroll, so visibility during focus motion does
+not count as a settled viewport.
 
 Fresh hosted validation is recorded with the consolidation pull request. Private device receipts retain complete before/after inventories;
 raw chart/ink data, physical-device identifiers and local operator configuration

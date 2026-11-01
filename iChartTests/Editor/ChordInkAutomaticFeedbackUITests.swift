@@ -206,8 +206,10 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
     private func assertSoftwareKeyboardViewport(for field: IChartTypedUITextField,
         keyboard: FeedbackSoftwareKeyboardProbe, in mounted: Mounted) async throws {
         var stableSamples = 0
+        var previousGeometry: ReviewViewportGeometry?
         var diagnostics = ""
-        for _ in 0..<60 {
+        var samples: [String] = []
+        for sample in 0..<60 {
             mounted.window.layoutIfNeeded()
             let fieldFrame = field.convert(field.bounds, to: mounted.window)
             let scroll = ancestorScrollView(of: field)
@@ -216,17 +218,37 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
             let aboveKeyboard = CGRect(x: mounted.window.bounds.minX, y: mounted.window.bounds.minY,
                 width: mounted.window.bounds.width, height: max(0, keyboardFrame.minY - mounted.window.bounds.minY))
             let usable = scrollFrame.intersection(aboveKeyboard)
+            let geometry = ReviewViewportGeometry(
+                field: fieldFrame, presentedField: presentationFrame(of: field, in: mounted.window),
+                scroll: scrollFrame, scrollBounds: scroll?.bounds ?? .null,
+                presentedScrollBounds: scroll?.layer.presentation()?.bounds ?? .null,
+                contentSize: scroll?.contentSize ?? .zero, inset: scroll?.adjustedContentInset ?? .zero,
+                keyboard: keyboardFrame)
             let passes = field.isFirstResponder && keyboardFrame.height >= 180
                 && !usable.isNull && usable.height >= 120
                 && usable.insetBy(dx: -1, dy: -1).contains(fieldFrame)
                 && fieldFrame.maxY <= keyboardFrame.minY - 2
-            stableSamples = passes ? stableSamples + 1 : 0
-            if stableSamples >= 2 { return }
-            diagnostics = "field=\(fieldFrame), scroll=\(scrollFrame), usable=\(usable), keyboard=\(keyboardFrame), focused=\(field.isFirstResponder), notifications=\(keyboard.diagnostics)"
+            // A row can be fully visible while SwiftUI is still moving its
+            // focus scroll. Observe both rendering and layout over successive
+            // frames before the fixture initiates its separate action scroll.
+            // Visibility alone previously accepted the middle of that motion.
+            let settled = geometry == previousGeometry && geometry.modelAndPresentationAgree
+            stableSamples = passes && settled ? stableSamples + 1 : 0
+            previousGeometry = geometry
+            diagnostics = "field=\(fieldFrame), presentedField=\(geometry.presentedField), scroll=\(scrollFrame), usable=\(usable), keyboard=\(keyboardFrame), focused=\(field.isFirstResponder), settled=\(settled), geometry=\(scroll.map(scrollAnimationDiagnostics) ?? "none")"
+            samples.append("sample \(sample), t=\(ProcessInfo.processInfo.systemUptime), \(diagnostics)")
+            if stableSamples >= 3 {
+                let attachment = XCTAttachment(string: samples.joined(separator: "\n")
+                    + "\nKeyboard notifications:\n" + keyboard.diagnostics)
+                attachment.name = "Landscape keyboard - focused entry scroll geometry - " + (field.text ?? "nil")
+                attachment.lifetime = .keepAlways
+                add(attachment)
+                return
+            }
             try await Task.sleep(nanoseconds: 50_000_000)
         }
         attachSoftwareKeyboardScreen(mounted.window, name: "Landscape keyboard - clipped entry or collapsed viewport")
-        XCTFail("Focused entry must be fully above the real software keyboard with at least 120 points of usable scrolling: \(diagnostics)")
+        XCTFail("Focused entry must settle fully above the real software keyboard with at least 120 points of usable scrolling: \(diagnostics). Notifications: \(keyboard.diagnostics)")
         throw Failure.missingReview
     }
 
@@ -238,7 +260,7 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
                 .enumerated().map { index, field in
                     "field[\(index)]:focused=\(field.isFirstResponder),frame=\(field.convert(field.bounds, to: mounted.window))"
                 }.joined(separator: "; ")
-            diagnostics.append("\(stage): t=\(ProcessInfo.processInfo.systemUptime), offset=\(scroll.contentOffset), content=\(scroll.contentSize), bounds=\(scroll.bounds), scrollFrame=\(scroll.convert(scroll.bounds, to: mounted.window)), inset=\(scroll.adjustedContentInset), legalMax=\(max(-scroll.adjustedContentInset.top, scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom)), keyboard=\(String(describing: keyboard.frame(in: mounted.window))), action=\(String(describing: actionFrame)), tracking=\(scroll.isTracking), dragging=\(scroll.isDragging), decelerating=\(scroll.isDecelerating), diagnosticsOn=\(IChartTelemetry.isRecordingEnabled), \(fields)")
+            diagnostics.append("\(stage): t=\(ProcessInfo.processInfo.systemUptime), offset=\(scroll.contentOffset), content=\(scroll.contentSize), bounds=\(scroll.bounds), scrollFrame=\(scroll.convert(scroll.bounds, to: mounted.window)), inset=\(scroll.adjustedContentInset), legalMax=\(max(-scroll.adjustedContentInset.top, scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom)), keyboard=\(String(describing: keyboard.frame(in: mounted.window))), action=\(String(describing: actionFrame)), tracking=\(scroll.isTracking), dragging=\(scroll.isDragging), decelerating=\(scroll.isDecelerating), diagnosticsOn=\(IChartTelemetry.isRecordingEnabled), animation=\(scrollAnimationDiagnostics(scroll)), \(fields)")
         }
         func attachTrace(_ result: String) {
             let attachment = XCTAttachment(string: "Result=\(result), action=\(label)\n" + diagnostics.joined(separator: "\n")
@@ -293,6 +315,40 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
         attachSoftwareKeyboardScreen(mounted.window, name: "Landscape keyboard - review action not reachable")
         XCTFail("Scrolling must make \(label) visible and tappable above the software keyboard")
         throw Failure.missingReview
+    }
+
+    private func scrollAnimationDiagnostics(_ scroll: UIScrollView) -> String {
+        let layers = [scroll.layer] + (scroll.layer.sublayers ?? [])
+        let animations = layers.flatMap { layer in
+            (layer.animationKeys() ?? []).map { "\(type(of: layer)).\($0)" }
+        }
+        return "model=\(scroll.bounds), presentation=\(String(describing: scroll.layer.presentation()?.bounds)), animations=\(animations)"
+    }
+
+    private func presentationFrame(of view: UIView, in window: UIWindow) -> CGRect {
+        guard let layer = view.layer.presentation(), let windowLayer = window.layer.presentation() else { return .null }
+        return layer.convert(layer.bounds, to: windowLayer)
+    }
+
+    private struct ReviewViewportGeometry: Equatable {
+        let field: CGRect
+        let presentedField: CGRect
+        let scroll: CGRect
+        let scrollBounds: CGRect
+        let presentedScrollBounds: CGRect
+        let contentSize: CGSize
+        let inset: UIEdgeInsets
+        let keyboard: CGRect
+
+        var modelAndPresentationAgree: Bool {
+            nearlyEqual(field, presentedField) && nearlyEqual(scrollBounds, presentedScrollBounds)
+        }
+
+        private func nearlyEqual(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
+            !lhs.isNull && !rhs.isNull && abs(lhs.minX - rhs.minX) < 0.5
+                && abs(lhs.minY - rhs.minY) < 0.5 && abs(lhs.width - rhs.width) < 0.5
+                && abs(lhs.height - rhs.height) < 0.5
+        }
     }
 
     private func waitForReviewDismissal(in mounted: Mounted) async throws {
