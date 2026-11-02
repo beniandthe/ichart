@@ -10,12 +10,17 @@ The candidate adds the remaining CodeQL maintenance, build identity 108, and
 retained PDF QA controls/runbooks; it does not restore older donor files over
 newer source.
 
-Current local gates pass: native **3,112 passed / 0 failed / 114 skipped**,
+The first candidate's local gates passed: native **3,112 passed / 0 failed / 114 skipped**,
 portable **1,820 / 0 / 91**, and backend/workflow **822 / 0 / 0**. The native
 result follows a preserved software-keyboard environment failure and a complete
 unchanged-assertion pass on a fresh same-model/runtime QA Simulator. Hosted CI,
 signed packaging, physical acceptance and Apple delivery remain separate gates
-until their actual results are recorded in the PR/private release receipt. Build 108 has not been uploaded, submitted, approved or publicly
+until their actual results are recorded in the PR/private release receipt.
+The first hosted PR run exposed a separate basic consent-test wait race. That
+non-concurrency test now runs on `MainActor` with every assertion retained and
+passed 50 focused repetitions. Dedicated concurrency tests and production
+consent behavior are unchanged; final full reruns and new hosted checks are
+recorded separately. Build 108 has not been uploaded, submitted, approved or publicly
 released by this checkpoint, and no new external copy is approved here.
 Graph/MyScript, training and model experiments remain parked. Keep private
 device evidence, raw ink and unapproved listing drafts local.

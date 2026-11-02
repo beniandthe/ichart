@@ -984,6 +984,11 @@
       "path": "docs/release-consolidation-2026-11-02.json",
       "kind": "consolidation_record",
       "detail": "Sanitized machine-readable disposition inventory."
+    },
+    {
+      "path": "iChartTests/TelemetryTests.swift",
+      "kind": "test_fixture_actor_isolation",
+      "detail": "MainActor isolates the basic consent-value test from queued startup preference projection; every default-off, nil-identity, legacy-version and explicit-grant assertion is retained. Dedicated background/reentry/checkpoint tests remain unchanged."
     }
   ],
   "excluded_parked_ml": {
@@ -998,7 +1003,7 @@
     "disposition": "No training, model promotion, private-ink collection, vendor integration or lab app shipping. Existing production parser, recognition failure handling and ink/render fixes remain in scope."
   },
   "validation": {
-    "status": "local_gates_passed_hosted_and_packaging_pending_at_source_checkpoint",
+    "status": "revised_fixture_focus_passed_full_reruns_and_hosted_checks_in_progress",
     "portable_swiftpm": {
       "status": "passed",
       "passed": 1820,
@@ -1018,7 +1023,7 @@
       "page_size": "US Letter"
     },
     "native_suite": {
-      "status": "passed",
+      "status": "final_full_rerun_running",
       "initial_full_run": {
         "passed": 3109,
         "failed_tests": 3,
@@ -1034,7 +1039,7 @@
         "skipped": 0,
         "setup": "Software-keyboard preference set before first boot of a fresh iPad A16 / iOS26.5 QA Simulator; original host preference restored."
       },
-      "final_full_run": {
+      "first_candidate_local_full_run": {
         "status": "passed",
         "passed": 3112,
         "failed": 0,
@@ -1046,7 +1051,29 @@
         "simulator_id": "CF60A354-F345-4B05-B1E1-88A7E062891A",
         "source_input_hashes_verified_unchanged": 1286,
         "host_preference_restoration_verified": true
-      }
+      },
+      "first_head_hosted_pr_native": {
+        "passed": 3111,
+        "failed": 1,
+        "skipped": 114,
+        "total": 3226,
+        "failure": "Basic consent value test read the seeded UUID before deferred startup projection completed."
+      },
+      "first_head_hosted_push_native": {
+        "passed": 3112,
+        "failed": 0,
+        "skipped": 114,
+        "total": 3226,
+        "nonzero_and_destination_validator": "passed"
+      },
+      "consent_fixture_correction": {
+        "production_swift_changed": false,
+        "all_assertions_retained": true,
+        "focused_repeat_passed": 50,
+        "focused_repeat_failed": 0,
+        "scope": "Serialize the non-concurrency value test on MainActor; does not change production consent behavior or make the test-only queue sentinel a general retry drain."
+      },
+      "final_full_run": "running"
     },
     "candidate_hosted_ci": "unverified",
     "candidate_signed_archive_or_ipa": "not_yet_recorded",

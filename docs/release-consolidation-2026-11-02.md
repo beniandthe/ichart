@@ -2,7 +2,7 @@
 
 Candidate: **1.2.4 (108)** on `codex/next-app-store-20261102`.
 Source baseline: `31e16ea5deac4621dea10ddd3a0d1f9c59a3f3f5` (`main`, PR #92).
-Status: **source coverage complete; local gates passed; hosted checks and packaging tracked separately**.
+Status: **source coverage complete; corrected fixture focus passed; final checks tracked separately**.
 
 The sweep found that the regular app's functional work was already consolidated
 on main. It did not find another omitted production implementation to merge.
@@ -30,6 +30,9 @@ outside this report.
   with historical banners and frozen evidence links. Their old results do not
   validate build 108, and generated proof PDFs/screenshots are not copied into
   the app candidate.
+- Isolate the basic telemetry consent-value test on `MainActor`. The first
+  hosted PR run exposed a startup-projection wait race in this non-concurrency
+  fixture; every assertion is retained and dedicated concurrency tests remain.
 - Add this release inventory and update the current project-state header.
 
 There is no new application runtime change in this candidate beyond the
@@ -153,7 +156,7 @@ completed; preserving the plan does not ship an online conversion feature.
 
 ## Validation and delivery gates
 
-The complete native gate passed **3,112 / 0 failed / 114 skipped** (**3,226 total**)
+The first candidate's complete local native gate passed **3,112 / 0 failed / 114 skipped** (**3,226 total**)
 on the fresh iPad A16 / iOS 26.5 Simulator. `xcresulttool` verified nonzero
 execution, zero failures and that exact destination. All **1,286 app/test/build
 input hashes** remained unchanged throughout validation. The portable SwiftPM
@@ -169,6 +172,21 @@ same-runtime Simulator with software-keyboard configuration set before its first
 boot. The entire suite subsequently passed there, including all three keyboard
 tests. No app source or test assertions were changed to obtain that result;
 temporary host-preference restoration was verified.
+
+The first hosted PR native run separately recorded **3,111 passed / one failed
+/ 114 skipped**: the basic consent-value test read its seeded installation UUID
+before deferred startup projection finished. The same-head branch-push run
+passed **3,112 / 0 / 114**, including its nonzero/destination validator. This was
+not one of the earlier keyboard failures.
+
+The value test now runs on `MainActor`, serializing initialization and its first
+snapshot with the queued preference projection. Its default-off, nil-identity,
+legacy/unknown-version and explicit-grant assertions are unchanged. Background,
+blocked-cleanup, reentry and stale-generation tests retain concurrency coverage.
+No production consent code changed; the test-only queue sentinel is not claimed
+to drain arbitrary deferred retries. The corrected test passed **50 repetitions
+/ 0 failures**. Full local native/portable reruns and fresh exact-head hosted
+checks are tracked separately after this fixture revision.
 
 This is the source-preparation checkpoint. Hosted checks, signed archive/IPA,
 physical-device acceptance and Apple delivery are recorded separately in the
