@@ -1867,6 +1867,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     var onChordInkAutomaticActivityChanged: ((ChordInkAutomaticActivity) -> Void)?
     private(set) var currentAutomaticChordActivity: ChordInkAutomaticActivity?
     private var automaticTelemetryAdmission = ChordInkAutomaticRenderTelemetry.Admission()
+    private var automaticTelemetryOperationContext = ChordInkAutomaticRenderTelemetry.OperationContext()
     private var automaticTelemetryAuthorization: IChartTelemetry.DiagnosticAuthorization?
     private var automaticTelemetryCompletionWorkItem: DispatchWorkItem?
     private struct AuthoringTelemetryContext: Equatable {
@@ -8654,7 +8655,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         let observedChart = chart
         let observedDrawing = pageInkCanvasView.drawing
         let outcome = attempt.outcome
-        let operationID = UUID()
+        // Consumption has already advanced the resident source revision. Link
+        // this transaction using the exact pre-consumption source it assessed.
+        let operationID = automaticTelemetryOperationContext.operationID(
+            chartID: originalChart.id, sourceRevision: sourceRevision)
         IChartTelemetry.recordDeferredDiagnostic("feature.contract_checked", chartID: originalChart.id,
             authorization: authorization) {
             ChordInkAutomaticRenderTelemetry.transactionProperties(isEnabled: true,
@@ -8691,6 +8695,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func prepareAutomaticTelemetryAdmission(_ authorization: IChartTelemetry.DiagnosticAuthorization) {
         if automaticTelemetryAuthorization?.matches(authorization) != true {
             automaticTelemetryAdmission.reset()
+            automaticTelemetryOperationContext.reset()
             automaticTelemetryAuthorization = authorization
         }
     }
@@ -8704,6 +8709,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
               incrementalChordDraftState.pendingRequests.isEmpty,
               UIApplication.shared.applicationState == .active,
               window?.windowScene?.activationState == .foregroundActive else { return }
+        prepareAutomaticTelemetryAdmission(authorization)
+        let operationID = automaticTelemetryOperationContext.operationID(
+            chartID: activity.chartID, sourceRevision: activity.sourceRevision)
         let observationStartedAt = ProcessInfo.processInfo.systemUptime
         let workItem = DispatchWorkItem { [weak self] in
             guard let self, authorization.isCurrent, self.currentAutomaticChordActivity == activity,
@@ -8718,7 +8726,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                     isForeground: UIApplication.shared.applicationState == .active
                         && self.window?.windowScene?.activationState == .foregroundActive,
                     foregroundObservationDuration: ProcessInfo.processInfo.systemUptime - observationStartedAt,
-                    remainingStrokeCount: self.activeCanvasStrokeCount, madeProgress: false),
+                    remainingStrokeCount: self.activeCanvasStrokeCount, madeProgress: false,
+                    operationID: operationID),
                   case .string(let reason) = properties["reason"] else { return }
             self.prepareAutomaticTelemetryAdmission(authorization)
             guard self.automaticTelemetryAdmission.admit(chartID: activity.chartID,

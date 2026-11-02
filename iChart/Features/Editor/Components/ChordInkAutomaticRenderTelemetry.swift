@@ -7,6 +7,31 @@ import PencilKit
 enum ChordInkAutomaticRenderTelemetry {
     enum Mode: String { case automatic; case reviewedAutomatic = "reviewed_automatic" }
 
+    /// Links observations of the same exact live source without retaining ink
+    /// or a history of earlier revisions. A passing partial render is progress;
+    /// its remaining source belongs to a new revision and operation.
+    struct OperationContext {
+        private struct Source {
+            var chartID: UUID
+            var revision: UInt64
+            var operationID: UUID
+        }
+        private var source: Source?
+
+        mutating func operationID(chartID: UUID, sourceRevision: UInt64) -> UUID {
+            if let source, source.chartID == chartID, source.revision == sourceRevision {
+                return source.operationID
+            }
+            let operationID = UUID()
+            source = Source(chartID: chartID, revision: sourceRevision, operationID: operationID)
+            return operationID
+        }
+
+        /// The owner resets this with its captured diagnostic authorization.
+        /// A later consent epoch must never resume an earlier operation.
+        mutating func reset() { source = nil }
+    }
+
     /// Bounded to the current source revision. Repeated scheduling/refusal for
     /// the same unchanged input is one observation, not repeated incidents.
     struct Admission {
@@ -267,6 +292,12 @@ enum ChordInkAutomaticRenderTelemetry {
               let inputAt = activity.inputAt else { return nil }
         let idleDuration = now.timeIntervalSince(inputAt)
         guard idleDuration.isFinite, idleDuration >= 3 else { return nil }
+        // Structural review blocks the entire source transaction. A chord's
+        // baseline reason cannot describe why this operation has not rendered
+        // while its repeat pairing or ending range still needs review.
+        if activity.feedback.globalReason == .repeatReview || activity.feedback.globalReason == .endingReview {
+            return nil
+        }
         var reasons = Array(activity.feedback.reasonsByDraftID.values)
         if let reason = activity.feedback.globalReason { reasons.append(reason) }
         // Fixed priority makes a mixed refusal deterministic without exposing

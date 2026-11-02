@@ -196,10 +196,19 @@ struct ChordInkRecognitionOptions: Hashable {
 /// Actual attempted providers for an automatic no-read recovery. Candidate
 /// suggestions remain separate from the primary recognizer's trust evidence.
 struct ChordInkRecognitionFallbackEvidence: Hashable {
+    enum Outcome: String, Hashable {
+        case completed
+        case technicalFailure
+    }
+
     var engineIdentifier: String
     var engineVersion: String
     var candidateTexts: [String]
     var durationMilliseconds: Double
+    /// A failed engine is not evidence that it successfully found no chord.
+    /// These local diagnostics do not change the primary recognition decision.
+    var outcome: Outcome = .completed
+    var attemptCount: Int = 1
 }
 
 struct ChordInkRecognitionResult: Hashable {

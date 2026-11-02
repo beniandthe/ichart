@@ -33,6 +33,117 @@ final class FreeInkEngravingAlignmentTests: XCTestCase {
         }
     }
 
+    func testMixedManualAndDefaultWidthsPreserveEachNotesMeasureAndPitchAcrossAllPresetPairs() throws {
+        for before in EngravingPreset.allCases {
+            for after in EngravingPreset.allCases where before != after {
+                var chart = makeChart(.leadSheet, preset: before)
+                // Manual widths remain fixed while neighboring default widths
+                // follow engraving metrics. One affine transform for the whole
+                // row therefore cannot preserve its internal measure boundaries.
+                chart.systems[0].measures[0].manualLayoutWidth = 140
+                chart.systems[0].measures[2].manualLayoutWidth = 180
+                chart.systems[1].measures[1].manualLayoutWidth = 115
+                chart.systems[1].measures[3].manualLayoutWidth = 170
+                let source = try geometry(chart)
+                var strokes: [PKStroke] = []
+                var notes: [(measureID: UUID, range: Range<Int>, staff: CGRect)] = []
+                for system in source.staffSystems {
+                    let measures = system.measures.filter { $0.sourceMeasureID != nil }
+                    XCTAssertEqual(measures.count, 4,
+                        "Mixed widths must retain the fixture's explicit four-measure rows.")
+                    for boundary in 0..<max(0, measures.count - 1) {
+                        // Keep the notes on either side spatially separate.
+                        // Each four-stroke note is connected within its own bar.
+                        for (measure, isLeft) in [(measures[boundary], true), (measures[boundary + 1], false)] {
+                            let measureID = try XCTUnwrap(measure.sourceMeasureID)
+                            let staff = measure.staffFrame.insetBy(dx: 0, dy: 2)
+                                .offsetBy(dx: -source.frame.minX, dy: -source.frame.minY)
+                            let spacing = staff.height / 4
+                            let x = isLeft ? staff.maxX - 24 : staff.minX + 20
+                            let y = staff.minY + (isLeft ? 1.5 : 3) * spacing
+                            let seed = UInt32(20_000 + notes.count * 10)
+                            let firstStroke = strokes.count
+                            strokes.append(stroke([CGPoint(x: x, y: y), CGPoint(x: x + 6, y: y - 2),
+                                CGPoint(x: x + 8, y: y), CGPoint(x: x + 2, y: y + 2), CGPoint(x: x, y: y)], seed: seed + 1))
+                            strokes.append(stroke([CGPoint(x: x + 8, y: y),
+                                CGPoint(x: x + 8, y: y - 2.5 * spacing)], seed: seed + 2))
+                            strokes.append(stroke([CGPoint(x: x - 9, y: y - 6),
+                                CGPoint(x: x - 9, y: y + 5), CGPoint(x: x - 4, y: y)], seed: seed + 3))
+                            strokes.append(stroke([CGPoint(x: x + 8, y: y - 2.5 * spacing),
+                                CGPoint(x: x + 17, y: y - 2.3 * spacing)], seed: seed + 4))
+                            notes.append((measureID, firstStroke..<strokes.count, staff))
+                        }
+                    }
+                }
+                let original = PKDrawing(strokes: strokes)
+                let sourceBytes = original.dataRepresentation()
+                let sourceSpace = source.space
+                chart.pageHandwrittenNotationData = sourceBytes
+                chart.pageHandwrittenNotationCoordinateSpace = sourceSpace
+                chart.setEngravingPreset(after)
+                let target = try geometry(chart)
+                let context = "\(before.rawValue) -> \(after.rawValue)"
+                let sourceRows = source.staffSystems.map { $0.measures.compactMap(\.sourceMeasureID) }
+                let targetRows = target.staffSystems.map { $0.measures.compactMap(\.sourceMeasureID) }
+                XCTAssertEqual(sourceRows, targetRows,
+                    "This case must exercise internal bar widths, independently of row reflow: \(context)")
+                let targetMeasures = Dictionary(target.staffSystems.flatMap(\.measures).compactMap { measure in
+                    measure.sourceMeasureID.map { ($0, measure) }
+                }, uniquingKeysWith: { first, _ in first })
+
+                // Independently demonstrate why the previous whole-row policy
+                // is insufficient, using actual rendered barline coordinates.
+                var largestWholeRowBoundaryDrift: CGFloat = 0
+                for (sourceSystem, targetSystem) in zip(source.staffSystems, target.staffSystems) {
+                    let sourceMeasures = sourceSystem.measures.filter { $0.sourceMeasureID != nil }
+                    let targetRowMeasures = targetSystem.measures.filter { $0.sourceMeasureID != nil }
+                    let sourceSpan = sourceMeasures.reduce(CGRect.null) { $0.union($1.staffFrame) }
+                    let targetSpan = targetRowMeasures.reduce(CGRect.null) { $0.union($1.staffFrame) }
+                    let rowScale = targetSpan.width / sourceSpan.width
+                    for measure in sourceMeasures.dropLast() {
+                        let destination = try XCTUnwrap(targetMeasures[try XCTUnwrap(measure.sourceMeasureID)])
+                        let mappedBoundary = targetSpan.minX + (measure.staffFrame.maxX - sourceSpan.minX) * rowScale
+                        largestWholeRowBoundaryDrift = max(largestWholeRowBoundaryDrift,
+                            abs(mappedBoundary - destination.staffFrame.maxX))
+                    }
+                }
+                XCTAssertGreaterThan(largestWholeRowBoundaryDrift, 0.1,
+                    "Fixture must expose a measurable internal-boundary error under one row transform: \(context)")
+
+                let projected = project(original, from: sourceSpace, to: target.space)
+                XCTAssertEqual(projected.strokes.count, original.strokes.count, context)
+                guard projected.strokes.count == original.strokes.count else { continue }
+                for note in notes {
+                    let destination = try XCTUnwrap(targetMeasures[note.measureID])
+                    let targetStaff = destination.staffFrame.insetBy(dx: 0, dy: 2)
+                        .offsetBy(dx: -target.frame.minX, dy: -target.frame.minY)
+                    let commonTransform = projected.strokes[note.range.lowerBound].transform
+                    for index in note.range {
+                        let oldStroke = original.strokes[index]
+                        let newStroke = projected.strokes[index]
+                        assertTransform(newStroke.transform, equals: commonTransform,
+                            context: "Connected note components must stay coherent: \(context)")
+                        XCTAssertEqual(newStroke.randomSeed, oldStroke.randomSeed)
+                        XCTAssertEqual(newStroke.path.count, oldStroke.path.count)
+                        for (sourcePoint, targetPoint) in zip(oldStroke.path, newStroke.path) {
+                            let old = sourcePoint.location.applying(oldStroke.transform)
+                            let new = targetPoint.location.applying(newStroke.transform)
+                            XCTAssertEqual((new.x - targetStaff.minX) / targetStaff.width,
+                                (old.x - note.staff.minX) / note.staff.width, accuracy: 0.002,
+                                "The note moved within or across its owning bar: \(context), stroke \(oldStroke.randomSeed)")
+                            XCTAssertEqual((new.y - targetStaff.minY) / (targetStaff.height / 4),
+                                (old.y - note.staff.minY) / (note.staff.height / 4), accuracy: 0.002,
+                                "The note changed staff position: \(context), stroke \(oldStroke.randomSeed)")
+                        }
+                    }
+                }
+                XCTAssertEqual(original.dataRepresentation(), sourceBytes)
+                XCTAssertEqual(chart.pageHandwrittenNotationData, sourceBytes)
+                XCTAssertEqual(chart.pageHandwrittenNotationCoordinateSpace, sourceSpace)
+            }
+        }
+    }
+
     func testEngravingReflowKeepsEachConnectedNoteWithItsMeasureAndDoesNotTearTopBoundaryBeam() throws {
         let narrowPage = CGSize(width: 800, height: 1_200)
         var chart = makeChart(.rhythmSectionSheet, preset: .wide, usesOpenMeasures: true)

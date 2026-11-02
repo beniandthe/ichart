@@ -13,10 +13,35 @@ protocol ChordInkAutomaticFallbackRecognizing {
         strokes: [InkStroke], options: ChordInkRecognitionOptions,
         isCurrent: @escaping () -> Bool
     ) -> ChordInkRecognitionResult?
+
+    /// Distinguishes a successful empty read from an unavailable engine. The
+    /// legacy optional result remains usable by existing providers and callers.
+    func recognizeAttempt(
+        strokes: [InkStroke], options: ChordInkRecognitionOptions,
+        isCurrent: @escaping () -> Bool
+    ) -> ChordInkAutomaticFallbackAttempt
+}
+
+enum ChordInkAutomaticFallbackAttempt {
+    case completed(ChordInkRecognitionResult?)
+    case cancelled
+    case technicalFailure
+}
+
+extension ChordInkAutomaticFallbackRecognizing {
+    func recognizeAttempt(
+        strokes: [InkStroke], options: ChordInkRecognitionOptions,
+        isCurrent: @escaping () -> Bool
+    ) -> ChordInkAutomaticFallbackAttempt {
+        guard isCurrent() else { return .cancelled }
+        let result = recognize(strokes: strokes, options: options, isCurrent: isCurrent)
+        guard isCurrent() else { return .cancelled }
+        return .completed(result)
+    }
 }
 
 enum ChordInkAutomaticFallbackProviders {
-    static let pipelineVersion = "automatic-source-fallback-v1-native-32-39.5-48-vision-7-10"
+    static let pipelineVersion = "automatic-source-fallback-v2-native-32-39.5-48-vision-7-10-bounded-technical-retry"
 
     /// The session tries this bounded chain in order and stops at its first
     /// actual parseable output. It runs independently of the primary queue.
@@ -138,26 +163,50 @@ struct ChordInkAutomaticVisionCandidateNormalizer: RecognitionStudyChordCandidat
 
 struct ChordInkVisionAutomaticFallbackRecognizer: ChordInkAutomaticFallbackRecognizing {
     let identifier = "apple-vision-automatic-source"
-    let version = "apple-vision-automatic-source-v1-production-domain-7-10"
-    private let recognizer: RecognitionStudyVisionChordRecognizer
+    let version = "apple-vision-automatic-source-v2-production-domain-7-10-typed-failure"
+    private let recognizeSource: ([InkStroke], @escaping () -> Bool) throws -> RecognitionStudyVisionChordRecognizer.Result?
 
     init(recognizer: RecognitionStudyVisionChordRecognizer = .init(
         normalizer: ChordInkAutomaticVisionCandidateNormalizer()
     )) {
-        self.recognizer = recognizer
+        recognizeSource = { strokes, isCurrent in
+            try recognizer.recognize(strokes: strokes, isCurrent: isCurrent)
+        }
+    }
+
+    /// Injection keeps engine-error handling testable without changing the
+    /// existing Vision rasterization, grammar or confidence behavior.
+    init(recognizeSource: @escaping ([InkStroke], @escaping () -> Bool) throws -> RecognitionStudyVisionChordRecognizer.Result?) {
+        self.recognizeSource = recognizeSource
     }
 
     func recognize(
         strokes: [InkStroke], options: ChordInkRecognitionOptions,
         isCurrent: @escaping () -> Bool
     ) -> ChordInkRecognitionResult? {
-        guard isCurrent(),
-              ChordInkAutomaticFallbackCandidatePolicy.sourceIsUsable(strokes, maximumStrokeCount: 128) else { return nil }
+        guard case .completed(let result) = recognizeAttempt(strokes: strokes,
+            options: options, isCurrent: isCurrent) else { return nil }
+        return result
+    }
+
+    func recognizeAttempt(
+        strokes: [InkStroke], options: ChordInkRecognitionOptions,
+        isCurrent: @escaping () -> Bool
+    ) -> ChordInkAutomaticFallbackAttempt {
+        guard isCurrent() else { return .cancelled }
+        guard ChordInkAutomaticFallbackCandidatePolicy.sourceIsUsable(strokes, maximumStrokeCount: 128) else {
+            return .completed(nil)
+        }
         let startedAt = ProcessInfo.processInfo.systemUptime
-        guard let output = try? recognizer.recognize(strokes: strokes, isCurrent: isCurrent),
-              isCurrent() else { return nil }
-        return Self.recognitionResult(from: output, sourceStrokeCount: strokes.count,
-            elapsedMilliseconds: (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000)
+        do {
+            guard let output = try recognizeSource(strokes, isCurrent), isCurrent() else { return .cancelled }
+            return .completed(Self.recognitionResult(from: output, sourceStrokeCount: strokes.count,
+                elapsedMilliseconds: (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))
+        } catch {
+            // Cancellation changes source authority; it may never start a new
+            // engine attempt or publish a technical failure for obsolete ink.
+            return isCurrent() ? .technicalFailure : .cancelled
+        }
     }
 
     static func recognitionResult(

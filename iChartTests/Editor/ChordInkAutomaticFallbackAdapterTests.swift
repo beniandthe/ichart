@@ -133,6 +133,56 @@ final class ChordInkAutomaticFallbackAdapterTests: XCTestCase {
             options: .live, isCurrent: { true }))
     }
 
+    func testVisionTypedAttemptSeparatesTechnicalFailureFromSuccessfulExhaustion() {
+        let source = preparedInk()
+        var attemptedSource: [InkStroke]?
+        let failed = ChordInkVisionAutomaticFallbackRecognizer(recognizeSource: { strokes, _ in
+            attemptedSource = strokes
+            throw AdapterVisionError.unavailable
+        })
+        guard case .technicalFailure = failed.recognizeAttempt(strokes: source,
+            options: .live, isCurrent: { true }) else {
+            return XCTFail("A current-source engine error must not become successful empty recognition")
+        }
+        XCTAssertEqual(attemptedSource, source)
+        XCTAssertNil(failed.recognize(strokes: source, options: .live, isCurrent: { true }),
+            "Existing optional callers retain their API without gaining an invented candidate")
+
+        let exhausted = ChordInkVisionAutomaticFallbackRecognizer(recognizeSource: { strokes, _ in
+            XCTAssertEqual(strokes, source)
+            return .init(decision: .noRead(.noVisionText), candidates: [])
+        })
+        guard case .completed(let result) = exhausted.recognizeAttempt(strokes: source,
+            options: .live, isCurrent: { true }) else {
+            return XCTFail("Successful zero-candidate recognition is cacheable exhaustion")
+        }
+        XCTAssertNil(result)
+    }
+
+    func testVisionTypedAttemptKeepsObsoleteSourceCancellationSeparateFromTechnicalFailure() {
+        let source = preparedInk()
+        let current = AdapterCurrentFlag()
+        let obsoleteDuringRead = ChordInkVisionAutomaticFallbackRecognizer(recognizeSource: { strokes, _ in
+            XCTAssertEqual(strokes, source)
+            current.invalidate()
+            throw AdapterVisionError.unavailable
+        })
+        guard case .cancelled = obsoleteDuringRead.recognizeAttempt(strokes: source,
+            options: .live, isCurrent: { current.isCurrent }) else {
+            return XCTFail("A cancelled source may never enter technical retry")
+        }
+        var invoked = false
+        let obsoleteBeforeRead = ChordInkVisionAutomaticFallbackRecognizer(recognizeSource: { _, _ in
+            invoked = true
+            throw AdapterVisionError.unavailable
+        })
+        guard case .cancelled = obsoleteBeforeRead.recognizeAttempt(strokes: source,
+            options: .live, isCurrent: { false }) else {
+            return XCTFail("Obsolete source must be rejected before calling Vision")
+        }
+        XCTAssertFalse(invoked)
+    }
+
     func testLiveProviderChainIsExactlyThreeExistingScalesThenIndependentVision() {
         let providers = ChordInkAutomaticFallbackProviders.live
         XCTAssertEqual(providers.count, 4)
@@ -186,6 +236,10 @@ final class ChordInkAutomaticFallbackAdapterTests: XCTestCase {
                 creationTimeOffset: 0.5)
         ]
     }
+}
+
+private enum AdapterVisionError: Error {
+    case unavailable
 }
 
 private final class AdapterRecordingRecognizer: ChordInkRecognizing {
