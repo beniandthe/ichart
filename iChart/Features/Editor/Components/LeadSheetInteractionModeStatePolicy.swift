@@ -377,7 +377,20 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
                   matches.allSatisfy({ abs($0.minY - first.minY) < 0.01
                       && abs($0.height - first.height) < 0.01 }) else { return nil }
             let destination = matches.reduce(CGRect.null) { $0.union($1) }
-            return staffTransform(from: row.staff, to: destination)
+            guard let transform = staffTransform(from: row.staff, to: destination),
+                  zip(row.anchors, matches).allSatisfy({ anchor, targetFrame in
+                      let projected = anchor.staffFrame!.rect.applying(transform)
+                      return abs(projected.minX - targetFrame.minX) < 0.01
+                          && abs(projected.maxX - targetFrame.maxX) < 0.01
+                          && abs(projected.minY - targetFrame.minY) < 0.01
+                          && abs(projected.maxY - targetFrame.maxY) < 0.01
+                  }) else {
+                // Manual widths stay fixed while default widths follow the
+                // preset. Matching row endpoints alone can move ink across an
+                // internal barline; use its owning measure in that case.
+                return nil
+            }
+            return transform
         }
 
         var strokes = drawing.strokes
