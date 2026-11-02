@@ -7,13 +7,15 @@ struct LeadSheetPageLayout: Hashable {
     var pages: [LeadSheetPaperPageLayout]
     var header: LeadSheetHeaderLayout
     var systems: [LeadSheetSystemLayout]
+    var engravingPreset: EngravingPreset?
 
     init(
         pageBounds: CGRect,
         paperFrame: CGRect,
         pages: [LeadSheetPaperPageLayout]? = nil,
         header: LeadSheetHeaderLayout,
-        systems: [LeadSheetSystemLayout]
+        systems: [LeadSheetSystemLayout],
+        engravingPreset: EngravingPreset? = nil
     ) {
         self.pageBounds = pageBounds
         self.paperFrame = paperFrame
@@ -27,6 +29,7 @@ struct LeadSheetPageLayout: Hashable {
         ]
         self.header = header
         self.systems = systems
+        self.engravingPreset = engravingPreset
     }
 }
 
@@ -865,7 +868,8 @@ enum LeadSheetPageLayoutEngine {
                 in: headerFrame(in: firstPaperFrame),
                 visualPolicy: visualPolicy
             ),
-            systems: systemFrames
+            systems: systemFrames,
+            engravingPreset: chart.engravingPreset
         )
     }
 
