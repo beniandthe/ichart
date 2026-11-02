@@ -1,24 +1,30 @@
 # Project state and next Apple build
 
-Updated: 2026-11-02. Use `main` as the integration baseline for regular iChart
-work. The combined 1.2.4 (103) scope and storage boundaries are recorded in the
-[regular app consolidation](release-consolidation-2026-10-31.md). Graph/MyScript,
-training and model experiments remain parked. Keep private device evidence and
-unapproved listing drafts local. Delivery checks and physical acceptance are
-separate from source consolidation.
+Updated: 2026-11-02. The current isolated integration candidate is **1.2.4 (108)**
+on `codex/next-app-store-20261102`, based on main `31e16ea5`. The
+[November 2 consolidation inventory](release-consolidation-2026-11-02.md) and
+[sanitized coverage record](release-consolidation-2026-11-02.json) account for
+GitHub PRs, local refs/worktrees, retained QA/drafts and the parked ML exclusions.
+All in-scope functional runtime work is already combined on that main baseline.
+The candidate adds the remaining CodeQL maintenance, build identity 108, and
+retained PDF QA controls/runbooks; it does not restore older donor files over
+newer source.
 
-The 1.2.4 (104) follow-up is described in the
-[automatic no-read recovery follow-up](automatic-no-read-recovery-2026-11-01.md).
-It passed the recorded local and hosted gates, was installed with protected
-content preservation, and passed the user-confirmed writing/editing/scrolling
-and save/chart-reopen check. Its matching render telemetry was processed by the
-scheduled worker. This is acceptance of the observed workflow; historical
-no-read causes and broader recognition accuracy remain separate questions.
+Current local gates pass: native **3,112 passed / 0 failed / 114 skipped**,
+portable **1,820 / 0 / 91**, and backend/workflow **822 / 0 / 0**. The native
+result follows a preserved software-keyboard environment failure and a complete
+unchanged-assertion pass on a fresh same-model/runtime QA Simulator. Hosted CI,
+signed packaging, physical acceptance and Apple delivery remain separate gates
+until their actual results are recorded in the PR/private release receipt. Build 108 has not been uploaded, submitted, approved or publicly
+released by this checkpoint, and no new external copy is approved here.
+Graph/MyScript, training and model experiments remain parked. Keep private
+device evidence, raw ink and unapproved listing drafts local.
 
-The [unified build 107](unified-build107.md) combines those accepted recognition
-changes with the Free Ink engraving fix and its mixed manual/default-width
-correction. Its combined validation and delivery are tracked in PR #92. Do not
-infer build 107's device acceptance from the earlier build 104 test.
+Earlier component integration and acceptance records remain revision-specific:
+[build 103 consolidation](release-consolidation-2026-10-31.md),
+[build 104 automatic recovery](automatic-no-read-recovery-2026-11-01.md), and
+[unified build 107](unified-build107.md). Their test/device results do not
+establish build 108 validation or delivery.
 
 The checkpoints below are historical evidence for their recorded revisions.
 They are not current version, deployment or device-status claims.

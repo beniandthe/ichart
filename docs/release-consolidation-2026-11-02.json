@@ -1,0 +1,1082 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-11-02T17:51:08.258032+00:00",
+  "purpose": "Sanitized source-consolidation coverage for next App Store candidate. Private device data, raw ink, complete research path lists and private QA dumps are intentionally absent.",
+  "candidate": {
+    "version": "1.2.4",
+    "build": 108,
+    "branch": "codex/next-app-store-20261102",
+    "baseline_main_sha": "31e16ea5deac4621dea10ddd3a0d1f9c59a3f3f5",
+    "workflow_maintenance_commit": "fcea7299",
+    "runtime_source_disposition": "All in-scope functional runtime work was already consolidated in baseline main. No missing runtime change identified; do not wholesale merge older donors.",
+    "source_consolidation_complete": true,
+    "commit_identity_source": "Pull-request head and private release receipt bind the final commit; this self-contained inventory does not embed its own commit hash."
+  },
+  "sweep": {
+    "window": "2026-10-01 through 2026-11-02, plus all retained local branches, worktrees, tags and current remote heads",
+    "repository": "beniandthe/ichart",
+    "github": {
+      "all_pr_records_fetched": 93,
+      "in_scope_pr_records": 18,
+      "current_remote_branches_at_initial_sweep": 5,
+      "only_open_pr_at_initial_sweep": 84,
+      "standalone_open_issues_at_initial_sweep": 0,
+      "latest_workflow_runs_inspected": 30
+    },
+    "initial_local_snapshot": {
+      "local_heads": 33,
+      "tracking_refs_including_origin_HEAD": 8,
+      "branch_and_tracking_refs": 41,
+      "registered_worktrees": 18,
+      "existing_worktrees": 12,
+      "missing_worktrees": 6
+    },
+    "candidate_inclusive_local_snapshot": {
+      "local_heads": 34,
+      "tracking_refs_including_origin_HEAD": 8,
+      "branch_and_tracking_refs": 42,
+      "tags": 14,
+      "codex_snapshot_refs": 5,
+      "codex_turn_diff_tree_refs": 8,
+      "all_refs": 69,
+      "registered_worktrees": 19,
+      "existing_worktrees": 13,
+      "missing_worktrees": 6
+    },
+    "stashes": 0,
+    "recent_reflog_only_variants_reviewed": 5,
+    "unregistered_checkout_scan": "No additional Git checkouts found in the checked standard worktree and temporary checkout locations; this is not a scan of every filesystem path."
+  },
+  "coverage_lanes": [
+    {
+      "lane": "Release normalization and existing production repairs",
+      "prs": [
+        76,
+        77,
+        78,
+        81,
+        82
+      ],
+      "refs": [
+        "codex/chord-telemetry-failure-buckets",
+        "codex/rhythm-ink-layout-persistence"
+      ],
+      "disposition": "Covered by main normalization and later fixes; historical ahead counts are not missing work."
+    },
+    {
+      "lane": "Free Pro, account recovery, cloud access and Forum publication",
+      "prs": [
+        83
+      ],
+      "refs": [
+        "codex/free-pro-access-2026-10-15"
+      ],
+      "disposition": "Covered in main; existing billing and customer obligations remain separate."
+    },
+    {
+      "lane": "Notation readability and staff density",
+      "prs": [
+        86
+      ],
+      "refs": [
+        "codex/notation-readability",
+        "codex/notation-readability-main"
+      ],
+      "disposition": "Covered in main, including all19 prototype test methods plus four later preservation/density tests."
+    },
+    {
+      "lane": "Repeat signs and custom/direct endings",
+      "prs": [
+        87,
+        88,
+        91
+      ],
+      "refs": [
+        "codex/flexible-repeat-endings",
+        "codex/write-render-repeat-signs",
+        "codex/write-render-repeat-endings"
+      ],
+      "disposition": "Covered in main; dedicated ending review confirms no missing implementation. Donor integration files are older than current host/editor."
+    },
+    {
+      "lane": "Personal PDF import and offline setlists",
+      "prs": [
+        85,
+        91
+      ],
+      "refs": [
+        "codex/pdf-import-setlists"
+      ],
+      "disposition": "Runtime already covered. Restore proof generator, PDF binary rule and two historical runbooks; retain historical generated evidence separately."
+    },
+    {
+      "lane": "Free Ink rotation, viewport, engraving and manual widths",
+      "prs": [
+        89,
+        93,
+        92
+      ],
+      "refs": [
+        "codex/free-ink-main",
+        "codex/free-ink-rotation",
+        "codex/free-ink-engraving",
+        "codex/free-ink-engraving-main",
+        "codex/free-ink-manual-width-main"
+      ],
+      "disposition": "Covered in main, including all12 directed engraving-preset pairs and the mixed-width projection correction."
+    },
+    {
+      "lane": "Automatic rendering, fallback recovery and diagnostic contracts",
+      "prs": [
+        90,
+        91,
+        92
+      ],
+      "refs": [
+        "codex/chord-auto-render",
+        "codex/consolidate-main",
+        "codex/park/chord-auto-render-93",
+        "codex/telemetry-auto-render-contracts",
+        "codex/telemetry-experience-contracts",
+        "codex/telemetry-feature-contracts",
+        "codex/no-read104-accepted-20261102",
+        "codex/unified-app-followup"
+      ],
+      "disposition": "Covered in main. Keep source ownership, consent generations, structural/repeat/ending coverage and bounded technical-failure retry."
+    },
+    {
+      "lane": "Integration checkpoints",
+      "prs": [
+        91,
+        92
+      ],
+      "refs": [
+        "codex/unified-app-main",
+        "codex/unified-app107",
+        "codex/unified-app-post107",
+        "main"
+      ],
+      "disposition": "Covered by baseline31e16ea5. PR92 donor whole tree matches main; current local main was one commit behind and left untouched."
+    },
+    {
+      "lane": "Remaining workflow maintenance",
+      "prs": [
+        84
+      ],
+      "refs": [
+        "dependabot/github_actions/github-actions-9adc00e088"
+      ],
+      "disposition": "Included in candidatefcea7299: CodeQL init/analyze v4.39.0 to v4.39.1 only."
+    }
+  ],
+  "pull_requests": [
+    {
+      "number": 76,
+      "title": "Add chord preview issue bucket telemetry",
+      "url": "https://github.com/beniandthe/ichart/pull/76",
+      "state_at_initial_sweep": "closed",
+      "merged_at": null,
+      "merge_commit_sha": null,
+      "carried_by_prs": [
+        78
+      ],
+      "disposition": "Superseded by release normalization; source commits retained through PR78."
+    },
+    {
+      "number": 77,
+      "title": "Bump github/codeql-action from 4.37.9 to 4.38.0 in the github-actions group",
+      "url": "https://github.com/beniandthe/ichart/pull/77",
+      "state_at_initial_sweep": "closed",
+      "merged_at": "2026-10-10T15:27:20Z",
+      "merge_commit_sha": "28a6c296f126f18eaa982f1f6007d2ba102f2a0e",
+      "carried_by_prs": [
+        77
+      ],
+      "disposition": "Merged CodeQL maintenance."
+    },
+    {
+      "number": 78,
+      "title": "Normalize iChart release candidate and close editor, telemetry, and CI gates",
+      "url": "https://github.com/beniandthe/ichart/pull/78",
+      "state_at_initial_sweep": "closed",
+      "merged_at": "2026-10-10T18:27:33Z",
+      "merge_commit_sha": "6a39868391ca159e75e796890819daaf0eee0f60",
+      "carried_by_prs": [
+        78
+      ],
+      "disposition": "Merged release normalization, editor/ink/telemetry and CI maintenance."
+    },
+    {
+      "number": 79,
+      "title": "Bump pillow from 11.3.0 to 12.3.0 in /recognition_ml",
+      "url": "https://github.com/beniandthe/ichart/pull/79",
+      "state_at_initial_sweep": "closed",
+      "merged_at": "2026-10-10T19:01:19Z",
+      "merge_commit_sha": "b98267639fd8df69a246722e1c8f96d3e7060a24",
+      "carried_by_prs": [
+        79
+      ],
+      "disposition": "Merged historical training dependency maintenance; no parked model/runtime promotion."
+    },
+    {
+      "number": 80,
+      "title": "Bump torch from 2.7.0 to 2.13.0 in /recognition_ml",
+      "url": "https://github.com/beniandthe/ichart/pull/80",
+      "state_at_initial_sweep": "closed",
+      "merged_at": null,
+      "merge_commit_sha": null,
+      "carried_by_prs": [
+        82
+      ],
+      "disposition": "Closed unmerged; optional training dependency maintenance carried by PR82, outside app bundle."
+    },
+    {
+      "number": 81,
+      "title": "Bump the github-actions group with 2 updates",
+      "url": "https://github.com/beniandthe/ichart/pull/81",
+      "state_at_initial_sweep": "closed",
+      "merged_at": null,
+      "merge_commit_sha": null,
+      "carried_by_prs": [
+        82
+      ],
+      "disposition": "Closed unmerged; Actions maintenance carried by PR82."
+    },
+    {
+      "number": 82,
+      "title": "Normalize release handoff, maintenance dependencies and CI gates",
+      "url": "https://github.com/beniandthe/ichart/pull/82",
+      "state_at_initial_sweep": "closed",
+      "merged_at": "2026-10-14T17:58:37Z",
+      "merge_commit_sha": "025d2ce50489215cfd4baa5de341ff99b02623fa",
+      "carried_by_prs": [
+        82
+      ],
+      "disposition": "Merged repository/release handoff and maintenance changes."
+    },
+    {
+      "number": 83,
+      "title": "Prepare iChart 1.2.3 (78): voluntary free Pro beta",
+      "url": "https://github.com/beniandthe/ichart/pull/83",
+      "state_at_initial_sweep": "closed",
+      "merged_at": "2026-10-16T03:18:24Z",
+      "merge_commit_sha": "5b5fe710e1627c7d83cf6de0fd43e00aabbbdd43",
+      "carried_by_prs": [
+        83
+      ],
+      "disposition": "Merged voluntary free Pro access, recovery/account controls and atomic Forum publication."
+    },
+    {
+      "number": 84,
+      "title": "Bump github/codeql-action from 4.39.0 to 4.39.1 in the github-actions group across 1 directory",
+      "url": "https://github.com/beniandthe/ichart/pull/84",
+      "state_at_initial_sweep": "open",
+      "merged_at": null,
+      "merge_commit_sha": null,
+      "carried_by_prs": [],
+      "disposition": "Only open PR at the initial GitHub sweep; its two CodeQL action changes are included in candidate commit fcea7299. This does not claim PR84 was merged or closed."
+    },
+    {
+      "number": 85,
+      "title": "Import personal PDFs into the library and offline setlists",
+      "url": "https://github.com/beniandthe/ichart/pull/85",
+      "state_at_initial_sweep": "closed",
+      "merged_at": null,
+      "merge_commit_sha": null,
+      "carried_by_prs": [
+        91
+      ],
+      "disposition": "Closed unmerged as superseded; personal PDF import and offline setlist feature selectively integrated by PR91."
+    },
+    {
+      "number": 86,
+      "title": "Improve repeat-sign and navigation readability",
+      "url": "https://github.com/beniandthe/ichart/pull/86",
+      "state_at_initial_sweep": "closed",
+      "merged_at": "2026-10-26T23:00:19Z",
+      "merge_commit_sha": "f3ac863836fed5eda52a25503a860fb967aaccd6",
+      "carried_by_prs": [
+        86
+      ],
+      "disposition": "Merged repeat/navigation readability with density and preservation coverage."
+    },
+    {
+      "number": 87,
+      "title": "Support custom repeat endings and direct bracket editing",
+      "url": "https://github.com/beniandthe/ichart/pull/87",
+      "state_at_initial_sweep": "closed",
+      "merged_at": "2026-10-27T16:27:12Z",
+      "merge_commit_sha": "d655b50bcb1af46eaad21de22d4b6d315f1f939a",
+      "carried_by_prs": [
+        87
+      ],
+      "disposition": "Merged flexible custom endings and direct bracket editing."
+    },
+    {
+      "number": 88,
+      "title": "Recognize repeat signs in Write & Render",
+      "url": "https://github.com/beniandthe/ichart/pull/88",
+      "state_at_initial_sweep": "closed",
+      "merged_at": "2026-10-27T21:47:22Z",
+      "merge_commit_sha": "061e9a359266d330777c428b2c6b7209a6dd0b08",
+      "carried_by_prs": [
+        88
+      ],
+      "disposition": "Merged production repeat-sign recognition in Write & Render."
+    },
+    {
+      "number": 89,
+      "title": "Keep Free Ink fixed through rotation with smooth zoom and pan",
+      "url": "https://github.com/beniandthe/ichart/pull/89",
+      "state_at_initial_sweep": "closed",
+      "merged_at": "2026-10-30T01:17:36Z",
+      "merge_commit_sha": "2dab831600c0a5614ce18f8849b5a420fbb4caf2",
+      "carried_by_prs": [
+        89
+      ],
+      "disposition": "Merged Free Ink rotation/viewport stability."
+    },
+    {
+      "number": 90,
+      "title": "Turn chart and ink diagnostics into actionable telemetry tasks",
+      "url": "https://github.com/beniandthe/ichart/pull/90",
+      "state_at_initial_sweep": "closed",
+      "merged_at": null,
+      "merge_commit_sha": null,
+      "carried_by_prs": [
+        91
+      ],
+      "disposition": "Closed unmerged as superseded; diagnostics/task pipeline selectively integrated by PR91."
+    },
+    {
+      "number": 91,
+      "title": "Consolidate regular iChart workflows into build 103",
+      "url": "https://github.com/beniandthe/ichart/pull/91",
+      "state_at_initial_sweep": "closed",
+      "merged_at": "2026-11-01T04:30:43Z",
+      "merge_commit_sha": "e5d49d59c878c4093e4fa4ceafbf092a469dcc61",
+      "carried_by_prs": [
+        91
+      ],
+      "disposition": "Merged the regular-app consolidation: PDF import, ending recognition/review, automatic rendering and telemetry integration."
+    },
+    {
+      "number": 92,
+      "title": "Unify automatic chord recovery and Free Ink alignment in build107",
+      "url": "https://github.com/beniandthe/ichart/pull/92",
+      "state_at_initial_sweep": "closed",
+      "merged_at": "2026-11-02T17:13:43Z",
+      "merge_commit_sha": "31e16ea5deac4621dea10ddd3a0d1f9c59a3f3f5",
+      "carried_by_prs": [
+        92
+      ],
+      "disposition": "Merged bounded technical-failure recovery and mixed manual/default-width Free Ink correction; main tree exactly matches tested donor head."
+    },
+    {
+      "number": 93,
+      "title": "Keep Free Ink aligned when engraving styles change (build 105)",
+      "url": "https://github.com/beniandthe/ichart/pull/93",
+      "state_at_initial_sweep": "closed",
+      "merged_at": "2026-11-02T15:47:14Z",
+      "merge_commit_sha": "34fe2b90f8e6edbe5876d530d5ea20c56c3574b5",
+      "carried_by_prs": [
+        93,
+        92
+      ],
+      "disposition": "Merged engraving-aligned Free Ink; later mixed-width correction retained through PR92."
+    }
+  ],
+  "branch_and_tracking_ref_dispositions": [
+    {
+      "ref": "refs/heads/codex/chord-auto-render",
+      "sha": "54b406b4e8b947857a7100e9296499c7a3adbc72",
+      "disposition": "selectively_integrated_or_superseded",
+      "reason": "PR91 e5d49d59 integration, then PR92 fixes"
+    },
+    {
+      "ref": "refs/heads/codex/chord-telemetry-failure-buckets",
+      "sha": "ad6cbeeb0173f096f73c4f00b68e71498d7f5d51",
+      "disposition": "historical_production_covered",
+      "reason": "Earlier production maintenance consolidated by PR78 normalization (archive PR78 tree exactly equals main6a398683). Primary uncommitted readability changes are separately reviewed; do not overwrite them."
+    },
+    {
+      "ref": "refs/heads/codex/consolidate-main",
+      "sha": "54b406b4e8b947857a7100e9296499c7a3adbc72",
+      "disposition": "selectively_integrated_or_superseded",
+      "reason": "PR91 e5d49d59 integration, then PR92 fixes"
+    },
+    {
+      "ref": "refs/heads/codex/flexible-repeat-endings",
+      "sha": "9ec6b4880a64fda69c8f759b9d7da7964059997a",
+      "disposition": "squash_or_port_source_covered",
+      "reason": "Every changed source/test/config blob matches main checkpoint d655b50b. Later source evolution is preserved."
+    },
+    {
+      "ref": "refs/heads/codex/free-ink-engraving",
+      "sha": "7382bf9e62feedb6a8222da71a766baa342b0f67",
+      "disposition": "selectively_integrated_or_superseded",
+      "reason": "PR93 34fe2b90 port, then PR92 manual-width fix"
+    },
+    {
+      "ref": "refs/heads/codex/free-ink-engraving-main",
+      "sha": "fcce8d0648d2e5af4d309c04ab43b33b78873394",
+      "disposition": "squash_or_port_source_covered",
+      "reason": "Every changed source/test/config blob matches main checkpoint 34fe2b90. Later source evolution is preserved."
+    },
+    {
+      "ref": "refs/heads/codex/free-ink-main",
+      "sha": "01b87c7906eabd438faf86e14e5afcffac8f5dde",
+      "disposition": "squash_or_port_source_covered",
+      "reason": "Every changed source/test/config blob matches main checkpoint 2dab8316. Later source evolution is preserved."
+    },
+    {
+      "ref": "refs/heads/codex/free-ink-manual-width-main",
+      "sha": "5a7cc183b492a350f0895868d7a008fb88d2556f",
+      "disposition": "selectively_integrated_or_superseded",
+      "reason": "PR92 31e16ea5; local build106 label is historical only"
+    },
+    {
+      "ref": "refs/heads/codex/free-ink-rotation",
+      "sha": "bb37365919b5bc031d417058361e2b0b02eabe13",
+      "disposition": "selectively_integrated_or_superseded",
+      "reason": "PR89 2dab8316 viewport+PR91 e5d49d59 direct-ending integration"
+    },
+    {
+      "ref": "refs/heads/codex/free-pro-access-2026-10-15",
+      "sha": "990af78328455d888a5537d02cbf3cf41014f8b5",
+      "disposition": "squash_or_port_source_covered",
+      "reason": "Every changed source/test/config blob matches main checkpoint 5b5fe710. Later source evolution is preserved."
+    },
+    {
+      "ref": "refs/heads/codex/no-read104-accepted-20261102",
+      "sha": "7f12b72be1d2da029f826af4c4a37dc271aae57b",
+      "disposition": "selectively_integrated_or_superseded",
+      "reason": "PR92 31e16ea5 with separate build104 acceptance evidence"
+    },
+    {
+      "ref": "refs/heads/codex/notation-readability",
+      "sha": "ad6cbeeb0173f096f73c4f00b68e71498d7f5d51",
+      "disposition": "historical_production_covered",
+      "reason": "Historical production baseline covered by PR78; separately inspected dirty readability prototype is already integrated and extended by PR86."
+    },
+    {
+      "ref": "refs/heads/codex/notation-readability-main",
+      "sha": "a0ff982827b2e1724a6b64923446ec6b243e3087",
+      "disposition": "squash_or_port_source_covered",
+      "reason": "Every changed source/test/config blob matches main checkpoint f3ac8638. Later source evolution is preserved."
+    },
+    {
+      "ref": "refs/heads/codex/park/chord-auto-render-93",
+      "sha": "601385530afe19804bd08671f922df84d68605eb",
+      "disposition": "selectively_integrated_or_superseded",
+      "reason": "Superseded regular-app build93; later PR91 source includes final automatic-render path"
+    },
+    {
+      "ref": "refs/heads/codex/park/recognition-research-2026-10-05",
+      "sha": "417113a96d9c06f7f0bab1ad9f8e0ce80abf4d6f",
+      "disposition": "excluded_parked_ML",
+      "reason": "Retained lab/research snapshot. Dirty nonresearch-looking changes inspected: ordinary aliases already on main; remaining additions are explicit lab/editor isolation."
+    },
+    {
+      "ref": "refs/heads/codex/park/stroke-direction-2026-10-05",
+      "sha": "f4b4ffe3bf3a8f8f5467c1581243d25db66f9079",
+      "disposition": "excluded_parked_ML",
+      "reason": "Retained lab/research snapshot. Dirty nonresearch-looking changes inspected: ordinary aliases already on main; remaining additions are explicit lab/editor isolation."
+    },
+    {
+      "ref": "refs/heads/codex/pdf-import-setlists",
+      "sha": "877368d0cd354d85a7b3c50df91c4a5d1ecc9761",
+      "disposition": "selectively_integrated_or_superseded",
+      "reason": "PDF import/setlist runtime selectively integrated by PR91. Candidate additionally restores reusable proof generator, PDF binary control and two historical proof/review runbooks."
+    },
+    {
+      "ref": "refs/heads/codex/recognition-generalization-reset",
+      "sha": "160aa31594903508e241802e21ca83ec447de849",
+      "disposition": "excluded_parked_ML",
+      "reason": "Retained lab/research snapshot. Dirty nonresearch-looking changes inspected: ordinary aliases already on main; remaining additions are explicit lab/editor isolation."
+    },
+    {
+      "ref": "refs/heads/codex/recognizer-accuracy-current-app",
+      "sha": "025d2ce50489215cfd4baa5de341ff99b02623fa",
+      "disposition": "contained",
+      "reason": "Ancestor of main; current baseline if sameSHA."
+    },
+    {
+      "ref": "refs/heads/codex/recognizer-graph-mvp",
+      "sha": "1c384425e4ee183c3204d7157b2ce0fc8c51e7ca",
+      "disposition": "excluded_parked_ML",
+      "reason": "Retained lab/research snapshot. Dirty nonresearch-looking changes inspected: ordinary aliases already on main; remaining additions are explicit lab/editor isolation."
+    },
+    {
+      "ref": "refs/heads/codex/recognizer-main-baseline",
+      "sha": "b98267639fd8df69a246722e1c8f96d3e7060a24",
+      "disposition": "contained",
+      "reason": "Ancestor of main; current baseline if sameSHA."
+    },
+    {
+      "ref": "refs/heads/codex/recognizer-myscript-mvp",
+      "sha": "65bc2dd7d47400d3a481e64e925a2556b508a892",
+      "disposition": "excluded_parked_ML",
+      "reason": "Retained lab/research snapshot. Dirty nonresearch-looking changes inspected: ordinary aliases already on main; remaining additions are explicit lab/editor isolation."
+    },
+    {
+      "ref": "refs/heads/codex/rhythm-ink-layout-persistence",
+      "sha": "d3141bf58705962b93043a57aed9ab706f8628c5",
+      "disposition": "historical_production_covered",
+      "reason": "Earlier production maintenance consolidated by PR78 normalization (archive PR78 tree exactly equals main6a398683). Primary uncommitted readability changes are separately reviewed; do not overwrite them."
+    },
+    {
+      "ref": "refs/heads/codex/telemetry-auto-render-contracts",
+      "sha": "f95e8633a086dc4e47fddf54f47f582a50a0de6f",
+      "disposition": "selectively_integrated_or_superseded",
+      "reason": "PR91 e5d49d59 selective integration and later PR92 fixes"
+    },
+    {
+      "ref": "refs/heads/codex/telemetry-experience-contracts",
+      "sha": "78e2cdef351325163dcd11e268e6766488cd9158",
+      "disposition": "selectively_integrated_or_superseded",
+      "reason": "PR91 e5d49d59 selective integration and later PR92 fixes"
+    },
+    {
+      "ref": "refs/heads/codex/telemetry-feature-contracts",
+      "sha": "344b355f271548fde27f8cd1e1ac3047800b2534",
+      "disposition": "selectively_integrated_or_superseded",
+      "reason": "PR91 e5d49d59 selective integration; later telemetry generations retain privacy boundary"
+    },
+    {
+      "ref": "refs/heads/codex/unified-app-followup",
+      "sha": "7f12b72be1d2da029f826af4c4a37dc271aae57b",
+      "disposition": "selectively_integrated_or_superseded",
+      "reason": "Same head as retained build104 accepted checkpoint; production changes included and extended by PR92."
+    },
+    {
+      "ref": "refs/heads/codex/unified-app-main",
+      "sha": "ecfb0d3b16e9e964b08e7b3f1269635d169ef602",
+      "disposition": "squash_or_port_source_covered",
+      "reason": "Every changed source/test/config blob matches main checkpoint e5d49d59. Later source evolution is preserved."
+    },
+    {
+      "ref": "refs/heads/codex/unified-app-post107",
+      "sha": "31e16ea5deac4621dea10ddd3a0d1f9c59a3f3f5",
+      "disposition": "contained",
+      "reason": "Ancestor of main; current baseline if sameSHA."
+    },
+    {
+      "ref": "refs/heads/codex/unified-app107",
+      "sha": "f7c6128120d4e781dacbfa3ba4d9c9bc123c1b38",
+      "disposition": "squash_or_port_source_covered",
+      "reason": "Every changed source/test/config blob matches main checkpoint 31e16ea5. Later source evolution is preserved."
+    },
+    {
+      "ref": "refs/heads/codex/write-render-repeat-endings",
+      "sha": "45b8e4b2c3ab0fd00da18873de17761491ed02ea",
+      "disposition": "selectively_integrated_or_superseded",
+      "reason": "PR91 e5d49d59 selective integration; root ending agent reviewing residual semantic differences"
+    },
+    {
+      "ref": "refs/heads/codex/write-render-repeat-signs",
+      "sha": "0bcaf85c303cf7e7a7567e4e18c64d1cc590fe4a",
+      "disposition": "squash_or_port_source_covered",
+      "reason": "Every changed source/test/config blob matches main checkpoint 061e9a35. Later source evolution is preserved."
+    },
+    {
+      "ref": "refs/heads/main",
+      "sha": "34fe2b90f8e6edbe5876d530d5ea20c56c3574b5",
+      "disposition": "contained",
+      "reason": "Ancestor of main; current baseline if sameSHA."
+    },
+    {
+      "ref": "refs/remotes/origin/HEAD",
+      "sha": "31e16ea5deac4621dea10ddd3a0d1f9c59a3f3f5",
+      "disposition": "contained",
+      "reason": "Ancestor of main; current baseline if sameSHA."
+    },
+    {
+      "ref": "refs/remotes/origin/codex/free-ink-engraving-main",
+      "sha": "fcce8d0648d2e5af4d309c04ab43b33b78873394",
+      "disposition": "squash_or_port_source_covered",
+      "reason": "Every changed source/test/config blob matches main checkpoint 34fe2b90. Later source evolution is preserved."
+    },
+    {
+      "ref": "refs/remotes/origin/codex/free-pro-access-2026-10-15",
+      "sha": "990af78328455d888a5537d02cbf3cf41014f8b5",
+      "disposition": "squash_or_port_source_covered",
+      "reason": "Every changed source/test/config blob matches main checkpoint 5b5fe710. Later source evolution is preserved."
+    },
+    {
+      "ref": "refs/remotes/origin/codex/pdf-import-setlists",
+      "sha": "877368d0cd354d85a7b3c50df91c4a5d1ecc9761",
+      "disposition": "selectively_integrated_or_superseded",
+      "reason": "PDF import/setlist runtime selectively integrated by PR91. Candidate additionally restores reusable proof generator, PDF binary control and two historical proof/review runbooks."
+    },
+    {
+      "ref": "refs/remotes/origin/codex/telemetry-feature-contracts",
+      "sha": "344b355f271548fde27f8cd1e1ac3047800b2534",
+      "disposition": "selectively_integrated_or_superseded",
+      "reason": "PR91 e5d49d59 selective integration; later telemetry generations retain privacy boundary"
+    },
+    {
+      "ref": "refs/remotes/origin/codex/unified-app-followup",
+      "sha": "f7c6128120d4e781dacbfa3ba4d9c9bc123c1b38",
+      "disposition": "squash_or_port_source_covered",
+      "reason": "Every changed source/test/config blob matches main checkpoint 31e16ea5. Later source evolution is preserved."
+    },
+    {
+      "ref": "refs/remotes/origin/dependabot/github_actions/github-actions-9adc00e088",
+      "sha": "02438d65c88550c49bd33c9d372f9e5f5ff31645",
+      "disposition": "included_in_candidate",
+      "reason": "CodeQL init/analyze v4.39.1 changes from PR84 are included by fcea7299; no PR closure is implied."
+    },
+    {
+      "ref": "refs/remotes/origin/main",
+      "sha": "31e16ea5deac4621dea10ddd3a0d1f9c59a3f3f5",
+      "disposition": "contained",
+      "reason": "Ancestor of main; current baseline if sameSHA."
+    },
+    {
+      "ref": "refs/heads/codex/next-app-store-20261102",
+      "sha_at_document_preparation": "fcea7299",
+      "disposition": "current_integration_candidate",
+      "reason": "New isolated candidate based on current main; build identity1.2.4(108), remaining workflow maintenance and retained nonruntime QA controls/runbooks."
+    }
+  ],
+  "worktree_dispositions": [
+    {
+      "branch": "refs/heads/codex/notation-readability",
+      "head": "ad6cbeeb0173f096f73c4f00b68e71498d7f5d51",
+      "exists": true,
+      "disposition": "preserved_historical_readability_prototype_content_covered_by_main; local QA/plans/marketing indexed and parked research excluded",
+      "tracked_dirty_count": 11,
+      "untracked_count": 35095
+    },
+    {
+      "branch": "refs/heads/codex/consolidate-main",
+      "head": "54b406b4e8b947857a7100e9296499c7a3adbc72",
+      "exists": false,
+      "disposition": "registered_missing_preserve_refs_no_prune",
+      "tracked_dirty_count": 0,
+      "untracked_count": 0
+    },
+    {
+      "branch": "refs/heads/codex/free-ink-engraving",
+      "head": "7382bf9e62feedb6a8222da71a766baa342b0f67",
+      "exists": false,
+      "disposition": "registered_missing_preserve_refs_no_prune",
+      "tracked_dirty_count": 0,
+      "untracked_count": 0
+    },
+    {
+      "branch": "refs/heads/codex/free-ink-engraving-main",
+      "head": "fcce8d0648d2e5af4d309c04ab43b33b78873394",
+      "exists": true,
+      "disposition": "clean_source_contained_or_integrated_by_content",
+      "tracked_dirty_count": 0,
+      "untracked_count": 0
+    },
+    {
+      "branch": "refs/heads/codex/free-ink-manual-width-main",
+      "head": "5a7cc183b492a350f0895868d7a008fb88d2556f",
+      "exists": true,
+      "disposition": "clean_source_contained_or_integrated_by_content",
+      "tracked_dirty_count": 0,
+      "untracked_count": 0
+    },
+    {
+      "branch": "refs/heads/codex/telemetry-experience-contracts",
+      "head": "78e2cdef351325163dcd11e268e6766488cd9158",
+      "exists": false,
+      "disposition": "registered_missing_preserve_refs_no_prune",
+      "tracked_dirty_count": 0,
+      "untracked_count": 0
+    },
+    {
+      "branch": "refs/heads/codex/telemetry-feature-contracts",
+      "head": "344b355f271548fde27f8cd1e1ac3047800b2534",
+      "exists": false,
+      "disposition": "registered_missing_preserve_refs_no_prune",
+      "tracked_dirty_count": 0,
+      "untracked_count": 0
+    },
+    {
+      "branch": "refs/heads/codex/unified-app107",
+      "head": "f7c6128120d4e781dacbfa3ba4d9c9bc123c1b38",
+      "exists": true,
+      "disposition": "clean_source_contained_or_integrated_by_content",
+      "tracked_dirty_count": 0,
+      "untracked_count": 0
+    },
+    {
+      "branch": "refs/heads/codex/unified-app-main",
+      "head": "ecfb0d3b16e9e964b08e7b3f1269635d169ef602",
+      "exists": false,
+      "disposition": "registered_missing_preserve_refs_no_prune",
+      "tracked_dirty_count": 0,
+      "untracked_count": 0
+    },
+    {
+      "branch": "refs/heads/codex/unified-app-post107",
+      "head": "31e16ea5deac4621dea10ddd3a0d1f9c59a3f3f5",
+      "exists": true,
+      "disposition": "clean_source_contained_or_integrated_by_content",
+      "tracked_dirty_count": 0,
+      "untracked_count": 0
+    },
+    {
+      "branch": "refs/heads/main",
+      "head": "34fe2b90f8e6edbe5876d530d5ea20c56c3574b5",
+      "exists": true,
+      "disposition": "clean_source_contained_or_integrated_by_content",
+      "tracked_dirty_count": 0,
+      "untracked_count": 0
+    },
+    {
+      "branch": "refs/heads/codex/write-render-repeat-endings",
+      "head": "45b8e4b2c3ab0fd00da18873de17761491ed02ea",
+      "exists": true,
+      "disposition": "clean_source_13_untracked_generated_QA_outputs",
+      "tracked_dirty_count": 0,
+      "untracked_count": 13
+    },
+    {
+      "branch": "refs/heads/codex/pdf-import-setlists",
+      "head": "877368d0cd354d85a7b3c50df91c4a5d1ecc9761",
+      "exists": true,
+      "disposition": "clean_source_contained_or_integrated_by_content",
+      "tracked_dirty_count": 0,
+      "untracked_count": 0
+    },
+    {
+      "branch": "refs/heads/codex/recognition-generalization-reset",
+      "head": "160aa31594903508e241802e21ca83ec447de849",
+      "exists": false,
+      "disposition": "registered_missing_preserve_refs_no_prune",
+      "tracked_dirty_count": 0,
+      "untracked_count": 0
+    },
+    {
+      "branch": "refs/heads/codex/recognizer-accuracy-current-app",
+      "head": "025d2ce50489215cfd4baa5de341ff99b02623fa",
+      "exists": true,
+      "disposition": "parked_ML_dirty_source_preserved_and_excluded_except_already_covered_aliases",
+      "tracked_dirty_count": 10,
+      "untracked_count": 98
+    },
+    {
+      "branch": "refs/heads/codex/recognizer-graph-mvp",
+      "head": "1c384425e4ee183c3204d7157b2ce0fc8c51e7ca",
+      "exists": true,
+      "disposition": "parked_ML_dirty_source_preserved_and_excluded_except_already_covered_aliases",
+      "tracked_dirty_count": 16,
+      "untracked_count": 108
+    },
+    {
+      "branch": "refs/heads/codex/recognizer-main-baseline",
+      "head": "b98267639fd8df69a246722e1c8f96d3e7060a24",
+      "exists": true,
+      "disposition": "clean_source_contained_or_integrated_by_content",
+      "tracked_dirty_count": 0,
+      "untracked_count": 0
+    },
+    {
+      "branch": "refs/heads/codex/recognizer-myscript-mvp",
+      "head": "65bc2dd7d47400d3a481e64e925a2556b508a892",
+      "exists": true,
+      "disposition": "parked_ML_dirty_source_preserved_and_excluded_except_already_covered_aliases",
+      "tracked_dirty_count": 49,
+      "untracked_count": 64
+    },
+    {
+      "branch": "refs/heads/codex/next-app-store-20261102",
+      "exists": true,
+      "disposition": "current_isolated_integration_candidate"
+    }
+  ],
+  "archive_tag_dispositions": [
+    {
+      "ref": "refs/tags/archive/2026-10-14/chord-telemetry-failure-buckets",
+      "commit": "ad6cbeeb0173f096f73c4f00b68e71498d7f5d51",
+      "disposition": "covered_old_production",
+      "reason": "Same oldad6 branch baseline; normalized into PR78, later evolved. Primary working readability changes handled separately."
+    },
+    {
+      "ref": "refs/tags/archive/2026-10-14/pr77-codeql-v4.38.0",
+      "commit": "4c9fe2c408bede9aaca1d06b015ca388068e0b4b",
+      "disposition": "exact_main_checkpoint_tree",
+      "reason": "Exact tree equality recorded in archive-main-coverage.json."
+    },
+    {
+      "ref": "refs/tags/archive/2026-10-14/pr78-release-normalization",
+      "commit": "d836afdb15c31c17c769d78b859ab6dc5052a168",
+      "disposition": "exact_main_checkpoint_tree",
+      "reason": "Exact tree equality recorded in archive-main-coverage.json."
+    },
+    {
+      "ref": "refs/tags/archive/2026-10-14/pr80-torch-2.13.0",
+      "commit": "4e0fcf99101fa926fe5021473acbd6d753f0d335",
+      "disposition": "carried_by_PR82",
+      "reason": "Commit ancestor of archive PR82 source, whose final tree exactly equals main025d2ce5."
+    },
+    {
+      "ref": "refs/tags/archive/2026-10-14/pr81-ci-actions",
+      "commit": "452a659d010e514e37b6d4994f6abc02f9dd3792",
+      "disposition": "carried_by_PR82",
+      "reason": "Commit ancestor of archive PR82 source, whose final tree exactly equals main025d2ce5."
+    },
+    {
+      "ref": "refs/tags/archive/2026-10-14/pr82-repo-cleanup-build76",
+      "commit": "e601b01f5d55f7ae2ba5b468f6f7a94efa02f0d9",
+      "disposition": "exact_main_checkpoint_tree",
+      "reason": "Exact tree equality recorded in archive-main-coverage.json."
+    },
+    {
+      "ref": "refs/tags/archive/2026-10-14/research-coreml-root-engine",
+      "commit": "ab524a99fa8d7f11d987d985d12985f507da9c58",
+      "disposition": "excluded_parked_ML",
+      "reason": "Explicit parked recognition research."
+    },
+    {
+      "ref": "refs/tags/archive/2026-10-14/research-hybrid-lab",
+      "commit": "8eb42c5ecd810c0fa7552eb9472b0a32eb8170d4",
+      "disposition": "excluded_parked_ML",
+      "reason": "Explicit parked recognition research."
+    },
+    {
+      "ref": "refs/tags/archive/pr70-final-20260901",
+      "commit": "5cd358c6617c14f16fb9b7356f5b41a118dc404a",
+      "disposition": "historical_pre_window",
+      "reason": "Historical pre-October snapshot; no newly added last-month work; preserve as recovery, do not restore over current production."
+    },
+    {
+      "ref": "refs/tags/archive/pr70-initial-push-20260901",
+      "commit": "252428a050c22d14951199407a43a3829b7fecd1",
+      "disposition": "historical_pre_window",
+      "reason": "Historical pre-October snapshot; no newly added last-month work; preserve as recovery, do not restore over current production."
+    },
+    {
+      "ref": "refs/tags/archive/pr71-comment-loop-20260901",
+      "commit": "4cf93dcf1a8db77fbe09aeb67030d6160aee6588",
+      "disposition": "historical_pre_window",
+      "reason": "Historical pre-October snapshot; no newly added last-month work; preserve as recovery, do not restore over current production."
+    },
+    {
+      "ref": "refs/tags/archive/pr71-initial-20260901",
+      "commit": "c07594814ee35409d537310133496fa34702aeec",
+      "disposition": "historical_pre_window",
+      "reason": "Historical pre-October snapshot; no newly added last-month work; preserve as recovery, do not restore over current production."
+    },
+    {
+      "ref": "refs/tags/archive/pr72-pre-squash-20260901",
+      "commit": "7f412e035f1c76bdf441f16d2791b4cca1e653d1",
+      "disposition": "historical_pre_window",
+      "reason": "Historical pre-October snapshot; no newly added last-month work; preserve as recovery, do not restore over current production."
+    },
+    {
+      "ref": "refs/tags/sprint70-pre-ink-session-unification",
+      "commit": "b9f805148d3750829dc7373fc2f6ec47b1dc36f1",
+      "disposition": "historical_pre_window",
+      "reason": "Historical pre-October snapshot; no newly added last-month work; preserve as recovery, do not restore over current production."
+    }
+  ],
+  "codex_metadata_disposition": {
+    "snapshot_refs": 5,
+    "turn_diff_tree_refs": 8,
+    "disposition": "Historical recovery/agent metadata, contained snapshots or parked research; preserve without importing snapshot trees over current source."
+  },
+  "reflog_variant_dispositions": [
+    {
+      "sha": "43abd658b1ab4f0522631b57b2ccf6fca0ed0b35",
+      "disposition": "covered_or_superseded_variant",
+      "reason": "Patch-id identical to retained02438d65 CodeQLv4.39.1 candidate."
+    },
+    {
+      "sha": "ca63c39fd5654ce764e16163c691750b82df8cd8",
+      "disposition": "covered_or_superseded_variant",
+      "reason": "Patch-id identical to retained4656b4cb/e34882d4 automatic-render predecessor; later integration on main."
+    },
+    {
+      "sha": "7ce25e93eb7b383e68bed2ba01bfac875fcc26c8",
+      "disposition": "covered_or_superseded_variant",
+      "reason": "Migration files exactly identical to retainedf56c5293; retained variant adds deployment docs/synthetic fixture checks."
+    },
+    {
+      "sha": "f675e98989295bb0e0271ae7cac58b0aa2e0002f",
+      "disposition": "covered_or_superseded_variant",
+      "reason": "Whole tree differs from retaineda03df585 only by .gitattributes addition; no missing runtime feature."
+    },
+    {
+      "sha": "a74c5fd29bbb763023b02b8a3ec54e3d6939b910",
+      "disposition": "covered_or_superseded_variant",
+      "reason": "CodeQLv4.39.0 is already main; latestv4.39.1 candidate supersedes."
+    }
+  ],
+  "primary_dirty_checkout": {
+    "tracked_modified": 11,
+    "untracked": 35095,
+    "total_paths": 35106,
+    "classification_counts": {
+      "docs_only_merged_equivalent": 4,
+      "merged_equivalent_or_superseded_runtime_tests": 13,
+      "docs_only_superseded_app_store_draft": 1,
+      "docs_only_merged_equivalent_plan": 1,
+      "docs_only_superseded_intake": 1,
+      "docs_only_historical_readability_evidence": 33,
+      "excluded_parked_ml_research": 35053
+    },
+    "source_and_tests_to_recopy": 0,
+    "local_readability_test_methods_already_upstream": 19,
+    "additional_upstream_readability_methods": 4,
+    "disposition": "Preserved in place. Source belongs to older readability prototype; every relevant feature/test is covered or superseded in main. Historical QA/drafts are indexed, not silently deleted or published."
+  },
+  "absent_tracked_path_review": {
+    "non_ml_refs_examined": 33,
+    "paths_absent_from_baseline": 57,
+    "selected_nonruntime_paths": 4,
+    "remaining_historical_or_generated_paths_preserved_without_copying": 53,
+    "disposition": "No missing Swift, SQL, backend or CI runtime file. Two reusable controls and two historical runbooks selected; other artifacts remain donor evidence."
+  },
+  "new_candidate_changes": [
+    {
+      "path": ".github/workflows/codeql.yml",
+      "kind": "workflow_maintenance",
+      "detail": "CodeQL init/analyze v4.39.1 from PR84; commitfcea7299."
+    },
+    {
+      "path": "project.yml",
+      "kind": "build_identity",
+      "detail": "1.2.4(108), generated project remains derived."
+    },
+    {
+      "path": "iChartTests/ProjectConfigurationTests.swift",
+      "kind": "build_identity_contract",
+      "detail": "Pins the expected build108 configuration."
+    },
+    {
+      "path": ".gitattributes",
+      "kind": "reusable_repository_control",
+      "detail": "Retains PDF binary treatment from the PDF import donor."
+    },
+    {
+      "path": "scripts/create_pdf_import_proof.py",
+      "kind": "reusable_qa_tool",
+      "detail": "Restores synthetic PDF import/setlist proof generator; not app runtime or execution evidence."
+    },
+    {
+      "path": "docs/ichart-pdf-import-offline-proof-2026-10-23.md",
+      "kind": "historical_qa_runbook",
+      "detail": "Restored with a historical-evidence banner and frozen donor evidence links."
+    },
+    {
+      "path": "docs/ichart-pdf-import-production-review-2026-10-23.md",
+      "kind": "historical_review_runbook",
+      "detail": "Restored with a historical-evidence banner and frozen donor evidence links."
+    },
+    {
+      "path": "docs/project-state.md",
+      "kind": "consolidation_record",
+      "detail": "Current build108 integration header; historical checkpoints preserved."
+    },
+    {
+      "path": "docs/release-consolidation-2026-11-02.md",
+      "kind": "consolidation_record",
+      "detail": "Readable source coverage, exclusions and validation boundaries."
+    },
+    {
+      "path": "docs/release-consolidation-2026-11-02.json",
+      "kind": "consolidation_record",
+      "detail": "Sanitized machine-readable disposition inventory."
+    }
+  ],
+  "excluded_parked_ml": {
+    "lanes": [
+      "Graph/MyScript replacement labs",
+      "Core ML, hybrid and stroke-direction research",
+      "function/Fourier and personalized-handwriting studies",
+      "generalization/reset experiments"
+    ],
+    "primary_research_files_preserved": 35053,
+    "ordinary_production_aliases": "MusicTheory and ChartParsers alias changes from lab working copies already match main byte-for-byte; lab-specific replacement test remains parked.",
+    "disposition": "No training, model promotion, private-ink collection, vendor integration or lab app shipping. Existing production parser, recognition failure handling and ink/render fixes remain in scope."
+  },
+  "validation": {
+    "status": "local_gates_passed_hosted_and_packaging_pending_at_source_checkpoint",
+    "portable_swiftpm": {
+      "status": "passed",
+      "passed": 1820,
+      "failed": 0,
+      "skipped": 91,
+      "total": 1911
+    },
+    "backend_contracts": {
+      "status": "passed",
+      "passed": 822,
+      "failed": 0,
+      "skipped": 0
+    },
+    "pdf_proof_generator": {
+      "status": "passed",
+      "pages": 2,
+      "page_size": "US Letter"
+    },
+    "native_suite": {
+      "status": "passed",
+      "initial_full_run": {
+        "passed": 3109,
+        "failed_tests": 3,
+        "failure_events": 6,
+        "skipped": 114,
+        "total": 3226,
+        "reason": "Three real software-keyboard preconditions failed on the existing QA Simulator."
+      },
+      "existing_simulator_cold_three_test_rerun": "Same precondition failures; no assertions changed.",
+      "clean_same_model_runtime_three_test_gate": {
+        "passed": 3,
+        "failed": 0,
+        "skipped": 0,
+        "setup": "Software-keyboard preference set before first boot of a fresh iPad A16 / iOS26.5 QA Simulator; original host preference restored."
+      },
+      "final_full_run": {
+        "status": "passed",
+        "passed": 3112,
+        "failed": 0,
+        "skipped": 114,
+        "total": 3226,
+        "model": "iPad (A16)",
+        "os_version": "26.5",
+        "os_build": "23F77",
+        "simulator_id": "CF60A354-F345-4B05-B1E1-88A7E062891A",
+        "source_input_hashes_verified_unchanged": 1286,
+        "host_preference_restoration_verified": true
+      }
+    },
+    "candidate_hosted_ci": "unverified",
+    "candidate_signed_archive_or_ipa": "not_yet_recorded",
+    "candidate_physical_device_acceptance": "unverified",
+    "historical_baseline_evidence": {
+      "pr92_head": "f7c6128120d4e781dacbfa3ba4d9c9bc123c1b38",
+      "main_tree_equals_pr92_head": true,
+      "pr92_ci_url": "https://github.com/beniandthe/ichart/actions/runs/41479185644",
+      "pr92_codeql_url": "https://github.com/beniandthe/ichart/actions/runs/41479185642",
+      "latest_baseline_main_push": "iOS/SwiftPM and CodeQL jobs cancelled with runner_id0 and zero steps. Check annotations identify hosted macOS arm64 capacity/acquisition failure; no app tests ran."
+    }
+  },
+  "app_store_gates": {
+    "version": "1.2.4",
+    "build": 108,
+    "apple_upload": "not_performed",
+    "apple_processing": "unverified",
+    "distribution_attachment": "not_performed",
+    "app_review_submission": "not_performed",
+    "apple_approval": "not_established",
+    "public_release": "not_performed",
+    "new_public_copy": "not_approved",
+    "scope_boundary": "Earlier1.2.3 Apple approval/release and build104/107 component/device evidence do not establish any108 delivery, approval or physical acceptance."
+  },
+  "retained_limitations": [
+    "Fresh combined candidate validation and physical acceptance remain separate from source coverage.",
+    "Historical ending-control polish did not establish current combined-device feel/acceptance.",
+    "Cloud backup scope does not include original imported PDFs/setlists merely because chart backup exists.",
+    "Diagnostic consent is not consent for raw-ink collection or ML training.",
+    "No branch/worktree pruning, research deletion, customer-message replay or live backend deployment performed by the consolidation inventory.",
+    "Current privacy source is dated October30; source alone does not establish its approval/live publication or current Apple alignment. Verify later approval/readback evidence before any needed external publication; no new policy is published by this consolidation."
+  ]
+}
