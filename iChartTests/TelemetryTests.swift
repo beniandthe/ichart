@@ -4,6 +4,9 @@ import XCTest
 @testable import iChart
 
 final class TelemetryTests: XCTestCase {
+    // Keep this value check on the startup projection actor. Background and
+    // deferred-cleanup contention are exercised by the dedicated tests below.
+    @MainActor
     func testTelemetryConsentDefaultsOffAndRejectsLegacyOrUnknownValues() async throws {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "iChart-telemetry-consent-\(UUID().uuidString)"))
         defaults.set(UUID().uuidString, forKey: IChartTelemetryConsentStore.installationIDPreferenceKey)
