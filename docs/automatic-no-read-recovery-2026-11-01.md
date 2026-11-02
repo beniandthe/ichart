@@ -35,4 +35,32 @@ caused the historical device incidents. Passing regressions or fewer incident
 events alone do not establish that those incidents are resolved. Fresh device
 testing remains a separate acceptance step.
 
-Validation and device acceptance are pending for this candidate.
+Validation completed on the application source at `d382f500`:
+
+- Both hosted native suites ran 3,204 tests: 3,090 passed, zero failed and 114
+  skipped, on the configured iPad (A16). All 24 affected regression classes and
+  the actual landscape software-keyboard flows executed.
+- The local affected-class gate passed 249 tests with zero failures and two
+  optional skips. Full local SwiftPM passed 1,812 tests with zero failures and
+  89 skips. Hosted SwiftPM, backend contracts, dependency review, actual Swift
+  CodeQL analysis and separate result processing also passed.
+- Build 104 was installed in place on the physical iPad. Fresh backups and
+  installation/first-launch/cold-reopen readbacks preserved chart content,
+  handwriting archives, PDFs and setlists. The original strict reports retain
+  cloud backup timestamps and other explicitly reviewed runtime metadata
+  differences; whole-container byte equality is not claimed.
+- The user confirmed ordinary automatic handwriting entry, double-tap editing,
+  save/chart-reopen, one-finger scrolling and Pencil-margin scrolling. A fresh
+  read-only saved-data snapshot contained the new chart's five rendered chords,
+  five distinct source archives and no remaining live chord ink. Existing chart
+  content and ink remained exact apart from cloud backup timestamps.
+- Matching automatic-render preservation and geometry checks passed and were
+  processed by the scheduled telemetry worker. A normal chart-open event and
+  save/readback checks support the user-confirmed chart reopen. A fresh
+  `ink.reopen_preservation` event was not observed after handwriting; no
+  post-writing cold-launch test is claimed.
+
+This accepts the observed Build 104 workflow. It does not establish the cause
+of the historical Build 102 no-read episodes, general handwriting accuracy or
+guaranteed recognition of every possible input. Historical incident records
+remain separate from this functional validation.

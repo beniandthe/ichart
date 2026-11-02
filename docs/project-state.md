@@ -1,16 +1,19 @@
 # Project state and next Apple build
 
-Updated: 2026-11-01. Use `main` as the integration baseline for regular iChart
+Updated: 2026-11-02. Use `main` as the integration baseline for regular iChart
 work. The combined 1.2.4 (103) scope and storage boundaries are recorded in the
 [regular app consolidation](release-consolidation-2026-10-31.md). Graph/MyScript,
 training and model experiments remain parked. Keep private device evidence and
 unapproved listing drafts local. Delivery checks and physical acceptance are
 separate from source consolidation.
 
-The forward 1.2.4 (104) candidate is described in the
+The 1.2.4 (104) follow-up is described in the
 [automatic no-read recovery follow-up](automatic-no-read-recovery-2026-11-01.md).
-Its validation and physical acceptance are separate from the consolidated
-build 103 baseline.
+It passed the recorded local and hosted gates, was installed with protected
+content preservation, and passed the user-confirmed writing/editing/scrolling
+and save/chart-reopen check. Its matching render telemetry was processed by the
+scheduled worker. This is acceptance of the observed workflow; historical
+no-read causes and broader recognition accuracy remain separate questions.
 
 The checkpoints below are historical evidence for their recorded revisions.
 They are not current version, deployment or device-status claims.
