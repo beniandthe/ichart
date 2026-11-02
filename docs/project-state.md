@@ -15,6 +15,11 @@ and save/chart-reopen check. Its matching render telemetry was processed by the
 scheduled worker. This is acceptance of the observed workflow; historical
 no-read causes and broader recognition accuracy remain separate questions.
 
+The [unified build 107](unified-build107.md) combines those accepted recognition
+changes with the Free Ink engraving fix and its mixed manual/default-width
+correction. Its combined validation and delivery are tracked in PR #92. Do not
+infer build 107's device acceptance from the earlier build 104 test.
+
 The checkpoints below are historical evidence for their recorded revisions.
 They are not current version, deployment or device-status claims.
 
