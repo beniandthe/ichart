@@ -6318,7 +6318,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         if activeInkScope.identity == .page, let source = pageInkReprojectionSource {
             desiredDrawing = LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
                 source.drawing,
-                sourceCoordinateSpace: source.coordinateSpace,
+                sourceCoordinateSpace: LeadSheetPersistentInkCoordinateSpacePolicy.pageSourceCoordinateSpace(
+                    source.coordinateSpace, chart: chart),
                 targetCoordinateSpace: targetCoordinateSpace
             )
         } else {
@@ -6899,7 +6900,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             )
             pageInkReprojectionSource = source
             projectionDrawing = source.drawing
-            projectionCoordinateSpace = source.coordinateSpace
+            projectionCoordinateSpace = LeadSheetPersistentInkCoordinateSpacePolicy.pageSourceCoordinateSpace(
+                source.coordinateSpace, chart: chart) ?? source.coordinateSpace
         } else {
             projectionDrawing = currentDrawing
             projectionCoordinateSpace = sourceCoordinateSpace
@@ -6912,10 +6914,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             targetCoordinateSpace: targetCoordinateSpace
         )
         isSyncingInkCanvasFromModel = false
-        if activeInkScope.persistsDrawingData, IChartTelemetry.isRecordingEnabled {
+        if activeInkScope.persistsDrawingData, IChartTelemetry.isRecordingEnabled,
+           !LeadSheetPersistentInkCoordinateSpacePolicy.changesStaffEngraving(
+                from: sourceCoordinateSpace, to: targetCoordinateSpace) {
             LeadSheetInkFeatureContract.record(
                 LeadSheetInkFeatureContract.rotationAssessment(
-                    source: projectionDrawing, projected: pageInkCanvasView.drawing
+                    source: currentDrawing, projected: pageInkCanvasView.drawing
                 ),
                 contractID: "ink.rotation_preservation",
                 chart: chart,
