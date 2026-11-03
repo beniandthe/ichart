@@ -81,6 +81,99 @@ final class FreeInkArticulationPlacementTests: XCTestCase {
         XCTAssertNil(FreeInkArticulationPlacement.target(near: mark, chart: chart, pageLayout: layout))
     }
 
+    func testFloatingMarkKeepsItsPaperPointAcrossPageOffsets() throws {
+        let chart = makeChart()
+        var layout = LeadSheetPageLayoutEngine.pageLayout(for: chart,
+            pageSize: CGSize(width: 850, height: 1_100))
+        let page = try XCTUnwrap(layout.pages.first)
+        let blankPoint = CGPoint(x: page.frame.midX, y: page.frame.maxY - 120)
+        XCTAssertNil(FreeInkArticulationPlacement.attachment(near: blankPoint, chart: chart, pageLayout: layout))
+        let position = try XCTUnwrap(FreeInkArticulationPlacement.pagePoint(at: blankPoint, pageLayout: layout))
+        let mark = FreeInkArticulation(kind: .fermata, sourceInkData: Data(), pagePoint: position)
+        let target = try XCTUnwrap(FreeInkArticulationPlacement.target(for: mark, chart: chart, pageLayout: layout))
+        XCTAssertNil(target.measureID)
+        XCTAssertEqual(target.center, blankPoint)
+
+        layout.pages[0].frame = page.frame.offsetBy(dx: 24, dy: 36)
+        XCTAssertEqual(FreeInkArticulationPlacement.target(for: mark, chart: chart, pageLayout: layout)?.center,
+            CGPoint(x: blankPoint.x + 24, y: blankPoint.y + 36))
+
+        let secondPagePoint = FreeInkArticulationPagePoint(pageIndex: 1,
+            x: position.x, y: page.frame.height + 30)
+        let lastPage = layout.pages[0].frame
+        let recoveredCenter = try XCTUnwrap(FreeInkArticulationPlacement.center(for: secondPagePoint, pageLayout: layout))
+        XCTAssertEqual(recoveredCenter.x, lastPage.minX + position.x, accuracy: 0.01)
+        XCTAssertEqual(recoveredCenter.y, lastPage.maxY - 10, accuracy: 0.01)
+    }
+
+    func testAttachmentDistinguishesRenderedChordAndNoteFromEmptySpace() throws {
+        var chart = makeChart()
+        let measureID = try XCTUnwrap(chart.measures.last?.id)
+        XCTAssertTrue(chart.appendRecognizedChord(
+            ChordSymbol(root: .c, accidental: .natural, quality: "", extensions: [], alterations: [], slashBass: nil),
+            rawInput: "C", to: measureID, atFraction: 0
+        ))
+        chart.systems[0].measures[1].rhythmMap = MeasureRhythmMap(values: [.quarter, .quarter, .quarter, .quarter])
+        let size = CGSize(width: 850, height: 1_100)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: size)
+        let measure = try XCTUnwrap(layout.systems.flatMap(\.measures).first { $0.sourceMeasureID == measureID })
+        let chord = try XCTUnwrap(measure.chordLayouts.first)
+        let chordHit = try XCTUnwrap(FreeInkArticulationPlacement.attachment(
+            near: CGPoint(x: chord.frame.midX, y: chord.frame.midY), chart: chart, pageLayout: layout
+        ))
+        XCTAssertEqual(chordHit.measureID, measureID)
+        XCTAssertEqual(chordHit.attachment, .chord(id: chord.id))
+
+        let note = try XCTUnwrap(measure.noteLayouts.dropFirst().first)
+        let noteHit = try XCTUnwrap(FreeInkArticulationPlacement.attachment(
+            near: CGPoint(x: note.noteheadFrame.midX, y: note.noteheadFrame.midY), chart: chart, pageLayout: layout
+        ))
+        XCTAssertEqual(noteHit.measureID, measureID)
+        XCTAssertEqual(noteHit.attachment, .note(beat: 2, subdivision: 0))
+        let mark = FreeInkArticulation(kind: .accent, measureID: measureID, sourceInkData: Data(),
+            attachment: noteHit.attachment)
+        let secondMark = FreeInkArticulation(kind: .fermata, measureID: measureID, sourceInkData: Data(),
+            attachment: noteHit.attachment)
+        chart.freeInkArticulations = [mark, secondMark]
+        let original = try XCTUnwrap(FreeInkArticulationPlacement.target(for: mark, chart: chart, pageLayout: layout))
+        let stacked = try XCTUnwrap(FreeInkArticulationPlacement.target(for: secondMark, chart: chart, pageLayout: layout))
+        XCTAssertEqual(stacked.center.x, original.center.x)
+        XCTAssertLessThan(stacked.markFrame.maxY, original.markFrame.minY)
+
+        XCTAssertTrue(chart.insertSystemBreak(before: measureID))
+        let reflowed = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: size)
+        let moved = try XCTUnwrap(FreeInkArticulationPlacement.target(for: mark, chart: chart, pageLayout: reflowed))
+        let movedMeasure = try XCTUnwrap(reflowed.systems.flatMap(\.measures).first { $0.sourceMeasureID == measureID })
+        XCTAssertEqual(moved.center.x, movedMeasure.noteLayouts[1].noteheadFrame.midX, accuracy: 0.01)
+        XCTAssertGreaterThan(moved.center.y, original.center.y)
+
+        let chordMark = FreeInkArticulation(kind: .fermata, measureID: measureID, sourceInkData: Data(),
+            attachment: chordHit.attachment)
+        let destination = try XCTUnwrap(chart.measures.first?.id)
+        XCTAssertTrue(chart.moveChordEvent(chord.id, to: destination, atFraction: 0.4))
+        let movedChordLayout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: size)
+        XCTAssertEqual(FreeInkArticulationPlacement.target(for: chordMark, chart: chart, pageLayout: movedChordLayout)?.measureID,
+            destination)
+    }
+
+    func testInkNearAStaffCanAttachWithoutRenderedNotes() throws {
+        let chart = makeChart()
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart,
+            pageSize: CGSize(width: 850, height: 1_100))
+        let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let staff = measure.staffFrame
+        let point = CGPoint(x: staff.midX, y: staff.minY - 4)
+        XCTAssertNil(FreeInkArticulationPlacement.attachment(near: point, chart: chart, pageLayout: layout))
+        let stroke = CGRect(x: staff.midX - 3, y: staff.minY + 1, width: 6, height: 8)
+        let hit = try XCTUnwrap(FreeInkArticulationPlacement.attachment(
+            near: point, chart: chart, pageLayout: layout, staffInkBounds: [stroke]
+        ))
+        XCTAssertEqual(hit.measureID, measure.sourceMeasureID)
+        guard case .staff(let x, let y) = hit.attachment else { return XCTFail("Expected a staff attachment") }
+        XCTAssertEqual(x, 0.5, accuracy: 0.01)
+        XCTAssertLessThan(y, 0)
+    }
+
     func testLastConversionRetainsSavedPaperWidthAndRemainingInkTakesPrecedence() throws {
         var chart = makeChart()
         let archivedSpace = PersistentInkCoordinateSpace(width: 560, height: 1_100)
@@ -113,12 +206,12 @@ final class FreeInkArticulationPlacementTests: XCTestCase {
 
     #if canImport(UIKit)
     @MainActor
-    func testExportDrawsBothArticulationsAtThePreviewTargets() async throws {
+    func testExportDrawsAttachedAndFloatingArticulations() async throws {
         var chart = makeChart()
         let measureID = try XCTUnwrap(chart.measures.first?.id)
         let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart,
             pageSize: CGSize(width: LeadSheetFreeInkDocumentLayoutPolicy.portraitCanvasWidth, height: 1_100))
-        let targets = try [1, 2].map { beat in
+        var targets = try [1, 2].map { beat in
             try XCTUnwrap(FreeInkArticulationPlacement.target(
                 measureID: measureID, beatIndex: beat, chart: chart, pageLayout: layout
             ))
@@ -131,6 +224,11 @@ final class FreeInkArticulationPlacementTests: XCTestCase {
             FreeInkArticulation(kind: kind, measureID: measureID, beatIndex: target.beatIndex,
                                 sourceInkData: Data([0x01]), sourceCoordinateSpace: nil)
         }
+        let floatingPoint = CGPoint(x: layout.paperFrame.midX, y: layout.paperFrame.maxY - 120)
+        let pagePoint = try XCTUnwrap(FreeInkArticulationPlacement.pagePoint(at: floatingPoint, pageLayout: layout))
+        let floating = FreeInkArticulation(kind: .accent, sourceInkData: Data([0x01]), pagePoint: pagePoint)
+        chart.freeInkArticulations.append(floating)
+        targets.append(try XCTUnwrap(FreeInkArticulationPlacement.target(for: floating, chart: chart, pageLayout: layout)))
         let withMarks = try await renderedPage(for: chart, exporter: exporter)
         let paper = layout.paperFrame
         for target in targets {

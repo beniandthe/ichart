@@ -327,7 +327,7 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     var chordDraftRenderCoordinator: ChordInkDraftRenderCoordinator? = nil
     var chordDraftRenderInvalidationRequestID: UUID? = nil
     var freeInkArticulationCoordinator: FreeInkArticulationCoordinator? = nil
-    var onFreeInkArticulationAutomaticallyConverted: (() -> Void)? = nil
+    var onFreeInkArticulationWillSave: (() -> Void)? = nil
     var rhythmicNotationPreviewConfirmationRequestID: UUID? = nil
     var onRhythmicNotationPreviewChanged: ((LeadSheetRhythmicNotationPreviewState?) -> Void)? = nil
     var onRhythmicNotationDiagnostic: ((RhythmRecognitionDiagnosticEvent) -> Void)? = nil
@@ -422,7 +422,7 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         freeInkArticulationCoordinator?.restoration = { [weak view] articulationID in
             view?.restoreFreeInkArticulation(articulationID: articulationID) ?? false
         }
-        view.onFreeInkArticulationAutomaticallyConverted = onFreeInkArticulationAutomaticallyConverted
+        view.onFreeInkArticulationWillSave = onFreeInkArticulationWillSave
         view.recognizesChordInk = recognizesChordInk
         view.chordPreviewState = chordPreviewState
         view.restrictsParentScrollToOutsideMargins = interactionMode.restrictsPageScrollToOutsideMargins
@@ -695,6 +695,7 @@ enum LeadSheetCanvasChartUpdateReason {
     case resizeEndingSpan
     case persistActiveInk
     case convertFreeInkArticulation
+    case moveFreeInkArticulation
     case persistRhythmOnFinalize
     case finalizeRhythmTapRender
     case persistRhythmStable
@@ -719,6 +720,7 @@ enum LeadSheetCanvasChartUpdateReason {
              .moveEndingSpan,
              .resizeEndingSpan,
              .convertFreeInkArticulation,
+             .moveFreeInkArticulation,
              .finalizeRhythmTapRender,
              .confirmRhythmFeedback:
             return false
@@ -1775,6 +1777,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             guard oldValue != isInteractionSuspended else { return }
             isUserInteractionEnabled = !isInteractionSuspended
             if isInteractionSuspended {
+                cancelFreeInkArticulationDrag()
                 cancelAutomaticFreeInkArticulation()
                 cancelEndingEditDrag()
                 cancelCanvasVisibilityTelemetryObservation()
@@ -1806,6 +1809,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
 
             cancelAutomaticFreeInkArticulation()
+            cancelFreeInkArticulationDrag()
             chordDraftRenderCoordinator?.lastInputAt = nil
             chordDraftRenderCoordinator?.renderSessionReadyAt = nil
             currentAutomaticChordActivity = nil
@@ -1961,7 +1965,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     var onHeaderAuthoringRequested: (() -> Void)?
     var onRhythmicNotationPreviewChanged: ((LeadSheetRhythmicNotationPreviewState?) -> Void)?
     var onRhythmicNotationDiagnostic: ((RhythmRecognitionDiagnosticEvent) -> Void)?
-    var onFreeInkArticulationAutomaticallyConverted: (() -> Void)?
+    var onFreeInkArticulationWillSave: (() -> Void)?
+
+    private struct FreeInkArticulationDrag {
+        let chartID: UUID
+        let mark: FreeInkArticulation
+        let target: FreeInkArticulationPlacement.Target
+        var translation = CGPoint.zero
+    }
+    private var freeInkArticulationDrag: FreeInkArticulationDrag?
 
     private struct FreeInkArticulationInput {
         let chartID: UUID
@@ -2234,6 +2246,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window == nil {
+            cancelFreeInkArticulationDrag()
             cancelAutomaticFreeInkArticulation()
             cancelEndingEditDrag()
             cancelCanvasVisibilityTelemetryObservation()
@@ -2399,6 +2412,17 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             )
         }
 
+        for page in pageLayout.pages where page.frame.intersects(rect) {
+            renderer.drawFreeInkArticulations(for: page, pageLayout: pageLayout, in: context,
+                excludingMarkID: freeInkArticulationDrag?.mark.id)
+        }
+        if let drag = freeInkArticulationDrag {
+            context.saveGState()
+            context.translateBy(x: drag.translation.x, y: drag.translation.y)
+            renderer.drawFreeInkArticulation(drag.mark.kind, at: drag.target)
+            context.restoreGState()
+        }
+
         if interactionMode == .browse, let selectedEndingSpanID {
             LeadSheetEndingEditOverlay.draw(endingID: selectedEndingSpanID, chart: chart,
                 pageLayout: pageLayout, previewChart: endingEditInteraction.previewChart,
@@ -2522,6 +2546,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     @objc
     private func handleApplicationWillResignActive() {
+        cancelFreeInkArticulationDrag()
         cancelAutomaticFreeInkArticulation()
         cancelAuthoringTelemetryObservation()
         cancelCanvasVisibilityTelemetryObservation()
@@ -2687,6 +2712,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     func allowsDocumentVerticalScrollStart(at point: CGPoint, touchType: UITouch.TouchType) -> Bool {
         guard !isInteractionSuspended,
               measureResizeHandleHitTarget(at: point) == nil,
+              freeInkArticulationHit(at: point) == nil,
               !chordInkConfirmSurfaceContains(point) else { return false }
         if let target = editableOverlayHitTarget(at: point) {
             switch target {
@@ -2715,6 +2741,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func invalidateLayout() {
         cancelEndingEditDrag()
+        cancelFreeInkArticulationDrag()
         chordInkEditedTargetState.reset()
         editorPerformanceMetrics.recordLayoutInvalidation()
         guard bounds.width > 0, bounds.height > 0 else {
@@ -4421,7 +4448,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func objectMovePanStartHitTarget(at location: CGPoint) -> Bool {
-        renderedEditDragState(at: location) != nil
+        freeInkArticulationHit(at: location) != nil || renderedEditDragState(at: location) != nil
     }
 
     private func panStartLocation(for recognizer: UIPanGestureRecognizer) -> CGPoint {
@@ -5702,6 +5729,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     @objc
     private func handleRenderedObjectMovePan(_ recognizer: UIPanGestureRecognizer) {
+        if freeInkArticulationDrag != nil
+            || (recognizer.state == .began && freeInkArticulationHit(at: panStartLocation(for: recognizer)) != nil) {
+            handleFreeInkArticulationDrag(recognizer)
+            return
+        }
         let location = recognizer.location(in: self)
         if endingEditInteraction.isActive {
             handleEndingEditPan(recognizer)
@@ -5833,6 +5865,73 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             applyCommittedEndingEdit(committed, action: effect.action)
         }
         if effect.needsDisplay { setNeedsDisplay() }
+    }
+
+    private func freeInkArticulationHit(at point: CGPoint)
+        -> (mark: FreeInkArticulation, target: FreeInkArticulationPlacement.Target)? {
+        guard interactionMode == .browse, !isInteractionSuspended, let pageLayout else { return nil }
+        let padding = 12 / max(canvasScreenPointsPerDisplayedPoint(), 0.1)
+        for mark in chart.freeInkArticulations.reversed() {
+            if let target = FreeInkArticulationPlacement.target(for: mark, chart: chart, pageLayout: pageLayout),
+               target.markFrame.insetBy(dx: -padding, dy: -padding).contains(point) {
+                return (mark, target)
+            }
+        }
+        return nil
+    }
+
+    private func handleFreeInkArticulationDrag(_ recognizer: UIPanGestureRecognizer) {
+        switch recognizer.state {
+        case .began:
+            guard let hit = freeInkArticulationHit(at: panStartLocation(for: recognizer)) else { return }
+            freeInkArticulationDrag = FreeInkArticulationDrag(chartID: chart.id,
+                mark: hit.mark, target: hit.target, translation: recognizer.translation(in: self))
+            lockParentScrollForChordMove()
+            setNeedsDisplay()
+        case .changed:
+            freeInkArticulationDrag?.translation = recognizer.translation(in: self)
+            setNeedsDisplay()
+        case .ended:
+            guard let drag = freeInkArticulationDrag else { return }
+            let translation = recognizer.translation(in: self)
+            let destination = CGPoint(x: drag.target.center.x + translation.x,
+                y: drag.target.center.y + translation.y)
+            cancelFreeInkArticulationDrag()
+            guard drag.chartID == chart.id, chart.freeInkArticulations.contains(drag.mark) else { return }
+            _ = moveFreeInkArticulation(id: drag.mark.id, to: destination)
+        case .cancelled, .failed:
+            cancelFreeInkArticulationDrag()
+        default:
+            break
+        }
+    }
+
+    private func cancelFreeInkArticulationDrag() {
+        guard freeInkArticulationDrag != nil else { return }
+        freeInkArticulationDrag = nil
+        unlockParentScrollForChordMove()
+        setNeedsDisplay()
+    }
+
+    @discardableResult
+    func moveFreeInkArticulation(id: UUID, to point: CGPoint) -> Bool {
+        guard interactionMode == .browse, !isInteractionSuspended, let pageLayout,
+              let pagePoint = FreeInkArticulationPlacement.pagePoint(at: point, pageLayout: pageLayout),
+              let index = chart.freeInkArticulations.firstIndex(where: { $0.id == id }) else { return false }
+        let pageInkBounds = savedPageInkCanvasView.isHidden ? [] :
+            savedPageInkCanvasView.drawing.strokes.map { convert($0.renderBounds, from: savedPageInkCanvasView) }
+        let attachment = FreeInkArticulationPlacement.attachment(near: point, chart: chart,
+            pageLayout: pageLayout, staffInkBounds: pageInkBounds + measureInkBounds(near: point, in: pageLayout))
+        var updated = chart
+        updated.freeInkArticulations[index].measureID = attachment?.measureID
+        updated.freeInkArticulations[index].beatIndex = nil
+        updated.freeInkArticulations[index].attachment = attachment?.attachment
+        updated.freeInkArticulations[index].pagePoint = pagePoint
+        guard updated != chart else { return false }
+        updated.updatedAt = .now
+        onFreeInkArticulationWillSave?()
+        applyUpdatedChart(updated, reason: .moveFreeInkArticulation)
+        return true
     }
 
     private func cancelEndingEditDrag() {
@@ -8520,25 +8619,43 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         let bounds = candidate.source.bounds
         let center = convert(CGPoint(x: bounds.midX, y: bounds.midY), from: pageInkCanvasView)
-        guard let target = FreeInkArticulationPlacement.target(near: center, chart: chart, pageLayout: pageLayout),
-              !chart.freeInkArticulations.contains(where: {
-                  $0.measureID == target.measureID && $0.beatIndex == target.beatIndex
-              }),
-              let sourceAnchor = input.coordinateSpace.measureAnchors?.first(where: {
-                  $0.measureID == target.measureID
-              }) else { return }
-
+        guard let pagePoint = FreeInkArticulationPlacement.pagePoint(at: center, pageLayout: pageLayout) else { return }
+        let pageInkBounds = candidate.remaining.strokes.map { convert($0.renderBounds, from: pageInkCanvasView) }
+        let attachment = FreeInkArticulationPlacement.attachment(near: center, chart: chart,
+            pageLayout: pageLayout, staffInkBounds: pageInkBounds + measureInkBounds(near: center, in: pageLayout))
         var sourceSpace = input.coordinateSpace
-        sourceSpace.measureAnchors = [sourceAnchor]
+        sourceSpace.measureAnchors = attachment.flatMap { attached in
+            input.coordinateSpace.measureAnchors?.first { $0.measureID == attached.measureID }.map { [$0] }
+        }
         sourceSpace.chordAnchors = nil
         var updated = chart
         updated.freeInkArticulations.append(FreeInkArticulation(
-            kind: candidate.kind, measureID: target.measureID, beatIndex: target.beatIndex,
-            sourceInkData: candidate.source.dataRepresentation(), sourceCoordinateSpace: sourceSpace
+            kind: candidate.kind, measureID: attachment?.measureID,
+            sourceInkData: candidate.source.dataRepresentation(), sourceCoordinateSpace: sourceSpace,
+            attachment: attachment?.attachment, pagePoint: pagePoint, sourcePagePoint: pagePoint
         ))
-        onFreeInkArticulationAutomaticallyConverted?()
+        onFreeInkArticulationWillSave?()
         applyFreeInkArticulationTransaction(updated, drawing: candidate.remaining, scope: scope,
             coordinateSpace: input.coordinateSpace)
+    }
+
+    private func measureInkBounds(near point: CGPoint, in pageLayout: LeadSheetPageLayout) -> [CGRect] {
+        var bounds: [CGRect] = []
+        for system in pageLayout.systems where system.frame.insetBy(dx: -24, dy: -24).contains(point) {
+            for layout in system.measures where layout.frame.insetBy(dx: -24, dy: -24).contains(point) {
+                guard let id = layout.sourceMeasureID, let measure = chart.measure(id: id),
+                      let data = measure.handwrittenRhythmicNotationData else { continue }
+                let frame = LeadSheetRhythmicNotationInkCapturePolicy.captureFrame(for: layout)
+                guard let drawing = LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
+                    from: data, sourceCoordinateSpace: measure.handwrittenRhythmicNotationCoordinateSpace,
+                    targetCoordinateSpace: LeadSheetPersistentInkCoordinateSpacePolicy.coordinateSpace(for: frame)
+                ) else { continue }
+                bounds.append(contentsOf: drawing.strokes.map {
+                    $0.renderBounds.offsetBy(dx: frame.minX, dy: frame.minY)
+                })
+            }
+        }
+        return bounds
     }
 
     func restoreFreeInkArticulation(articulationID: UUID) -> Bool {
@@ -8548,9 +8665,27 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return false
         }
         let articulation = chart.freeInkArticulations[index]
-        guard let archive = try? PKDrawing(data: articulation.sourceInkData),
-              let restored = FreeInkArticulationSourceInk.restore(archive,
-                  source: articulation.sourceCoordinateSpace, destination: coordinateSpace) else { return false }
+        guard let archive = try? PKDrawing(data: articulation.sourceInkData) else { return false }
+        let restored: PKDrawing
+        if let aligned = FreeInkArticulationSourceInk.restore(archive,
+            source: articulation.sourceCoordinateSpace, destination: coordinateSpace) {
+            restored = aligned
+        } else if let sourcePagePoint = articulation.sourcePagePoint, let pageLayout,
+                  let center = FreeInkArticulationPlacement.center(for: sourcePagePoint, pageLayout: pageLayout),
+                  !archive.strokes.isEmpty {
+            let point = convert(center, to: pageInkCanvasView)
+            let offset = CGAffineTransform(translationX: point.x - archive.bounds.midX,
+                y: point.y - archive.bounds.midY)
+            restored = offset.isIdentity ? archive : archive.transformed(using: offset)
+        } else if let source = articulation.sourceCoordinateSpace,
+                  source.measureAnchors?.isEmpty != false, !archive.strokes.isEmpty,
+                  source.width == coordinateSpace.width, source.height == coordinateSpace.height {
+            // An earlier reader may save the archive without its page point.
+            // Exact canvas dimensions still make the original paths usable.
+            restored = archive
+        } else {
+            return false
+        }
         let combined = PKDrawing(strokes: pageInkCanvasView.drawing.strokes + restored.strokes)
         var updated = chart
         updated.freeInkArticulations.remove(at: index)

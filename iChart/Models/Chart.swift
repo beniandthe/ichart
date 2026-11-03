@@ -234,13 +234,77 @@ enum FreeInkArticulationKind: String, Codable, CaseIterable, Identifiable, Hasha
     }
 }
 
+/// Position in paper points relative to the top-left of a zero-based page.
+struct FreeInkArticulationPagePoint: Codable, Hashable {
+    var pageIndex: Int
+    var x: Double
+    var y: Double
+}
+
+enum FreeInkArticulationAttachment: Codable, Hashable {
+    case chord(id: UUID)
+    case note(beat: Int, subdivision: Int)
+    case staff(xFraction: Double, yFraction: Double)
+}
+
 struct FreeInkArticulation: Identifiable, Codable, Hashable {
     var id: UUID = UUID()
     var kind: FreeInkArticulationKind
-    var measureID: UUID
-    var beatIndex: Int
+    var measureID: UUID? = nil
+    /// Zero-based beat from charts saved before flexible placement.
+    var beatIndex: Int? = nil
     var sourceInkData: Data
-    var sourceCoordinateSpace: PersistentInkCoordinateSpace?
+    var sourceCoordinateSpace: PersistentInkCoordinateSpace? = nil
+    var attachment: FreeInkArticulationAttachment? = nil
+    /// Current floating position, or fallback when the attachment cannot be resolved.
+    var pagePoint: FreeInkArticulationPagePoint? = nil
+    /// Original paper position of the archived handwriting.
+    var sourcePagePoint: FreeInkArticulationPagePoint? = nil
+
+    var legacyBeatIndex: Int? {
+        guard attachment == nil, pagePoint == nil else { return nil }
+        return beatIndex
+    }
+}
+
+extension FreeInkArticulation {
+    // Build 112 requires both legacy fields. These placeholders let it read
+    // the record without placing a floating or flexibly attached mark on a beat.
+    private static let unassignedMeasureID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+    private static let unassignedBeatIndex = -1
+
+    private enum CodingKeys: String, CodingKey {
+        case id, kind, measureID, beatIndex, sourceInkData, sourceCoordinateSpace
+        case attachment, pagePoint, sourcePagePoint
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        kind = try container.decode(FreeInkArticulationKind.self, forKey: .kind)
+        let encodedMeasureID = try container.decodeIfPresent(UUID.self, forKey: .measureID)
+        measureID = encodedMeasureID == Self.unassignedMeasureID ? nil : encodedMeasureID
+        let encodedBeatIndex = try container.decodeIfPresent(Int.self, forKey: .beatIndex)
+        beatIndex = encodedBeatIndex == Self.unassignedBeatIndex ? nil : encodedBeatIndex
+        sourceInkData = try container.decode(Data.self, forKey: .sourceInkData)
+        sourceCoordinateSpace = try container.decodeIfPresent(PersistentInkCoordinateSpace.self, forKey: .sourceCoordinateSpace)
+        attachment = try container.decodeIfPresent(FreeInkArticulationAttachment.self, forKey: .attachment)
+        pagePoint = try container.decodeIfPresent(FreeInkArticulationPagePoint.self, forKey: .pagePoint)
+        sourcePagePoint = try container.decodeIfPresent(FreeInkArticulationPagePoint.self, forKey: .sourcePagePoint)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(measureID ?? Self.unassignedMeasureID, forKey: .measureID)
+        try container.encode(beatIndex ?? Self.unassignedBeatIndex, forKey: .beatIndex)
+        try container.encode(sourceInkData, forKey: .sourceInkData)
+        try container.encodeIfPresent(sourceCoordinateSpace, forKey: .sourceCoordinateSpace)
+        try container.encodeIfPresent(attachment, forKey: .attachment)
+        try container.encodeIfPresent(pagePoint, forKey: .pagePoint)
+        try container.encodeIfPresent(sourcePagePoint, forKey: .sourcePagePoint)
+    }
 }
 
 struct Chart: Identifiable, Codable, Hashable {

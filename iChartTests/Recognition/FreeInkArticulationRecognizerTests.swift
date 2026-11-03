@@ -65,6 +65,30 @@ final class FreeInkArticulationRecognizerTests: XCTestCase {
         XCTAssertNil(FreeInkArticulationRecognizer.automaticCandidate(in: [accent, oldNote], eligibleStrokeIndices: [0, 1]))
     }
 
+    func testAutomaticAccentAcceptsShortRetraceAtTheOpenEndOfAnUnevenChevron() {
+        // Approximate a shallow upper leg with a short Pencil retrace at
+        // its open end. The right tip is still shared by two straight legs.
+        let points = [(8.0, 0.0), (5.5, 0.1), (3.1, 0.6), (6, 1), (10.8, 1.3),
+            (13.3, 2.2), (10, 5.4), (6.6, 8), (0, 12)]
+
+        for chevron in [points, Array(points.reversed())] {
+            let result = FreeInkArticulationRecognizer.automaticCandidate(
+                in: [stroke(chevron)], eligibleStrokeIndices: [0]
+            )
+            XCTAssertEqual(result?.kind, .accent)
+            XCTAssertEqual(result?.indices, [0])
+        }
+
+        let excessiveRetrace = [(12.5, 0.0)] + Array(points.dropFirst())
+        let leftChevron = points.map { x, y in (13.3 - x, y) }
+        let caret = points.map { x, y in (y, 13.3 - x) }
+        for otherMark in [excessiveRetrace, leftChevron, caret] {
+            XCTAssertNil(FreeInkArticulationRecognizer.automaticCandidate(
+                in: [stroke(otherMark)], eligibleStrokeIndices: [0]
+            ))
+        }
+    }
+
     func testAutomaticTwoStrokeMarkRequiresFreshContiguousStrokesWrittenTogether() {
         let arch = stroke([(0, 11), (3, 6), (7, 2), (12, 0), (18, 1.5), (23, 5.3), (26, 10)],
             creationTimeOffset: 1, duration: 0.31)

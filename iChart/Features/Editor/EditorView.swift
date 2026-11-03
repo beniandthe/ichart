@@ -1649,6 +1649,13 @@ struct EditorView: View {
                 )
             }
             .buttonStyle(.plain)
+            .accessibilityHint(
+                EditorCanvasMode.browse.activeToolInstruction(
+                    layoutStyle: chart.layoutStyle,
+                    manualRenderWithPreview: manualRenderWithPreview,
+                    hasFreeInkArticulations: !chart.freeInkArticulations.isEmpty
+                )
+            )
 
         case .chords:
             Button {
@@ -1898,7 +1905,8 @@ struct EditorView: View {
     private var activeToolInstructionText: String {
         let instruction = canvasMode.activeToolInstruction(
             layoutStyle: chart.layoutStyle,
-            manualRenderWithPreview: manualRenderWithPreview
+            manualRenderWithPreview: manualRenderWithPreview,
+            hasFreeInkArticulations: !chart.freeInkArticulations.isEmpty
         )
         switch canvasMode {
         case .freeHand:
@@ -1927,7 +1935,7 @@ struct EditorView: View {
     private var restoreFreeInkMenu: some View {
         Menu {
             ForEach(chart.freeInkArticulations) { mark in
-                Button("\(mark.kind.title), measure \(chart.measure(id: mark.measureID)?.index ?? 0), beat \(mark.beatIndex + 1)") {
+                Button(restoreFreeInkLabel(for: mark)) {
                     restoreFreeInkArticulation(mark.id)
                 }
             }
@@ -1935,6 +1943,24 @@ struct EditorView: View {
             activeToolMenuLabel(title: "Restore Ink", systemImage: "arrow.uturn.backward")
         }
         .accessibilityHint("Bring back the original handwriting for a converted mark")
+    }
+
+    private func restoreFreeInkLabel(for mark: FreeInkArticulation) -> String {
+        guard let measureID = mark.measureID, let measure = chart.measure(id: measureID) else {
+            let label = "\(mark.kind.title), floating"
+            if let pageIndex = mark.pagePoint?.pageIndex, (0..<Int.max).contains(pageIndex) {
+                return "\(label), page \(pageIndex + 1)"
+            }
+            return label
+        }
+        let label = "\(mark.kind.title), measure \(measure.index)"
+        if let beatIndex = mark.legacyBeatIndex, (0..<Int.max).contains(beatIndex) {
+            return "\(label), beat \(beatIndex + 1)"
+        }
+        if case let .note(beat, _)? = mark.attachment {
+            return "\(label), beat \(beat)"
+        }
+        return label
     }
 
     private var freeInkArticulationBlocksMeasureEdit: Bool {
@@ -2856,7 +2882,7 @@ struct EditorView: View {
             chordDraftRenderCoordinator: chordDraftRenderCoordinator,
             chordDraftRenderInvalidationRequestID: chordDraftRenderInvalidationRequestID,
             freeInkArticulationCoordinator: freeInkArticulationCoordinator,
-            onFreeInkArticulationAutomaticallyConverted: { freeInkArticulationSavePending = true },
+            onFreeInkArticulationWillSave: { freeInkArticulationSavePending = true },
             rhythmicNotationPreviewConfirmationRequestID: isDedicatedRhythmToolAvailable
                 ? rhythmPreviewConfirmationRequestID
                 : nil,

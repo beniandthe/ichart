@@ -4538,6 +4538,12 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         let simpleFreeInk = EditorCanvasMode.freeHand.activeToolInstruction(
             layoutStyle: .simpleChordSheet, manualRenderWithPreview: false
         )
+        let rhythmSelect = EditorCanvasMode.browse.activeToolInstruction(
+            layoutStyle: .rhythmSectionSheet, manualRenderWithPreview: false
+        )
+        let rhythmSelectWithMarks = EditorCanvasMode.browse.activeToolInstruction(
+            layoutStyle: .rhythmSectionSheet, manualRenderWithPreview: false, hasFreeInkArticulations: true
+        )
 
         XCTAssertTrue(automaticRhythm.contains("pause to render"))
         XCTAssertTrue(manualRhythm.contains("Render Chords or Review & Render"))
@@ -4545,9 +4551,11 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertTrue(manualRhythm.contains("Use Measures for committed measures"))
         XCTAssertTrue(automaticSimpleSheet.contains("Draw tall barlines between chords"))
         XCTAssertFalse(manualLeadSheet.contains("split"))
-        XCTAssertTrue(freeInk.contains("Draw a fermata or accent near the staff. Lift the Pencil and pause"))
+        XCTAssertTrue(freeInk.contains("Draw a fermata or accent anywhere on the page. Lift the Pencil and pause"))
         XCTAssertTrue(simpleFreeInk.contains("stay as handwriting"))
         XCTAssertFalse(simpleFreeInk.contains("pause to convert"))
+        XCTAssertFalse(rhythmSelect.contains("Drag a fermata or accent"))
+        XCTAssertTrue(rhythmSelectWithMarks.contains("Drag a fermata or accent to move or attach it"))
         XCTAssertTrue(EditorCanvasMode.chordEntry.allowsChordInkEditing)
         XCTAssertFalse(EditorCanvasMode.chordEntry.allowsPageInkEditing)
         XCTAssertTrue(EditorCanvasMode.freeHand.allowsPageInkEditing)

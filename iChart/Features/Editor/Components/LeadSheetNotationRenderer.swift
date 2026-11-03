@@ -979,17 +979,21 @@ struct LeadSheetNotationRenderer {
             style.inkColor.withAlphaComponent(style.staffLineAlpha).setStroke()
             path.stroke()
         }
-        drawFreeInkArticulations(for: system)
     }
 
-    private func drawFreeInkArticulations(for system: LeadSheetSystemLayout) {
-        guard chart.layoutStyle == .rhythmSectionSheet, !chart.freeInkArticulations.isEmpty else { return }
-        for mark in chart.freeInkArticulations {
-            guard let layout = system.measures.first(where: { $0.sourceMeasureID == mark.measureID }),
-                  let measure = chart.measure(id: mark.measureID),
-                  let target = FreeInkArticulationPlacement.target(
-                      measure: measure, beatIndex: mark.beatIndex, chart: chart, layout: layout, system: system
-                  ) else { continue }
+    func drawFreeInkArticulations(
+        for paperPage: LeadSheetPaperPageLayout,
+        pageLayout: LeadSheetPageLayout,
+        in context: CGContext,
+        excludingMarkID: UUID? = nil
+    ) {
+        guard !chart.freeInkArticulations.isEmpty else { return }
+        context.saveGState()
+        context.clip(to: paperPage.frame)
+        defer { context.restoreGState() }
+        for mark in chart.freeInkArticulations where mark.id != excludingMarkID {
+            guard let target = FreeInkArticulationPlacement.target(for: mark, chart: chart, pageLayout: pageLayout),
+                  paperPage.frame.contains(target.center) else { continue }
             drawFreeInkArticulation(mark.kind, at: target)
         }
     }

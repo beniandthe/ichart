@@ -57,7 +57,7 @@ final class FreeInkArticulationCanvasTests: XCTestCase {
             drawing, source: sourceSpace, destination: missingMeasure))
     }
 
-    func testCanvasAutomaticallyPublishesConversionAndRestoresTheExactInk() async throws {
+    func testCanvasRendersFloatingMarkMovesItToStaffAndRestoresTheOriginalInk() async throws {
         let pageSize = CGSize(width: 1_200, height: 1_200)
         var chart = Chart.draft(title: "Free Ink articulation", layoutStyle: .rhythmSectionSheet)
         chart.completeInitialSetup(title: chart.title, key: .cMajor,
@@ -67,7 +67,7 @@ final class FreeInkArticulationCanvasTests: XCTestCase {
         let first = try XCTUnwrap(layout.systems.first?.measures.first)
         let staffCenter = CGPoint(x: first.staffFrame.midX - pageFrame.minX,
             y: first.staffFrame.midY - pageFrame.minY)
-        let mark = accent(at: CGPoint(x: staffCenter.x - 12, y: staffCenter.y - 7), seed: 1)
+        let mark = accent(at: CGPoint(x: staffCenter.x - 12, y: staffCenter.y - 110), seed: 1)
         let nearby = stroke([
             CGPoint(x: staffCenter.x + 24, y: staffCenter.y - 9),
             CGPoint(x: staffCenter.x + 35, y: staffCenter.y + 8)
@@ -92,7 +92,7 @@ final class FreeInkArticulationCanvasTests: XCTestCase {
         let convertedMark = expectation(description: "Automatic Free Ink conversion")
         var published: [Chart] = []
         var didNotifyBeforePublication = false
-        view.onFreeInkArticulationAutomaticallyConverted = { didNotifyBeforePublication = true }
+        view.onFreeInkArticulationWillSave = { didNotifyBeforePublication = true }
         view.onChartChanged = { chart in
             published.append(chart)
             if !chart.freeInkArticulations.isEmpty {
@@ -111,14 +111,29 @@ final class FreeInkArticulationCanvasTests: XCTestCase {
         let converted = try XCTUnwrap(published.last)
         let articulation = try XCTUnwrap(converted.freeInkArticulations.first)
         XCTAssertEqual(articulation.kind, .accent)
-        XCTAssertEqual(articulation.measureID, first.sourceMeasureID)
-        XCTAssertEqual(articulation.sourceCoordinateSpace?.measureAnchors?.map(\.measureID),
-            [articulation.measureID])
+        XCTAssertNil(articulation.measureID)
+        XCTAssertNil(articulation.attachment)
+        XCTAssertNotNil(articulation.pagePoint)
+        XCTAssertEqual(articulation.pagePoint, articulation.sourcePagePoint)
         assertStrokes(try PKDrawing(data: articulation.sourceInkData), equalTo: [mark])
         assertStrokes(try PKDrawing(data: XCTUnwrap(converted.pageHandwrittenNotationData)),
             equalTo: [nearby])
         assertStrokes(authoring.drawing, equalTo: [nearby])
 
+        view.onChartChanged = { published.append($0) }
+        view.interactionMode = .browse
+        view.layoutIfNeeded()
+        XCTAssertTrue(view.moveFreeInkArticulation(id: articulation.id,
+            to: CGPoint(x: first.staffFrame.midX, y: first.staffFrame.midY)))
+        let moved = try XCTUnwrap(view.chart.freeInkArticulations.first)
+        XCTAssertEqual(moved.measureID, first.sourceMeasureID)
+        guard case .staff = moved.attachment else { return XCTFail("Expected staff attachment") }
+        XCTAssertEqual(moved.sourcePagePoint, articulation.sourcePagePoint)
+        XCTAssertEqual(moved.sourceInkData, articulation.sourceInkData)
+        XCTAssertEqual(view.chart.pageHandwrittenNotationData, converted.pageHandwrittenNotationData)
+
+        view.interactionMode = .freeHand
+        view.layoutIfNeeded()
         XCTAssertTrue(view.restoreFreeInkArticulation(articulationID: articulation.id))
         let restored = try XCTUnwrap(published.last)
         XCTAssertTrue(restored.freeInkArticulations.isEmpty)

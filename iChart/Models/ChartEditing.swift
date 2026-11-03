@@ -529,7 +529,7 @@ extension Chart {
         after measureID: UUID,
         scope: TimeSignatureApplicationScope
     ) -> UUID? {
-        applyingMeterChangePreservingArticulationBeats { chart in
+        applyingMeterChangePreservingLegacyArticulationBeats { chart in
             chart.applyMeterChangeAfterMeasure(meter, measureID: measureID, scope: scope)
         }
     }
@@ -600,7 +600,7 @@ extension Chart {
 
         let selectedIndex = flattenedMeasureIndex(for: location)
         guard selectedIndex > 0 else {
-            return applyingMeterChangePreservingArticulationBeats { chart in
+            return applyingMeterChangePreservingLegacyArticulationBeats { chart in
                 chart.applyMeterChangeStartingAtFirstMeasure(meter, scope: scope)
             }
         }
@@ -615,24 +615,28 @@ extension Chart {
         startingAt measureID: UUID,
         scope: TimeSignatureApplicationScope
     ) -> Bool {
-        guard !freeInkArticulations.isEmpty, measure(id: measureID) != nil else { return true }
+        guard freeInkArticulations.contains(where: { $0.legacyBeatIndex != nil }),
+              measure(id: measureID) != nil else { return true }
         var candidate = self
         return candidate.applyMeterChange(meter, startingAt: measureID, scope: scope) != nil
     }
 
-    private mutating func applyingMeterChangePreservingArticulationBeats(
+    private mutating func applyingMeterChangePreservingLegacyArticulationBeats(
         _ edit: (inout Chart) -> UUID?
     ) -> UUID? {
-        guard !freeInkArticulations.isEmpty else { return edit(&self) }
+        let legacyMarks = freeInkArticulations.filter { $0.legacyBeatIndex != nil }
+        guard !legacyMarks.isEmpty else { return edit(&self) }
         var candidate = self
         guard let changedMeasureID = edit(&candidate),
-              freeInkArticulations.allSatisfy({ articulation in
-                  guard let newMeasure = candidate.measure(id: articulation.measureID) else { return true }
+              legacyMarks.allSatisfy({ articulation in
+                  guard let measureID = articulation.measureID,
+                        let beatIndex = articulation.legacyBeatIndex,
+                        let newMeasure = candidate.measure(id: measureID) else { return true }
                   let newMeter = newMeasure.resolvedMeter(defaultMeter: candidate.defaultMeter)
-                  if articulation.beatIndex >= 0, articulation.beatIndex < newMeter.numerator {
+                  if beatIndex >= 0, beatIndex < newMeter.numerator {
                       return true
                   }
-                  let oldMeter = measure(id: articulation.measureID)?.resolvedMeter(defaultMeter: defaultMeter)
+                  let oldMeter = measure(id: measureID)?.resolvedMeter(defaultMeter: defaultMeter)
                   return oldMeter == newMeter
               }) else {
             return nil
@@ -827,10 +831,18 @@ extension Chart {
 
     func hasFreeInkArticulations(in measureIDs: Set<UUID>) -> Bool {
         freeInkArticulations.contains { articulation in
-            measureIDs.contains(articulation.measureID)
-                || articulation.sourceCoordinateSpace?.measureAnchors?.contains {
-                    measureIDs.contains($0.measureID)
-                } == true
+            let targetMeasureID: UUID?
+            if case let .chord(id) = articulation.attachment {
+                targetMeasureID = measureContainingChordEvent(id: id)?.id
+            } else {
+                targetMeasureID = articulation.measureID
+            }
+            if let targetMeasureID, measureIDs.contains(targetMeasureID) {
+                return true
+            }
+            return articulation.sourceCoordinateSpace?.measureAnchors?.contains {
+                measureIDs.contains($0.measureID)
+            } == true
         }
     }
 

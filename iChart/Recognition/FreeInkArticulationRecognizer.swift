@@ -69,7 +69,15 @@ enum FreeInkArticulationRecognizer {
               tip > first.startIndex, tip < first.index(before: first.endIndex) else {
             return nil
         }
-        return isAccent(first[...tip], first[tip...]) ? .accent : nil
+        let beforeTip = first[...tip]
+        let afterTip = first[tip...]
+        if isAccent(beforeTip, afterTip) {
+            return .accent
+        }
+        let bounds = InkBounds.enclosing(first)
+        let reversedAfterTip = Array(afterTip.reversed())[...]
+        return hasAccentWithRetracedLeadIn(beforeTip, reversedAfterTip, bounds: bounds)
+            || hasAccentWithRetracedLeadIn(reversedAfterTip, beforeTip, bounds: bounds) ? .accent : nil
     }
 
     private static func isFermata(arc: [InkPoint], arcBounds: InkBounds, dotBounds: InkBounds) -> Bool {
@@ -120,7 +128,34 @@ enum FreeInkArticulationRecognizer {
 
     private static func isAccent(_ first: ArraySlice<InkPoint>, _ second: ArraySlice<InkPoint>) -> Bool {
         guard let firstLeg = straightLeg(first), let secondLeg = straightLeg(second) else { return false }
-        let bounds = InkBounds.enclosing(Array(first) + Array(second))
+        return hasAccentOutline(firstLeg, secondLeg,
+            bounds: InkBounds.enclosing(Array(first) + Array(second)),
+            tipHeightRange: 0.26...0.74)
+    }
+
+    private static func hasAccentWithRetracedLeadIn(
+        _ first: ArraySlice<InkPoint>, _ second: ArraySlice<InkPoint>, bounds: InkBounds
+    ) -> Bool {
+        guard let turn = first.indices.min(by: { first[$0].x < first[$1].x }),
+              turn > first.startIndex, turn < first.index(before: first.endIndex),
+              let leadIn = straightLeg(first[...turn]),
+              let firstLeg = straightLeg(first[turn...]),
+              let secondLeg = straightLeg(second),
+              leadIn.right.x - leadIn.left.x <= 0.55 * (firstLeg.right.x - firstLeg.left.x),
+              InkBounds.enclosing(Array(first[...turn])).height <= 0.10 * bounds.height else { return false }
+
+        // A short horizontal retrace can precede the shallower leg of a
+        // handwritten accent. Require both legs to remain straight and
+        // share a single rightward tip.
+        return hasAccentOutline(firstLeg, secondLeg, bounds: bounds, tipHeightRange: 0.16...0.84)
+    }
+
+    private typealias AccentLeg = (left: InkPoint, right: InkPoint)
+
+    private static func hasAccentOutline(
+        _ firstLeg: AccentLeg, _ secondLeg: AccentLeg, bounds: InkBounds,
+        tipHeightRange: ClosedRange<Double>
+    ) -> Bool {
         let width = bounds.width
         let height = bounds.height
         guard width.isFinite, height.isFinite, height > 0,
@@ -136,12 +171,12 @@ enum FreeInkArticulationRecognizer {
             && min(firstLeg.right.x, secondLeg.right.x) >= bounds.maxX - 0.16 * width
             && top <= bounds.minY + 0.15 * height
             && bottom >= bounds.maxY - 0.15 * height
-            && tipTop >= bounds.minY + 0.26 * height
-            && tipBottom <= bounds.maxY - 0.26 * height
+            && tipHeightRange.contains((tipTop - bounds.minY) / height)
+            && tipHeightRange.contains((tipBottom - bounds.minY) / height)
             && hypot(firstLeg.right.x - secondLeg.right.x, tipBottom - tipTop) <= 0.16 * width
     }
 
-    private static func straightLeg(_ points: ArraySlice<InkPoint>) -> (left: InkPoint, right: InkPoint)? {
+    private static func straightLeg(_ points: ArraySlice<InkPoint>) -> AccentLeg? {
         guard let first = points.first, let last = points.last else { return nil }
         let (left, right) = first.x < last.x ? (first, last) : (last, first)
         let dx = right.x - left.x

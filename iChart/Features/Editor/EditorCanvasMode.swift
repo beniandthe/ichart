@@ -137,9 +137,16 @@ enum EditorCanvasMode: Hashable {
             && self != .noteEdit
     }
 
-    func activeToolInstruction(layoutStyle: ChartLayoutStyle, manualRenderWithPreview: Bool) -> String {
+    func activeToolInstruction(
+        layoutStyle: ChartLayoutStyle,
+        manualRenderWithPreview: Bool,
+        hasFreeInkArticulations: Bool = false
+    ) -> String {
         switch self {
         case .browse:
+            if layoutStyle == .rhythmSectionSheet && hasFreeInkArticulations {
+                return "Tap a measure, chord, or cue for actions. Double-tap a chord to correct it. Drag a fermata or accent to move or attach it."
+            }
             return "Tap a measure, chord, or cue to see its actions. Double-tap a chord to correct it."
         case .measureEdit:
             return "Tap a measure, then use Add, Layout, or Delete to change the chart."
@@ -168,7 +175,7 @@ enum EditorCanvasMode: Hashable {
             return "Tap a rendered rhythm note to see its editing actions."
         case .freeHand:
             if layoutStyle == .rhythmSectionSheet {
-                return "Draw a fermata or accent near the staff. Lift the Pencil and pause to convert it."
+                return "Draw a fermata or accent anywhere on the page. Lift the Pencil and pause to convert it."
             }
             return "Write or erase notes and marks that stay as handwriting."
         case .textEdit:

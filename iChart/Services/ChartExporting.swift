@@ -252,6 +252,7 @@ private struct ChartPDFRenderer {
         for system in pageSystems {
             drawSystem(system, paperFrame: paperPage.frame, using: renderer)
         }
+        renderer.drawFreeInkArticulations(for: paperPage, pageLayout: pageLayout, in: context)
 
         context.saveGState()
         UIBezierPath(rect: paperPage.frame).addClip()
