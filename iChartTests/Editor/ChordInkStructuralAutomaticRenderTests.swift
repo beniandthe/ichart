@@ -89,7 +89,7 @@ final class ChordInkStructuralAutomaticRenderTests: XCTestCase {
         XCTAssertEqual(reopened, rendered.chart)
     }
 
-    func testStructuralCommitPreservesExistingRenderedChordSources() throws {
+    func testSlantedBarlineBetweenRenderedChordsRoutesToStructureAndPreservesChords() throws {
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
             var chart = makeChart(style)
             let firstID = try XCTUnwrap(chart.measures.first?.id)
@@ -109,12 +109,33 @@ final class ChordInkStructuralAutomaticRenderTests: XCTestCase {
             chart.systems[0].measures[0].chordEvents[gIndex].tieOut = true
             let originalEvents = Dictionary(uniqueKeysWithValues: chart.measures.flatMap(\.chordEvents).map { ($0.id, $0) })
             let fixture = try fixture(chart)
-            let drawing = PKDrawing(strokes: strokes(.single, x: fixture.lane.midX, fixture: fixture))
-            let source = try install(drawing, in: &chart, fixture: fixture)
+            let chordFrames = fixture.system.measures.flatMap(\.chordLayouts)
+                .map { $0.frame.union($0.naturalFrame) }
+                .sorted { $0.minX < $1.minX }
+            XCTAssertEqual(chordFrames.count, 2)
+            let left = try XCTUnwrap(chordFrames.first)
+            let right = try XCTUnwrap(chordFrames.last)
+            let gapX = (left.maxX + right.minX) / 2
+            let drawing = slantedBarline(at: gapX, fixture: fixture)
+            let overlapping = slantedBarline(at: left.midX, fixture: fixture)
+            let overlappingResult = ChordDraftBarlineRecognizer.recognize(
+                strokes: PencilKitInkAdapter.inkStrokes(from: overlapping), chordFrame: fixture.chordFrame,
+                pageLayout: fixture.layout)
+            XCTAssertTrue(overlappingResult.barlines.isEmpty, "The relaxed shape must fit between rendered chords")
+            let source = try prepareBarline(drawing, chart: &chart, fixture: fixture)
             let beforeFrames = Dictionary(uniqueKeysWithValues: fixture.layout.systems.flatMap(\.measures)
                 .flatMap(\.chordLayouts).map { ($0.id, $0.naturalFrame) })
 
+            let manual = ChordInkDraftRenderCoordinator.prepare(chart: chart, state: source.state,
+                currentDrawing: source.drawing, coordinateSpace: .init(size: fixture.chordFrame.size))
+            XCTAssertTrue(manual.canConsumeSource, style.rawValue)
+            XCTAssertEqual(manual.result.renderedBarlineCount, 1)
+            XCTAssertEqual(manual.result.renderedChordCount, 0)
+            XCTAssertEqual(manual.chart.measures.flatMap(\.chordEvents).map(\.id), [cID, gID])
+
             let rendered = try XCTUnwrap(attempt(chart, source, elapsed: 4).outcome)
+            XCTAssertEqual(rendered.result.renderedBarlineCount, 1)
+            XCTAssertEqual(rendered.result.renderedChordCount, 0)
             let events = Dictionary(uniqueKeysWithValues: rendered.chart.measures.flatMap(\.chordEvents).map { ($0.id, $0) })
             XCTAssertEqual(Set(events.keys), Set([cID, gID]))
             for id in [cID, gID] {
@@ -143,6 +164,49 @@ final class ChordInkStructuralAutomaticRenderTests: XCTestCase {
                 from: ChartPersistenceCoders.encoder.encode(rendered.chart)), rendered.chart)
             XCTAssertTrue(rendered.drawing.strokes.isEmpty)
         }
+    }
+
+    private func slantedBarline(at x: CGFloat, fixture: Fixture) -> PKDrawing {
+        let center = CGPoint(x: x - fixture.chordFrame.minX, y: fixture.lane.midY - fixture.chordFrame.minY)
+        let halfHeight = fixture.lane.height * 0.42
+        let halfWidth = halfHeight * 0.38
+        return PKDrawing(strokes: [stroke([
+            CGPoint(x: center.x - halfWidth, y: center.y - halfHeight),
+            CGPoint(x: center.x + halfWidth, y: center.y + halfHeight)
+        ])])
+    }
+
+    func testSlantedBarlineToleranceDoesNotCreateSplitAtExistingMeasureBoundary() throws {
+        var chart = makeChart(startingMeasureCount: 2)
+        let c = try XCTUnwrap(ChordRecognitionCompendium.match("C"))
+        let g = try XCTUnwrap(ChordRecognitionCompendium.match("G7"))
+        let firstID = chart.measures[0].id
+        let secondID = chart.measures[1].id
+        _ = try XCTUnwrap(chart.appendRecognizedChordEvent(c.symbol, rawInput: "C", to: firstID, atFraction: 0.25))
+        _ = try XCTUnwrap(chart.appendRecognizedChordEvent(g.symbol, rawInput: "G7", to: secondID, atFraction: 0.75))
+        let fixture = try fixture(chart)
+        let first = try XCTUnwrap(fixture.system.measures.first { $0.id == firstID })
+        let drawing = slantedBarline(at: first.trailingBarlineFrame.midX, fixture: fixture)
+
+        let result = ChordDraftBarlineRecognizer.recognize(
+            strokes: PencilKitInkAdapter.inkStrokes(from: drawing), chordFrame: fixture.chordFrame,
+            pageLayout: fixture.layout)
+
+        XCTAssertTrue(result.barlines.isEmpty)
+    }
+
+    private func prepareBarline(_ drawing: PKDrawing, chart: inout Chart, fixture: Fixture) throws -> Input {
+        _ = chart.setPageHandwrittenChordDrawing(drawing.dataRepresentation())
+        let data = try XCTUnwrap(chart.pageHandwrittenChordData)
+        let prepared = ChordInkRecognitionPreparation.prepare(ChordInkRecognitionPreparationRequest(
+            requestID: UUID(), scheduledAt: inputAt, requestedDelay: 0, drawingData: data,
+            chordFrame: fixture.chordFrame, pageLayout: fixture.layout, flow: .draftPreview,
+            options: .live, layoutStyle: chart.layoutStyle))
+        XCTAssertEqual(prepared.recognitionStrokeCount, 0, "Barline ink must stay out of chord recognition")
+        XCTAssertEqual(prepared.barlines.count, 1)
+        XCTAssertEqual(prepared.barlines.first?.ownedSourceStrokeIndices, [0])
+        let state = ChordPreviewState(draftBarlines: prepared.barlines, layoutPageSize: pageSize)
+        return Input(drawing: try PKDrawing(data: data), state: state, fixture: fixture)
     }
     func testExistingRepeatReceiptIsUnchangedWhenAnotherPairRenders() throws {
         var chart = makeChart(startingMeasureCount: 2)

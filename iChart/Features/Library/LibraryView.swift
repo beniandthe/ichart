@@ -354,7 +354,8 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Write in the highlighted Corridor Lane above the staff.",
                 "Chords render automatically after a pause. Leave space between chords so each chord can be read separately.",
                 "Turn on Manual Render with Preview in app Settings to check the small preview text before tapping Render Chords or Review & Render.",
-                "Draw a barline in the same lane when you want it placed with the chords.",
+                "On a Simple Chord Sheet or Rhythm Section Sheet, draw a tall, nearly vertical barline in the highlighted lane with space on either side.",
+                "On a Rhythm Section Sheet, a handwritten barline can split an open measure. Use Measures for committed measures. If a barline cannot be placed, the draft stays on the page so you can erase or redraw the mark.",
                 "Draw repeat bars with two dots on the right to start a repeat, on the left to end one, or on both sides to end one repeat and start another.",
                 "Complete each start repeat with an end repeat. If an end repeat has no matching start, Render asks whether to repeat from the beginning.",
                 "When review opens, correct the chord text or choose a suggestion before rendering. Erasing just that writing and rewriting it is another option."

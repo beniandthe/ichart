@@ -4529,6 +4529,9 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         let manualLeadSheet = EditorCanvasMode.chordEntry.activeToolInstruction(
             layoutStyle: .leadSheet, manualRenderWithPreview: true
         )
+        let automaticSimpleSheet = EditorCanvasMode.chordEntry.activeToolInstruction(
+            layoutStyle: .simpleChordSheet, manualRenderWithPreview: false
+        )
         let freeInk = EditorCanvasMode.freeHand.activeToolInstruction(
             layoutStyle: .rhythmSectionSheet, manualRenderWithPreview: false
         )
@@ -4536,6 +4539,8 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertTrue(automaticRhythm.contains("pause to render"))
         XCTAssertTrue(manualRhythm.contains("Render Chords or Review & Render"))
         XCTAssertTrue(manualRhythm.contains("open measure"))
+        XCTAssertTrue(manualRhythm.contains("Use Measures for committed measures"))
+        XCTAssertTrue(automaticSimpleSheet.contains("Draw tall barlines between chords"))
         XCTAssertFalse(manualLeadSheet.contains("split"))
         XCTAssertTrue(freeInk.contains("stay as handwriting"))
         XCTAssertTrue(EditorCanvasMode.chordEntry.allowsChordInkEditing)

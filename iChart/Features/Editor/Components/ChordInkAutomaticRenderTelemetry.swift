@@ -304,6 +304,7 @@ enum ChordInkAutomaticRenderTelemetry {
         // target IDs or text. More detailed evidence remains on the device.
         let codes: [(ChordInkAutomaticRenderReason, String)] = [
             (.needsSpace, "automatic_needs_space"), (.placementUnavailable, "automatic_placement_unavailable"),
+            (.barlinePlacementUnavailable, "automatic_placement_unavailable"),
             (.unrepresentedInk, "automatic_unrepresented_ink"), (.adjacentWriting, "automatic_adjacent_writing"),
             (.noRead, "automatic_no_read"), (.recognitionReview, "automatic_recognition_review")
         ]

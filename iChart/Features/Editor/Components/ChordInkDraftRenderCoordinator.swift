@@ -213,8 +213,11 @@ final class ChordInkDraftRenderCoordinator {
                     remainingState: ChordPreviewState(), result: complete.result,
                     consumedDraftIDs: Set(state.draftChords.map(\.id) + state.draftBarlines.map(\.id) + state.draftEndings.map(\.id)))
             }
-            if complete.canConsumeSource { feedback.set(failureReason, for: allIDs) }
-            else {
+            if complete.canConsumeSource {
+                feedback.set(failureReason, for: allIDs)
+            } else if complete.result.hasUnplacedPlainBarline(in: committed) {
+                feedback.globalReason = .barlinePlacementUnavailable
+            } else {
                 feedback.set(complete.result.didRejectIncompleteSourceCoverage ? .needsSourceRefresh : .placementUnavailable,
                     for: allIDs)
             }
@@ -323,7 +326,11 @@ final class ChordInkDraftRenderCoordinator {
         let prepared = prepare(chart: chart, state: committed, currentDrawing: currentDrawing,
             coordinateSpace: coordinateSpace, automaticContinuationSourceLayout: sourceLayout)
         guard prepared.canConsumeSource else {
-            feedback.set(prepared.result.didRejectIncompleteSourceCoverage ? .needsSourceRefresh : .placementUnavailable, for: ids)
+            if prepared.result.hasUnplacedPlainBarline(in: committed) {
+                feedback.globalReason = .barlinePlacementUnavailable
+            } else {
+                feedback.set(prepared.result.didRejectIncompleteSourceCoverage ? .needsSourceRefresh : .placementUnavailable, for: ids)
+            }
             return .init(feedback: feedback)
         }
         let frame = sourceChordFrame ?? LeadSheetActiveInkScope.chordWritingFrame(for: sourceLayout)

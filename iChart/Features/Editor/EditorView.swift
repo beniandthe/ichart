@@ -70,7 +70,7 @@ enum ChordInkAutomaticFeedbackPresentationPolicy {
         if !restored, elapsed < progressDelay { return nil }
         if !restored, activity?.phase == .waiting { return writing() }
         let hasSafetyRefusal = providedReason.map {
-            $0 == .needsSpace || $0 == .needsSourceRefresh || $0 == .placementUnavailable
+            $0 == .needsSpace || $0 == .needsSourceRefresh || $0 == .placementUnavailable || $0 == .barlinePlacementUnavailable
                 || $0 == .repeatReview || $0 == .endingReview || $0 == .adjacentWriting || $0 == .unrepresentedInk
         } ?? false
         if !hasSafetyRefusal, activity?.phase == .reading || restored || activity == nil {
@@ -83,6 +83,10 @@ enum ChordInkAutomaticFeedbackPresentationPolicy {
         if reason == .endingReview {
             return .init(title: "Review ending", detail: reason.userMessage,
                 accessibilityLabel: "Review ending label and measure range", canReview: true, isReading: false)
+        }
+        if reason == .barlinePlacementUnavailable {
+            return .init(title: "Barline needs attention", detail: reason.userMessage,
+                accessibilityLabel: reason.userMessage, canReview: true, isReading: false)
         }
         if reason == .waiting { return reading("Finishing ink…") }
         return .init(title: "Writing needs attention",
@@ -440,7 +444,7 @@ struct EditorView: View {
     @State private var automaticReviewFocusedDraftID: UUID?
     @State private var isReplayingAutomaticChordCensus = false
     @State private var showingAutomaticInkHelp = false
-    @State private var automaticInkHelpMessage = ""
+    @State private var automaticInkHelpReason: ChordInkAutomaticRenderReason?
     @State private var chordWritingBatchID = UUID()
     @State private var chordReviewStartedAt: Date?
     // Temporary review input only. It is never training, telemetry or a
@@ -2442,7 +2446,8 @@ struct EditorView: View {
         if let primary = primaryAutomaticChordFeedback {
             automaticFeedbackButton(primary.status,
                 identifier: primary.draftID.map { "Chord automatic feedback \($0.uuidString)" } ?? "Chord automatic ink feedback") {
-                if primary.globalReason == .unrepresentedInk || primary.globalReason == .needsSourceRefresh {
+                if primary.globalReason == .unrepresentedInk || primary.globalReason == .needsSourceRefresh
+                    || primary.globalReason == .barlinePlacementUnavailable {
                     openAutomaticInkHelp(reason: primary.globalReason)
                 } else {
                     openAutomaticChordReview(focusedDraftID: primary.draftID)
@@ -2465,6 +2470,7 @@ struct EditorView: View {
         let global = automaticChordFeedback.globalReason ?? automaticChordActivity?.feedback.globalReason
         let usesGlobal = chordPreviewState.draftChords.isEmpty || automaticChordActivity?.phase == .waiting
             || global == .unrepresentedInk || global == .needsSourceRefresh || global == .endingReview
+            || global == .barlinePlacementUnavailable
         if usesGlobal, let status = ChordInkAutomaticFeedbackPresentationPolicy.globalStatus(
             activity: automaticChordActivity, feedback: automaticChordFeedback,
             hasSourceInk: hasAutomaticSourceInk, now: automaticChordFeedbackNow,
@@ -2522,9 +2528,11 @@ struct EditorView: View {
     private var automaticInkRecoverySheet: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 18) {
-                Text(automaticInkHelpMessage)
+                Text(automaticInkHelpReason?.userMessage ?? "This writing has not been assigned a supported chord yet.")
                     .font(.headline)
-                Text("Your writing is still on the page. Use the eraser to change the unread chord, then write it again in the highlighted lane. Leave space between chords.")
+                Text(automaticInkHelpReason == .barlinePlacementUnavailable
+                    ? "Your draft ink is still on the page."
+                    : "Your writing is still on the page. Use the eraser to change the unread chord, then write it again in the highlighted lane. Leave space between chords.")
                     .fixedSize(horizontal: false, vertical: true)
                 Button("Use Eraser") {
                     showingAutomaticInkHelp = false
@@ -2552,7 +2560,8 @@ struct EditorView: View {
         cancelAutomaticChordRendering()
         automaticReviewFocusedDraftID = focusedDraftID
         let globalReason = automaticChordFeedback.globalReason ?? automaticChordActivity?.feedback.globalReason
-        if focusedDraftID == nil, globalReason == .unrepresentedInk || globalReason == .needsSourceRefresh {
+        if focusedDraftID == nil, globalReason == .unrepresentedInk || globalReason == .needsSourceRefresh
+            || globalReason == .barlinePlacementUnavailable {
             openAutomaticInkHelp(reason: globalReason)
             return
         }
@@ -2586,7 +2595,7 @@ struct EditorView: View {
 
     private func openAutomaticInkHelp(reason: ChordInkAutomaticRenderReason?) {
         cancelAutomaticChordRendering()
-        automaticInkHelpMessage = reason?.userMessage ?? "This writing has not been assigned a supported chord yet."
+        automaticInkHelpReason = reason
         showingAutomaticInkHelp = true
     }
 
@@ -5331,7 +5340,10 @@ struct EditorView: View {
                 let reason = attempt.feedback.globalReason
                     ?? state.draftChords.compactMap { attempt.feedback.reasonsByDraftID[$0.id] }.first
                     ?? .placementUnavailable
-                presentChordRenderError(reason.userMessage + " Your ink is still on the page. Use Rewrite This Chord, or return to writing and move it with more room.")
+                let recovery = reason == .barlinePlacementUnavailable
+                    ? " Your draft ink is still on the page."
+                    : " Your ink is still on the page. Use Rewrite This Chord, or return to writing and move it with more room."
+                presentChordRenderError(reason.userMessage + recovery)
                 return false
             }
             preparedOutcome = .init(chart: automaticOutcome.chart, result: automaticOutcome.result)
@@ -5357,6 +5369,8 @@ struct EditorView: View {
                 ? "An ending could not be placed. Review its measure range and check whether that ending is already on the chart. Nothing was rendered or erased."
                 : hasUnresolvedRepeat
                 ? "These repeat signs could not be placed. Check their measure boundaries and whether that repeat is already on the chart. Nothing was rendered or erased."
+                : renderResult.hasUnplacedPlainBarline(in: state)
+                ? ChordInkAutomaticRenderReason.barlinePlacementUnavailable.userMessage + " Your draft ink is still on the page."
                 : "One or more reviewed chords could not be rendered. The draft ink is still available."
             presentChordRenderError(message)
             return false

@@ -3,7 +3,8 @@ import Foundation
 
 enum ChordInkAutomaticRenderReason: String, Equatable {
     case waiting, reading, recognitionReview, noRead, needsSpace
-    case needsSourceRefresh, repeatReview, endingReview, placementUnavailable, unrepresentedInk, restoredInk, adjacentWriting
+    case needsSourceRefresh, repeatReview, endingReview, placementUnavailable, barlinePlacementUnavailable
+    case unrepresentedInk, restoredInk, adjacentWriting
 
     var userMessage: String {
         switch self {
@@ -16,6 +17,7 @@ enum ChordInkAutomaticRenderReason: String, Equatable {
         case .repeatReview: return "Review the repeat signs before rendering."
         case .endingReview: return "Choose the ending label and measure range, then render the bracket."
         case .placementUnavailable: return "This chord could not be placed safely. Review or rewrite it."
+        case .barlinePlacementUnavailable: return "This barline could not be placed. Erase it or redraw it where the measure can split."
         case .unrepresentedInk: return "Some writing could not be grouped into a chord. Review or rewrite it."
         case .restoredInk: return "Review this saved writing, or continue writing to render automatically."
         case .adjacentWriting: return "Finish or review the nearby writing so these chords can be separated."
