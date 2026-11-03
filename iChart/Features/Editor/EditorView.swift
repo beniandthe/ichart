@@ -2654,7 +2654,7 @@ struct EditorView: View {
                     .font(.headline)
                 Text(automaticInkHelpReason == .barlinePlacementUnavailable
                     ? barlineRecoveryMessage(for: chordPreviewState.draftBarlines)
-                    : "Your writing is still on the page. Use the eraser to change the unread chord, then write it again in the highlighted lane. Leave space between chords.")
+                    : "Your writing is still on the page. Erase or rewrite the unclear mark in the highlighted lane. Leave space between chords and other marks.")
                     .fixedSize(horizontal: false, vertical: true)
                 Button("Use Eraser") {
                     showingAutomaticInkHelp = false
@@ -2682,6 +2682,9 @@ struct EditorView: View {
         let measureIDs = Set(barlines.filter { !$0.kind.isRepeat }.map(\.measureID))
         if chart.hasFreeInkArticulations(in: measureIDs) {
             return "Your draft ink is still on the page. Use Restore Ink in Free Ink before splitting a measure with a converted mark or its source."
+        }
+        if chart.layoutStyle == .rhythmSectionSheet {
+            return "Your draft ink is still on the page. Draw barlines on their own in the empty end of a row, or draw one inside an open measure. Use Measures to change a committed measure."
         }
         return "Your draft ink is still on the page."
     }

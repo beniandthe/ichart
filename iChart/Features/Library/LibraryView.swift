@@ -359,7 +359,8 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Chords render automatically after a pause. Leave space between chords so each chord can be read separately.",
                 "Turn on Manual Render with Preview in app Settings to check the small preview text before tapping Render Chords or Review & Render.",
                 "On a Simple Chord Sheet or Rhythm Section Sheet, draw a tall, nearly vertical barline in the highlighted lane with space on either side.",
-                "On a Rhythm Section Sheet, a handwritten barline can split an open measure. Use Measures for committed measures. If a barline cannot be placed, the draft stays on the page so you can erase or redraw the mark.",
+                "On a Rhythm Section Sheet, a handwritten barline can split an open measure. To add measures at the end of a short row, draw tall barlines on their own in the empty lane and leave space between them. Use Measures for committed measures.",
+                "If a barline cannot be placed, the draft stays on the page so you can erase or redraw the mark.",
                 "If a converted mark blocks a split, use Restore Ink in Free Ink first.",
                 "Draw repeat bars with two dots on the right to start a repeat, on the left to end one, or on both sides to end one repeat and start another.",
                 "Complete each start repeat with an end repeat. If an end repeat has no matching start, Render asks whether to repeat from the beginning.",
@@ -372,7 +373,7 @@ private struct IChartHelpArticleSection: Identifiable {
             systemImageName: "checkmark.circle",
             body: "Turn on Manual Render with Preview in app Settings when you want to review your writing before it becomes notation.",
             bullets: [
-                "Tap Render Chords when the previews are ready. If review is needed, the button says Review & Render and opens Confirm Chords.",
+                "Tap Render Chords when the previews are ready. If the button says Review & Render, follow the prompt to review the chords, repeats, or endings.",
                 "Add chord means a chord needs an entry. You can still open review; type the chord or choose a suggestion.",
                 "In Confirm Chords, correct the text or choose a suggestion, then tap Render Chord or Render All. Each entry needs a supported chord before the final render is available.",
                 "Turn the setting off to return to automatic chord rendering after a pause.",

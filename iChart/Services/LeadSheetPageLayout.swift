@@ -1875,6 +1875,7 @@ enum LeadSheetPageLayoutEngine {
         }
         let isPersistentlyEqualizedRow = plan.measures.count > 1
             && manualWidths.count == plan.measures.count
+            && !plan.measures.contains(where: { $0.measure?.drawnRhythmTailLayoutWidth != nil })
             && (manualWidths.max() ?? 0) - (manualWidths.min() ?? 0) <= 0.001
         let responsiveEqualWidth = max(
             1,
@@ -1888,6 +1889,8 @@ enum LeadSheetPageLayoutEngine {
                 // Resolve that intent against the current paper width so the
                 // row stays even and keeps both margins after rotation.
                 width = responsiveEqualWidth
+            } else if let drawnWidth = measurePlan.measure?.drawnRhythmTailLayoutWidth {
+                width = drawnWidth
             } else if let manualLayoutWidth = measurePlan.measure?.manualLayoutWidth {
                 width = Measure.clampedManualLayoutWidth(CGFloat(manualLayoutWidth))
             } else {
@@ -2164,6 +2167,9 @@ enum LeadSheetPageLayoutEngine {
     }
 
     private static func preferredWidth(for measure: Measure, chart: Chart) -> CGFloat {
+        if chart.layoutStyle == .rhythmSectionSheet, let drawnWidth = measure.drawnRhythmTailLayoutWidth {
+            return drawnWidth
+        }
         let metrics = chart.engravingPreset.layoutMetrics
         let defaultWidth = measure.authoringState == .open
             ? mediumOpenMeasureWidth * metrics.measureWidthScale

@@ -75,6 +75,7 @@ struct LeadSheetPitchedNoteSlotInput: Hashable {
 struct Measure: Identifiable, Codable, Hashable {
     static let minimumManualLayoutWidth: CGFloat = 96
     static let maximumManualLayoutWidth: CGFloat = 900
+    static let minimumDrawnRhythmTailWidth: CGFloat = 32
 
     var id: UUID
     var index: Int
@@ -83,6 +84,7 @@ struct Measure: Identifiable, Codable, Hashable {
     var rhythmMap: MeasureRhythmMap? = nil
     var pitchedNoteEvents: [LeadSheetPitchedNoteEvent]
     var manualLayoutWidth: Double? = nil
+    var usesDrawnRhythmTailWidth = false
     var handwrittenRhythmicNotationData: Data? = nil
     var handwrittenRhythmicNotationCoordinateSpace: PersistentInkCoordinateSpace? = nil
     var barlineAfter: BarlineType
@@ -134,6 +136,7 @@ struct Measure: Identifiable, Codable, Hashable {
         case rhythmMap
         case pitchedNoteEvents
         case manualLayoutWidth
+        case usesDrawnRhythmTailWidth
         case handwrittenRhythmicNotationData
         case handwrittenRhythmicNotationCoordinateSpace
         case barlineAfter
@@ -152,6 +155,7 @@ struct Measure: Identifiable, Codable, Hashable {
         rhythmMap = try container.decodeIfPresent(MeasureRhythmMap.self, forKey: .rhythmMap)
         pitchedNoteEvents = try container.decodeIfPresent([LeadSheetPitchedNoteEvent].self, forKey: .pitchedNoteEvents) ?? []
         manualLayoutWidth = try container.decodeIfPresent(Double.self, forKey: .manualLayoutWidth)
+        usesDrawnRhythmTailWidth = try container.decodeIfPresent(Bool.self, forKey: .usesDrawnRhythmTailWidth) ?? false
         handwrittenRhythmicNotationData = normalizedPersistentInkDrawingData(
             try container.decodeIfPresent(Data.self, forKey: .handwrittenRhythmicNotationData)
         )
@@ -180,6 +184,9 @@ struct Measure: Identifiable, Codable, Hashable {
             try container.encode(pitchedNoteEvents, forKey: .pitchedNoteEvents)
         }
         try container.encodeIfPresent(manualLayoutWidth, forKey: .manualLayoutWidth)
+        if usesDrawnRhythmTailWidth {
+            try container.encode(true, forKey: .usesDrawnRhythmTailWidth)
+        }
         try container.encodeIfPresent(handwrittenRhythmicNotationData, forKey: .handwrittenRhythmicNotationData)
         try container.encodeIfPresent(
             handwrittenRhythmicNotationCoordinateSpace,
@@ -206,6 +213,15 @@ struct Measure: Identifiable, Codable, Hashable {
     func resolvedLayoutWidth(defaultWidth: CGFloat) -> CGFloat {
         let proposedWidth = manualLayoutWidth.map { CGFloat($0) } ?? defaultWidth
         return Self.clampedManualLayoutWidth(proposedWidth)
+    }
+
+    var drawnRhythmTailLayoutWidth: CGFloat? {
+        guard usesDrawnRhythmTailWidth, let manualLayoutWidth,
+              manualLayoutWidth.isFinite,
+              (Self.minimumDrawnRhythmTailWidth...Self.maximumManualLayoutWidth).contains(CGFloat(manualLayoutWidth)) else {
+            return nil
+        }
+        return CGFloat(manualLayoutWidth)
     }
 
     static func clampedManualLayoutWidth(_ width: CGFloat) -> CGFloat {

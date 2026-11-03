@@ -1,7 +1,16 @@
 import Foundation
 
 enum InkSplitMajorTriangleGeometry {
+    enum Match {
+        case standard
+        case offsetJoin
+    }
+
     static func matches(_ first: InkStroke, _ second: InkStroke) -> Bool {
+        match(first, second) != nil
+    }
+
+    static func match(_ first: InkStroke, _ second: InkStroke) -> Match? {
         let bounds = first.bounds.union(second.bounds)
         let aspectRatio = bounds.width / max(bounds.height, 1)
         let smallerHeight = max(min(first.bounds.height, second.bounds.height), 1)
@@ -10,16 +19,37 @@ enum InkSplitMajorTriangleGeometry {
               (0.55...1.75).contains(aspectRatio),
               first.bounds.horizontalGap(to: second.bounds) <= max(3, bounds.width * 0.20),
               first.bounds.verticalOverlap(with: second.bounds) >= smallerHeight * 0.35 else {
-            return false
+            return nil
         }
 
         // The base can extend just past the left leg. Assign roles by
         // shape, with either pen direction, instead of sorting by minX.
-        return (isLeftLeg(first, in: bounds) && isRightLegWithBase(second, in: bounds))
-            || (isLeftLeg(second, in: bounds) && isRightLegWithBase(first, in: bounds))
+        if matchesRoles(left: first, right: second, in: bounds, apexLimit: 0.58, baseLimit: 0.26)
+            || matchesRoles(left: second, right: first, in: bounds, apexLimit: 0.58, baseLimit: 0.26) {
+            return .standard
+        }
+        guard let firstTop = endpointsFromTop(first)?.top,
+              let secondTop = endpointsFromTop(second)?.top,
+              hypot(firstTop.x - secondTop.x, firstTop.y - secondTop.y) <= max(3, bounds.width * 0.25) else {
+            return nil
+        }
+        // A nearby join at the apex provides extra evidence when the left leg
+        // starts farther right or the bottom stroke falls short of the foot.
+        if matchesRoles(left: first, right: second, in: bounds, apexLimit: 0.66, baseLimit: 0.34)
+            || matchesRoles(left: second, right: first, in: bounds, apexLimit: 0.66, baseLimit: 0.34) {
+            return .offsetJoin
+        }
+        return nil
     }
 
-    private static func isLeftLeg(_ stroke: InkStroke, in bounds: InkBounds) -> Bool {
+    private static func matchesRoles(
+        left: InkStroke, right: InkStroke, in bounds: InkBounds, apexLimit: Double, baseLimit: Double
+    ) -> Bool {
+        isLeftLeg(left, in: bounds, apexLimit: apexLimit)
+            && isRightLegWithBase(right, in: bounds, baseLimit: baseLimit)
+    }
+
+    private static func isLeftLeg(_ stroke: InkStroke, in bounds: InkBounds, apexLimit: Double) -> Bool {
         guard let endpoints = endpointsFromTop(stroke) else { return false }
         let startX = xRatio(endpoints.top, in: bounds)
         let endX = xRatio(endpoints.bottom, in: bounds)
@@ -31,20 +61,20 @@ enum InkSplitMajorTriangleGeometry {
             && (45...82).contains(stroke.diagonalAngleMagnitude)
             && endpoints.top.x >= endpoints.bottom.x + max(2, bounds.width * 0.12)
             && endpoints.bottom.y >= endpoints.top.y + max(5, bounds.height * 0.35)
-            && (0.08...0.58).contains(startX)
+            && (0.08...apexLimit).contains(startX)
             && yRatio(endpoints.top, in: bounds) <= 0.36
             && endX <= startX - 0.08
             && yRatio(endpoints.bottom, in: bounds) >= 0.62
     }
 
-    private static func isRightLegWithBase(_ stroke: InkStroke, in bounds: InkBounds) -> Bool {
+    private static func isRightLegWithBase(_ stroke: InkStroke, in bounds: InkBounds, baseLimit: Double) -> Bool {
         guard let endpoints = endpointsFromTop(stroke),
               stroke.points.count >= 8,
               stroke.bounds.width >= 7,
               stroke.bounds.height >= 7,
               (0.08...0.62).contains(xRatio(endpoints.top, in: bounds)),
               yRatio(endpoints.top, in: bounds) <= 0.34,
-              xRatio(endpoints.bottom, in: bounds) <= 0.26,
+              xRatio(endpoints.bottom, in: bounds) <= baseLimit,
               yRatio(endpoints.bottom, in: bounds) >= 0.62 else {
             return false
         }
@@ -52,7 +82,7 @@ enum InkSplitMajorTriangleGeometry {
         // Reaching both ends of the lower base with both endpoints left of
         // its right corner proves the turn even when every sample step is small.
         let lowerPoints = stroke.points.filter { yRatio($0, in: bounds) >= 0.68 }
-        return lowerPoints.contains { xRatio($0, in: bounds) <= 0.26 }
+        return lowerPoints.contains { xRatio($0, in: bounds) <= baseLimit }
             && lowerPoints.contains { xRatio($0, in: bounds) >= 0.72 }
     }
 

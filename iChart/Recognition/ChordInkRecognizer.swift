@@ -3,7 +3,7 @@ import Foundation
 enum ChordInkRecognitionPipelineIdentity {
     /// Bump whenever a device trace or committed ink chord must be
     /// distinguishable from a materially different recognition pipeline.
-    static let version = "maximum-trust-v36-handwritten-stroke-geometry-2026-11-02"
+    static let version = "maximum-trust-v37-offset-major-triangle-2026-11-03"
 }
 
 protocol ChordInkRecognizing {
@@ -175,6 +175,19 @@ struct ChordInkRecognizer: ChordInkRecognizing {
         let symbolLedgerAssessment = symbolLedgerSnapshot?.assessment(
             primaryDisplayText: match?.displayText
         )
+        // Joining the more open triangle restores its chord candidate while
+        // keeping the recovery out of the trusted recognition path.
+        let containsOffsetTriangle = match != nil && clusters.contains { cluster in
+            cluster.strokes.count == 2
+                && InkSplitMajorTriangleGeometry.match(cluster.strokes[0], cluster.strokes[1]) == .offsetJoin
+        }
+        let trustEvidence: ChordInkTrustEvidence? = containsOffsetTriangle ? .init(
+            outcome: .insufficientCapturedFamilyEvidence,
+            symbolSupportCount: symbolLedgerAssessment?.supportCount ?? 0,
+            completedProbeCount: 0,
+            requiredProbeCount: 0,
+            validationMilliseconds: 0
+        ) : nil
 
         return ChordInkRecognitionResult(
             rawCandidates: rawCandidates,
@@ -187,6 +200,7 @@ struct ChordInkRecognizer: ChordInkRecognizing {
             reviewCandidateScores: reviewCandidateScores,
             symbolLedger: symbolLedgerSnapshot,
             symbolLedgerAssessment: symbolLedgerAssessment,
+            trustEvidence: trustEvidence,
             metrics: ChordInkRecognitionMetrics(
                 clusterMilliseconds: clusterMilliseconds,
                 glyphMilliseconds: glyphMilliseconds,

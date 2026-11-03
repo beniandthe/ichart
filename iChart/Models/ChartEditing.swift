@@ -310,11 +310,13 @@ extension Chart {
 
         let normalizedWidth = width.map { Measure.clampedManualLayoutWidth($0) }
         let normalizedStoredWidth = normalizedWidth.map(Double.init)
-        guard systems[location.systemIndex].measures[location.measureIndex].manualLayoutWidth != normalizedStoredWidth else {
+        guard systems[location.systemIndex].measures[location.measureIndex].manualLayoutWidth != normalizedStoredWidth
+                || systems[location.systemIndex].measures[location.measureIndex].usesDrawnRhythmTailWidth else {
             return normalizedWidth
         }
 
         systems[location.systemIndex].measures[location.measureIndex].manualLayoutWidth = normalizedStoredWidth
+        systems[location.systemIndex].measures[location.measureIndex].usesDrawnRhythmTailWidth = false
         updatedAt = .now
         return normalizedWidth
     }

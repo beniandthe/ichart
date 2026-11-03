@@ -6,6 +6,50 @@ import XCTest
 @testable import iChart
 
 final class ChordEntryPassReplayTests: XCTestCase {
+    @MainActor
+    func testReplayAutomaticRhythmRowBarlinesFromSavedState() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let statePath = environment["ICHART_STATE"],
+              let expectedCount = environment["ICHART_REPLAY_EXPECTED_BARLINES"].flatMap(Int.init) else {
+            throw XCTSkip("Set ICHART_STATE and ICHART_REPLAY_EXPECTED_BARLINES for the captured row.")
+        }
+        let snapshot = try XCTUnwrap(try FileChartRepository(url: URL(fileURLWithPath: statePath)).loadSnapshot())
+        let chart = try XCTUnwrap(selectedChart(in: snapshot))
+        let drawingData = try XCTUnwrap(chart.pageHandwrittenChordData)
+        let drawing = try PKDrawing(data: drawingData)
+        let layout = try XCTUnwrap(inferredStoredPageLayout(for: chart))
+        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let inputAt = Date(timeIntervalSinceReferenceDate: 100)
+        let preparation = ChordInkRecognitionPreparation.prepare(.init(
+            requestID: UUID(), scheduledAt: inputAt, requestedDelay: 0,
+            drawingData: drawingData, chordFrame: chordFrame, pageLayout: layout,
+            flow: .draftPreview, options: .live, layoutStyle: chart.layoutStyle
+        ))
+        XCTAssertEqual(preparation.barlines.map(\.kind), Array(repeating: .single, count: expectedCount))
+        XCTAssertEqual(Set(preparation.barlines.flatMap(\.ownedSourceStrokeIndices)), Set(drawing.strokes.indices))
+        var state = ChordPreviewState()
+        state.replaceDraftBarlines(with: preparation.barlines)
+        state.layoutPageSize = layout.pageBounds.size
+
+        let attempt = ChordInkDraftRenderCoordinator.prepareAutomaticAttempt(chart: chart, state: state,
+            currentDrawing: drawing, coordinateSpace: chart.pageHandwrittenChordCoordinateSpace,
+            now: inputAt.addingTimeInterval(3), lastInputAt: inputAt, isUsingTool: false,
+            sourcePageLayout: layout, sourceChordFrame: chordFrame)
+        let outcome = try XCTUnwrap(attempt.outcome, "Render refused: \(String(describing: attempt.feedback.globalReason))")
+        XCTAssertEqual(outcome.result.renderedBarlineCount, expectedCount)
+        XCTAssertEqual(outcome.result.renderedChordCount, 0)
+        XCTAssertTrue(outcome.drawing.strokes.isEmpty)
+        let saved = try ChartPersistenceCoders.encoder.encode(outcome.chart)
+        let reopened = try ChartPersistenceCoders.decoder.decode(Chart.self, from: saved)
+        XCTAssertEqual(reopened.measures.count, chart.measures.count + expectedCount)
+        XCTAssertNil(reopened.pageHandwrittenChordData)
+        XCTAssertEqual(reopened.pageHandwrittenNotationData, chart.pageHandwrittenNotationData)
+        XCTAssertEqual(reopened.pageHandwrittenNotationCoordinateSpace, chart.pageHandwrittenNotationCoordinateSpace)
+        for measure in chart.measures {
+            XCTAssertEqual(reopened.measure(id: measure.id)?.chordEvents, measure.chordEvents)
+        }
+    }
+
     func testStoredChordOnlyLayoutInferencePreservesCanvasSizeInBothStyles() throws {
         for style in [ChartLayoutStyle.rhythmSectionSheet, .simpleChordSheet] {
             for width in [760.0, 800.0, 852.0] {

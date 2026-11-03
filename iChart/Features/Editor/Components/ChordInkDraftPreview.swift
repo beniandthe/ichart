@@ -165,8 +165,8 @@ enum ChordInkDraftVisibleStrokePolicy {
     private static let minimumVisibleArea: CGFloat = 8
     private static let minimumVisibleSpan: CGFloat = 5
 
-    /// Preserve small repeat dots only when they belong to a complete, safely
-    /// owned repeat sign. The ordinary chord visibility filter stays unchanged.
+    /// Preserve small marks only when the structural reader can assign them
+    /// to an unambiguous barline, repeat sign, or ending.
     static func repeatAwareVisibleDrawingContext(
         from drawing: PKDrawing,
         chordFrame: CGRect,
@@ -188,12 +188,12 @@ enum ChordInkDraftVisibleStrokePolicy {
         let allStrokes = PencilKitInkAdapter.inkStrokes(from: fullContext.drawing)
         let endings = ChordDraftEndingRecognizer.recognize(
             strokes: allStrokes, chordFrame: chordFrame, pageLayout: pageLayout)
-        let repeats = ChordDraftEndingRecognizer.recognizeBarlinesExcludingEndings(
+        let barlines = ChordDraftEndingRecognizer.recognizeBarlinesExcludingEndings(
             strokes: allStrokes,
             chordFrame: chordFrame,
             pageLayout: pageLayout
         )
-        let promotedIndices = fullContext.barlineRecognitionWithUnambiguousSourceStrokes(repeats).strokeIndices
+        let promotedIndices = fullContext.barlineRecognitionWithUnambiguousSourceStrokes(barlines).strokeIndices
             .union(fullContext.endingRecognitionWithUnambiguousSourceStrokes(endings).strokeIndices)
         guard !promotedIndices.isEmpty else { return visibleDrawingContext(from: drawing) }
         let included = fragments.indices.filter { isVisible(fragments[$0]) || promotedIndices.contains($0) }
@@ -1533,14 +1533,30 @@ enum ChordDraftBarlineRecognizer {
         }
         let deDuplicatedBarlines = removeVeryCloseBarlines(acceptedBarlines)
 
+        let barlines = deDuplicatedBarlines.map { pair in
+            var barline = pair.barline
+            barline.sourceStrokeIndex = pair.strokeIndex
+            let nextIndex = pair.strokeIndex + 1
+            if strokes.indices.contains(nextIndex),
+               isImmediateEndpointTap(strokes[nextIndex], after: strokes[pair.strokeIndex]) {
+                barline.sourceStrokeIndices = [pair.strokeIndex, nextIndex]
+                barline.sourceStrokeGeometry = [strokes[pair.strokeIndex], strokes[nextIndex]]
+            }
+            return barline
+        }
         return ChordDraftBarlineRecognition(
-            barlines: deDuplicatedBarlines.map { pair in
-                var barline = pair.barline
-                barline.sourceStrokeIndex = pair.strokeIndex
-                return barline
-            },
-            strokeIndices: Set(deDuplicatedBarlines.map(\.strokeIndex))
+            barlines: barlines,
+            strokeIndices: barlines.reduce(into: Set<Int>()) { $0.formUnion($1.ownedSourceStrokeIndices) }
         )
+    }
+
+    /// A brief Pencil contact at the end of a line belongs to that line.
+    /// A nearby dot, a later mark, or a stroke without timing stays separate.
+    private static func isImmediateEndpointTap(_ tap: InkStroke, after line: InkStroke) -> Bool {
+        guard tap.points.count == 1, let point = tap.points.first, let endpoint = line.points.last,
+              let end = line.timelineEndTimeOffset, let start = tap.timelineStartTimeOffset,
+              (0...0.10).contains(start - end) else { return false }
+        return hypot(point.x - endpoint.x, point.y - endpoint.y) <= 1.5
     }
 
     /// These relative ratios are conservative ambiguity gates, not calibrated
@@ -1932,6 +1948,11 @@ extension Chart {
                 pageSize: $0,
                 includesChordInkContinuationLanes: true
             )
+        }
+        if barlineSpacingMode == .drawn, state.draftChords.isEmpty, state.draftEndings.isEmpty,
+           let sourceLayout,
+           let tailResult = commitRhythmTailBarlines(renderableBarlines, sourceLayout: sourceLayout) {
+            return tailResult
         }
         guard materializeSimpleChordDraftRowsIfNeeded(
             for: state.renderableDraftChords,
@@ -2374,6 +2395,71 @@ extension Chart {
     private func automaticContinuationFramesMatch(_ first: CGRect, _ second: CGRect) -> Bool {
         abs(first.minX - second.minX) < 0.01 && abs(first.minY - second.minY) < 0.01
             && abs(first.width - second.width) < 0.01 && abs(first.height - second.height) < 0.01
+    }
+
+    /// Extend a short committed Rhythm row without splitting any of its existing measures.
+    /// The writable lane can extend beyond its final engraved barline.
+    private mutating func commitRhythmTailBarlines(
+        _ barlines: [DraftBarline], sourceLayout: LeadSheetPageLayout
+    ) -> ChordInkDraftBatchRenderResult? {
+        guard layoutStyle == .rhythmSectionSheet,
+              let rowIndex = barlines.first?.laneLocation?.systemIndex,
+              let row = sourceLayout.systems.first(where: { $0.index == rowIndex }),
+              let last = row.measures.last, let lastID = last.sourceMeasureID,
+              measure(id: lastID)?.authoringState == .committed, last.barlineAfter == .single,
+              let lane = LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
+                  for: row, paperFrame: sourceLayout.paperFrame(for: row)
+              ) else { return nil }
+
+        let ordered = barlines.sorted { $0.laneFraction < $1.laneFraction }
+        let positions = ordered.map { lane.minX + lane.width * CGFloat($0.laneFraction) }
+        let existingDivider = last.trailingBarlineFrame.midX
+        guard zip(ordered, positions).allSatisfy({ barline, x in
+            barline.kind == .single && barline.laneLocation?.systemIndex == rowIndex
+                && x > existingDivider && x < lane.maxX
+        }) else { return nil }
+
+        let ids = ordered.map(\.id)
+        let rejected = ChordInkDraftBatchRenderResult(
+            renderedChordIDs: [], renderedBarlineIDs: [], unresolvedDraftIDs: ids
+        )
+        let widths = zip([existingDivider] + positions, positions).map { $1 - $0 }
+        let maximumChordX = last.chordLayouts.map { $0.frame.union($0.naturalFrame).maxX }.max() ?? existingDivider
+        guard let firstX = positions.first, firstX > maximumChordX,
+              widths.allSatisfy({ (Measure.minimumDrawnRhythmTailWidth...Measure.maximumManualLayoutWidth).contains($0) })
+        else { return rejected }
+
+        var staged = self
+        guard let insertedIDs = staged.insertMeasures(after: lastID, count: widths.count) else { return rejected }
+        for (id, width) in zip(insertedIDs, widths) {
+            staged.setDraftBarlineSegmentManualLayoutWidth(width, for: id, usesDrawnRhythmTailWidth: true)
+        }
+
+        let proposed = LeadSheetPageLayoutEngine.pageLayout(
+            for: staged, pageSize: sourceLayout.pageBounds.size, includesChordInkContinuationLanes: true
+        )
+        // Inserting at the tail must not repack other rows or move existing
+        // chord/staff anchors, including those used by persistent Free Ink.
+        guard automaticContinuationFramesMatch(sourceLayout.paperEnvelope, proposed.paperEnvelope),
+              sourceLayout.systems.allSatisfy({ oldRow in
+                  guard let newRow = proposed.systems.first(where: { $0.index == oldRow.index }) else { return false }
+                  return oldRow.measures.allSatisfy { old in
+                      guard let new = newRow.measures.first(where: { $0.sourceMeasureID == old.sourceMeasureID }) else {
+                          return false
+                      }
+                      return automaticContinuationFramesMatch(old.staffFrame, new.staffFrame)
+                          && automaticContinuationFramesMatch(old.chordWritingFrame, new.chordWritingFrame)
+                          && old.chordLayouts == new.chordLayouts
+                  }
+              }), let proposedRow = proposed.systems.first(where: { $0.index == rowIndex }),
+              zip(insertedIDs, positions).allSatisfy({ id, x in
+                  guard let measure = proposedRow.measures.first(where: { $0.sourceMeasureID == id }) else { return false }
+                  return abs(measure.trailingBarlineFrame.midX - x) < 0.01
+              }) else { return rejected }
+
+        _ = staged.setPageHandwrittenChordDrawing(nil)
+        self = staged
+        return ChordInkDraftBatchRenderResult(renderedChordIDs: [], renderedBarlineIDs: ids, unresolvedDraftIDs: [])
     }
 
     @discardableResult
@@ -2820,7 +2906,8 @@ extension Chart {
 
     private mutating func setDraftBarlineSegmentManualLayoutWidth(
         _ width: CGFloat,
-        for measureID: UUID
+        for measureID: UUID,
+        usesDrawnRhythmTailWidth: Bool = false
     ) {
         let storedWidth = Double(min(max(width, 1), Measure.maximumManualLayoutWidth))
         for systemIndex in systems.indices {
@@ -2829,6 +2916,7 @@ extension Chart {
             }
 
             systems[systemIndex].measures[measureIndex].manualLayoutWidth = storedWidth
+            systems[systemIndex].measures[measureIndex].usesDrawnRhythmTailWidth = usesDrawnRhythmTailWidth
             return
         }
     }

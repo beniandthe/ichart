@@ -416,6 +416,9 @@ final class ChordInkDraftRenderCoordinator {
                   }), let destination = destinationLayout.systems.flatMap(\.measures).first(where: {
                       $0.sourceMeasureID == destinationMeasure.id
                   }), destination.chordBandFrame.width > 0 else { return nil }
+            if destination.chordLayouts.contains(where: {
+                $0.id == id && sameFrame($0.naturalFrame, sourceGlyph.naturalFrame)
+            }) { continue }
             let fraction = Double((sourceGlyph.naturalFrame.minX - destination.chordBandFrame.minX)
                 / destination.chordBandFrame.width)
             guard fraction.isFinite, fraction >= -0.001, fraction <= 1,

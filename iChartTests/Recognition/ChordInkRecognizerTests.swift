@@ -879,6 +879,37 @@ final class ChordInkRecognizerTests: XCTestCase {
         }
     }
 
+    func testSplitMajorTriangleWithOffsetApexAndShortBaseIsOfferedForReview() throws {
+        let fixture = try InkFixtureLoader.load("BFlatMajor7SplitTriangleDevice02", file: #filePath)
+        let left = [(7.0, 1.0), (7.2, 0.0), (5.8, 2.2), (4.0, 5.0), (2.0, 8.0), (0.0, 10.4)]
+        let right = [
+            (4.8, 1.5), (5.7, 1.8), (6.6, 2.6), (8.0, 4.6), (9.7, 6.7),
+            (11.5, 9.0), (10.4, 9.7), (8.9, 10.0), (7.1, 10.1), (5.4, 10.0),
+            (3.6, 9.8), (3.5, 8.6)
+        ]
+        for reverse in [false, true] {
+            let triangle = [left, right].map { points in
+                InkStroke(points: (reverse ? Array(points.reversed()) : points).map { x, y in
+                    InkPoint(x: 87 + x, y: 41 + y, timeOffset: nil)
+                })
+            }
+            let strokes = Array(fixture.strokes.prefix(4)) + triangle + Array(fixture.strokes.suffix(1))
+            let clusters = StrokeClusterer().indexedClusters(strokes)
+            XCTAssertEqual(clusters.map(\.originalIndexes), [[0, 1], [2, 3], [4, 5], [6]])
+            let result = ChordInkMaximumTrustRecognizer().recognize(strokes: strokes)
+            let decision = ChordInkRecognitionPolicy.decision(for: result)
+            XCTAssertEqual(result.glyphCandidates.dropFirst(2).first?.first?.text, "△")
+            XCTAssertEqual(result.match?.displayText, "Bb△7", "\(result.rawCandidates.prefix(6))")
+            XCTAssertEqual(decision.action, .confirm)
+            XCTAssertEqual(decision.acceptedText, "Bb△7")
+            XCTAssertEqual(result.trustEvidence?.outcome, .insufficientCapturedFamilyEvidence)
+        }
+
+        let halfDiminished = try InkFixtureLoader.load("BFlatHalfDiminished7Captured01", file: #filePath)
+        let control = ChordInkMaximumTrustRecognizer().recognize(strokes: halfDiminished.strokes)
+        XCTAssertEqual(control.match?.displayText, halfDiminished.expectedDisplayText)
+    }
+
     func testRecognizesTinyUpperDegreeLookalikeBeforeSevenAsDiminishedSeventh() throws {
         let degreeLookalike = InkStroke(points: [
             InkPoint(x: 78, y: 5, timeOffset: nil),

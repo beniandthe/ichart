@@ -1249,7 +1249,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("When review opens, correct the chord text or choose a suggestion before rendering."))
         XCTAssertTrue(libraryText.contains("Erasing just that writing and rewriting it is another option."))
         XCTAssertTrue(libraryText.contains("Turn on Manual Render with Preview in app Settings when you want to review your writing before it becomes notation."))
-        XCTAssertTrue(libraryText.contains("If review is needed, the button says Review & Render and opens Confirm Chords."))
+        XCTAssertTrue(libraryText.contains("If the button says Review & Render, follow the prompt to review the chords, repeats, or endings."))
         XCTAssertTrue(libraryText.contains("Add chord means a chord needs an entry. You can still open review; type the chord or choose a suggestion."))
         XCTAssertTrue(libraryText.contains("Each entry needs a supported chord before the final render is available."))
         XCTAssertTrue(libraryText.contains("Clear Draft Ink removes all unrendered chord and barline writing after confirmation. Rendered notation and Free Ink stay unchanged."))

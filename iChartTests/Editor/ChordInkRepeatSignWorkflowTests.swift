@@ -139,6 +139,29 @@ final class ChordInkRepeatSignWorkflowTests: XCTestCase {
         XCTAssertNil(outcome.chart.pageHandwrittenChordData)
     }
 
+    func testPlainBarlineOwnsOnlyAnImmediateTapOnItsEndpoint() throws {
+        let fixture = try workflowFixture(style: .rhythmSectionSheet)
+        let measure = try XCTUnwrap(fixture.layout.systems.first?.measures.first)
+        let x = measure.staffFrame.midX - fixture.chordFrame.minX
+        let top = fixture.lane.minY + 4 - fixture.chordFrame.minY
+        let bottom = fixture.lane.maxY - 4 - fixture.chordFrame.minY
+        let line = stroke(points: [CGPoint(x: x, y: top), CGPoint(x: x, y: bottom)])
+
+        for (offset, delay, attached) in [(0.3, 0.10, true), (3.0, 0.10, false), (0.3, 0.30, false)] {
+            let tap = stroke(points: [CGPoint(x: x + offset, y: bottom)], size: 1.4,
+                creationOffset: delay)
+            let drawing = PKDrawing(strokes: [line, tap])
+            let barline = try XCTUnwrap(prepare(drawing, fixture: fixture).barlines.first)
+            XCTAssertEqual(barline.kind, .single)
+            XCTAssertEqual(barline.ownedSourceStrokeIndices, attached ? [0, 1] : [0])
+
+            var chart = fixture.chart
+            _ = chart.setPageHandwrittenChordDrawing(drawing.dataRepresentation())
+            let state = previewState([barline], pageSize: fixture.layout.pageBounds.size)
+            XCTAssertEqual(ChordInkDraftSourceCoveragePolicy.hasCompleteCoverage(chart: chart, state: state), attached)
+        }
+    }
+
     func testTinyRepeatDotsArePromotedWithoutClaimingAnUnrelatedTinyMark() throws {
         let fixture = try workflowFixture()
         let unrelated = pointStroke(
@@ -431,11 +454,11 @@ final class ChordInkRepeatSignWorkflowTests: XCTestCase {
         stroke(points: [CGPoint(x: x, y: y)], size: size)
     }
 
-    private func stroke(points: [CGPoint], size: CGFloat = 3) -> PKStroke {
+    private func stroke(points: [CGPoint], size: CGFloat = 3, creationOffset: TimeInterval = 0) -> PKStroke {
         PKStroke(ink: PKInk(.pen, color: .black), path: PKStrokePath(controlPoints: points.enumerated().map { index, point in
             PKStrokePoint(location: point, timeOffset: Double(index) * 0.05,
                 size: CGSize(width: size, height: size), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
-        }, creationDate: Date(timeIntervalSinceReferenceDate: 800_000_000)))
+        }, creationDate: Date(timeIntervalSinceReferenceDate: 800_000_000 + creationOffset)))
     }
 }
 #endif
