@@ -163,7 +163,7 @@ enum EditorCanvasMode: Hashable {
             case .simpleChordSheet:
                 "Write chords, repeat signs, and ending brackets in the blue lanes. Draw tall barlines between chords."
             case .rhythmSectionSheet:
-                "Write chords, repeat signs, and endings in the blue lanes. Tall barlines can split an open measure. Draw barlines on their own in the empty end of a row to add measures. Use Measures for committed measures."
+                "Write chords, repeats, and endings in the blue lanes. Keep each chord together. Tall barlines can split an open measure. Draw them on their own at the empty end of a row to add measures. Use Measures for committed measures."
             case .leadSheet:
                 "Write chords, repeat signs, and ending brackets in the blue lanes."
             }

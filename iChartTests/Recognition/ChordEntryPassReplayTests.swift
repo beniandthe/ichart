@@ -357,6 +357,7 @@ final class ChordEntryPassReplayTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testReplayPendingChordInkFromSavedState() throws {
         guard ProcessInfo.processInfo.environment["ICHART_REPLAY_PENDING_CHORD_INK"] == "1" else {
             throw XCTSkip("Set ICHART_REPLAY_PENDING_CHORD_INK=1 to replay pending page chord ink.")
@@ -587,7 +588,7 @@ final class ChordEntryPassReplayTests: XCTestCase {
             XCTAssertEqual(sequentialResults.compactMap { $0.match?.displayText }, expectedSequence)
 
             if environment["ICHART_REPLAY_PRODUCTION_PREPARATION"] == "1" {
-                auditProductionPreparation(
+                try auditProductionPreparation(
                     chart: chart,
                     drawingData: drawingData,
                     expectedSequence: expectedSequence,
@@ -610,13 +611,14 @@ final class ChordEntryPassReplayTests: XCTestCase {
     /// bounded-target -> maximum-trust path used by the live editor. Directly
     /// replaying final sequential groups proves recognition, but cannot prove
     /// that the production preparation layer will actually deliver each group.
+    @MainActor
     private func auditProductionPreparation(
         chart: Chart,
         drawingData: Data,
         expectedSequence: [String],
         minimumY: Double?,
         maximumY: Double?
-    ) {
+    ) throws {
         guard let pageLayout = inferredStoredPageLayout(for: chart) else {
             XCTFail("Production preparation replay requires a stored page coordinate space.")
             return
@@ -690,7 +692,7 @@ final class ChordEntryPassReplayTests: XCTestCase {
             return
         }
 
-        XCTAssertTrue(usesBatch)
+        if expectedSequence.count > 1 { XCTAssertTrue(usesBatch) }
         XCTAssertEqual(preparation.rawBatchTargetCount, preparation.boundedBatchTargetCount)
 
         let selectedRequests = requests.filter { request in
@@ -702,6 +704,8 @@ final class ChordEntryPassReplayTests: XCTestCase {
             },
             "Production grouping must not merge the captured row with ink from another system."
         )
+        XCTAssertEqual(Set(selectedRequests.flatMap(\.strokes)), selectedLoadedStrokes)
+        XCTAssertEqual(selectedRequests.flatMap(\.strokes).count, selectedSourceStrokeIndexes.count)
         let recognizer = ChordInkMaximumTrustRecognizer()
         let results = selectedRequests.map { request in
             recognizer.recognize(strokes: request.strokes, options: request.options)
@@ -726,6 +730,65 @@ final class ChordEntryPassReplayTests: XCTestCase {
                 choices.contains(expectedText),
                 "The live confirmation UI hid \(expectedText) behind choices \(choices)."
             )
+        }
+        if ProcessInfo.processInfo.environment["ICHART_REPLAY_AUTOMATIC_COMMIT"] == "1" {
+            XCTAssertEqual(selectedSourceStrokeIndexes.count, loadedStrokes.count)
+            try auditAutomaticCommit(
+                chart: chart, drawing: loadedDrawing, coordinateSpace: targetCoordinateSpace,
+                pageLayout: pageLayout, chordFrame: chordRegion.frame,
+                requests: selectedRequests, results: results, expectedSequence: expectedSequence
+            )
+        }
+    }
+
+    @MainActor
+    private func auditAutomaticCommit(
+        chart: Chart, drawing: PKDrawing, coordinateSpace: PersistentInkCoordinateSpace?,
+        pageLayout: LeadSheetPageLayout, chordFrame: CGRect, requests: [ChordInkRecognitionSessionRequest],
+        results: [ChordInkRecognitionResult], expectedSequence: [String]
+    ) throws {
+        let inputAt = Date(timeIntervalSinceReferenceDate: 100)
+        let inputs = try zip(requests, results).map { request, result in
+            let measure = try XCTUnwrap(chart.measure(id: request.target.measureID))
+            let resolution = ChordInkRenderResolutionPolicy.resolution(
+                for: result, drawingData: request.drawingData, correctionMemory: .init()
+            )
+            return ChordInkDraftInput(
+                measureID: measure.id, measureIndex: measure.index, targetFraction: request.target.fraction,
+                visualOrder: request.visualOrder, laneLocation: request.laneLocation,
+                layoutPageSize: request.layoutPageSize, drawingData: request.drawingData,
+                candidateTexts: resolution.candidateTexts, bestCandidateText: resolution.bestCandidateText,
+                confidence: result.confidence, strokeCount: request.strokes.count, recognitionResult: result,
+                primaryDecision: resolution.primaryDecision, recognitionDecision: resolution.decision,
+                targetLifecycle: request.collectingTargetLifecycle.advanced(to: .stable),
+                requiresManualReviewOnly: request.requiresManualReviewOnly
+            )
+        }
+        var state = ChordPreviewState()
+        state.replaceDraftChords(with: inputs, updatedAt: inputAt)
+        let attempt = ChordInkDraftRenderCoordinator.prepareAutomaticAttempt(
+            chart: chart, state: state, currentDrawing: drawing, coordinateSpace: coordinateSpace,
+            now: inputAt.addingTimeInterval(4), lastInputAt: inputAt, isUsingTool: false,
+            sourcePageLayout: pageLayout, sourceChordFrame: chordFrame
+        )
+        let outcome = try XCTUnwrap(attempt.outcome, "Automatic render refused: \(attempt.feedback)")
+        XCTAssertEqual(outcome.result.renderedChordCount, expectedSequence.count)
+        XCTAssertTrue(outcome.drawing.strokes.isEmpty)
+        let reopened = try ChartPersistenceCoders.decoder.decode(Chart.self,
+            from: ChartPersistenceCoders.encoder.encode(outcome.chart))
+        let newIDs = Set(outcome.result.renderedChordIDs)
+        let events = reopened.measures.flatMap(\.chordEvents).filter { newIDs.contains($0.id) }
+        XCTAssertEqual(events.map { $0.symbol.displayText }, expectedSequence)
+        let sourceCount = try events.reduce(0) { count, event in
+            try count + PKDrawing(data: XCTUnwrap(event.sourceInkData)).strokes.count
+        }
+        XCTAssertEqual(sourceCount, drawing.strokes.count)
+        XCTAssertEqual(reopened.measures.map(\.id), chart.measures.map(\.id))
+        XCTAssertEqual(reopened.pageHandwrittenNotationData, chart.pageHandwrittenNotationData)
+        XCTAssertEqual(reopened.pageHandwrittenNotationCoordinateSpace, chart.pageHandwrittenNotationCoordinateSpace)
+        for measure in chart.measures {
+            XCTAssertEqual(reopened.measure(id: measure.id)?.chordEvents.filter { !newIDs.contains($0.id) },
+                           measure.chordEvents)
         }
     }
 

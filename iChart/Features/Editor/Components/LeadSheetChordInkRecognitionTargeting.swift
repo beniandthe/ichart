@@ -344,6 +344,17 @@ enum LeadSheetChordInkRecognitionTargeting {
             clusters = laneSequentialClusters
             requiresFragmentCollapseCheck = false
             selectedRoute = "lane_root_sequence"
+        } else if draftBarlines.isEmpty,
+                  preservesRootStemAcrossMeasureDivider(
+                      measureClusters: measureLaneClusters,
+                      laneClusters: laneSequentialClusters,
+                      gapClusters: fallbackClusters,
+                      strokes: inkStrokes,
+                      context: targetingContext
+                  ) {
+            clusters = laneSequentialClusters
+            requiresFragmentCollapseCheck = false
+            selectedRoute = "lane_root_sequence"
         } else if measureLaneClusters.count > 1,
                   measureLaneClusters.count <= maximumBatchTargetCount {
             clusters = measureLaneClusters
@@ -1110,6 +1121,43 @@ enum LeadSheetChordInkRecognitionTargeting {
                 bounds: group.bounds
             )
         }
+    }
+
+    /// A printed divider can assign a root's stem and body to different
+    /// measures. Keep the complete in-lane root when the alternative routes
+    /// both own all of the ink and glyph clustering joins those two strokes.
+    private static func preservesRootStemAcrossMeasureDivider(
+        measureClusters: [ChordInkBatchCluster],
+        laneClusters: [ChordInkBatchCluster],
+        gapClusters: [ChordInkBatchCluster],
+        strokes: [InkStroke],
+        context: ChordInkTargetingContext
+    ) -> Bool {
+        guard strokes.count <= ChordInkDraftPreviewPolicy.maximumSingleTargetStrokeCount,
+              measureClusters.count == 2, laneClusters.count == 1, gapClusters.count == 1 else {
+            return false
+        }
+        let allIndices = Set(strokes.indices)
+        let standaloneIndices = Set(measureClusters.compactMap { cluster in
+            cluster.strokeIndices.count == 1 ? cluster.strokeIndices.first : nil
+        })
+        guard !standaloneIndices.isEmpty,
+              Set(laneClusters[0].strokeIndices) == allIndices,
+              Set(gapClusters[0].strokeIndices) == allIndices,
+              let root = StrokeClusterer(wrapperPolicy: .preserveOriginalInk).indexedClusters(strokes).first,
+              root.originalIndexes.count == 2, let stemIndex = root.originalIndexes.first(where: {
+                  standaloneIndices.contains($0)
+                      && MutableInkCluster(strokes: [strokes[$0]], originalIndexes: [$0])
+                          .hasRootConstructionVerticalStem
+              }),
+              let bodyIndex = root.originalIndexes.first(where: { $0 != stemIndex }),
+              let stemTarget = target(forInkBounds: strokes[stemIndex].bounds.cgRect, context: context),
+              let bodyTarget = target(forInkBounds: strokes[bodyIndex].bounds.cgRect, context: context),
+              stemTarget.measureID != bodyTarget.measureID else {
+            return false
+        }
+        return MutableInkCluster(strokes: [strokes[bodyIndex]], originalIndexes: [bodyIndex])
+            .hasRootConstructionBody
     }
 }
 
