@@ -443,7 +443,8 @@ private struct IChartHelpArticleSection: Identifiable {
             bullets: [
                 "A forum upload starts from a chart you made in iChart.",
                 "iChart checks that the PDF and chart details belong to that upload before it appears publicly.",
-                "Members can browse, download, vote, comment, report concerns, and block contributors they no longer want to see."
+                "Members can browse, download, vote, comment, report concerns, and block contributors they no longer want to see.",
+                "Author badges appear beside chart contributors. Open a chart to read what its author’s badges mean."
             ]
         ),
         IChartHelpArticleSection(
@@ -533,6 +534,7 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Treat the community library like a shared music stand.",
             bullets: [
                 "Use comments for helpful corrections, version notes, and respectful discussion.",
+                "If posting a comment fails, your draft stays in the discussion. Check the message and tap Post comment to try again.",
                 "Use Safety to report charts or comments that look inaccurate, miscredited, abusive, or unsafe. You can also block a contributor to hide their forum posts and comments from your account.",
                 "Voting is for chart quality, not personal pile-ons. Repeated bad-faith behavior may limit forum access."
             ]
@@ -1026,6 +1028,7 @@ struct LibraryView: View {
                     currentUserID: authStore.state.signedInSession?.id,
                     downloadedPDF: forumStore.downloadedPDF,
                     isWorking: forumStore.isWorking,
+                    errorMessage: forumStore.errorMessage,
                     theme: homeTheme,
                     onVote: { vote in
                         Task {
@@ -1033,9 +1036,7 @@ struct LibraryView: View {
                         }
                     },
                     onComment: { body in
-                        Task {
-                            await forumStore.addComment(body, to: detail)
-                        }
+                        await forumStore.addComment(body, to: detail)
                     },
                     onReportPost: { reason in
                         Task {
@@ -3081,7 +3082,7 @@ private struct IChartForumHomeView: View {
         summaries
             .flatMap { summary in
                 summary.topPosts.map { post in
-                    IChartForumFeaturedPost(song: summary.song, post: post)
+                    IChartForumFeaturedPost(song: summary.song, post: post, authorBadges: summary.badges(for: post))
                 }
             }
             .sorted { lhs, rhs in
@@ -3097,6 +3098,7 @@ private struct IChartForumHomeView: View {
 private struct IChartForumFeaturedPost: Identifiable {
     let song: ForumSong
     let post: ForumChartPost
+    let authorBadges: [ForumAuthorBadgeType]
 
     var id: UUID { post.id }
 }
@@ -3543,6 +3545,8 @@ private struct IChartForumTopHeadlineRow: View {
                     .foregroundStyle(theme.panelSecondary)
                     .lineLimit(1)
 
+                IChartForumBadgeLabels(badges: featuredPost.authorBadges)
+
                 HStack(spacing: 8) {
                     Label("\(max(0, featuredPost.post.voteUpCount))", systemImage: "hand.thumbsup")
                     Text(featuredPost.post.qualityStatus.displayText)
@@ -3572,6 +3576,7 @@ private struct IChartForumTopHeadlineRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Open lead chart \(featuredPost.post.chartTitle)")
+        .accessibilityValue(featuredPost.authorBadges.map(\.displayText).joined(separator: ", "))
     }
 }
 
@@ -3600,6 +3605,8 @@ private struct IChartForumTopChartRow: View {
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(theme.panelSecondary)
                         .lineLimit(1)
+
+                    IChartForumBadgeLabels(badges: featuredPost.authorBadges)
                 }
 
                 Spacer(minLength: 4)
@@ -3617,6 +3624,7 @@ private struct IChartForumTopChartRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Open \(featuredPost.post.chartTitle)")
+        .accessibilityValue(featuredPost.authorBadges.map(\.displayText).joined(separator: ", "))
     }
 }
 
@@ -3845,7 +3853,7 @@ private struct IChartForumSongCard: View {
 
             VStack(spacing: 8) {
                 ForEach(summary.topPosts) { post in
-                    IChartForumPostRow(post: post, theme: theme) {
+                    IChartForumPostRow(post: post, authorBadges: summary.badges(for: post), theme: theme) {
                         onOpenPost(post)
                     }
                 }
@@ -3864,6 +3872,7 @@ private struct IChartForumSongCard: View {
 
 private struct IChartForumPostRow: View {
     let post: ForumChartPost
+    let authorBadges: [ForumAuthorBadgeType]
     let theme: IChartHomeTheme
     let onOpen: () -> Void
 
@@ -3884,6 +3893,8 @@ private struct IChartForumPostRow: View {
                         .font(.caption)
                         .foregroundStyle(theme.panelSecondary)
                         .lineLimit(1)
+
+                    IChartForumBadgeLabels(badges: authorBadges)
 
                     if !post.tags.isEmpty {
                         Text(post.tags.joined(separator: " · "))
@@ -3911,6 +3922,32 @@ private struct IChartForumPostRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Open \(post.chartTitle)")
+        .accessibilityValue(authorBadges.map(\.displayText).joined(separator: ", "))
+    }
+}
+
+private struct IChartForumBadgeLabels: View {
+    let badges: [ForumAuthorBadgeType]
+    var showsExplanations = false
+
+    var body: some View {
+        if !badges.isEmpty {
+            VStack(alignment: .leading, spacing: showsExplanations ? 8 : 3) {
+                ForEach(badges) { badge in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label(badge.displayText, systemImage: "checkmark.seal.fill")
+                            .font((showsExplanations ? Font.caption : .caption2).weight(.semibold))
+                            .foregroundStyle(IChartHomeBrand.blue)
+                        if showsExplanations {
+                            Text(badge.explanation)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
     }
 }
 
@@ -4208,9 +4245,10 @@ private struct IChartForumPostDetailView: View {
     let currentUserID: UUID?
     let downloadedPDF: ExportedPDF?
     let isWorking: Bool
+    let errorMessage: String?
     let theme: IChartHomeTheme
     let onVote: (ForumVoteValue) -> Void
-    let onComment: (String) -> Void
+    let onComment: (String) async -> Bool
     let onReportPost: (ForumReportReason) -> Void
     let onReportComment: (ForumComment, ForumReportReason) -> Void
     let onBlockUser: (UUID, String) -> Void
@@ -4220,6 +4258,7 @@ private struct IChartForumPostDetailView: View {
     let onRemovePost: () -> Void
 
     @State private var commentText = ""
+    @State private var isSubmittingComment = false
     @State private var blockConfirmationRequest: ForumBlockConfirmationRequest?
     @FocusState private var isCommentFocused: Bool
 
@@ -4234,6 +4273,19 @@ private struct IChartForumPostDetailView: View {
                     comments
                 }
                 .padding(22)
+            }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if let errorMessage {
+                    IChartForumStatusBanner(
+                        text: errorMessage,
+                        systemImageName: "exclamationmark.triangle.fill",
+                        color: .orange,
+                        theme: theme
+                    )
+                    .padding(.horizontal, 22)
+                    .padding(.top, 8)
+                    .background(theme.panelBackground)
+                }
             }
             .background(IChartLibraryBackground(mode: theme.mode).ignoresSafeArea())
             .navigationTitle(detail.post.chartTitle)
@@ -4299,15 +4351,7 @@ private struct IChartForumPostDetailView: View {
                 .font(.subheadline)
                 .foregroundStyle(theme.panelSecondary)
 
-            if !detail.authorBadges.isEmpty {
-                HStack(spacing: 8) {
-                    ForEach(detail.authorBadges) { badge in
-                        Label(badge.badgeType.displayText, systemImage: "checkmark.seal.fill")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(IChartHomeBrand.blue)
-                    }
-                }
-            }
+            IChartForumBadgeLabels(badges: detail.authorBadges.map(\.badgeType), showsExplanations: true)
 
             if !detail.post.tags.isEmpty {
                 Text(detail.post.tags.joined(separator: " · "))
@@ -4419,6 +4463,12 @@ private struct IChartForumPostDetailView: View {
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(theme.panelTitle)
 
+            if detail.comments.count == IChartForumPostDetail.recentCommentLimit {
+                Text("Showing the latest \(IChartForumPostDetail.recentCommentLimit) comments.")
+                    .font(.subheadline)
+                    .foregroundStyle(theme.panelSecondary)
+            }
+
             if detail.post.acceptsCommunityActions {
                 HStack(alignment: .top, spacing: 8) {
                     TextField("Add a comment", text: $commentText, axis: .vertical)
@@ -4431,17 +4481,22 @@ private struct IChartForumPostDetailView: View {
                     }
 
                     Button {
-                        let body = ForumPublishDraft.normalizedDisplayText(commentText)
-                        guard !body.isEmpty else {
-                            return
+                        let submittedDraft = commentText
+                        let body = ForumPublishDraft.normalizedDisplayText(submittedDraft)
+                        guard !body.isEmpty, !isSubmittingComment else { return }
+                        isSubmittingComment = true
+                        Task {
+                            let posted = await onComment(body)
+                            if posted, commentText == submittedDraft {
+                                commentText = ""
+                            }
+                            isSubmittingComment = false
                         }
-                        commentText = ""
-                        onComment(body)
                     } label: {
                         Image(systemName: "arrow.up.circle.fill")
                             .font(.title2)
                     }
-                    .disabled(isWorking)
+                    .disabled(isWorking || isSubmittingComment)
                     .accessibilityLabel("Post comment")
                 }
             } else {

@@ -13,11 +13,18 @@ private enum IChartForumPDFMetadata {
 struct IChartForumSongSummary: Identifiable, Equatable {
     let song: ForumSong
     let topPosts: [ForumChartPost]
+    var authorBadgesByOwner: [UUID: [ForumAuthorBadgeType]] = [:]
 
     var id: UUID { song.id }
+
+    func badges(for post: ForumChartPost) -> [ForumAuthorBadgeType] {
+        authorBadgesByOwner[post.ownerID] ?? []
+    }
 }
 
 struct IChartForumPostDetail: Equatable {
+    static let recentCommentLimit = 80
+
     let song: ForumSong
     let post: ForumChartPost
     let comments: [ForumComment]
@@ -382,11 +389,21 @@ final class IChartForumStore: ObservableObject {
         }
     }
 
-    func addComment(_ body: String, to detail: IChartForumPostDetail) async {
+    func addComment(_ body: String, to detail: IChartForumPostDetail) async -> Bool {
+        let submittedBody = ForumPublishDraft.normalizedDisplayText(body)
+        guard !submittedBody.isEmpty, !isWorking, selectedDetail?.post.id == detail.post.id else { return false }
+
+        var posted = false
         await run {
-            try await activeService.addComment(postID: detail.post.id, body: body)
-            try await refreshSelectedDetail(postID: detail.post.id, song: detail.song)
+            try await activeService.addComment(postID: detail.post.id, body: submittedBody)
+            posted = true
+            guard selectedDetail?.post.id == detail.post.id else { return }
+            try await refreshSelectedDetail(postID: detail.post.id, song: detail.song, onlyIfSelected: true)
         }
+        if posted, errorMessage != nil, selectedDetail?.post.id == detail.post.id {
+            errorMessage = "Comment posted, but the discussion couldn’t refresh. Reopen it to load the latest comments."
+        }
+        return posted
     }
 
     func reportPost(_ reason: ForumReportReason, detailText: String?, detail: IChartForumPostDetail) async {
@@ -603,10 +620,13 @@ final class IChartForumStore: ObservableObject {
         isWorking = false
     }
 
-    private func refreshSelectedDetail(postID: UUID, song: ForumSong) async throws {
+    private func refreshSelectedDetail(postID: UUID, song: ForumSong, onlyIfSelected: Bool = false) async throws {
         do {
-            selectedDetail = try await activeService.loadPostDetail(postID: postID, song: song)
+            let detail = try await activeService.loadPostDetail(postID: postID, song: song)
+            guard !onlyIfSelected || selectedDetail?.post.id == postID else { return }
+            selectedDetail = detail
         } catch IChartForumServiceError.missingForumPost {
+            guard !onlyIfSelected || selectedDetail?.post.id == postID else { return }
             selectedDetail = nil
             downloadedPDF = nil
             if let summaries = try? await activeService.loadHome(query: lastQuery) {
@@ -768,7 +788,11 @@ private actor IChartForumQASampleService: IChartForumServicing {
                     return nil
                 }
 
-                return IChartForumSongSummary(song: song, topPosts: topPosts)
+                var summary = IChartForumSongSummary(song: song, topPosts: topPosts)
+                for post in topPosts {
+                    summary.authorBadgesByOwner[post.ownerID] = badges(for: post.ownerID).map(\.badgeType)
+                }
+                return summary
             }
             .sorted { lhs, rhs in
                 let lhsTopScore = lhs.topPosts.first?.rankingScore ?? 0
@@ -1545,7 +1569,7 @@ private actor IChartSupabaseForumService: IChartForumServicing {
         let normalizedQuery = ForumPublishDraft.normalizedIdentityText(query)
         let postsBySongID = Dictionary(grouping: mappedPosts, by: \.songID)
 
-        return mappedSongs
+        let summaries: [IChartForumSongSummary] = mappedSongs
             .compactMap { song in
                 let topPosts = Array(
                     (postsBySongID[song.id] ?? [])
@@ -1568,6 +1592,19 @@ private actor IChartSupabaseForumService: IChartForumServicing {
 
                 return IChartForumSongSummary(song: song, topPosts: topPosts)
             }
+        let ownerIDs = Set(summaries.flatMap { $0.topPosts.map(\.ownerID) })
+        let badges = (try? await loadAuthorBadges(ownerIDs: ownerIDs)) ?? []
+        try Task.checkCancellation()
+        let badgesByOwner = Dictionary(grouping: badges, by: \.ownerID)
+            .mapValues { $0.map(\.badgeType) }
+
+        return summaries.map { summary in
+            var decorated = summary
+            for post in summary.topPosts {
+                decorated.authorBadgesByOwner[post.ownerID] = badgesByOwner[post.ownerID]
+            }
+            return decorated
+        }
     }
 
     func loadPostDetail(postID: UUID, song: ForumSong) async throws -> IChartForumPostDetail {
@@ -1587,16 +1624,12 @@ private actor IChartSupabaseForumService: IChartForumServicing {
             .from("forum_comments")
             .select()
             .eq("post_id", value: postID)
-            .order("created_at", ascending: true)
-            .limit(80)
+            .order("created_at", ascending: false)
+            .order("id", ascending: false)
+            .limit(IChartForumPostDetail.recentCommentLimit)
             .execute()
             .value
-        let badges: [ForumAuthorBadgeRow] = try await client
-            .from("forum_author_badges")
-            .select()
-            .eq("owner_id", value: post.ownerID)
-            .execute()
-            .value
+        let badges = try await loadAuthorBadges(ownerIDs: [post.ownerID])
         let votes: [ForumVoteRow] = try await client
             .from("forum_votes")
             .select()
@@ -1609,10 +1642,22 @@ private actor IChartSupabaseForumService: IChartForumServicing {
         return IChartForumPostDetail(
             song: song,
             post: post,
-            comments: comments.map(\.forumComment),
-            authorBadges: badges.map(\.forumAuthorBadge),
+            comments: comments.reversed().map(\.forumComment),
+            authorBadges: badges,
             currentUserVote: votes.first?.forumVoteValue
         )
+    }
+
+    private func loadAuthorBadges(ownerIDs: Set<UUID>) async throws -> [ForumAuthorBadge] {
+        guard !ownerIDs.isEmpty else { return [] }
+        let rows: [ForumAuthorBadgeRow] = try await client
+            .from("forum_author_badges")
+            .select("id,owner_id,badge_type,awarded_at")
+            .in("owner_id", values: ownerIDs.map(\.uuidString).sorted())
+            .order("badge_type")
+            .execute()
+            .value
+        return rows.compactMap(\.forumAuthorBadge)
     }
 
     func publish(
@@ -2313,11 +2358,12 @@ private struct ForumAuthorBadgeRow: Decodable {
     let badgeType: String
     let awardedAt: String?
 
-    var forumAuthorBadge: ForumAuthorBadge {
-        ForumAuthorBadge(
+    var forumAuthorBadge: ForumAuthorBadge? {
+        guard let type = ForumAuthorBadgeType(rawValue: badgeType) else { return nil }
+        return ForumAuthorBadge(
             id: id,
             ownerID: ownerID,
-            badgeType: ForumAuthorBadgeType(rawValue: badgeType) ?? .verifiedContributor,
+            badgeType: type,
             awardedAt: IChartForumDateParser.date(from: awardedAt)
         )
     }

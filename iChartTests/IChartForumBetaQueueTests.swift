@@ -5,6 +5,38 @@ import XCTest
 
 @MainActor
 final class IChartForumBetaQueueTests: XCTestCase {
+    #if DEBUG
+    func testForumBadgeFollowsAuthorFromChartListToDetail() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.clean() }
+        let store = fixture.store
+        store.setQASampleDataEnabled(true)
+        await store.refresh(
+            authState: .signedIn(.init(id: fixture.owner, email: nil, phone: nil, isEmailVerified: true)),
+            entitlements: pro
+        )
+
+        guard case .loaded(let summaries) = store.state else {
+            return XCTFail("Expected sample forum charts to load")
+        }
+        let listedPosts = summaries.flatMap { summary in summary.topPosts.map { (summary, $0) } }
+        let (badgedSummary, badgedPost) = try XCTUnwrap(listedPosts.first {
+            $0.0.badges(for: $0.1) == [.verifiedContributor]
+        })
+        let (unbadgedSummary, unbadgedPost) = try XCTUnwrap(listedPosts.first {
+            $0.0.badges(for: $0.1).isEmpty
+        })
+
+        await store.openPost(badgedPost, song: badgedSummary.song)
+        let badgedDetail = try XCTUnwrap(store.selectedDetail)
+        XCTAssertEqual(badgedDetail.authorBadges.map(\.ownerID), [badgedPost.ownerID])
+        XCTAssertEqual(badgedDetail.authorBadges.map(\.badgeType), [.verifiedContributor])
+
+        await store.openPost(unbadgedPost, song: unbadgedSummary.song)
+        XCTAssertEqual(store.selectedDetail?.authorBadges, [])
+    }
+    #endif
+
     func testBasicRelaunchPreservesQueueAndRejoinPublishesExactlyOnce() async throws {
         let fixture = try makeFixture()
         defer { fixture.clean() }

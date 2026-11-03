@@ -142,6 +142,17 @@ enum ForumAuthorBadgeType: String, Codable, CaseIterable, Hashable, Identifiable
             return "Community Expert"
         }
     }
+
+    var explanation: String {
+        switch self {
+        case .verifiedContributor:
+            return "An iChart operator reviewed this contributor’s published chart work."
+        case .trustedArranger:
+            return "Recognized for consistently accurate, usable arrangements."
+        case .communityExpert:
+            return "Recognized for sharing subject expertise in forum discussions."
+        }
+    }
 }
 
 struct ForumSong: Identifiable, Codable, Equatable, Hashable {
