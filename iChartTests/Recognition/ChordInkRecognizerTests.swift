@@ -1017,6 +1017,37 @@ final class ChordInkRecognizerTests: XCTestCase {
         }
     }
 
+    func testOpenSplitTriangleRequiresJoinedBaseForPositiveRecognition() {
+        func stroke(_ points: [(Double, Double)], scale: Double) -> InkStroke {
+            InkStroke(points: points.map { InkPoint(x: $0.0 * scale, y: $0.1 * scale, timeOffset: nil) })
+        }
+
+        let left = [(6.45, 1.85), (5.25, 2.9), (4.25, 4.6), (3.2, 6.7), (1.9, 9.4), (0.2, 12.0)]
+        let right = [
+            (2.8, 0), (4.25, 1.6), (6.5, 3.5), (8.5, 5.2), (10.2, 7.2), (11.0, 8.9),
+            (9.5, 10.2), (7.4, 11.15), (4.8, 12.0), (2.5, 12.55), (0.0, 12.5), (0.0, 11.35)
+        ]
+        var unjoinedBase = right
+        unjoinedBase[unjoinedBase.count - 1].0 = 1.5
+        for scale in [0.9, 1.0] {
+            let leftLeg = stroke(left, scale: scale)
+            let legAndBase = stroke(right, scale: scale)
+            XCTAssertEqual(InkSplitMajorTriangleGeometry.match(leftLeg, legAndBase), .offsetJoin)
+            XCTAssertEqual(InkSplitMajorTriangleGeometry.match(
+                stroke(right.reversed(), scale: scale), stroke(left.reversed(), scale: scale)
+            ), .offsetJoin)
+
+            let detached = stroke(unjoinedBase, scale: scale)
+            XCTAssertNil(InkSplitMajorTriangleGeometry.match(leftLeg, detached))
+            XCTAssertTrue(InkSplitMajorTriangleGeometry.isAmbiguous(leftLeg, detached))
+        }
+
+        var widerTip = right
+        widerTip[0].0 = 1.95
+        XCTAssertNil(InkSplitMajorTriangleGeometry.match(stroke(left, scale: 1), stroke(widerTip, scale: 1)))
+        XCTAssertFalse(InkSplitMajorTriangleGeometry.isAmbiguous(stroke(left, scale: 1), stroke(widerTip, scale: 1)))
+    }
+
     func testRecognizesTinyUpperDegreeLookalikeBeforeSevenAsDiminishedSeventh() throws {
         let degreeLookalike = InkStroke(points: [
             InkPoint(x: 78, y: 5, timeOffset: nil),

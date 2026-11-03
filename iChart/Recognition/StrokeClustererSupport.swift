@@ -50,11 +50,11 @@ enum InkSplitMajorTriangleGeometry {
             || matchesRoles(left: second, right: first, in: bounds, apexLimit: 0.58, baseLimit: 0.26) {
             return .matched(.standard)
         }
-        guard let firstTop = endpointsFromTop(first)?.top,
-              let secondTop = endpointsFromTop(second)?.top else {
+        guard let firstEnds = endpointsFromTop(first),
+              let secondEnds = endpointsFromTop(second) else {
             return nil
         }
-        let apexGap = hypot(firstTop.x - secondTop.x, firstTop.y - secondTop.y)
+        let apexGap = hypot(firstEnds.top.x - secondEnds.top.x, firstEnds.top.y - secondEnds.top.y)
         let usualApexGapLimit = max(3, bounds.width * 0.25)
         let smallerDimension = min(bounds.width, bounds.height)
         let compactApexGapLimit = min(3.25, smallerDimension * 0.38)
@@ -65,7 +65,10 @@ enum InkSplitMajorTriangleGeometry {
         let baseLimit = apexGap <= usualApexGapLimit ? 0.34 : 0.20
         if matchesRoles(left: first, right: second, in: bounds, apexLimit: 0.66, baseLimit: baseLimit)
             || matchesRoles(left: second, right: first, in: bounds, apexLimit: 0.66, baseLimit: baseLimit) {
-            return matchesApex ? .matched(.offsetJoin) : .ambiguous
+            // If the tip is open, the legs must still meet at the other end of the base.
+            let baseGap = hypot(firstEnds.bottom.x - secondEnds.bottom.x, firstEnds.bottom.y - secondEnds.bottom.y)
+            let joinsAtBase = baseGap <= min(1.25, smallerDimension * 0.09)
+            return matchesApex || joinsAtBase ? .matched(.offsetJoin) : .ambiguous
         }
         return nil
     }

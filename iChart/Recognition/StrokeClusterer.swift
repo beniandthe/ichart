@@ -842,7 +842,16 @@ struct StrokeClusterer {
         }
 
         var index = 1
-        while index + 2 < workingClusters.count {
+        while index + 1 < workingClusters.count {
+            if let (lastIndex, suffix) = recoverDetachedTriangleMajorSeventhSuffix(
+                in: workingClusters, startingAt: index
+            ) {
+                workingClusters.replaceSubrange(index...lastIndex, with: suffix)
+                index += suffix.count
+                continue
+            }
+
+            guard index + 2 < workingClusters.count else { break }
             let seven = workingClusters[index - 1]
             let alteration = workingClusters[index]
 
@@ -979,6 +988,36 @@ struct StrokeClusterer {
         }
 
         return singleStrokeClusters
+    }
+
+    private func recoverDetachedTriangleMajorSeventhSuffix(
+        in clusters: [MutableInkCluster], startingAt index: Int
+    ) -> (lastIndex: Int, suffix: [MutableInkCluster])? {
+        let first = clusters[index]
+        let second = clusters[index + 1]
+        guard first.strokes.count + second.strokes.count <= 3,
+              first.bounds.horizontalOverlap(with: second.bounds) > 0,
+              timingAllowsMerge(first, second) else {
+            return nil
+        }
+
+        var combined = first.merged(with: second)
+        var lastIndex = index + 1
+        if combined.strokes.count == 2 {
+            guard clusters.indices.contains(index + 2) else { return nil }
+            let next = clusters[index + 2]
+            guard next.strokes.count == 1, timingAllowsMerge(combined, next) else { return nil }
+            combined = combined.merged(with: next)
+            lastIndex = index + 2
+        }
+
+        // An open triangle can look like an accidental and a loose numeral.
+        // Keep the nearby, independent seven out of the altered-five merge.
+        guard let suffix = splitTriangleMajorSeventhSuffix(in: combined),
+              suffix[0].bounds.horizontalGap(to: suffix[1].bounds) <= 8 else {
+            return nil
+        }
+        return (lastIndex, suffix)
     }
 
     private func splitTriangleMajorSeventhSuffix(

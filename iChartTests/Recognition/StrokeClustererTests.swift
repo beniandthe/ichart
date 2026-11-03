@@ -311,6 +311,44 @@ final class StrokeClustererTests: XCTestCase {
         XCTAssertTrue(clusters.areSortedLeftToRight)
     }
 
+    func testOpenTriangleAndSevenRemainSeparateForReview() throws {
+        let fixture = try InkFixtureLoader.load("BFlatHalfDiminished7Captured01", file: #filePath)
+        let root = Array(fixture.strokes.prefix(2))
+        func shiftedStroke(_ points: [(Double, Double)]) -> InkStroke {
+            testStroke(points.map { ($0.0 + 75, $0.1 + 116) })
+        }
+
+        let flat = shiftedStroke([
+            (61, 33), (61.5, 36), (61.5, 39), (61.5, 43), (61.8, 47),
+            (64.5, 44), (67.5, 43), (70, 45), (68.5, 48), (65, 50), (62.5, 51)
+        ])
+        let left = shiftedStroke([
+            (93.5, 42.8), (92.3, 44.2), (91.2, 46), (90.1, 47.9),
+            (89.1, 49.6), (88.2, 51.4), (87.5, 54)
+        ])
+        let right = shiftedStroke([
+            (89.6, 41), (91, 42.4), (92.8, 44.1), (95, 46.1), (97.3, 48.5),
+            (97.9, 50), (97, 51), (95.5, 52), (93.8, 53), (91.4, 53.5),
+            (89.5, 53.7), (87.8, 53.6), (86.9, 52.6)
+        ])
+        let seven = shiftedStroke([
+            (100.6, 38.2), (103.3, 38.2), (107, 38.2), (110.5, 38.4),
+            (108.6, 40.8), (106.8, 43.3), (105.1, 46), (103.1, 49.4)
+        ])
+        let strokes = root + [flat, left, right, seven]
+
+        XCTAssertTrue(InkSplitMajorTriangleGeometry.isAmbiguous(left, right))
+        XCTAssertEqual(clusterer.indexedClusters(strokes).map { $0.originalIndexes.sorted() }, [[0, 1], [2], [3, 4], [5]])
+        assertOriginalInkPartition(strokes, context: "open triangle followed by a standalone seven")
+        let result = ChordInkMaximumTrustRecognizer().recognize(strokes: strokes)
+        XCTAssertTrue(result.requiresTriangleQualityReview)
+        XCTAssertNil(result.match)
+        XCTAssertEqual(
+            clusterer.indexedClusters(fixture.strokes).map { $0.originalIndexes.sorted() },
+            [[0, 1], [2], [3, 4], [5]]
+        )
+    }
+
     func testRootStemAndBodyCanMergeWhenTheyTouchAtTheEdge() throws {
         let fixture = try InkFixtureLoader.load("BSharpMinor11Captured01", file: #filePath)
         let clusters = clusterer.cluster(fixture.strokes)

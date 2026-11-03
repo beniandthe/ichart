@@ -811,6 +811,9 @@ final class ChordEntryPassReplayTests: XCTestCase {
         XCTAssertTrue(outcome.drawing.strokes.isEmpty)
         let reopened = try ChartPersistenceCoders.decoder.decode(Chart.self,
             from: ChartPersistenceCoders.encoder.encode(outcome.chart))
+        XCTAssertEqual(reopened.id, chart.id)
+        XCTAssertNil(reopened.pageHandwrittenChordData)
+        XCTAssertNil(reopened.pageHandwrittenChordCoordinateSpace)
         let newIDs = Set(outcome.result.renderedChordIDs)
         let events = reopened.measures.flatMap(\.chordEvents).filter { newIDs.contains($0.id) }
         XCTAssertEqual(events.map { $0.symbol.displayText }, expectedSequence)
@@ -823,11 +826,16 @@ final class ChordEntryPassReplayTests: XCTestCase {
             XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: drawing, current: archived))
         }
         XCTAssertEqual(reopened.measures.map(\.id), chart.measures.map(\.id))
+        XCTAssertEqual(reopened.roadmapObjects, chart.roadmapObjects)
         XCTAssertEqual(reopened.pageHandwrittenNotationData, chart.pageHandwrittenNotationData)
         XCTAssertEqual(reopened.pageHandwrittenNotationCoordinateSpace, chart.pageHandwrittenNotationCoordinateSpace)
         for measure in chart.measures {
-            XCTAssertEqual(reopened.measure(id: measure.id)?.chordEvents.filter { !newIDs.contains($0.id) },
-                           measure.chordEvents)
+            let reopenedMeasure = try XCTUnwrap(reopened.measure(id: measure.id))
+            XCTAssertEqual(reopenedMeasure.chordEvents.filter { !newIDs.contains($0.id) }, measure.chordEvents)
+            XCTAssertEqual(reopenedMeasure.roadmapObjectIDs, measure.roadmapObjectIDs)
+            XCTAssertEqual(reopenedMeasure.handwrittenRhythmicNotationData, measure.handwrittenRhythmicNotationData)
+            XCTAssertEqual(reopenedMeasure.handwrittenRhythmicNotationCoordinateSpace,
+                           measure.handwrittenRhythmicNotationCoordinateSpace)
         }
     }
 
@@ -1039,10 +1047,9 @@ final class ChordEntryPassReplayTests: XCTestCase {
     }
 
     private func selectedChart(in snapshot: ChartLibrarySnapshot) -> Chart? {
-        if let chartIDText = ProcessInfo.processInfo.environment["ICHART_REPLAY_CHART_ID"],
-           let chartID = UUID(uuidString: chartIDText),
-           let chart = snapshot.charts.first(where: { $0.id == chartID }) {
-            return chart
+        if let chartIDText = ProcessInfo.processInfo.environment["ICHART_REPLAY_CHART_ID"] {
+            guard let chartID = UUID(uuidString: chartIDText) else { return nil }
+            return snapshot.charts.first { $0.id == chartID }
         }
 
         let title = ProcessInfo.processInfo.environment["ICHART_REPLAY_CHART_TITLE"]
