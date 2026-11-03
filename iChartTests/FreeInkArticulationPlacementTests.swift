@@ -123,6 +123,7 @@ final class FreeInkArticulationPlacementTests: XCTestCase {
         ))
         XCTAssertEqual(chordHit.measureID, measureID)
         XCTAssertEqual(chordHit.attachment, .chord(id: chord.id))
+        XCTAssertEqual(chordHit.guidePoint, CGPoint(x: chord.frame.midX, y: chord.frame.minY))
 
         let note = try XCTUnwrap(measure.noteLayouts.dropFirst().first)
         let noteHit = try XCTUnwrap(FreeInkArticulationPlacement.attachment(
@@ -130,6 +131,7 @@ final class FreeInkArticulationPlacementTests: XCTestCase {
         ))
         XCTAssertEqual(noteHit.measureID, measureID)
         XCTAssertEqual(noteHit.attachment, .note(beat: 2, subdivision: 0))
+        XCTAssertEqual(noteHit.guidePoint, CGPoint(x: note.noteheadFrame.midX, y: note.noteheadFrame.minY))
         let mark = FreeInkArticulation(kind: .accent, measureID: measureID, sourceInkData: Data(),
             attachment: noteHit.attachment)
         let secondMark = FreeInkArticulation(kind: .fermata, measureID: measureID, sourceInkData: Data(),
@@ -156,6 +158,46 @@ final class FreeInkArticulationPlacementTests: XCTestCase {
             destination)
     }
 
+    func testGuideRetainsItsChordUntilLeavingTheChordHitRange() throws {
+        var chart = makeChart()
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        XCTAssertTrue(chart.appendRecognizedChord(
+            ChordSymbol(root: .c, accidental: .natural, quality: "", extensions: [], alterations: [], slashBass: nil),
+            rawInput: "C", to: measureID, atFraction: 0.25
+        ))
+        var layout = LeadSheetPageLayoutEngine.pageLayout(for: chart,
+            pageSize: CGSize(width: 850, height: 1_100))
+        let system = try XCTUnwrap(layout.systems.first)
+        let measure = try XCTUnwrap(system.measures.first)
+        let first = try XCTUnwrap(measure.chordLayouts.first)
+        let space = system.staffLineYPositions[1] - system.staffLineYPositions[0]
+        var second = first
+        second.id = UUID()
+        second.frame = first.frame.offsetBy(dx: first.frame.width + 0.2 * space, dy: 0)
+        layout.systems[0].measures[0].chordLayouts.append(second)
+
+        let acquired = try XCTUnwrap(FreeInkArticulationPlacement.attachment(
+            near: CGPoint(x: first.frame.midX, y: first.frame.midY), chart: chart, pageLayout: layout
+        ))
+        XCTAssertEqual(acquired.attachment, .chord(id: first.id))
+        let overlap = CGPoint(x: first.frame.maxX + 0.65 * space, y: first.frame.midY)
+        XCTAssertEqual(FreeInkArticulationPlacement.attachment(
+            near: overlap, chart: chart, pageLayout: layout
+        )?.attachment, .chord(id: second.id))
+        XCTAssertEqual(FreeInkArticulationPlacement.attachment(
+            near: overlap, chart: chart, pageLayout: layout, retaining: acquired
+        ), acquired)
+
+        let beyondFirst = CGPoint(x: first.frame.maxX + 1.1 * space, y: first.frame.midY)
+        XCTAssertEqual(FreeInkArticulationPlacement.attachment(
+            near: beyondFirst, chart: chart, pageLayout: layout, retaining: acquired
+        )?.attachment, .chord(id: second.id))
+        let beyondBoth = CGPoint(x: second.frame.maxX + 2 * space, y: first.frame.minY - 2 * space)
+        XCTAssertNil(FreeInkArticulationPlacement.attachment(
+            near: beyondBoth, chart: chart, pageLayout: layout, retaining: acquired
+        ))
+    }
+
     func testInkNearAStaffCanAttachWithoutRenderedNotes() throws {
         let chart = makeChart()
         let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart,
@@ -172,6 +214,20 @@ final class FreeInkArticulationPlacementTests: XCTestCase {
         guard case .staff(let x, let y) = hit.attachment else { return XCTFail("Expected a staff attachment") }
         XCTAssertEqual(x, 0.5, accuracy: 0.01)
         XCTAssertLessThan(y, 0)
+        XCTAssertEqual(hit.guidePoint, CGPoint(x: stroke.midX, y: stroke.minY))
+        let secondStroke = stroke.offsetBy(dx: 9, dy: 0)
+        let secondPoint = CGPoint(x: secondStroke.midX, y: point.y)
+        XCTAssertEqual(FreeInkArticulationPlacement.attachment(
+            near: secondPoint, chart: chart, pageLayout: layout, staffInkBounds: [stroke, secondStroke]
+        )?.guidePoint, CGPoint(x: secondStroke.midX, y: secondStroke.minY))
+        XCTAssertEqual(FreeInkArticulationPlacement.attachment(
+            near: secondPoint, chart: chart, pageLayout: layout,
+            staffInkBounds: [stroke, secondStroke], retaining: hit
+        ), hit)
+        XCTAssertNil(FreeInkArticulationPlacement.attachment(
+            near: CGPoint(x: staff.midX, y: staff.minY - 30), chart: chart, pageLayout: layout,
+            staffInkBounds: [stroke, secondStroke], retaining: hit
+        ))
     }
 
     func testLastConversionRetainsSavedPaperWidthAndRemainingInkTakesPrecedence() throws {

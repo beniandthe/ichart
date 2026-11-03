@@ -2006,9 +2006,18 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         let chartID: UUID
         let mark: FreeInkArticulation
         let target: FreeInkArticulationPlacement.Target
+        let startPoint: CGPoint
+        let pageInkBounds: [CGRect]
+        var measureInkBounds: [UUID: [CGRect]] = [:]
         var translation = CGPoint.zero
+        var attachment: FreeInkArticulationPlacement.AttachmentMatch?
+
+        var center: CGPoint {
+            CGPoint(x: target.center.x + translation.x, y: target.center.y + translation.y)
+        }
     }
     private var freeInkArticulationDrag: FreeInkArticulationDrag?
+    private var renderedObjectMoveTouchStart: CGPoint?
 
     private struct FreeInkArticulationInput {
         let chartID: UUID
@@ -2454,6 +2463,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 excludingMarkID: freeInkArticulationDrag?.mark.id)
         }
         if let drag = freeInkArticulationDrag {
+            if let attachment = drag.attachment {
+                drawFreeInkArticulationGuide(from: drag.center, to: attachment.guidePoint)
+            }
             context.saveGState()
             context.translateBy(x: drag.translation.x, y: drag.translation.y)
             renderer.drawFreeInkArticulation(drag.mark.kind, at: drag.target)
@@ -2494,6 +2506,24 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 drawMeasureResizeHandles(for: selectedMeasure, using: renderer)
             }
         }
+    }
+
+    private func drawFreeInkArticulationGuide(from center: CGPoint, to anchor: CGPoint) {
+        let scale = max(canvasScreenPointsPerDisplayedPoint(), 0.1)
+        let path = UIBezierPath()
+        path.move(to: center)
+        path.addLine(to: anchor)
+        path.lineWidth = 1.5 / scale
+        path.lineCapStyle = .round
+        path.setLineDash([4 / scale, 3 / scale], count: 2, phase: 0)
+        UIColor.systemBlue.setStroke()
+        path.stroke()
+
+        let radius = 3 / scale
+        let target = UIBezierPath(ovalIn: CGRect(x: anchor.x - radius, y: anchor.y - radius,
+            width: 2 * radius, height: 2 * radius))
+        target.lineWidth = path.lineWidth
+        target.stroke()
     }
 
     private func commonInit() {
@@ -2552,6 +2582,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         renderedEditTapRecognizer.require(toFail: chordCorrectionDoubleTapRecognizer)
         renderedEditHitOverlayView.addGestureRecognizer(chordCorrectionDoubleTapRecognizer)
         renderedEditHitOverlayView.addGestureRecognizer(renderedEditTapRecognizer)
+        renderedObjectMovePanRecognizer.maximumNumberOfTouches = 1
         renderedObjectMovePanRecognizer.delegate = self
         addGestureRecognizer(renderedObjectMovePanRecognizer)
         addSubview(renderedEditHitOverlayView)
@@ -5786,9 +5817,24 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     @objc
     private func handleRenderedObjectMovePan(_ recognizer: UIPanGestureRecognizer) {
-        if freeInkArticulationDrag != nil
-            || (recognizer.state == .began && freeInkArticulationHit(at: panStartLocation(for: recognizer)) != nil) {
-            handleFreeInkArticulationDrag(recognizer)
+        if recognizer.state == .began {
+            let startPoint = renderedObjectMoveTouchStart ?? panStartLocation(for: recognizer)
+            renderedObjectMoveTouchStart = nil
+            if beginFreeInkArticulationDrag(at: startPoint) {
+                updateFreeInkArticulationDrag(to: recognizer.location(in: self))
+                return
+            }
+        } else if freeInkArticulationDrag != nil {
+            switch recognizer.state {
+            case .changed:
+                updateFreeInkArticulationDrag(to: recognizer.location(in: self))
+            case .ended:
+                endFreeInkArticulationDrag(at: recognizer.location(in: self))
+            case .cancelled, .failed:
+                cancelFreeInkArticulationDrag()
+            default:
+                break
+            }
             return
         }
         let location = recognizer.location(in: self)
@@ -5941,35 +5987,40 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         return nearest
     }
 
-    private func handleFreeInkArticulationDrag(_ recognizer: UIPanGestureRecognizer) {
-        switch recognizer.state {
-        case .began:
-            guard let hit = freeInkArticulationHit(at: panStartLocation(for: recognizer)) else { return }
-            freeInkArticulationDrag = FreeInkArticulationDrag(chartID: chart.id,
-                mark: hit.mark, target: hit.target, translation: recognizer.translation(in: self))
-            selectFreeInkArticulation(hit.mark.id)
-            refreshFreeInkArticulationDeleteButton()
-            lockParentScrollForChordMove()
-            setNeedsDisplay()
-        case .changed:
-            freeInkArticulationDrag?.translation = recognizer.translation(in: self)
-            setNeedsDisplay()
-        case .ended:
-            guard let drag = freeInkArticulationDrag else { return }
-            let translation = recognizer.translation(in: self)
-            let destination = CGPoint(x: drag.target.center.x + translation.x,
-                y: drag.target.center.y + translation.y)
-            cancelFreeInkArticulationDrag()
-            guard drag.chartID == chart.id, chart.freeInkArticulations.contains(drag.mark) else { return }
-            _ = moveFreeInkArticulation(id: drag.mark.id, to: destination)
-        case .cancelled, .failed:
-            cancelFreeInkArticulationDrag()
-        default:
-            break
-        }
+    func beginFreeInkArticulationDrag(at point: CGPoint) -> Bool {
+        guard let hit = freeInkArticulationHit(at: point) else { return false }
+        let pageInkBounds = savedPageInkCanvasView.isHidden ? [] :
+            savedPageInkCanvasView.drawing.strokes.map { convert($0.renderBounds, from: savedPageInkCanvasView) }
+        freeInkArticulationDrag = FreeInkArticulationDrag(chartID: chart.id,
+            mark: hit.mark, target: hit.target, startPoint: point, pageInkBounds: pageInkBounds)
+        selectFreeInkArticulation(hit.mark.id)
+        refreshFreeInkArticulationDeleteButton()
+        lockParentScrollForChordMove()
+        return true
     }
 
-    private func cancelFreeInkArticulationDrag() {
+    @discardableResult
+    func updateFreeInkArticulationDrag(to point: CGPoint) -> FreeInkArticulationPlacement.AttachmentMatch? {
+        guard var drag = freeInkArticulationDrag, let pageLayout else { return nil }
+        drag.translation = CGPoint(x: point.x - drag.startPoint.x, y: point.y - drag.startPoint.y)
+        let nearbyInk = measureInkBounds(near: drag.center, in: pageLayout, cache: &drag.measureInkBounds)
+        drag.attachment = FreeInkArticulationPlacement.attachment(near: drag.center, chart: chart,
+            pageLayout: pageLayout, staffInkBounds: drag.pageInkBounds + nearbyInk, retaining: drag.attachment)
+        freeInkArticulationDrag = drag
+        setNeedsDisplay()
+        return drag.attachment
+    }
+
+    @discardableResult
+    func endFreeInkArticulationDrag(at point: CGPoint) -> Bool {
+        updateFreeInkArticulationDrag(to: point)
+        guard let drag = freeInkArticulationDrag else { return false }
+        cancelFreeInkArticulationDrag()
+        guard drag.chartID == chart.id, chart.freeInkArticulations.contains(drag.mark) else { return false }
+        return commitFreeInkArticulationMove(id: drag.mark.id, to: drag.center, attachment: drag.attachment)
+    }
+
+    func cancelFreeInkArticulationDrag() {
         guard freeInkArticulationDrag != nil else { return }
         freeInkArticulationDrag = nil
         unlockParentScrollForChordMove()
@@ -6076,15 +6127,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         return true
     }
 
-    @discardableResult
-    func moveFreeInkArticulation(id: UUID, to point: CGPoint) -> Bool {
+    private func commitFreeInkArticulationMove(id: UUID, to point: CGPoint,
+        attachment: FreeInkArticulationPlacement.AttachmentMatch?) -> Bool {
         guard interactionMode == .browse, !isInteractionSuspended, let pageLayout,
               let pagePoint = FreeInkArticulationPlacement.pagePoint(at: point, pageLayout: pageLayout),
               let index = chart.freeInkArticulations.firstIndex(where: { $0.id == id }) else { return false }
-        let pageInkBounds = savedPageInkCanvasView.isHidden ? [] :
-            savedPageInkCanvasView.drawing.strokes.map { convert($0.renderBounds, from: savedPageInkCanvasView) }
-        let attachment = FreeInkArticulationPlacement.attachment(near: point, chart: chart,
-            pageLayout: pageLayout, staffInkBounds: pageInkBounds + measureInkBounds(near: point, in: pageLayout))
         var updated = chart
         updated.freeInkArticulations[index].measureID = attachment?.measureID
         updated.freeInkArticulations[index].beatIndex = nil
@@ -8784,8 +8831,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         let center = convert(CGPoint(x: bounds.midX, y: bounds.midY), from: pageInkCanvasView)
         guard let pagePoint = FreeInkArticulationPlacement.pagePoint(at: center, pageLayout: pageLayout) else { return }
         let pageInkBounds = candidate.remaining.strokes.map { convert($0.renderBounds, from: pageInkCanvasView) }
+        var measureInkCache: [UUID: [CGRect]] = [:]
         let attachment = FreeInkArticulationPlacement.attachment(near: center, chart: chart,
-            pageLayout: pageLayout, staffInkBounds: pageInkBounds + measureInkBounds(near: center, in: pageLayout))
+            pageLayout: pageLayout, staffInkBounds: pageInkBounds
+                + measureInkBounds(near: center, in: pageLayout, cache: &measureInkCache))
         var sourceSpace = input.coordinateSpace
         sourceSpace.measureAnchors = attachment.flatMap { attached in
             input.coordinateSpace.measureAnchors?.first { $0.measureID == attached.measureID }.map { [$0] }
@@ -8802,10 +8851,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             coordinateSpace: input.coordinateSpace)
     }
 
-    private func measureInkBounds(near point: CGPoint, in pageLayout: LeadSheetPageLayout) -> [CGRect] {
+    private func measureInkBounds(near point: CGPoint, in pageLayout: LeadSheetPageLayout,
+        cache: inout [UUID: [CGRect]]) -> [CGRect] {
         var bounds: [CGRect] = []
         for system in pageLayout.systems where system.frame.insetBy(dx: -24, dy: -24).contains(point) {
             for layout in system.measures where layout.frame.insetBy(dx: -24, dy: -24).contains(point) {
+                if let cached = cache[layout.id] {
+                    bounds.append(contentsOf: cached)
+                    continue
+                }
                 guard let id = layout.sourceMeasureID, let measure = chart.measure(id: id),
                       let data = measure.handwrittenRhythmicNotationData else { continue }
                 let frame = LeadSheetRhythmicNotationInkCapturePolicy.captureFrame(for: layout)
@@ -8813,9 +8867,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                     from: data, sourceCoordinateSpace: measure.handwrittenRhythmicNotationCoordinateSpace,
                     targetCoordinateSpace: LeadSheetPersistentInkCoordinateSpacePolicy.coordinateSpace(for: frame)
                 ) else { continue }
-                bounds.append(contentsOf: drawing.strokes.map {
+                let strokeBounds = drawing.strokes.map {
                     $0.renderBounds.offsetBy(dx: frame.minX, dy: frame.minY)
-                })
+                }
+                cache[layout.id] = strokeBounds
+                bounds.append(contentsOf: strokeBounds)
             }
         }
         return bounds
@@ -9871,13 +9927,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         if gestureRecognizer === renderedObjectMovePanRecognizer {
-            let location = gestureRecognizer.location(in: self)
-            let translation = renderedObjectMovePanRecognizer.translation(in: self)
-            let startLocation = CGPoint(
-                x: location.x - translation.x,
-                y: location.y - translation.y
-            )
-            return objectMovePanStartHitTarget(at: startLocation)
+            if let start = renderedObjectMoveTouchStart, freeInkArticulationHit(at: start) != nil {
+                return true
+            }
+            return objectMovePanStartHitTarget(at: panStartLocation(for: renderedObjectMovePanRecognizer))
         }
 
         return super.gestureRecognizerShouldBegin(gestureRecognizer)
@@ -9915,10 +9968,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 && chordReviewHitTarget(at: touch.location(in: self)) != nil
         }
         if gestureRecognizer === renderedObjectMovePanRecognizer {
+            let location = touch.location(in: self)
+            if gestureRecognizer.numberOfTouches == 0 {
+                renderedObjectMoveTouchStart = location
+            }
             return LeadSheetObjectMoveTouchPolicy.allowsMovePan(
                 touchType: touch.type,
                 interactionMode: interactionMode,
-                startsOnMoveTarget: objectMovePanStartHitTarget(at: touch.location(in: self))
+                startsOnMoveTarget: objectMovePanStartHitTarget(at: location)
             )
         }
 

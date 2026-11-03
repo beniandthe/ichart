@@ -145,7 +145,7 @@ enum EditorCanvasMode: Hashable {
         switch self {
         case .browse:
             if layoutStyle == .rhythmSectionSheet && hasFreeInkArticulations {
-                return "Tap a measure, chord, or cue for actions. Double-tap a chord to correct it. Tap a fermata or accent, then drag to move it or tap the red X to delete it."
+                return "Tap an item for actions. Double-tap a chord to correct it. Tap a fermata or accent, then drag to move it. Release to attach when the line is visible. Tap its red X to delete."
             }
             return "Tap a measure, chord, or cue to see its actions. Double-tap a chord to correct it."
         case .measureEdit:

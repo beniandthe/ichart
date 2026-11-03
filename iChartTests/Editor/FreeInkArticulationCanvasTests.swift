@@ -135,10 +135,21 @@ final class FreeInkArticulationCanvasTests: XCTestCase {
         XCTAssertFalse(deleteButton.frame.contains(floatingTarget.center))
         XCTAssertTrue(view.hitTest(CGPoint(x: deleteButton.frame.midX, y: deleteButton.frame.midY),
             with: nil) === deleteButton)
-        XCTAssertTrue(view.moveFreeInkArticulation(id: articulation.id,
-            to: CGPoint(x: first.staffFrame.midX, y: first.staffFrame.midY)))
+        XCTAssertTrue(view.beginFreeInkArticulationDrag(at: floatingTarget.center))
+        XCTAssertTrue(deleteButton.isHidden)
+        let staffPoint = CGPoint(x: first.staffFrame.midX, y: first.staffFrame.midY)
+        let guide = try XCTUnwrap(view.updateFreeInkArticulationDrag(to: staffPoint))
+        XCTAssertEqual(guide.measureID, first.sourceMeasureID)
+        XCTAssertTrue(first.staffFrame.contains(guide.guidePoint))
+        XCTAssertEqual(view.chart.freeInkArticulations, [articulation])
+        XCTAssertNil(view.updateFreeInkArticulationDrag(to: floatingTarget.center))
+        XCTAssertEqual(view.chart.freeInkArticulations, [articulation])
+        XCTAssertEqual(view.updateFreeInkArticulationDrag(to: staffPoint), guide)
+        XCTAssertTrue(view.endFreeInkArticulationDrag(at: staffPoint))
         let moved = try XCTUnwrap(view.chart.freeInkArticulations.first)
         XCTAssertEqual(moved.measureID, first.sourceMeasureID)
+        XCTAssertEqual(moved.attachment, guide.attachment)
+        XCTAssertNil(view.updateFreeInkArticulationDrag(to: staffPoint))
         guard case .staff = moved.attachment else { return XCTFail("Expected staff attachment") }
         XCTAssertEqual(moved.sourcePagePoint, articulation.sourcePagePoint)
         XCTAssertEqual(moved.sourceInkData, articulation.sourceInkData)
@@ -146,6 +157,11 @@ final class FreeInkArticulationCanvasTests: XCTestCase {
         XCTAssertEqual(view.selectedFreeInkArticulationID, moved.id)
         let movedTarget = try XCTUnwrap(FreeInkArticulationPlacement.target(for: moved,
             chart: view.chart, pageLayout: layout))
+        XCTAssertTrue(view.beginFreeInkArticulationDrag(at: movedTarget.center))
+        XCTAssertNotNil(view.updateFreeInkArticulationDrag(to: movedTarget.center))
+        view.cancelFreeInkArticulationDrag()
+        XCTAssertNil(view.updateFreeInkArticulationDrag(to: movedTarget.center))
+        XCTAssertEqual(view.chart.freeInkArticulations, [moved])
         XCTAssertFalse(deleteButton.frame.contains(movedTarget.center))
         XCTAssertFalse(view.handleFreeInkArticulationTap(at: .zero))
         XCTAssertTrue(deleteButton.isHidden)
@@ -172,6 +188,14 @@ final class FreeInkArticulationCanvasTests: XCTestCase {
         XCTAssertFalse(view.undoFreeInkArticulationDeletion())
 
         view.onChartChanged = { published.append($0) }
+        XCTAssertTrue(view.beginFreeInkArticulationDrag(at: movedTarget.center))
+        XCTAssertNotNil(view.updateFreeInkArticulationDrag(to: movedTarget.center))
+        XCTAssertTrue(view.endFreeInkArticulationDrag(at: floatingTarget.center))
+        let floated = try XCTUnwrap(view.chart.freeInkArticulations.first)
+        XCTAssertNil(floated.measureID)
+        XCTAssertNil(floated.attachment)
+        XCTAssertEqual(floated.pagePoint, articulation.pagePoint)
+        XCTAssertEqual(floated.sourceInkData, articulation.sourceInkData)
         view.interactionMode = .freeHand
         view.layoutIfNeeded()
         XCTAssertTrue(view.restoreFreeInkArticulation(articulationID: articulation.id))

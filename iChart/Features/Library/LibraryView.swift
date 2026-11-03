@@ -343,7 +343,8 @@ private struct IChartHelpArticleSection: Identifiable {
                 "You can switch directly between Write & Render, Free Ink, Measures, and Tools without returning to Select first.",
                 "Tap a chord, barline, text label, marker, or measure to show its buttons.",
                 "On a Rhythm Section Sheet, tap a converted fermata or accent to select it. Drag to move it or tap the red X to delete it.",
-                "Drop the mark near a chord, rhythm note, or staff ink to attach it, or in open space to leave it floating.",
+                "While you drag, a line points to the nearby chord, rhythm note, or staff ink the mark can attach to. Release to attach when the line is visible.",
+                "Drag out of range and the line disappears. Release in open space to leave the mark floating.",
                 "Tap Undo Delete to bring back the last deleted fermata or accent.",
                 "Use the buttons to correct, move, resize, delete, or clean up what you selected."
             ]
