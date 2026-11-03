@@ -8029,6 +8029,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             options: chordInkRecognitionOptions,
             layoutStyle: chart.layoutStyle,
             editOwnership: chordInkEditedTargetState.snapshot(in: editScope),
+            allowsPausedSuffixContinuation: manualRenderWithPreview,
             capturesEvaluationSource: chordInkEvaluationSourceContext?.requestID == requestID
         )
         chordInkPreparationSession.start(request: preparationRequest) { [weak self] result in

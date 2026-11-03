@@ -135,6 +135,7 @@ struct ChordInkRecognitionPreparationRequest {
     var options: ChordInkRecognitionOptions
     var layoutStyle: ChartLayoutStyle
     var editOwnership: ChordInkEditedTargetOwnership = .init()
+    var allowsPausedSuffixContinuation: Bool = false
     /// Local evaluation only. Production preparation does not retain a source copy.
     var capturesEvaluationSource: Bool = false
 }
@@ -414,6 +415,14 @@ enum ChordInkRecognitionPreparation {
                 recognitionStrokeIndices: Array(recognitionStrokes.indices), strokes: recognitionStrokes,
                 drawingData: recognitionDrawingData, drawing: recognitionDrawing)]
         }
+        let proposedTargetCount = proposedTargets.count
+        if request.flow == .draftPreview, request.allowsPausedSuffixContinuation,
+           structuralFragmentIndices.isEmpty {
+            proposedTargets = LeadSheetChordInkRecognitionTargeting.mergingPausedSeventhSuffixes(
+                in: proposedTargets, recognitionDrawing: recognitionDrawing,
+                chordFrame: request.chordFrame, pageLayout: request.pageLayout
+            )
+        }
         let edited = request.flow == .draftPreview && !proposedTargets.isEmpty
             ? ChordInkEditedTargetPreparation.resolve(
                 proposedTargets, ownership: request.editOwnership,
@@ -425,10 +434,18 @@ enum ChordInkRecognitionPreparation {
         let batchTargets = usesBatchTargeting ? (edited?.targets ?? batchTargetingResult.targets) : batchTargetingResult.targets
         var targetingDiagnostics = batchTargetingResult.diagnostics
         var boundaryHypothesisSet = batchTargetingResult.boundaryHypothesisSet
+        let reconciledRoute: LeadSheetChordInkBoundaryHypothesisRoute?
         if usesBatchTargeting && batchTargets.map(\.recognitionStrokeIndices) != proposedTargets.map(\.recognitionStrokeIndices) {
-            targetingDiagnostics.selectedRoute = "edit_continuity"
+            reconciledRoute = .editContinuity
+        } else if proposedTargets.count < proposedTargetCount {
+            reconciledRoute = .pausedSuffixContinuation
+        } else {
+            reconciledRoute = nil
+        }
+        if let reconciledRoute {
+            targetingDiagnostics.selectedRoute = reconciledRoute.rawValue
             targetingDiagnostics.selectedClusterCount = batchTargets.count
-            if let partition = LeadSheetChordInkBoundaryHypothesis(route: .editContinuity,
+            if let partition = LeadSheetChordInkBoundaryHypothesis(route: reconciledRoute,
                 recognitionStrokeCount: recognitionStrokeCount,
                 targetRecognitionStrokeIndices: batchTargets.map(\.recognitionStrokeIndices)) {
                 boundaryHypothesisSet = LeadSheetChordInkBoundaryHypothesisSet(

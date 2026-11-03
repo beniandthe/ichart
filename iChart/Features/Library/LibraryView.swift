@@ -375,6 +375,7 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Turn on Manual Render with Preview in app Settings when you want to review your writing before it becomes notation.",
             bullets: [
                 "Tap Render Chords when the previews are ready. If the button says Review & Render, follow the prompt to review the chords, repeats, or endings.",
+                "When adding △7 or −7 after a preview appears, write it close to its root and check the updated preview before rendering. Leave space between separate chords.",
                 "If a preview says Add chord, tap Review & Render and type the intended chord.",
                 "If new strokes make a chord unreadable, Add chord marks the combined writing. If you see Separate chords, go back to writing and rewrite those chords with more space between them.",
                 "In Confirm Chords, correct the text or choose a suggestion, then tap Render Chord or Render All. Each entry needs a supported chord before the final render is available.",

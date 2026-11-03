@@ -26,6 +26,7 @@ struct LeadSheetChordInkRecognitionBatchTargetingResult {
 
 enum LeadSheetChordInkBoundaryHypothesisRoute: String, Hashable {
     case editContinuity = "edit_continuity"
+    case pausedSuffixContinuation = "paused_suffix_continuation"
     case draftBarlineLane = "draft_barline_lane"
     case laneRootSequence = "lane_root_sequence"
     case measureLaneRootSequence = "measure_lane_root_sequence"
@@ -246,6 +247,53 @@ enum LeadSheetChordInkRecognitionTargeting {
             pageLayout: pageLayout,
             draftBarlines: draftBarlines
         ).targets
+    }
+
+    static func mergingPausedSeventhSuffixes(
+        in targets: [LeadSheetChordInkRecognitionBatchTarget],
+        recognitionDrawing: PKDrawing,
+        chordFrame: CGRect,
+        pageLayout: LeadSheetPageLayout?
+    ) -> [LeadSheetChordInkRecognitionBatchTarget] {
+        guard targets.count > 1 else { return targets }
+        let grouper = ChordInkSequentialGrouper()
+        let pencilStrokes = recognitionDrawing.strokes
+        var resolved = [LeadSheetChordInkRecognitionBatchTarget]()
+        for suffix in targets {
+            guard var root = resolved.last,
+                  root.measureID == suffix.measureID,
+                  let rootLane = root.laneLocation?.systemIndex,
+                  suffix.laneLocation?.systemIndex == rootLane,
+                  !root.requiresEditReview, !suffix.requiresEditReview,
+                  let firstIndex = root.recognitionStrokeIndices.first,
+                  let lastIndex = suffix.recognitionStrokeIndices.last,
+                  firstIndex <= lastIndex,
+                  pencilStrokes.indices.contains(firstIndex), pencilStrokes.indices.contains(lastIndex),
+                  root.recognitionStrokeIndices + suffix.recognitionStrokeIndices == Array(firstIndex...lastIndex),
+                  grouper.isPausedSeventhSuffix(suffix.strokes, of: root.strokes) else {
+                resolved.append(suffix)
+                continue
+            }
+
+            let drawing = PKDrawing(strokes: Array(pencilStrokes[firstIndex...lastIndex]))
+            guard let anchor = target(for: drawing, chordFrame: chordFrame, pageLayout: pageLayout),
+                  anchor.measureID == root.measureID,
+                  let lane = laneLocation(for: drawing, chordFrame: chordFrame, pageLayout: pageLayout),
+                  lane.systemIndex == rootLane else {
+                resolved.append(suffix)
+                continue
+            }
+
+            root.fraction = anchor.fraction
+            root.visualOrder = lane.visualOrder
+            root.laneLocation = lane
+            root.recognitionStrokeIndices.append(contentsOf: suffix.recognitionStrokeIndices)
+            root.strokes.append(contentsOf: suffix.strokes)
+            root.drawing = drawing
+            root.drawingData = drawing.dataRepresentation()
+            resolved[resolved.count - 1] = root
+        }
+        return resolved
     }
 
     static func batchTargetingResult(

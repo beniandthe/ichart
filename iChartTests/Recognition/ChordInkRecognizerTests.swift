@@ -60,6 +60,31 @@ final class ChordInkRecognizerTests: XCTestCase {
         }
     }
 
+    func testCompactACrossbarAndRaisedSevenRequireTheirOwnShapeEvidence() {
+        func stroke(_ points: [(Double, Double)]) -> InkStroke {
+            InkStroke(points: points.map { x, y in InkPoint(x: x, y: y, timeOffset: nil) })
+        }
+        func glyphs(_ strokes: [InkStroke]) -> [String] {
+            GestureTemplateRecognizer().rankedCandidates(
+                for: InkCluster(strokes: strokes), templates: []
+            ).map(\.text)
+        }
+
+        let frame = stroke([(0, 24), (1, 20), (2.5, 16), (4, 12), (6, 7), (8, 3),
+            (9, 0), (10, 3), (11, 7), (12, 12), (13, 17), (14, 24)])
+        let compactCrossbar = stroke([(3.6, 14), (5.2, 14), (7.2, 14.1), (9, 14.2)])
+        let aboveCrossbar = stroke([(3.6, 6), (5.2, 6), (7.2, 6.1), (9, 6.2)])
+        XCTAssertTrue(glyphs([frame, compactCrossbar]).contains("A"))
+        XCTAssertFalse(glyphs([frame, aboveCrossbar]).contains("A"))
+
+        let compactSeven = stroke([(0, 0.4), (2, 0.1), (4, 0), (6, 0), (7.8, 0.5),
+            (8, 1.8), (7.7, 3.2), (7.4, 4.6), (7.2, 5.8)])
+        let descendingCorner = stroke([(0, 0.4), (2, 0.1), (4, 0), (6, 0), (7.8, 0.5),
+            (8, 1.8), (8, 3.2), (8, 4.6), (8, 5.8)])
+        XCTAssertTrue(glyphs([compactSeven]).contains("7"))
+        XCTAssertFalse(glyphs([descendingCorner]).contains("7"))
+    }
+
     func testCandidateScoresKeepSupportedCandidatesBeyondRawTopEight() {
         let unsupportedNoise = [
             "E3",
@@ -1015,6 +1040,42 @@ final class ChordInkRecognizerTests: XCTestCase {
             XCTAssertEqual(read.match?.displayText, "Bb△7", "scale: \(scale)")
             XCTAssertEqual(decision.action, .confirm, "scale: \(scale)")
         }
+    }
+
+    func testShallowSplitMajorTriangleWithCloseApexRequiresConfirmation() throws {
+        let fixture = try InkFixtureLoader.load("BFlatMajor7SplitTriangleDevice02", file: #filePath)
+        func stroke(_ points: [(Double, Double)], scale: Double = 1) -> InkStroke {
+            InkStroke(points: points.map {
+                InkPoint(x: 87 + $0.0 * scale, y: 41 + $0.1 * scale, timeOffset: nil)
+            })
+        }
+
+        let left = [
+            (4.9, 0.5), (4.1, 1.35), (3.1, 2.35), (2.3, 3.6),
+            (1.7, 4.6), (0.7, 6.25), (0.2, 7.0)
+        ]
+        let right = [
+            (4.45, 0), (5.1, 0.95), (5.9, 2.15), (6.9, 3.3), (7.8, 4.6), (8.65, 5.8),
+            (9.45, 7.35), (8.3, 7.6), (6.7, 7.55), (4.75, 7.45), (3.0, 7.35), (1.5, 7.35)
+        ]
+
+        for scale in [0.90, 0.95, 1.0, 1.05] {
+            for triangle in [[left, right], [Array(right.reversed()), Array(left.reversed())]] {
+                let legs = triangle.map { stroke($0, scale: scale) }
+                XCTAssertEqual(InkSplitMajorTriangleGeometry.match(legs[0], legs[1]), .offsetJoin, "scale: \(scale)")
+                let strokes = Array(fixture.strokes.prefix(4)) + legs + Array(fixture.strokes.suffix(1))
+                let result = ChordInkMaximumTrustRecognizer().recognize(strokes: strokes)
+                XCTAssertEqual(result.match?.displayText, "Bb△7", "scale: \(scale)")
+                XCTAssertEqual(ChordInkRecognitionPolicy.decision(for: result).action, .confirm, "scale: \(scale)")
+            }
+        }
+
+        let incompleteBase = Array(right.dropLast(3))
+        XCTAssertNil(InkSplitMajorTriangleGeometry.match(stroke(left), stroke(incompleteBase)))
+        XCTAssertFalse(InkSplitMajorTriangleGeometry.isAmbiguous(stroke(left), stroke(incompleteBase)))
+
+        let flattened = { (point: (Double, Double)) in (point.0, point.1 * 0.85) }
+        XCTAssertNil(InkSplitMajorTriangleGeometry.match(stroke(left.map(flattened)), stroke(right.map(flattened))))
     }
 
     func testOpenSplitTriangleRequiresJoinedBaseForPositiveRecognition() {

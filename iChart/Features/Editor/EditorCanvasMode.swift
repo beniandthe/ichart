@@ -168,7 +168,7 @@ enum EditorCanvasMode: Hashable {
                 "Write chords, repeat signs, and ending brackets in the blue lanes."
             }
             let rendering = manualRenderWithPreview
-                ? "Check previews, then tap Render Chords or Review & Render. Type the chord for any Add chord preview."
+                ? "Keep suffixes close to their roots. Check previews, then tap Render Chords or Review & Render. Type the chord for any Add chord preview."
                 : "Leave space between chords and pause to render. Tap Review Chord for an unclear triangle."
             return writing + " " + rendering
         case .noteEdit:

@@ -76,14 +76,27 @@ enum InkSplitMajorTriangleGeometry {
     private static func classifyCompactTriangle(
         _ first: InkStroke, _ second: InkStroke, in bounds: InkBounds
     ) -> Geometry? {
-        // Reuse the usual role checks at a reference width for small glyphs.
+        guard (6.4...10).contains(bounds.width), bounds.height >= 6.4 else { return nil }
+        if bounds.width < 9,
+           let match = classifyNormalizedTriangle(first, second, in: bounds, scale: 9.25 / bounds.width) {
+            return match
+        }
+
+        // A shallow triangle can meet the same shape checks at a reference
+        // height. Bound the aspect so an unusually flat mark stays unresolved.
+        guard bounds.height < 8, (1.1...1.35).contains(bounds.width / bounds.height) else { return nil }
+        return classifyNormalizedTriangle(first, second, in: bounds, scale: 8.25 / bounds.height)
+    }
+
+    private static func classifyNormalizedTriangle(
+        _ first: InkStroke, _ second: InkStroke, in bounds: InkBounds, scale: Double
+    ) -> Geometry? {
+        // Reuse the usual role checks at a reference size for small glyphs.
         // The original ink stays in place and must still have a close apex.
-        guard (6.4..<9).contains(bounds.width), bounds.height >= 6.4,
-              let firstTop = endpointsFromTop(first)?.top,
+        guard let firstTop = endpointsFromTop(first)?.top,
               let secondTop = endpointsFromTop(second)?.top else {
             return nil
         }
-        let scale = 9.25 / bounds.width
         let apexGap = hypot(firstTop.x - secondTop.x, firstTop.y - secondTop.y)
         guard apexGap * scale <= 3 else { return nil }
 

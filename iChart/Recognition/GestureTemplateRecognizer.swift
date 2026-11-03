@@ -863,14 +863,31 @@ struct GestureTemplateRecognizer {
             && stroke.hasEarlyTopHorizontalRun
         let compactSeven = stroke.pointCount >= 5
             && stroke.bounds.width >= 5
-            && stroke.bounds.height >= 6.5
             && stroke.bounds.height <= 18
             && stroke.aspectRatio >= 0.55
             && stroke.aspectRatio <= 1.65
             && stroke.endPoint.y >= stroke.startPoint.y + stroke.bounds.height * 0.45
             && stroke.hasEarlyTopHorizontalRun
+            && (stroke.bounds.height >= 6.5 || hasSmallSevenShape(stroke))
 
         return standardSeven || compactSeven
+    }
+
+    private func hasSmallSevenShape(_ stroke: RootStrokeFeatures) -> Bool {
+        let endX = stroke.normalizedXRatio(of: stroke.endPoint)
+        // A small raised 7 still travels left to right across the top and
+        // bends back from that corner into its descending tail.
+        return stroke.pointCount >= 7
+            && stroke.bounds.height >= 5.5
+            && stroke.aspectRatio >= 0.9
+            && stroke.normalizedXRatio(of: stroke.startPoint) <= 0.28
+            && stroke.normalizedYRatio(of: stroke.startPoint) <= 0.24
+            && endX >= 0.60
+            && stroke.normalizedYRatio(of: stroke.endPoint) >= 0.88
+            && stroke.points.contains { point in
+                stroke.normalizedXRatio(of: point) >= max(0.94, endX + 0.06)
+                    && stroke.normalizedYRatio(of: point) <= 0.40
+            }
     }
 
     private func isNineLike(_ features: RootGlyphFeatures) -> Bool {
@@ -1213,8 +1230,19 @@ struct GestureTemplateRecognizer {
     ) -> Bool {
         let centerYRatio = features.normalizedYCenter(of: stroke)
         let widthCoverage = stroke.bounds.width / max(features.bounds.width, 1)
+        let centerXRatio = (stroke.bounds.recognitionMidX - features.bounds.minX) / features.bounds.width
+        // Only a centered, straight short mark can serve as the second
+        // stroke of a root A. Its other stroke must still pass the frame check.
+        let compactBar = features.strokeCount == 2
+            && (5..<6).contains(stroke.bounds.width)
+            && widthCoverage >= 0.30
+            && centerXRatio >= 0.32
+            && centerXRatio <= 0.68
+            && stroke.straightness >= 0.82
+            && stroke.aspectRatio >= 1.65
+            && abs(stroke.angleDegrees) <= 20
 
-        return stroke.isLooseHorizontal
+        return (stroke.isLooseHorizontal || compactBar)
             && centerYRatio >= 0.36
             && centerYRatio <= 0.72
             && widthCoverage >= 0.18
