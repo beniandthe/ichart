@@ -1196,6 +1196,16 @@ struct EditorView: View {
             toolStrip(minWidth: minWidth)
                 .frame(maxWidth: .infinity, alignment: .center)
 
+            if chart.hasCompletedInitialSetup {
+                Text(activeToolInstructionText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 10)
+                    .frame(maxWidth: minWidth, alignment: .leading)
+                    .accessibilityIdentifier("editor-active-tool-instruction")
+            }
+
             Group {
                 if showsActiveToolControls {
                     activeToolControls(minWidth: minWidth)
@@ -1624,7 +1634,7 @@ struct EditorView: View {
                 )
             )
             .buttonStyle(.plain)
-            .accessibilityHint("Write chords, barlines, repeat signs, and ending brackets, then review and render them onto the chart")
+            .accessibilityHint("Write in the blue lanes to render chart notation")
 
         case .ink:
             Button {
@@ -1796,7 +1806,9 @@ struct EditorView: View {
 
     @ViewBuilder
     private var activeToolControlItems: some View {
-        activeToolContextLabel
+        Label(canvasMode.activeToolTitle, systemImage: canvasMode.activeToolSymbol)
+            .font(.subheadline.weight(.semibold))
+            .fixedSize()
 
         if canvasMode.allowsAnyInkEditing {
             InkToolModeTab(mode: $inkToolMode)
@@ -1838,45 +1850,31 @@ struct EditorView: View {
         }
     }
 
-    private var activeToolContextLabel: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Label(canvasMode.activeToolTitle, systemImage: canvasMode.activeToolSymbol)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color.primary)
-
-            if let instruction = activeToolInstructionText {
-                Text(instruction)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-        }
-        .fixedSize(horizontal: true, vertical: false)
-        .accessibilityElement(children: .combine)
-    }
-
-    private var activeToolInstructionText: String? {
-        if canvasMode == .chordEntry {
-            return manualRenderWithPreview
-                ? "Check previews, then tap Render Chords."
-                : "Leave space between chords; pause to render."
-        }
-        if canvasMode == .freeHand {
-            return LeadSheetFreeInkNavigationPolicy.hintText
-        }
-        if canvasMode == .repeatEdit {
+    private var activeToolInstructionText: String {
+        let instruction = canvasMode.activeToolInstruction(
+            layoutStyle: chart.layoutStyle,
+            manualRenderWithPreview: manualRenderWithPreview
+        )
+        switch canvasMode {
+        case .freeHand:
+            return instruction + " " + LeadSheetFreeInkNavigationPolicy.hintText
+        case .repeatEdit:
             if pendingRepeatStartMeasureID != nil {
-                return "Tap the last measure, then end the repeat."
+                return "Tap the last measure, then choose End Repeat."
             }
             if let pendingEndingType {
-                return "Tap the last measure, then end \(endingToolTitle(for: pendingEndingType))."
+                return "Tap the last measure, then choose End \(endingToolTitle(for: pendingEndingType))."
             }
+        case .measureEdit where pendingDeleteStartMeasureID != nil:
+            return "Tap the last measure, then choose Delete To."
+        case .textEdit where selectedCueText != nil:
+            return "Use Edit, Larger, Smaller, or Delete for the selected cue."
+        case .headerEntry where chart.headerInputMode == .typed:
+            return "Tap Typed to edit the header text, or Handwritten to write in the page header."
+        default:
+            break
         }
-        if canvasMode == .measureEdit,
-           pendingDeleteStartMeasureID != nil {
-            return "Tap the last measure, then finish the range delete."
-        }
-        return canvasMode.activeToolInstruction
+        return instruction
     }
 
     private var activeToolDoneButton: some View {

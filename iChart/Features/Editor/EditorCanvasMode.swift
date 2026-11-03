@@ -137,28 +137,39 @@ enum EditorCanvasMode: Hashable {
             && self != .noteEdit
     }
 
-    var activeToolInstruction: String? {
+    func activeToolInstruction(layoutStyle: ChartLayoutStyle, manualRenderWithPreview: Bool) -> String {
         switch self {
         case .browse:
-            return nil
+            return "Tap a measure, chord, or cue to see its actions. Double-tap a chord to correct it."
         case .measureEdit:
-            return "Tap a measure, then choose an action."
+            return "Tap a measure, then use Add, Layout, or Delete to change the chart."
         case .repeatEdit:
-            return "Tap measures to build or remove repeats."
+            return "Select a measure, then choose a repeat or ending. Use One Bar for a single measure or Manage for existing marks."
         case .timeSignatureEdit:
-            return "Tap the measure where the new meter begins."
+            return "Tap the measure where the new time signature starts, then choose the meter and how far it applies."
         case .rhythmicNotationEdit:
-            return "Write rhythm inside the selected measure."
+            return "Tap a measure, then write rhythms inside it and check the preview."
         case .headerEntry:
-            return "Write in the page header."
+            return "Write or erase in the page header. Tap Typed to enter header text."
         case .chordEntry:
-            return "Write chords, barlines, and endings in the blue lanes."
+            let writing = switch layoutStyle {
+            case .simpleChordSheet:
+                "Write chords, barlines, repeat signs, and ending brackets in the blue lanes."
+            case .rhythmSectionSheet:
+                "Write chords, repeat signs, and ending brackets in the blue lanes. A tall, straight barline can split an open measure."
+            case .leadSheet:
+                "Write chords, repeat signs, and ending brackets in the blue lanes."
+            }
+            let rendering = manualRenderWithPreview
+                ? "Check each preview, then tap Render Chords or Review & Render."
+                : "Leave space between chords and pause to render. Follow any review prompts."
+            return writing + " " + rendering
         case .noteEdit:
-            return "Select a rendered rhythm note."
+            return "Tap a rendered rhythm note to see its editing actions."
         case .freeHand:
-            return "Draw notes and marks that stay as handwriting."
+            return "Write or erase notes and marks that stay as handwriting."
         case .textEdit:
-            return "Tap a measure, then add text above or below."
+            return "Tap a measure, then choose Above or Below to add a text cue."
         }
     }
 
