@@ -1703,7 +1703,12 @@ struct EditorView: View {
             )
             .buttonStyle(.plain)
             .accessibilityLabel(EditorCanvasMode.freeHand.activeToolTitle)
-            .accessibilityHint("Freehand notes and marks that stay as handwriting and are not converted to notation")
+            .accessibilityHint(
+                EditorCanvasMode.freeHand.activeToolInstruction(
+                    layoutStyle: chart.layoutStyle,
+                    manualRenderWithPreview: manualRenderWithPreview
+                )
+            )
 
         case .measures:
             Button {
