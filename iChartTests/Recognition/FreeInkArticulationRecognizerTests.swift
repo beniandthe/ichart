@@ -65,6 +65,28 @@ final class FreeInkArticulationRecognizerTests: XCTestCase {
         XCTAssertNil(FreeInkArticulationRecognizer.automaticCandidate(in: [accent, oldNote], eligibleStrokeIndices: [0, 1]))
     }
 
+    func testAutomaticAccentAcceptsOneRoundedLegOrAnUnevenTip() {
+        let rounded = [(0.0, 0.0), (12, 6.1), (24, 7), (12, 11), (0, 14)]
+        let uneven = [(0.0, 0.0), (12, 1.5), (24, 3.4), (12, 8.7), (0, 14)]
+        for points in [rounded, uneven] {
+            for direction in [points, Array(points.reversed())] {
+                let candidate = FreeInkArticulationRecognizer.automaticCandidate(
+                    in: [stroke(direction)], eligibleStrokeIndices: [0]
+                )
+                XCTAssertEqual(candidate?.kind, .accent)
+                XCTAssertEqual(candidate?.indices, [0])
+            }
+        }
+
+        let overbent = [(0.0, 0.0), (12, 7.4), (24, 7), (12, 11), (0, 14)]
+        let tooUneven = [(0.0, 0.0), (12, 1), (24, 2.7), (12, 8), (0, 14)]
+        for points in [overbent, tooUneven] {
+            XCTAssertNil(FreeInkArticulationRecognizer.automaticCandidate(
+                in: [stroke(points)], eligibleStrokeIndices: [0]
+            ))
+        }
+    }
+
     func testAutomaticAccentAcceptsShortRetraceAtTheOpenEndOfAnUnevenChevron() {
         // Approximate a shallow upper leg with a short Pencil retrace at
         // its open end. The right tip is still shared by two straight legs.

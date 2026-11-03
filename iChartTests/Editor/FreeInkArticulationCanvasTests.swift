@@ -57,7 +57,7 @@ final class FreeInkArticulationCanvasTests: XCTestCase {
             drawing, source: sourceSpace, destination: missingMeasure))
     }
 
-    func testCanvasRendersFloatingMarkMovesItToStaffAndRestoresTheOriginalInk() async throws {
+    func testCanvasRendersSelectsMovesDeletesAndRestoresArticulation() async throws {
         let pageSize = CGSize(width: 1_200, height: 1_200)
         var chart = Chart.draft(title: "Free Ink articulation", layoutStyle: .rhythmSectionSheet)
         chart.completeInitialSetup(title: chart.title, key: .cMajor,
@@ -123,6 +123,18 @@ final class FreeInkArticulationCanvasTests: XCTestCase {
         view.onChartChanged = { published.append($0) }
         view.interactionMode = .browse
         view.layoutIfNeeded()
+        let floatingTarget = try XCTUnwrap(FreeInkArticulationPlacement.target(for: articulation,
+            chart: view.chart, pageLayout: layout))
+        XCTAssertTrue(view.handleFreeInkArticulationTap(at: floatingTarget.center))
+        XCTAssertEqual(view.selectedFreeInkArticulationID, articulation.id)
+        let deleteButton = try XCTUnwrap(view.subviews.compactMap { $0 as? UIButton }.first {
+            $0.accessibilityIdentifier == "free-ink-articulation-delete"
+        })
+        XCTAssertFalse(deleteButton.isHidden)
+        XCTAssertEqual(deleteButton.accessibilityLabel, "Delete accent")
+        XCTAssertFalse(deleteButton.frame.contains(floatingTarget.center))
+        XCTAssertTrue(view.hitTest(CGPoint(x: deleteButton.frame.midX, y: deleteButton.frame.midY),
+            with: nil) === deleteButton)
         XCTAssertTrue(view.moveFreeInkArticulation(id: articulation.id,
             to: CGPoint(x: first.staffFrame.midX, y: first.staffFrame.midY)))
         let moved = try XCTUnwrap(view.chart.freeInkArticulations.first)
@@ -131,7 +143,35 @@ final class FreeInkArticulationCanvasTests: XCTestCase {
         XCTAssertEqual(moved.sourcePagePoint, articulation.sourcePagePoint)
         XCTAssertEqual(moved.sourceInkData, articulation.sourceInkData)
         XCTAssertEqual(view.chart.pageHandwrittenNotationData, converted.pageHandwrittenNotationData)
+        XCTAssertEqual(view.selectedFreeInkArticulationID, moved.id)
+        let movedTarget = try XCTUnwrap(FreeInkArticulationPlacement.target(for: moved,
+            chart: view.chart, pageLayout: layout))
+        XCTAssertFalse(deleteButton.frame.contains(movedTarget.center))
+        XCTAssertFalse(view.handleFreeInkArticulationTap(at: .zero))
+        XCTAssertTrue(deleteButton.isHidden)
+        XCTAssertTrue(view.handleFreeInkArticulationTap(at: movedTarget.center))
 
+        var undoAvailability: [Bool] = []
+        view.onFreeInkArticulationDeletionAvailabilityChanged = { undoAvailability.append($0) }
+        view.onChartChanged = { chart in
+            XCTAssertTrue(didNotifyBeforePublication)
+            didNotifyBeforePublication = false
+            published.append(chart)
+        }
+        didNotifyBeforePublication = false
+        deleteButton.sendActions(for: .touchUpInside)
+        XCTAssertTrue(view.chart.freeInkArticulations.isEmpty)
+        XCTAssertEqual(view.chart.pageHandwrittenNotationData, converted.pageHandwrittenNotationData)
+        XCTAssertNil(view.selectedFreeInkArticulationID)
+        XCTAssertTrue(deleteButton.isHidden)
+        XCTAssertEqual(undoAvailability, [true])
+        XCTAssertTrue(view.undoFreeInkArticulationDeletion())
+        XCTAssertEqual(view.chart.freeInkArticulations, [moved])
+        XCTAssertEqual(view.selectedFreeInkArticulationID, moved.id)
+        XCTAssertEqual(undoAvailability, [true, false])
+        XCTAssertFalse(view.undoFreeInkArticulationDeletion())
+
+        view.onChartChanged = { published.append($0) }
         view.interactionMode = .freeHand
         view.layoutIfNeeded()
         XCTAssertTrue(view.restoreFreeInkArticulation(articulationID: articulation.id))
@@ -140,6 +180,38 @@ final class FreeInkArticulationCanvasTests: XCTestCase {
         assertStrokes(try PKDrawing(data: XCTUnwrap(restored.pageHandwrittenNotationData)),
             equalTo: [nearby, mark])
         assertStrokes(authoring.drawing, equalTo: [nearby, mark])
+    }
+
+    func testTapChoosesTheNearestMarkWhenTouchTargetsOverlap() throws {
+        let pageSize = CGSize(width: 1_200, height: 1_200)
+        var chart = Chart.draft(title: "Overlapping touch targets", layoutStyle: .rhythmSectionSheet)
+        chart.completeInitialSetup(title: chart.title, key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine, startingMeasureCount: 4)
+        let first = FreeInkArticulation(kind: .accent, sourceInkData: Data(),
+            pagePoint: FreeInkArticulationPagePoint(pageIndex: 0, x: 200, y: 200))
+        let second = FreeInkArticulation(kind: .fermata, sourceInkData: Data(),
+            pagePoint: FreeInkArticulationPagePoint(pageIndex: 0, x: 200, y: 208))
+        chart.freeInkArticulations = [first, second]
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize)
+        let view = LeadSheetCanvasUIKitView(frame: CGRect(origin: .zero, size: pageSize))
+        view.chart = chart
+        view.layoutIfNeeded()
+        let firstCenter = try XCTUnwrap(FreeInkArticulationPlacement.target(for: first,
+            chart: chart, pageLayout: layout)).center
+        XCTAssertTrue(view.handleFreeInkArticulationTap(at: firstCenter))
+        XCTAssertEqual(view.selectedFreeInkArticulationID, first.id)
+        let deleteButton = try XCTUnwrap(view.subviews.compactMap { $0 as? UIButton }.first {
+            $0.accessibilityIdentifier == "free-ink-articulation-delete"
+        })
+        deleteButton.sendActions(for: .touchUpInside)
+        XCTAssertEqual(view.chart.freeInkArticulations, [second])
+
+        // A subsequent chart edit may remove or change the original anchor.
+        var edited = view.chart
+        edited.title = "Updated engraving"
+        view.chart = edited
+        XCTAssertFalse(view.undoFreeInkArticulationDeletion())
+        XCTAssertEqual(view.chart.freeInkArticulations, [second])
     }
 
     private func accent(at origin: CGPoint, seed: UInt32) -> PKStroke {

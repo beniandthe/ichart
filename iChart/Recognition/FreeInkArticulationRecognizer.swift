@@ -127,10 +127,16 @@ enum FreeInkArticulationRecognizer {
     }
 
     private static func isAccent(_ first: ArraySlice<InkPoint>, _ second: ArraySlice<InkPoint>) -> Bool {
-        guard let firstLeg = straightLeg(first), let secondLeg = straightLeg(second) else { return false }
+        // A handwritten chevron can round one leg or have an uneven angle.
+        // Keep a straighter second leg, a shared tip, and two open ends.
+        let straightFirst = straightLeg(first)
+        let straightSecond = straightLeg(second)
+        guard straightFirst != nil || straightSecond != nil,
+              let firstLeg = straightFirst ?? straightLeg(first, maximumDeviation: 0.11),
+              let secondLeg = straightSecond ?? straightLeg(second, maximumDeviation: 0.11) else { return false }
         return hasAccentOutline(firstLeg, secondLeg,
             bounds: InkBounds.enclosing(Array(first) + Array(second)),
-            tipHeightRange: 0.26...0.74)
+            tipHeightRange: 0.23...0.77)
     }
 
     private static func hasAccentWithRetracedLeadIn(
@@ -176,7 +182,7 @@ enum FreeInkArticulationRecognizer {
             && hypot(firstLeg.right.x - secondLeg.right.x, tipBottom - tipTop) <= 0.16 * width
     }
 
-    private static func straightLeg(_ points: ArraySlice<InkPoint>) -> AccentLeg? {
+    private static func straightLeg(_ points: ArraySlice<InkPoint>, maximumDeviation: Double = 0.09) -> AccentLeg? {
         guard let first = points.first, let last = points.last else { return nil }
         let (left, right) = first.x < last.x ? (first, last) : (last, first)
         let dx = right.x - left.x
@@ -190,7 +196,7 @@ enum FreeInkArticulationRecognizer {
         guard travel <= 1.13 * length,
               points.allSatisfy({ point in
                   let deviation = abs(dx / length * (point.y - left.y) - dy / length * (point.x - left.x))
-                  return deviation <= 0.09 * length
+                  return deviation <= maximumDeviation * length
               }) else {
             return nil
         }

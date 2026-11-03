@@ -476,6 +476,7 @@ struct EditorView: View {
     @State private var canvasMode: EditorCanvasMode = .browse
     @State private var inkToolMode: EditorInkToolMode = .write
     @State private var freeInkArticulationCoordinator = FreeInkArticulationCoordinator()
+    @State private var canUndoFreeInkArticulationDeletion = false
     @State private var freeInkArticulationMessage = ""
     @State private var showsFreeInkArticulationMessage = false
     @State private var freeInkArticulationSavePending = false
@@ -901,6 +902,9 @@ struct EditorView: View {
             }
         }
         .onChange(of: chart) { previousChart, updatedChart in
+            if previousChart.id != updatedChart.id {
+                canUndoFreeInkArticulationDeletion = false
+            }
             if let endingID = selectedEndingSpanID,
                previousChart.id != updatedChart.id || updatedChart.roadmapObject(id: endingID)?.type.isEnding != true {
                 selectedEndingSpanID = nil
@@ -939,7 +943,7 @@ struct EditorView: View {
             case .failed:
                 freeInkArticulationSavePending = false
                 presentFreeInkArticulationMessage(
-                    "The chart couldn’t save. Your handwriting is still available in Free Ink or through Restore Ink. Try Retry Save before closing the chart.",
+                    "The chart couldn’t save. Tap Retry Save before closing the chart.",
                     saveFailed: true
                 )
             }
@@ -1275,7 +1279,8 @@ struct EditorView: View {
             return false
         }
 
-        return selectedChord != nil
+        return canUndoFreeInkArticulationDeletion
+            || selectedChord != nil
             || selectedCommittedBarlineMeasureID != nil
             || selectedCueText != nil
             || selectedRoadmapMarker != nil
@@ -2007,6 +2012,14 @@ struct EditorView: View {
     private func selectedRenderedEditActionTray(minWidth: CGFloat) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
+                if canUndoFreeInkArticulationDeletion {
+                    activeToolButton(title: "Undo Delete", systemImage: "arrow.uturn.backward") {
+                        if !freeInkArticulationCoordinator.undoDeletion() {
+                            presentFreeInkArticulationMessage("Couldn’t bring back the deleted mark.")
+                        }
+                    }
+                    .accessibilityHint("Bring back the last deleted fermata or accent")
+                }
                 selectedRenderedEditLabel
 
                 if selectedChord != nil {
@@ -2883,6 +2896,7 @@ struct EditorView: View {
             chordDraftRenderInvalidationRequestID: chordDraftRenderInvalidationRequestID,
             freeInkArticulationCoordinator: freeInkArticulationCoordinator,
             onFreeInkArticulationWillSave: { freeInkArticulationSavePending = true },
+            onFreeInkArticulationDeletionAvailabilityChanged: { canUndoFreeInkArticulationDeletion = $0 },
             rhythmicNotationPreviewConfirmationRequestID: isDedicatedRhythmToolAvailable
                 ? rhythmPreviewConfirmationRequestID
                 : nil,

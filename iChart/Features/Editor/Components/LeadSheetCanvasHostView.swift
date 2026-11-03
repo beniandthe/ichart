@@ -328,6 +328,7 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     var chordDraftRenderInvalidationRequestID: UUID? = nil
     var freeInkArticulationCoordinator: FreeInkArticulationCoordinator? = nil
     var onFreeInkArticulationWillSave: (() -> Void)? = nil
+    var onFreeInkArticulationDeletionAvailabilityChanged: ((Bool) -> Void)? = nil
     var rhythmicNotationPreviewConfirmationRequestID: UUID? = nil
     var onRhythmicNotationPreviewChanged: ((LeadSheetRhythmicNotationPreviewState?) -> Void)? = nil
     var onRhythmicNotationDiagnostic: ((RhythmRecognitionDiagnosticEvent) -> Void)? = nil
@@ -422,7 +423,11 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         freeInkArticulationCoordinator?.restoration = { [weak view] articulationID in
             view?.restoreFreeInkArticulation(articulationID: articulationID) ?? false
         }
+        freeInkArticulationCoordinator?.undoLastDeletion = { [weak view] in
+            view?.undoFreeInkArticulationDeletion() ?? false
+        }
         view.onFreeInkArticulationWillSave = onFreeInkArticulationWillSave
+        view.onFreeInkArticulationDeletionAvailabilityChanged = onFreeInkArticulationDeletionAvailabilityChanged
         view.recognizesChordInk = recognizesChordInk
         view.chordPreviewState = chordPreviewState
         view.restrictsParentScrollToOutsideMargins = interactionMode.restrictsPageScrollToOutsideMargins
@@ -696,6 +701,8 @@ enum LeadSheetCanvasChartUpdateReason {
     case persistActiveInk
     case convertFreeInkArticulation
     case moveFreeInkArticulation
+    case deleteFreeInkArticulation
+    case undoFreeInkArticulationDeletion
     case persistRhythmOnFinalize
     case finalizeRhythmTapRender
     case persistRhythmStable
@@ -721,6 +728,8 @@ enum LeadSheetCanvasChartUpdateReason {
              .resizeEndingSpan,
              .convertFreeInkArticulation,
              .moveFreeInkArticulation,
+             .deleteFreeInkArticulation,
+             .undoFreeInkArticulationDeletion,
              .finalizeRhythmTapRender,
              .confirmRhythmFeedback:
             return false
@@ -1560,6 +1569,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 pageInkReprojectionSource = nil
             }
             if oldValue.id != chart.id {
+                selectedFreeInkArticulationID = nil
                 currentAutomaticChordActivity = nil
                 lastBootstrappedChordDraftPreviewSnapshot = nil
                 chordInkEditedTargetState.reset()
@@ -1601,6 +1611,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                chart.cueText(id: selectedCueTextID) == nil {
                 self.selectedCueTextID = nil
             }
+            if let selectedFreeInkArticulationID,
+               !chart.freeInkArticulations.contains(where: { $0.id == selectedFreeInkArticulationID }) {
+                self.selectedFreeInkArticulationID = nil
+            }
             if let activeCueTextMoveDrag,
                chart.cueText(id: activeCueTextMoveDrag.cueTextID) == nil {
                 self.activeCueTextMoveDrag = nil
@@ -1609,6 +1623,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 previousChart: oldValue,
                 nextChart: chart
             ) {
+                // An engraving edit can invalidate the deleted mark's anchor.
+                if activeChartUpdateReason != .deleteFreeInkArticulation,
+                   lastDeletedFreeInkArticulation != nil {
+                    lastDeletedFreeInkArticulation = nil
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, self.lastDeletedFreeInkArticulation == nil else { return }
+                        self.onFreeInkArticulationDeletionAvailabilityChanged?(false)
+                    }
+                }
                 invalidateLayout()
             } else {
                 let activeInkScopeIdentity = activeCanvasScope?.identity
@@ -1793,6 +1816,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                     scheduleAutomaticRenderCompletionObservation(activity)
                 }
             }
+            refreshFreeInkArticulationDeleteButton()
         }
     }
 
@@ -1810,6 +1834,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
             cancelAutomaticFreeInkArticulation()
             cancelFreeInkArticulationDrag()
+            selectedFreeInkArticulationID = nil
             chordDraftRenderCoordinator?.lastInputAt = nil
             chordDraftRenderCoordinator?.renderSessionReadyAt = nil
             currentAutomaticChordActivity = nil
@@ -1966,6 +1991,16 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     var onRhythmicNotationPreviewChanged: ((LeadSheetRhythmicNotationPreviewState?) -> Void)?
     var onRhythmicNotationDiagnostic: ((RhythmRecognitionDiagnosticEvent) -> Void)?
     var onFreeInkArticulationWillSave: (() -> Void)?
+    var onFreeInkArticulationDeletionAvailabilityChanged: ((Bool) -> Void)?
+    private(set) var selectedFreeInkArticulationID: UUID? {
+        didSet {
+            guard oldValue != selectedFreeInkArticulationID else { return }
+            refreshFreeInkArticulationDeleteButton()
+            setNeedsDisplay()
+        }
+    }
+    private var lastDeletedFreeInkArticulation: (chartID: UUID, mark: FreeInkArticulation, index: Int)?
+    private let freeInkArticulationDeleteButton = UIButton(type: .system)
 
     private struct FreeInkArticulationDrag {
         let chartID: UUID
@@ -2276,6 +2311,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             invalidateLayout()
             restoreParentViewport(viewportState)
         }
+        refreshFreeInkArticulationDeleteButton()
         updateParentScrollGestureGate()
         scheduleCanvasVisibilityTelemetryObservation()
     }
@@ -2305,6 +2341,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
             view.setNeedsDisplay()
         }
+        refreshFreeInkArticulationDeleteButton()
     }
 
     static func boundedDocumentRasterScale(
@@ -2422,6 +2459,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             renderer.drawFreeInkArticulation(drag.mark.kind, at: drag.target)
             context.restoreGState()
         }
+        if let selection = selectedFreeInkArticulationTarget() {
+            let scale = max(canvasScreenPointsPerDisplayedPoint(), 0.1)
+            let outline = UIBezierPath(roundedRect: selection.target.markFrame.insetBy(
+                dx: -3 / scale, dy: -3 / scale), cornerRadius: 4 / scale)
+            UIColor.systemBlue.setStroke()
+            outline.lineWidth = 1.5 / scale
+            outline.stroke()
+        }
 
         if interactionMode == .browse, let selectedEndingSpanID {
             LeadSheetEndingEditOverlay.draw(endingID: selectedEndingSpanID, chart: chart,
@@ -2510,6 +2555,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         renderedObjectMovePanRecognizer.delegate = self
         addGestureRecognizer(renderedObjectMovePanRecognizer)
         addSubview(renderedEditHitOverlayView)
+        freeInkArticulationDeleteButton.accessibilityIdentifier = "free-ink-articulation-delete"
+        freeInkArticulationDeleteButton.tintColor = .systemRed
+        freeInkArticulationDeleteButton.isHidden = true
+        freeInkArticulationDeleteButton.addTarget(self,
+            action: #selector(deleteSelectedFreeInkArticulation), for: .touchUpInside)
+        addSubview(freeInkArticulationDeleteButton)
 
         updateInteractionMode()
         NotificationCenter.default.addObserver(
@@ -2713,6 +2764,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         guard !isInteractionSuspended,
               measureResizeHandleHitTarget(at: point) == nil,
               freeInkArticulationHit(at: point) == nil,
+              freeInkArticulationDeleteButton.isHidden
+                || !freeInkArticulationDeleteButton.frame.contains(point),
               !chordInkConfirmSurfaceContains(point) else { return false }
         if let target = editableOverlayHitTarget(at: point) {
             switch target {
@@ -2747,6 +2800,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         guard bounds.width > 0, bounds.height > 0 else {
             pageLayout = nil
             syncPageInkCanvas()
+            refreshFreeInkArticulationDeleteButton()
             setNeedsDisplay()
             return
         }
@@ -2772,6 +2826,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             IChartPerformanceTrace.end(layoutSpan)
         }
         syncPageInkCanvas()
+        refreshFreeInkArticulationDeleteButton()
         setNeedsDisplay()
     }
 
@@ -5068,6 +5123,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         let location = recognizer.location(in: self)
+        if handleFreeInkArticulationTap(at: location) { return }
         if interactionMode.allowsHeaderAuthoringSelection,
            LeadSheetCanvasInteractionTargeting.headerAuthoringContains(location, in: pageLayout) {
             onHeaderAuthoringRequested?()
@@ -5151,6 +5207,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
+        if handleFreeInkArticulationTap(at: recognizer.location(in: self)) { return }
         let location = recognizer.location(in: renderedEditHitOverlayView)
         if let endingID = chordDraftEndingHitTarget(at: location) {
             onChordInkDraftEndingSelected?(endingID)
@@ -5871,13 +5928,17 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         -> (mark: FreeInkArticulation, target: FreeInkArticulationPlacement.Target)? {
         guard interactionMode == .browse, !isInteractionSuspended, let pageLayout else { return nil }
         let padding = 12 / max(canvasScreenPointsPerDisplayedPoint(), 0.1)
+        var nearest: (mark: FreeInkArticulation, target: FreeInkArticulationPlacement.Target)?
+        var nearestDistance = CGFloat.infinity
         for mark in chart.freeInkArticulations.reversed() {
-            if let target = FreeInkArticulationPlacement.target(for: mark, chart: chart, pageLayout: pageLayout),
-               target.markFrame.insetBy(dx: -padding, dy: -padding).contains(point) {
-                return (mark, target)
-            }
+            guard let target = FreeInkArticulationPlacement.target(for: mark, chart: chart, pageLayout: pageLayout),
+                  target.markFrame.insetBy(dx: -padding, dy: -padding).contains(point) else { continue }
+            let distance = hypot(point.x - target.center.x, point.y - target.center.y)
+            guard distance < nearestDistance else { continue }
+            nearest = (mark, target)
+            nearestDistance = distance
         }
-        return nil
+        return nearest
     }
 
     private func handleFreeInkArticulationDrag(_ recognizer: UIPanGestureRecognizer) {
@@ -5886,6 +5947,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             guard let hit = freeInkArticulationHit(at: panStartLocation(for: recognizer)) else { return }
             freeInkArticulationDrag = FreeInkArticulationDrag(chartID: chart.id,
                 mark: hit.mark, target: hit.target, translation: recognizer.translation(in: self))
+            selectFreeInkArticulation(hit.mark.id)
+            refreshFreeInkArticulationDeleteButton()
             lockParentScrollForChordMove()
             setNeedsDisplay()
         case .changed:
@@ -5910,7 +5973,107 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         guard freeInkArticulationDrag != nil else { return }
         freeInkArticulationDrag = nil
         unlockParentScrollForChordMove()
+        refreshFreeInkArticulationDeleteButton()
         setNeedsDisplay()
+    }
+
+    @discardableResult
+    func handleFreeInkArticulationTap(at point: CGPoint) -> Bool {
+        guard let hit = freeInkArticulationHit(at: point) else {
+            selectedFreeInkArticulationID = nil
+            return false
+        }
+        selectFreeInkArticulation(hit.mark.id)
+        return true
+    }
+
+    private func selectFreeInkArticulation(_ id: UUID) {
+        guard selectedFreeInkArticulationID != id else { return }
+        selectedFreeInkArticulationID = id
+        selectedEndingSpanID = nil
+        selectedChordID = nil
+        selectedCommittedBarlineMeasureID = nil
+        selectedCueTextID = nil
+        updateSelectedRoadmapMarkerID(nil)
+        selectedNoteSelection = nil
+        applyTapSelection(nil)
+    }
+
+    private func selectedFreeInkArticulationTarget()
+        -> (mark: FreeInkArticulation, target: FreeInkArticulationPlacement.Target)? {
+        guard interactionMode == .browse, !isInteractionSuspended,
+              freeInkArticulationDrag == nil, let pageLayout, let selectedFreeInkArticulationID,
+              let mark = chart.freeInkArticulations.first(where: { $0.id == selectedFreeInkArticulationID }),
+              let target = FreeInkArticulationPlacement.target(for: mark, chart: chart, pageLayout: pageLayout)
+        else { return nil }
+        return (mark, target)
+    }
+
+    private func refreshFreeInkArticulationDeleteButton() {
+        guard let selection = selectedFreeInkArticulationTarget() else {
+            freeInkArticulationDeleteButton.isHidden = true
+            return
+        }
+
+        let scale = max(canvasScreenPointsPerDisplayedPoint(), 0.1)
+        var availableFrame = bounds
+        if let viewport = enclosingParentScrollView() {
+            let visibleFrame = convert(viewport.bounds, from: viewport).intersection(bounds)
+            if visibleFrame.contains(selection.target.center) {
+                availableFrame = visibleFrame
+            }
+        }
+        let size = min(44 / scale, availableFrame.width, availableFrame.height)
+        let markFrame = selection.target.markFrame
+        let gap = 4 / scale
+        let right = markFrame.maxX + gap
+        let left = markFrame.minX - gap - size
+        let x = right + size <= availableFrame.maxX ? right : left
+        let y = markFrame.midY - size / 2
+        freeInkArticulationDeleteButton.frame = CGRect(
+            x: min(max(x, availableFrame.minX), availableFrame.maxX - size),
+            y: min(max(y, availableFrame.minY), availableFrame.maxY - size), width: size, height: size)
+        freeInkArticulationDeleteButton.setImage(UIImage(systemName: "xmark.circle.fill",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 17 / scale, weight: .semibold)),
+            for: .normal)
+        freeInkArticulationDeleteButton.accessibilityLabel = "Delete \(selection.mark.kind.title.lowercased())"
+        freeInkArticulationDeleteButton.isHidden = false
+    }
+
+    @objc
+    private func deleteSelectedFreeInkArticulation() {
+        guard interactionMode == .browse, !isInteractionSuspended, freeInkArticulationDrag == nil,
+              let selectedFreeInkArticulationID,
+              let index = chart.freeInkArticulations.firstIndex(where: { $0.id == selectedFreeInkArticulationID })
+        else { return }
+
+        var updated = chart
+        let mark = updated.freeInkArticulations.remove(at: index)
+        updated.updatedAt = .now
+        lastDeletedFreeInkArticulation = (chart.id, mark, index)
+        self.selectedFreeInkArticulationID = nil
+        onFreeInkArticulationWillSave?()
+        applyUpdatedChart(updated, reason: .deleteFreeInkArticulation)
+        onFreeInkArticulationDeletionAvailabilityChanged?(true)
+    }
+
+    @discardableResult
+    func undoFreeInkArticulationDeletion() -> Bool {
+        guard interactionMode == .browse, !isInteractionSuspended,
+              let deleted = lastDeletedFreeInkArticulation, deleted.chartID == chart.id,
+              !chart.freeInkArticulations.contains(where: { $0.id == deleted.mark.id })
+        else { return false }
+
+        var updated = chart
+        updated.freeInkArticulations.insert(deleted.mark,
+            at: min(deleted.index, updated.freeInkArticulations.count))
+        updated.updatedAt = .now
+        lastDeletedFreeInkArticulation = nil
+        onFreeInkArticulationWillSave?()
+        applyUpdatedChart(updated, reason: .undoFreeInkArticulationDeletion)
+        selectFreeInkArticulation(deleted.mark.id)
+        onFreeInkArticulationDeletionAvailabilityChanged?(false)
+        return true
     }
 
     @discardableResult
@@ -9744,6 +9907,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         _ gestureRecognizer: UIGestureRecognizer,
         shouldReceive touch: UITouch
     ) -> Bool {
+        if touch.view?.isDescendant(of: freeInkArticulationDeleteButton) == true {
+            return false
+        }
         if gestureRecognizer === chordCorrectionDoubleTapRecognizer {
             return (touch.type == .direct || touch.type == .pencil)
                 && chordReviewHitTarget(at: touch.location(in: self)) != nil

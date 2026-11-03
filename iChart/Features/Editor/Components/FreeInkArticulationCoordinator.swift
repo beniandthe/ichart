@@ -5,9 +5,14 @@ import UIKit
 @MainActor
 final class FreeInkArticulationCoordinator {
     var restoration: ((UUID) -> Bool)?
+    var undoLastDeletion: (() -> Bool)?
 
     func restore(articulationID: UUID) -> Bool {
         restoration?(articulationID) ?? false
+    }
+
+    func undoDeletion() -> Bool {
+        undoLastDeletion?() ?? false
     }
 }
 

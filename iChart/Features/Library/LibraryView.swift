@@ -342,7 +342,9 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Tap Done to leave the current tool and return to Select.",
                 "You can switch directly between Write & Render, Free Ink, Measures, and Tools without returning to Select first.",
                 "Tap a chord, barline, text label, marker, or measure to show its buttons.",
-                "On a Rhythm Section Sheet, drag a converted fermata or accent to move it. Drop it near a chord, rhythm note, or staff ink to attach it, or in open space to leave it floating.",
+                "On a Rhythm Section Sheet, tap a converted fermata or accent to select it. Drag to move it or tap the red X to delete it.",
+                "Drop the mark near a chord, rhythm note, or staff ink to attach it, or in open space to leave it floating.",
+                "Tap Undo Delete to bring back the last deleted fermata or accent.",
                 "Use the buttons to correct, move, resize, delete, or clean up what you selected."
             ]
         ),
@@ -420,7 +422,7 @@ private struct IChartHelpArticleSection: Identifiable {
             bullets: [
                 "Use it for handwritten rhythm notes and reminders.",
                 "On a Rhythm Section Sheet, draw a fermata or accent anywhere on the page. Lift the Pencil and pause. iChart converts clear marks into notation and leaves unclear marks as handwriting.",
-                "A converted mark attaches above a nearby chord, rhythm note, or staff ink. In open space, it stays where you drew it. Use Select to drag it to a new spot.",
+                "A converted mark attaches above a nearby chord, rhythm note, or staff ink. In open space, it stays where you drew it. Use Select to move or delete a converted mark.",
                 "Use Restore Ink to bring the handwriting back, including before splitting, joining, or deleting a measure that holds the mark or its original writing.",
                 "Switch directly to another tool, or tap Done to return to Select."
             ]
