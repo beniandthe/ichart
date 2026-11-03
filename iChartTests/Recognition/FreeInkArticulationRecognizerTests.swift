@@ -54,9 +54,54 @@ final class FreeInkArticulationRecognizerTests: XCTestCase {
         }
     }
 
-    private func stroke(_ points: [(Double, Double)], scale: Double = 1) -> InkStroke {
-        InkStroke(points: points.map { x, y in
-            InkPoint(x: x * scale + 80, y: y * scale + 40, timeOffset: nil)
-        })
+    func testAutomaticAccentUsesOnlyTheNewestIsolatedStroke() {
+        let oldNote = stroke([(56, 26), (57, 13), (57, 5)])
+        let accent = stroke([(0, 0), (12, 3.3), (24, 7), (13, 10.4), (0, 14)])
+
+        let result = FreeInkArticulationRecognizer.automaticCandidate(in: [oldNote, accent], eligibleStrokeIndices: [1])
+        XCTAssertEqual(result?.kind, .accent)
+        XCTAssertEqual(result?.indices, [1])
+        XCTAssertNil(FreeInkArticulationRecognizer.automaticCandidate(in: [oldNote, accent], eligibleStrokeIndices: [0]))
+        XCTAssertNil(FreeInkArticulationRecognizer.automaticCandidate(in: [accent, oldNote], eligibleStrokeIndices: [0, 1]))
+    }
+
+    func testAutomaticTwoStrokeMarkRequiresFreshContiguousStrokesWrittenTogether() {
+        let arch = stroke([(0, 11), (3, 6), (7, 2), (12, 0), (18, 1.5), (23, 5.3), (26, 10)],
+            creationTimeOffset: 1, duration: 0.31)
+        let dot = stroke([(13, 8)], creationTimeOffset: 1.58)
+        let distantStroke = stroke([(70, 22), (80, 22)], creationTimeOffset: 1.2)
+
+        let result = FreeInkArticulationRecognizer.automaticCandidate(in: [arch, dot], eligibleStrokeIndices: [0, 1])
+        XCTAssertEqual(result?.kind, .fermata)
+        XCTAssertEqual(result?.indices, [0, 1])
+        XCTAssertNil(FreeInkArticulationRecognizer.automaticCandidate(in: [arch, dot], eligibleStrokeIndices: [1]))
+        XCTAssertNil(FreeInkArticulationRecognizer.automaticCandidate(
+            in: [arch, distantStroke, dot], eligibleStrokeIndices: [0, 2]
+        ))
+        let lateDot = stroke([(13, 8)], creationTimeOffset: 2.0)
+        XCTAssertNil(FreeInkArticulationRecognizer.automaticCandidate(in: [arch, lateDot], eligibleStrokeIndices: [0, 1]))
+    }
+
+    func testAutomaticMarkLeavesNearbyOlderAndFreshOrdinaryInkAlone() {
+        let accent = stroke([(0, 0), (12, 3.3), (24, 7), (13, 10.4), (0, 14)])
+        let nearbySlash = stroke([(28, 1), (26, 11)])
+        XCTAssertNil(FreeInkArticulationRecognizer.automaticCandidate(
+            in: [nearbySlash, accent], eligibleStrokeIndices: [1]
+        ))
+        XCTAssertNil(FreeInkArticulationRecognizer.automaticCandidate(
+            in: [nearbySlash, accent], eligibleStrokeIndices: [0, 1]
+        ))
+    }
+
+    private func stroke(
+        _ points: [(Double, Double)],
+        scale: Double = 1,
+        creationTimeOffset: TimeInterval? = nil,
+        duration: TimeInterval? = nil
+    ) -> InkStroke {
+        InkStroke(points: points.enumerated().map { index, point in
+            InkPoint(x: point.0 * scale + 80, y: point.1 * scale + 40,
+                timeOffset: duration.map { $0 * Double(index) / Double(max(points.count - 1, 1)) })
+        }, creationTimeOffset: creationTimeOffset)
     }
 }

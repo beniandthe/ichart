@@ -168,7 +168,7 @@ enum EditorCanvasMode: Hashable {
             return "Tap a rendered rhythm note to see its editing actions."
         case .freeHand:
             if layoutStyle == .rhythmSectionSheet {
-                return "Write or erase handwriting. Tap Select Ink to convert a fermata or accent."
+                return "Draw a fermata or accent near the staff. Lift the Pencil and pause to convert it."
             }
             return "Write or erase notes and marks that stay as handwriting."
         case .textEdit:

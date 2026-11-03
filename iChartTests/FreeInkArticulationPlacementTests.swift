@@ -59,6 +59,28 @@ final class FreeInkArticulationPlacementTests: XCTestCase {
         ))
     }
 
+    func testPlacementAcceptsMarkJustAboveOneSystemAndWithinItsMeasure() throws {
+        let chart = makeChart()
+        var layout = LeadSheetPageLayoutEngine.pageLayout(for: chart,
+            pageSize: CGSize(width: 850, height: 1_100))
+        let system = try XCTUnwrap(layout.systems.first)
+        let measure = try XCTUnwrap(system.measures.first)
+        let staffSpace = system.staffLineYPositions[1] - system.staffLineYPositions[0]
+        let mark = CGPoint(x: measure.staffFrame.midX, y: system.frame.minY - 0.82 * staffSpace)
+        XCTAssertEqual(FreeInkArticulationPlacement.target(near: mark, chart: chart, pageLayout: layout)?.measureID,
+            measure.sourceMeasureID)
+        XCTAssertNil(FreeInkArticulationPlacement.target(
+            near: CGPoint(x: mark.x, y: system.frame.minY - 1.1 * staffSpace), chart: chart, pageLayout: layout
+        ))
+        XCTAssertNil(FreeInkArticulationPlacement.target(
+            near: CGPoint(x: measure.staffFrame.minX - 1, y: mark.y), chart: chart, pageLayout: layout
+        ))
+
+        // A point with two possible systems must remain ordinary ink.
+        layout.systems.append(system)
+        XCTAssertNil(FreeInkArticulationPlacement.target(near: mark, chart: chart, pageLayout: layout))
+    }
+
     func testLastConversionRetainsSavedPaperWidthAndRemainingInkTakesPrecedence() throws {
         var chart = makeChart()
         let archivedSpace = PersistentInkCoordinateSpace(width: 560, height: 1_100)

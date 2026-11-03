@@ -67,7 +67,7 @@ enum PencilKitInkAdapter {
         }
     }
 
-    private static func inkStroke(from stroke: PKStroke, timelineOrigin: Date?) -> InkStroke {
+    static func inkStroke(from stroke: PKStroke, timelineOrigin: Date?) -> InkStroke {
         let transform = stroke.transform
         return InkStroke(
             points: stroke.path.map { strokePoint in

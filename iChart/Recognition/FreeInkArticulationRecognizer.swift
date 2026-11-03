@@ -1,7 +1,48 @@
 import Foundation
 
-/// Recognizes one explicitly selected mark from its centerline geometry.
+/// Recognizes one mark from its centerline geometry.
 enum FreeInkArticulationRecognizer {
+    /// Automatic recognition may claim only a fresh, isolated stroke suffix.
+    /// An adjacent stroke outside that suffix can veto the match but cannot
+    /// become part of it.
+    static func automaticCandidate(
+        in strokes: [InkStroke],
+        eligibleStrokeIndices: Set<Int>
+    ) -> (kind: FreeInkArticulationKind, indices: [Int])? {
+        guard let last = strokes.indices.last, eligibleStrokeIndices.contains(last) else { return nil }
+
+        var suffixes = [[last]]
+        if last > 0, eligibleStrokeIndices.contains(last - 1),
+           belongsToSameMark(strokes[last - 1], strokes[last]) {
+            suffixes.append([last - 1, last])
+        }
+        let matches = suffixes.compactMap { indices -> (kind: FreeInkArticulationKind, indices: [Int])? in
+            guard let kind = recognize(indices.map { strokes[$0] }) else { return nil }
+            return (kind, indices)
+        }
+        guard matches.count == 1, let match = matches.first else { return nil }
+
+        let markBounds = InkBounds.enclosing(match.indices.map { InkBounds.enclosing(strokes[$0].points) })
+        let clearance = max(markBounds.width, markBounds.height) * 0.22
+        let hasNearbyInk = strokes.indices.contains { index in
+            guard !match.indices.contains(index) else { return false }
+            let neighbor = strokes[index].bounds
+            return neighbor.maxX >= markBounds.minX - clearance
+                && neighbor.minX <= markBounds.maxX + clearance
+                && neighbor.maxY >= markBounds.minY - clearance
+                && neighbor.minY <= markBounds.maxY + clearance
+        }
+        return hasNearbyInk ? nil : match
+    }
+
+    private static func belongsToSameMark(_ first: InkStroke, _ second: InkStroke) -> Bool {
+        guard let firstEnd = first.timelineEndTimeOffset,
+              let secondStart = second.timelineStartTimeOffset else { return false }
+        // Allow small timestamp overlap from PencilKit while excluding a
+        // separate mark written after a deliberate pause.
+        return (-0.04...0.55).contains(secondStart - firstEnd)
+    }
+
     static func recognize(_ strokes: [InkStroke]) -> FreeInkArticulationKind? {
         guard (1...2).contains(strokes.count),
               strokes.allSatisfy({ stroke in

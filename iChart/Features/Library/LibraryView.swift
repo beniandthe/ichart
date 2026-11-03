@@ -415,11 +415,11 @@ private struct IChartHelpArticleSection: Identifiable {
             id: "editor-free-write",
             title: "Free Ink",
             systemImageName: "pencil.and.scribble",
-            body: "Free Ink keeps your notes and marks exactly as you draw them.",
+            body: "Use Free Ink to write or erase notes and marks directly on the page.",
             bullets: [
-                "Use it for rhythm notes, reminders, and marks iChart should not turn into chords.",
-                "On a Rhythm Section Sheet, tap Select Ink and drag one finger around a handwritten fermata or accent.",
-                "Review the mark and its measure and beat, then tap Convert Mark. Use Restore Ink to bring the handwriting back, including before splitting, joining, or deleting a measure that holds the mark or its original writing.",
+                "Use it for handwritten rhythm notes and reminders.",
+                "On a Rhythm Section Sheet, draw a fermata or accent near the staff. Lift the Pencil and pause. iChart converts clear marks into notation and leaves unclear marks as handwriting.",
+                "Use Restore Ink to bring the handwriting back, including before splitting, joining, or deleting a measure that holds the mark or its original writing.",
                 "Switch directly to another tool, or tap Done to return to Select."
             ]
         ),

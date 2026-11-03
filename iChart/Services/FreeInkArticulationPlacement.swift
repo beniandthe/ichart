@@ -19,11 +19,22 @@ enum FreeInkArticulationPlacement {
 
     static func target(near point: CGPoint, chart: Chart, pageLayout: LeadSheetPageLayout) -> Target? {
         guard chart.layoutStyle == .rhythmSectionSheet,
-              point.x.isFinite, point.y.isFinite,
-              let system = pageLayout.systems.first(where: { $0.frame.contains(point) }),
-              let measureLayout = system.measures.first(where: {
-                  $0.sourceMeasureID != nil && point.x >= $0.staffFrame.minX && point.x < $0.staffFrame.maxX
-              }),
+              point.x.isFinite, point.y.isFinite else { return nil }
+
+        let systems = pageLayout.systems.filter { system in
+            guard system.staffLineYPositions.count >= 2 else { return false }
+            let staffSpace = system.staffLineYPositions[1] - system.staffLineYPositions[0]
+            guard staffSpace.isFinite, staffSpace > 0 else { return false }
+            // A mark just above the chord lane can still belong to this system.
+            return point.x >= system.frame.minX && point.x < system.frame.maxX
+                && point.y >= system.frame.minY - staffSpace && point.y < system.frame.maxY
+        }
+        guard systems.count == 1, let system = systems.first else { return nil }
+
+        let measures = system.measures.filter {
+            $0.sourceMeasureID != nil && point.x >= $0.staffFrame.minX && point.x < $0.staffFrame.maxX
+        }
+        guard measures.count == 1, let measureLayout = measures.first,
               let measureID = measureLayout.sourceMeasureID,
               let measure = chart.measure(id: measureID) else { return nil }
 

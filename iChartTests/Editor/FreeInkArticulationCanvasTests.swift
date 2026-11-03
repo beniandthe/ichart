@@ -6,31 +6,21 @@ import XCTest
 
 @MainActor
 final class FreeInkArticulationCanvasTests: XCTestCase {
-    func testSelectionIncludesWholeStrokesAndPreservesUnselectedInk() throws {
-        let mark = accent(at: CGPoint(x: 50, y: 30), seed: 2)
+    func testAutomaticCandidateClaimsOnlyNewIsolatedInk() throws {
         let first = accent(at: CGPoint(x: 6, y: 30), seed: 1)
         let last = accent(at: CGPoint(x: 100, y: 30), seed: 3)
-        let drawing = PKDrawing(strokes: [first, mark, last])
-        let box = mark.renderBounds.insetBy(dx: -4, dy: -4)
+        let drawing = PKDrawing(strokes: [first, last])
 
-        let selected = try FreeInkArticulationStrokeSelection.select(in: box, drawing: drawing)
+        XCTAssertNil(FreeInkArticulationSourceInk.automaticCandidate(in: drawing, firstNewStrokeIndex: 2))
+        let candidate = try XCTUnwrap(FreeInkArticulationSourceInk.automaticCandidate(
+            in: drawing, firstNewStrokeIndex: 1))
+        XCTAssertEqual(candidate.kind, .accent)
+        assertStrokes(candidate.source, equalTo: [last])
+        assertStrokes(candidate.remaining, equalTo: [first])
 
-        XCTAssertEqual(selected.indices, [1])
-        assertStrokes(selected.drawing, equalTo: [mark])
-        assertStrokes(selected.remainingDrawing(in: drawing), equalTo: [first, last])
-        XCTAssertThrowsError(try FreeInkArticulationStrokeSelection.select(
-            in: box.insetBy(dx: 6, dy: 0), drawing: drawing)) {
-            guard case FreeInkArticulationSelectionError.ambiguous = $0 else {
-                return XCTFail("Expected partial stroke rejection")
-            }
-        }
-        let crossing = stroke([CGPoint(x: 35, y: 37), CGPoint(x: 90, y: 37)], seed: 4)
-        XCTAssertThrowsError(try FreeInkArticulationStrokeSelection.select(
-            in: box, drawing: PKDrawing(strokes: [mark, crossing]))) {
-            guard case FreeInkArticulationSelectionError.ambiguous = $0 else {
-                return XCTFail("Expected crossing stroke rejection")
-            }
-        }
+        let crossing = stroke([CGPoint(x: 94, y: 37), CGPoint(x: 132, y: 37)], seed: 4)
+        XCTAssertNil(FreeInkArticulationSourceInk.automaticCandidate(
+            in: PKDrawing(strokes: [first, crossing, last]), firstNewStrokeIndex: 2))
     }
 
     func testRestorationFollowsTheAuthoredMeasureAfterReflow() throws {
@@ -49,7 +39,7 @@ final class FreeInkArticulationCanvasTests: XCTestCase {
         let mark = accent(at: CGPoint(x: 75, y: 150), seed: 10)
         let drawing = PKDrawing(strokes: [mark])
 
-        let restored = try XCTUnwrap(FreeInkArticulationStrokeSelection.restore(
+        let restored = try XCTUnwrap(FreeInkArticulationSourceInk.restore(
             drawing, source: sourceSpace, destination: targetSpace))
         let restoredStroke = try XCTUnwrap(restored.strokes.first)
 
@@ -63,11 +53,11 @@ final class FreeInkArticulationCanvasTests: XCTestCase {
             XCTAssertEqual(point.y, expectedY, accuracy: 0.01)
         }
         let missingMeasure = PersistentInkCoordinateSpace(width: 250, height: 500, measureAnchors: [other])
-        XCTAssertNil(FreeInkArticulationStrokeSelection.restore(
+        XCTAssertNil(FreeInkArticulationSourceInk.restore(
             drawing, source: sourceSpace, destination: missingMeasure))
     }
 
-    func testCanvasPublishesConversionAndRestoreWithTheExactInk() throws {
+    func testCanvasAutomaticallyPublishesConversionAndRestoresTheExactInk() async throws {
         let pageSize = CGSize(width: 1_200, height: 1_200)
         var chart = Chart.draft(title: "Free Ink articulation", layoutStyle: .rhythmSectionSheet)
         chart.completeInitialSetup(title: chart.title, key: .cMajor,
@@ -82,7 +72,7 @@ final class FreeInkArticulationCanvasTests: XCTestCase {
             CGPoint(x: staffCenter.x + 24, y: staffCenter.y - 9),
             CGPoint(x: staffCenter.x + 35, y: staffCenter.y + 8)
         ], seed: 2)
-        let source = PKDrawing(strokes: [mark, nearby])
+        let source = PKDrawing(strokes: [nearby])
         chart.pageHandwrittenNotationData = source.dataRepresentation()
         chart.pageHandwrittenNotationCoordinateSpace = LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(
             for: layout, relativeTo: pageFrame)
@@ -99,49 +89,42 @@ final class FreeInkArticulationCanvasTests: XCTestCase {
         view.layoutIfNeeded()
         let authoring = try XCTUnwrap(view.subviews.compactMap { $0 as? PKCanvasView }.last)
         assertStrokes(authoring.drawing, equalTo: source.strokes)
-        let selectionRect = view.convert(mark.renderBounds.insetBy(dx: -4, dy: -4), from: authoring)
-        var result: Result<FreeInkArticulationSelection, FreeInkArticulationSelectionError>?
-        view.onFreeInkArticulationSelection = { result = $0 }
-        view.selectsFreeInkArticulation = true
-        view.selectFreeInkArticulation(in: selectionRect)
-        let stale = try XCTUnwrap(result).get()
-        XCTAssertEqual(stale.kind, .accent)
-        XCTAssertEqual(stale.measureID, first.sourceMeasureID)
-        let extra = accent(at: CGPoint(x: staffCenter.x, y: staffCenter.y + 40), seed: 3)
-        authoring.drawing = PKDrawing(strokes: source.strokes + [extra])
-        XCTAssertFalse(view.convertFreeInkArticulation(selectionID: stale.id,
-            kind: stale.kind, measureID: stale.measureID, beatIndex: stale.beatIndex))
-        XCTAssertTrue(view.chart.freeInkArticulations.isEmpty)
-        XCTAssertEqual(authoring.drawing.strokes.count, 3)
-
-        view.selectFreeInkArticulation(in: selectionRect)
-        let fresh = try XCTUnwrap(result).get()
-        XCTAssertNotEqual(stale.id, fresh.id)
-        view.selectsFreeInkArticulation = false
-        view.isInteractionSuspended = true
+        let convertedMark = expectation(description: "Automatic Free Ink conversion")
         var published: [Chart] = []
-        view.onChartChanged = { published.append($0) }
-        XCTAssertTrue(view.convertFreeInkArticulation(selectionID: fresh.id,
-            kind: fresh.kind, measureID: fresh.measureID, beatIndex: fresh.beatIndex))
+        var didNotifyBeforePublication = false
+        view.onFreeInkArticulationAutomaticallyConverted = { didNotifyBeforePublication = true }
+        view.onChartChanged = { chart in
+            published.append(chart)
+            if !chart.freeInkArticulations.isEmpty {
+                XCTAssertTrue(didNotifyBeforePublication)
+                convertedMark.fulfill()
+            }
+        }
+        view.canvasViewDidBeginUsingTool(authoring)
+        authoring.drawing = PKDrawing(strokes: [nearby, mark])
+        view.canvasViewDrawingDidChange(authoring)
+        XCTAssertTrue(view.chart.freeInkArticulations.isEmpty)
+        view.canvasViewDidEndUsingTool(authoring)
+        await fulfillment(of: [convertedMark], timeout: 4)
 
-        XCTAssertEqual(published.count, 1)
-        let converted = try XCTUnwrap(published.first)
+        XCTAssertEqual(published.filter { !$0.freeInkArticulations.isEmpty }.count, 1)
+        let converted = try XCTUnwrap(published.last)
         let articulation = try XCTUnwrap(converted.freeInkArticulations.first)
         XCTAssertEqual(articulation.kind, .accent)
-        XCTAssertEqual(articulation.sourceCoordinateSpace?.measureAnchors?.map(\.measureID), [fresh.measureID])
+        XCTAssertEqual(articulation.measureID, first.sourceMeasureID)
+        XCTAssertEqual(articulation.sourceCoordinateSpace?.measureAnchors?.map(\.measureID),
+            [articulation.measureID])
         assertStrokes(try PKDrawing(data: articulation.sourceInkData), equalTo: [mark])
         assertStrokes(try PKDrawing(data: XCTUnwrap(converted.pageHandwrittenNotationData)),
-            equalTo: [nearby, extra])
-        assertStrokes(authoring.drawing, equalTo: [nearby, extra])
+            equalTo: [nearby])
+        assertStrokes(authoring.drawing, equalTo: [nearby])
 
-        view.isInteractionSuspended = false
         XCTAssertTrue(view.restoreFreeInkArticulation(articulationID: articulation.id))
-        XCTAssertEqual(published.count, 2)
         let restored = try XCTUnwrap(published.last)
         XCTAssertTrue(restored.freeInkArticulations.isEmpty)
         assertStrokes(try PKDrawing(data: XCTUnwrap(restored.pageHandwrittenNotationData)),
-            equalTo: [nearby, extra, mark])
-        assertStrokes(authoring.drawing, equalTo: [nearby, extra, mark])
+            equalTo: [nearby, mark])
+        assertStrokes(authoring.drawing, equalTo: [nearby, mark])
     }
 
     private func accent(at origin: CGPoint, seed: UInt32) -> PKStroke {

@@ -2,71 +2,49 @@
 import PencilKit
 import UIKit
 
-struct FreeInkArticulationSelection: Identifiable, Equatable {
-    let id: UUID
-    var kind: FreeInkArticulationKind
-    var measureID: UUID
-    var beatIndex: Int
-}
-
-enum FreeInkArticulationSelectionError: LocalizedError {
-    case empty
-    case ambiguous
-    case outsideMeasure
-
-    var errorDescription: String? {
-        switch self {
-        case .empty: return "Drag a box around one complete handwritten fermata or accent."
-        case .ambiguous: return "Select one complete fermata or accent with space around its strokes."
-        case .outsideMeasure: return "Select a mark over a measure on the staff."
-        }
-    }
-}
-
 @MainActor
 final class FreeInkArticulationCoordinator {
-    var conversion: ((UUID, FreeInkArticulationKind, UUID, Int) -> Bool)?
     var restoration: ((UUID) -> Bool)?
-    var cancellation: (() -> Void)?
-
-    func convert(
-        selectionID: UUID, kind: FreeInkArticulationKind, measureID: UUID, beatIndex: Int
-    ) -> Bool {
-        conversion?(selectionID, kind, measureID, beatIndex) ?? false
-    }
 
     func restore(articulationID: UUID) -> Bool {
         restoration?(articulationID) ?? false
     }
-
-    func cancel() {
-        cancellation?()
-    }
 }
 
-struct FreeInkArticulationStrokeSelection {
-    let indices: [Int]
-    let drawing: PKDrawing
-
-    static func select(in rect: CGRect, drawing: PKDrawing) throws -> Self {
-        var indices: [Int] = []
-        var strokes: [PKStroke] = []
-        for (index, stroke) in drawing.strokes.enumerated() where rect.intersects(stroke.renderBounds) {
-            guard rect.contains(stroke.renderBounds), strokes.count < 2 else {
-                throw FreeInkArticulationSelectionError.ambiguous
-            }
-            indices.append(index)
-            strokes.append(stroke)
-        }
-        guard !strokes.isEmpty else { throw FreeInkArticulationSelectionError.empty }
-        return Self(indices: indices, drawing: PKDrawing(strokes: strokes))
+enum FreeInkArticulationSourceInk {
+    struct Candidate {
+        let kind: FreeInkArticulationKind
+        let source: PKDrawing
+        let remaining: PKDrawing
     }
 
-    func remainingDrawing(in source: PKDrawing) -> PKDrawing {
-        let removed = Set(indices)
-        return PKDrawing(strokes: source.strokes.enumerated().compactMap {
-            removed.contains($0.offset) ? nil : $0.element
+    static func automaticCandidate(in drawing: PKDrawing, firstNewStrokeIndex: Int) -> Candidate? {
+        let strokes = drawing.strokes
+        guard firstNewStrokeIndex >= 0, let last = strokes.indices.last,
+              last >= firstNewStrokeIndex else { return nil }
+        let eligible = Set((max(firstNewStrokeIndex, last - 1)...last).filter {
+            strokes[$0].mask == nil
         })
+        guard eligible.contains(last) else { return nil }
+        let timelineOrigin = strokes[last].path.creationDate
+        let input = strokes.enumerated().map { index, stroke in
+            if eligible.contains(index) {
+                return PencilKitInkAdapter.inkStroke(from: stroke, timelineOrigin: timelineOrigin)
+            }
+            // Existing strokes can veto a nearby match. Only materialize the
+            // centerlines of new strokes to keep the idle check inexpensive.
+            let bounds = stroke.renderBounds
+            return InkStroke(points: [], bounds: InkBounds(minX: bounds.minX,
+                minY: bounds.minY, maxX: bounds.maxX, maxY: bounds.maxY))
+        }
+        guard let match = FreeInkArticulationRecognizer.automaticCandidate(
+            in: input, eligibleStrokeIndices: eligible
+        ) else { return nil }
+        return Candidate(kind: match.kind,
+            source: PKDrawing(strokes: match.indices.map { strokes[$0] }),
+            remaining: PKDrawing(strokes: strokes.enumerated().compactMap {
+                match.indices.contains($0.offset) ? nil : $0.element
+            }))
     }
 
     static func restore(

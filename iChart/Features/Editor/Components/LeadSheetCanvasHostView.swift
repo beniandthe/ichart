@@ -327,9 +327,7 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     var chordDraftRenderCoordinator: ChordInkDraftRenderCoordinator? = nil
     var chordDraftRenderInvalidationRequestID: UUID? = nil
     var freeInkArticulationCoordinator: FreeInkArticulationCoordinator? = nil
-    var selectsFreeInkArticulation = false
-    var freeInkArticulationPreview: FreeInkArticulationSelection? = nil
-    var onFreeInkArticulationSelection: ((Result<FreeInkArticulationSelection, FreeInkArticulationSelectionError>) -> Void)? = nil
+    var onFreeInkArticulationAutomaticallyConverted: (() -> Void)? = nil
     var rhythmicNotationPreviewConfirmationRequestID: UUID? = nil
     var onRhythmicNotationPreviewChanged: ((LeadSheetRhythmicNotationPreviewState?) -> Void)? = nil
     var onRhythmicNotationDiagnostic: ((RhythmRecognitionDiagnosticEvent) -> Void)? = nil
@@ -421,19 +419,10 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
             selectedEndingSpanID: selectedEndingSpanID.wrappedValue
         )
         view.inkToolMode = inkToolMode
-        freeInkArticulationCoordinator?.conversion = { [weak view] selectionID, kind, measureID, beatIndex in
-            view?.convertFreeInkArticulation(selectionID: selectionID, kind: kind,
-                measureID: measureID, beatIndex: beatIndex) ?? false
-        }
         freeInkArticulationCoordinator?.restoration = { [weak view] articulationID in
             view?.restoreFreeInkArticulation(articulationID: articulationID) ?? false
         }
-        freeInkArticulationCoordinator?.cancellation = { [weak view] in
-            view?.cancelFreeInkArticulationSelection()
-        }
-        view.onFreeInkArticulationSelection = onFreeInkArticulationSelection
-        view.selectsFreeInkArticulation = selectsFreeInkArticulation
-        view.freeInkArticulationPreview = freeInkArticulationPreview
+        view.onFreeInkArticulationAutomaticallyConverted = onFreeInkArticulationAutomaticallyConverted
         view.recognizesChordInk = recognizesChordInk
         view.chordPreviewState = chordPreviewState
         view.restrictsParentScrollToOutsideMargins = interactionMode.restrictsPageScrollToOutsideMargins
@@ -1641,6 +1630,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 return
             }
 
+            cancelAutomaticFreeInkArticulation()
             updateInteractionMode()
             scheduleActiveInkEraseSpatialIndexPreparationIfNeeded()
         }
@@ -1785,6 +1775,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             guard oldValue != isInteractionSuspended else { return }
             isUserInteractionEnabled = !isInteractionSuspended
             if isInteractionSuspended {
+                cancelAutomaticFreeInkArticulation()
                 cancelEndingEditDrag()
                 cancelCanvasVisibilityTelemetryObservation()
                 cancelAuthoringTelemetryObservation()
@@ -1799,7 +1790,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                     scheduleAutomaticRenderCompletionObservation(activity)
                 }
             }
-            if selectsFreeInkArticulation { updateFreeInkArticulationSelectionGesture() }
         }
     }
 
@@ -1815,6 +1805,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 return
             }
 
+            cancelAutomaticFreeInkArticulation()
             chordDraftRenderCoordinator?.lastInputAt = nil
             chordDraftRenderCoordinator?.renderSessionReadyAt = nil
             currentAutomaticChordActivity = nil
@@ -1970,41 +1961,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     var onHeaderAuthoringRequested: (() -> Void)?
     var onRhythmicNotationPreviewChanged: ((LeadSheetRhythmicNotationPreviewState?) -> Void)?
     var onRhythmicNotationDiagnostic: ((RhythmRecognitionDiagnosticEvent) -> Void)?
-    var onFreeInkArticulationSelection: ((Result<FreeInkArticulationSelection, FreeInkArticulationSelectionError>) -> Void)?
-    var selectsFreeInkArticulation = false {
-        didSet {
-            guard oldValue != selectsFreeInkArticulation else { return }
-            updateFreeInkArticulationSelectionGesture()
-        }
-    }
-    var freeInkArticulationPreview: FreeInkArticulationSelection? {
-        didSet {
-            guard oldValue != freeInkArticulationPreview else { return }
-            setNeedsDisplay()
-            if let preview = freeInkArticulationPreview, oldValue?.measureID != preview.measureID,
-               let pending = pendingFreeInkArticulationSelection,
-               preview.id == pending.id,
-               preview.measureID != pending.authoredMeasureID || oldValue != nil {
-                revealFreeInkArticulationPreview(preview)
-            }
-        }
-    }
+    var onFreeInkArticulationAutomaticallyConverted: (() -> Void)?
 
-    private struct PendingFreeInkArticulationSelection {
-        let id: UUID
+    private struct FreeInkArticulationInput {
         let chartID: UUID
-        let drawingRevision: UInt64
-        let drawingData: Data
         let coordinateSpace: PersistentInkCoordinateSpace
-        let selectedStrokes: FreeInkArticulationStrokeSelection
-        let authoredMeasureID: UUID
+        let firstNewStrokeIndex: Int
     }
-    private var pendingFreeInkArticulationSelection: PendingFreeInkArticulationSelection?
-    private var freeInkArticulationDragStart: CGPoint?
-    private let freeInkArticulationSelectionLayer = CAShapeLayer()
-    private lazy var freeInkArticulationPan = UIPanGestureRecognizer(
-        target: self, action: #selector(handleFreeInkArticulationPan(_:))
-    )
+    private var freeInkArticulationInput: FreeInkArticulationInput?
+    private var automaticFreeInkArticulationTask: Task<Void, Never>?
 
     private var pageLayout: LeadSheetPageLayout?
     // Opt-in evaluation follows the ink revision from the drawing-change
@@ -2269,6 +2234,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window == nil {
+            cancelAutomaticFreeInkArticulation()
             cancelEndingEditDrag()
             cancelCanvasVisibilityTelemetryObservation()
             cancelAuthoringTelemetryObservation()
@@ -2285,7 +2251,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         super.layoutSubviews()
         chordInkConfirmOverlayView.frame = bounds
         renderedEditHitOverlayView.frame = bounds
-        freeInkArticulationSelectionLayer.frame = bounds
         let requiresLayoutRefresh = LeadSheetCanvasBoundsLayoutPolicy.requiresLayoutRefresh(
             previousSize: lastLayoutBoundsSize,
             currentSize: bounds.size,
@@ -2434,17 +2399,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             )
         }
 
-        if let preview = freeInkArticulationPreview,
-           preview.id == pendingFreeInkArticulationSelection?.id,
-           let target = FreeInkArticulationPlacement.target(measureID: preview.measureID,
-               beatIndex: preview.beatIndex, chart: chart, pageLayout: pageLayout) {
-            context.setFillColor(UIColor.systemBlue.withAlphaComponent(0.14).cgColor)
-            context.fillEllipse(in: CGRect(x: target.center.x - target.staffSpace * 1.5,
-                y: target.center.y - target.staffSpace, width: target.staffSpace * 3,
-                height: target.staffSpace * 2))
-            renderer.drawFreeInkArticulation(preview.kind, at: target)
-        }
-
         if interactionMode == .browse, let selectedEndingSpanID {
             LeadSheetEndingEditOverlay.draw(endingID: selectedEndingSpanID, chart: chart,
                 pageLayout: pageLayout, previewChart: endingEditInteraction.previewChart,
@@ -2533,15 +2487,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         addGestureRecognizer(renderedObjectMovePanRecognizer)
         addSubview(renderedEditHitOverlayView)
 
-        freeInkArticulationPan.delegate = self
-        freeInkArticulationPan.maximumNumberOfTouches = 1
-        freeInkArticulationPan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
-        freeInkArticulationPan.isEnabled = false
-        addGestureRecognizer(freeInkArticulationPan)
-        freeInkArticulationSelectionLayer.strokeColor = UIColor.systemBlue.cgColor
-        freeInkArticulationSelectionLayer.fillColor = UIColor.systemBlue.withAlphaComponent(0.10).cgColor
-        freeInkArticulationSelectionLayer.lineDashPattern = [5, 3]
-        layer.addSublayer(freeInkArticulationSelectionLayer)
         updateInteractionMode()
         NotificationCenter.default.addObserver(
             self,
@@ -2577,6 +2522,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     @objc
     private func handleApplicationWillResignActive() {
+        cancelAutomaticFreeInkArticulation()
         cancelAuthoringTelemetryObservation()
         cancelCanvasVisibilityTelemetryObservation()
         automaticTelemetryCompletionWorkItem?.cancel()
@@ -2588,6 +2534,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func handleAuthoringUndoRedoMutation(_ notification: Notification) {
         guard let manager = notification.object as? UndoManager,
               manager === pageInkCanvasView.undoManager || manager === undoManager else { return }
+        cancelAutomaticFreeInkArticulation()
         cancelAuthoringTelemetryObservation()
     }
 
@@ -2741,10 +2688,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         guard !isInteractionSuspended,
               measureResizeHandleHitTarget(at: point) == nil,
               !chordInkConfirmSurfaceContains(point) else { return false }
-        if freeInkArticulationPan.isEnabled, touchType == .direct,
-           pageLayout?.containsPaper(point, hitSlop: 0) == true {
-            return false
-        }
         if let target = editableOverlayHitTarget(at: point) {
             switch target {
             case .rendered(let rendered) where rendered.priority == .measureSelect:
@@ -4717,6 +4660,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
         guard canvasView === pageInkCanvasView else { return }
+        beginAutomaticFreeInkArticulationInput()
         isUsingInkTool = true
         beginAuthoringTelemetryObservation()
         if activeInkAuthoringSessionRole() == .chord {
@@ -4732,6 +4676,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
         guard canvasView === pageInkCanvasView else { return }
         isUsingInkTool = false
+        scheduleAutomaticFreeInkArticulation()
         finishAuthoringTelemetryObservation()
         let resumesDeferredGeometry = hasDeferredActiveInkGeometrySync
         if resumesDeferredGeometry {
@@ -4862,6 +4807,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         advanceInkDrawingRevision(
             invalidatesEraseSpatialIndex: !preservesActiveEraseSpatialIndex
         )
+        if !isUsingInkTool {
+            scheduleAutomaticFreeInkArticulation()
+        }
 
         let activeRole = activeInkAuthoringSessionRole()
         if activeRole == .chord,
@@ -6350,7 +6298,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             )
         }
         pageInkCanvasView.isHidden = false
-        pageInkCanvasView.isUserInteractionEnabled = !freeInkArticulationPan.isEnabled
+        pageInkCanvasView.isUserInteractionEnabled = true
         pageInkCanvasView.frame = activeInkScope.frame
         pageInkCanvasView.contentSize = activeInkScope.frame.size
         pageInkCanvasView.localInputFrames = activeInkScope.localInputFrames
@@ -8526,137 +8474,71 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         confirmRhythmicNotationFeedback(rhythmicNotationPreviewState)
     }
 
-    private func updateFreeInkArticulationSelectionGesture() {
-        let canSelect = selectsFreeInkArticulation && !isInteractionSuspended
-            && interactionMode == .freeHand && chart.layoutStyle == .rhythmSectionSheet
-        freeInkArticulationPan.isEnabled = canSelect
-        if interactionMode == .freeHand {
-            pageInkCanvasView.isUserInteractionEnabled = !canSelect
+    private func beginAutomaticFreeInkArticulationInput() {
+        automaticFreeInkArticulationTask?.cancel()
+        automaticFreeInkArticulationTask = nil
+        guard inkToolMode == .write, activeFreeInkArticulationScope() != nil,
+              let coordinateSpace = activeCanvasCoordinateSpace else {
+            freeInkArticulationInput = nil
+            return
         }
-        if !canSelect { clearFreeInkArticulationDrag() }
-    }
-
-    @objc private func handleFreeInkArticulationPan(_ gesture: UIPanGestureRecognizer) {
-        let location = gesture.location(in: self)
-        if gesture.state == .began {
-            cancelFreeInkArticulationSelection()
-            let translation = gesture.translation(in: self)
-            freeInkArticulationDragStart = CGPoint(
-                x: location.x - translation.x, y: location.y - translation.y
+        if freeInkArticulationInput?.chartID != chart.id
+            || freeInkArticulationInput?.coordinateSpace != coordinateSpace {
+            freeInkArticulationInput = FreeInkArticulationInput(
+                chartID: chart.id, coordinateSpace: coordinateSpace,
+                firstNewStrokeIndex: pageInkCanvasView.drawing.strokes.count
             )
         }
-        if gesture.state == .cancelled || gesture.state == .failed {
-            clearFreeInkArticulationDrag()
-            return
-        }
-        guard let start = freeInkArticulationDragStart else { return }
-        let selection = CGRect(x: min(start.x, location.x), y: min(start.y, location.y),
-            width: abs(location.x - start.x), height: abs(location.y - start.y))
-        if gesture.state == .ended {
-            clearFreeInkArticulationDrag()
-            selectFreeInkArticulation(in: selection)
-        } else {
-            freeInkArticulationSelectionLayer.path = CGPath(rect: selection, transform: nil)
+    }
+
+    private func cancelAutomaticFreeInkArticulation() {
+        automaticFreeInkArticulationTask?.cancel()
+        automaticFreeInkArticulationTask = nil
+        freeInkArticulationInput = nil
+    }
+
+    private func scheduleAutomaticFreeInkArticulation() {
+        guard freeInkArticulationInput != nil else { return }
+        automaticFreeInkArticulationTask?.cancel()
+        let revision = inkDrawingRevision
+        automaticFreeInkArticulationTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 850_000_000)
+            guard !Task.isCancelled, let self, self.inkDrawingRevision == revision else { return }
+            self.convertAutomaticFreeInkArticulation()
         }
     }
 
-    private func clearFreeInkArticulationDrag() {
-        freeInkArticulationDragStart = nil
-        freeInkArticulationSelectionLayer.path = nil
-    }
-
-    func cancelFreeInkArticulationSelection() {
-        pendingFreeInkArticulationSelection = nil
-        freeInkArticulationPreview = nil
-        clearFreeInkArticulationDrag()
-    }
-
-    private func revealFreeInkArticulationPreview(_ preview: FreeInkArticulationSelection) {
-        guard let pageLayout, let scrollView = enclosingParentScrollView(),
-              let target = FreeInkArticulationPlacement.target(measureID: preview.measureID,
-                  beatIndex: preview.beatIndex, chart: chart, pageLayout: pageLayout) else { return }
-        let markFrame = target.markFrame.insetBy(dx: -target.staffSpace, dy: -target.staffSpace)
-        let scrollFrame = scrollView.convert(markFrame, from: self)
-        if !scrollView.bounds.contains(scrollFrame) {
-            scrollView.scrollRectToVisible(scrollFrame, animated: true)
-        }
-    }
-
-    func selectFreeInkArticulation(in paperRect: CGRect) {
-        guard freeInkArticulationPan.isEnabled,
-              let pageLayout, let coordinateSpace = activeCanvasCoordinateSpace,
-              activeCanvasScopeIdentity == .page, !isUsingInkTool else { return }
-        let source = pageInkCanvasView.drawing
-        let selected: FreeInkArticulationStrokeSelection
-        do {
-            selected = try FreeInkArticulationStrokeSelection.select(
-                in: pageInkCanvasView.convert(paperRect, from: self), drawing: source
-            )
-        } catch let error as FreeInkArticulationSelectionError {
-            onFreeInkArticulationSelection?(.failure(error))
-            return
-        } catch {
-            onFreeInkArticulationSelection?(.failure(.ambiguous))
-            return
-        }
-        guard let kind = FreeInkArticulationRecognizer.recognize(
-            PencilKitInkAdapter.inkStrokes(from: selected.drawing)
-        ) else {
-            onFreeInkArticulationSelection?(.failure(.ambiguous))
-            return
-        }
-        let bounds = selected.drawing.bounds
-        let center = convert(CGPoint(x: bounds.midX, y: bounds.midY), from: pageInkCanvasView)
-        guard let target = FreeInkArticulationPlacement.target(near: center, chart: chart, pageLayout: pageLayout) else {
-            onFreeInkArticulationSelection?(.failure(.outsideMeasure))
-            return
-        }
-        let id = UUID()
-        pendingFreeInkArticulationSelection = PendingFreeInkArticulationSelection(
-            id: id, chartID: chart.id, drawingRevision: inkDrawingRevision,
-            drawingData: source.dataRepresentation(), coordinateSpace: coordinateSpace,
-            selectedStrokes: selected, authoredMeasureID: target.measureID
-        )
-        onFreeInkArticulationSelection?(.success(FreeInkArticulationSelection(
-            id: id, kind: kind, measureID: target.measureID, beatIndex: target.beatIndex
-        )))
-    }
-
-    func convertFreeInkArticulation(
-        selectionID: UUID, kind: FreeInkArticulationKind, measureID: UUID, beatIndex: Int
-    ) -> Bool {
-        guard let pending = pendingFreeInkArticulationSelection,
-              pending.id == selectionID, pending.chartID == chart.id,
-              pending.drawingRevision == inkDrawingRevision,
-              activeCanvasCoordinateSpace == pending.coordinateSpace,
-              let pageLayout,
+    private func convertAutomaticFreeInkArticulation() {
+        let input = freeInkArticulationInput
+        cancelAutomaticFreeInkArticulation()
+        guard let input, input.chartID == chart.id, inkToolMode == .write,
               let scope = activeFreeInkArticulationScope(),
-              FreeInkArticulationPlacement.target(measureID: measureID, beatIndex: beatIndex,
-                chart: chart, pageLayout: pageLayout) != nil,
-              !chart.freeInkArticulations.contains(where: {
-                  $0.measureID == measureID && $0.beatIndex == beatIndex
-              }),
-              let sourceAnchor = pending.coordinateSpace.measureAnchors?.first(where: {
-                  $0.measureID == pending.authoredMeasureID
-              }) else { return false }
-        let current = pageInkCanvasView.drawing
-        guard current.dataRepresentation() == pending.drawingData else { return false }
+              input.coordinateSpace == activeCanvasCoordinateSpace, let pageLayout,
+              let candidate = FreeInkArticulationSourceInk.automaticCandidate(
+                  in: pageInkCanvasView.drawing, firstNewStrokeIndex: input.firstNewStrokeIndex
+              ) else { return }
 
-        // Store the selected paths in their authored measure's coordinates,
-        // even if the reviewer chooses a different measure for the symbol.
-        var sourceSpace = pending.coordinateSpace
+        let bounds = candidate.source.bounds
+        let center = convert(CGPoint(x: bounds.midX, y: bounds.midY), from: pageInkCanvasView)
+        guard let target = FreeInkArticulationPlacement.target(near: center, chart: chart, pageLayout: pageLayout),
+              !chart.freeInkArticulations.contains(where: {
+                  $0.measureID == target.measureID && $0.beatIndex == target.beatIndex
+              }),
+              let sourceAnchor = input.coordinateSpace.measureAnchors?.first(where: {
+                  $0.measureID == target.measureID
+              }) else { return }
+
+        var sourceSpace = input.coordinateSpace
         sourceSpace.measureAnchors = [sourceAnchor]
         sourceSpace.chordAnchors = nil
         var updated = chart
         updated.freeInkArticulations.append(FreeInkArticulation(
-            kind: kind, measureID: measureID, beatIndex: beatIndex,
-            sourceInkData: pending.selectedStrokes.drawing.dataRepresentation(),
-            sourceCoordinateSpace: sourceSpace
+            kind: candidate.kind, measureID: target.measureID, beatIndex: target.beatIndex,
+            sourceInkData: candidate.source.dataRepresentation(), sourceCoordinateSpace: sourceSpace
         ))
-        let remaining = pending.selectedStrokes.remainingDrawing(in: current)
-        applyFreeInkArticulationTransaction(updated, drawing: remaining, scope: scope,
-            coordinateSpace: pending.coordinateSpace)
-        return true
+        onFreeInkArticulationAutomaticallyConverted?()
+        applyFreeInkArticulationTransaction(updated, drawing: candidate.remaining, scope: scope,
+            coordinateSpace: input.coordinateSpace)
     }
 
     func restoreFreeInkArticulation(articulationID: UUID) -> Bool {
@@ -8667,7 +8549,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
         let articulation = chart.freeInkArticulations[index]
         guard let archive = try? PKDrawing(data: articulation.sourceInkData),
-              let restored = FreeInkArticulationStrokeSelection.restore(archive,
+              let restored = FreeInkArticulationSourceInk.restore(archive,
                   source: articulation.sourceCoordinateSpace, destination: coordinateSpace) else { return false }
         let combined = PKDrawing(strokes: pageInkCanvasView.drawing.strokes + restored.strokes)
         var updated = chart
@@ -8679,7 +8561,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func activeFreeInkArticulationScope() -> LeadSheetActiveInkScope? {
         guard chart.layoutStyle == .rhythmSectionSheet, interactionMode == .freeHand,
-              !isUsingInkTool, let scope = activeCanvasScope, scope.identity == .page else { return nil }
+              !isInteractionSuspended, !isUsingInkTool, let scope = activeCanvasScope,
+              scope.identity == .page else { return nil }
         return scope
     }
 
@@ -8693,7 +8576,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             coordinateSpace: coordinateSpace, assumesNormalizedPersistentInk: true)
         updated.updatedAt = .now
 
-        cancelFreeInkArticulationSelection()
         cancelAuthoringTelemetryObservation()
         isSyncingInkCanvasFromModel = true
         pageInkCanvasView.drawing = drawing
@@ -9555,7 +9437,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         pageInkCanvasView.tool = policy.canvasTool
         pageInkCanvasView.manualEraseEnabled = policy.pageInkCanvasInteractionEnabled
             && policy.inkToolMode == .erase
-        updateFreeInkArticulationSelectionGesture()
 
         if policy.clearsMeasureResizeDrag {
             activeMeasureResizeDrag = nil
@@ -9599,6 +9480,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         strokeCount: Int,
         preservesPageInkReprojectionSource: Bool = false
     ) {
+        cancelAutomaticFreeInkArticulation()
         if !preservesPageInkReprojectionSource {
             pageInkReprojectionSource = nil
         }
@@ -9727,9 +9609,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         _ gestureRecognizer: UIGestureRecognizer,
         shouldReceive touch: UITouch
     ) -> Bool {
-        if gestureRecognizer === freeInkArticulationPan {
-            return pageLayout?.containsPaper(touch.location(in: self), hitSlop: 0) == true
-        }
         if gestureRecognizer === chordCorrectionDoubleTapRecognizer {
             return (touch.type == .direct || touch.type == .pencil)
                 && chordReviewHitTarget(at: touch.location(in: self)) != nil
