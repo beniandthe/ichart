@@ -2017,6 +2017,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
     }
     private var freeInkArticulationDrag: FreeInkArticulationDrag?
+    private let freeInkArticulationDragOverlay = CALayer()
+    private let freeInkArticulationDragGlyph = CALayer()
+    private let freeInkArticulationDragGuide = CAShapeLayer()
+    private let freeInkArticulationDragAnchor = CAShapeLayer()
     private var renderedObjectMoveTouchStart: CGPoint?
 
     private struct FreeInkArticulationInput {
@@ -2351,6 +2355,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             view.setNeedsDisplay()
         }
         refreshFreeInkArticulationDeleteButton()
+        if let drag = freeInkArticulationDrag {
+            prepareFreeInkArticulationDragOverlay(for: drag)
+        }
     }
 
     static func boundedDocumentRasterScale(
@@ -2462,15 +2469,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             renderer.drawFreeInkArticulations(for: page, pageLayout: pageLayout, in: context,
                 excludingMarkID: freeInkArticulationDrag?.mark.id)
         }
-        if let drag = freeInkArticulationDrag {
-            if let attachment = drag.attachment {
-                drawFreeInkArticulationGuide(from: drag.center, to: attachment.guidePoint)
-            }
-            context.saveGState()
-            context.translateBy(x: drag.translation.x, y: drag.translation.y)
-            renderer.drawFreeInkArticulation(drag.mark.kind, at: drag.target)
-            context.restoreGState()
-        }
         if let selection = selectedFreeInkArticulationTarget() {
             let scale = max(canvasScreenPointsPerDisplayedPoint(), 0.1)
             let outline = UIBezierPath(roundedRect: selection.target.markFrame.insetBy(
@@ -2508,22 +2506,67 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
     }
 
-    private func drawFreeInkArticulationGuide(from center: CGPoint, to anchor: CGPoint) {
+    private func prepareFreeInkArticulationDragOverlay(for drag: FreeInkArticulationDrag) {
         let scale = max(canvasScreenPointsPerDisplayedPoint(), 0.1)
-        let path = UIBezierPath()
-        path.move(to: center)
-        path.addLine(to: anchor)
-        path.lineWidth = 1.5 / scale
-        path.lineCapStyle = .round
-        path.setLineDash([4 / scale, 3 / scale], count: 2, phase: 0)
-        UIColor.systemBlue.setStroke()
-        path.stroke()
+        let screenScale = window?.screen.scale ?? traitCollection.displayScale
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = false
+        format.scale = min(8, max(1, screenScale * scale))
+        let frame = drag.target.markFrame.insetBy(dx: -2, dy: -2)
+        let image = UIGraphicsImageRenderer(size: frame.size, format: format).image { context in
+            context.cgContext.translateBy(x: -frame.minX, y: -frame.minY)
+            notationRenderer.drawFreeInkArticulation(drag.mark.kind, at: drag.target)
+        }
 
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        freeInkArticulationDragOverlay.frame = bounds
+        freeInkArticulationDragOverlay.bounds = bounds
+        freeInkArticulationDragGlyph.bounds = CGRect(origin: .zero, size: frame.size)
+        freeInkArticulationDragGlyph.contents = image.cgImage
+        freeInkArticulationDragGlyph.contentsScale = image.scale
+        let guideColor = UIColor.systemBlue.resolvedColor(with: traitCollection).cgColor
+        for shape in [freeInkArticulationDragGuide, freeInkArticulationDragAnchor] {
+            shape.fillColor = nil
+            shape.strokeColor = guideColor
+            shape.lineWidth = 1.5 / scale
+            shape.contentsScale = image.scale
+        }
+        freeInkArticulationDragGuide.lineCap = .round
+        freeInkArticulationDragGuide.lineDashPattern = [NSNumber(value: Double(4 / scale)),
+                                                       NSNumber(value: Double(3 / scale))]
         let radius = 3 / scale
-        let target = UIBezierPath(ovalIn: CGRect(x: anchor.x - radius, y: anchor.y - radius,
-            width: 2 * radius, height: 2 * radius))
-        target.lineWidth = path.lineWidth
-        target.stroke()
+        let anchorBounds = CGRect(x: 0, y: 0, width: 4 * radius, height: 4 * radius)
+        freeInkArticulationDragAnchor.bounds = anchorBounds
+        freeInkArticulationDragAnchor.path = CGPath(ellipseIn: anchorBounds.insetBy(dx: radius, dy: radius),
+            transform: nil)
+        updateFreeInkArticulationDragOverlay(for: drag)
+        if freeInkArticulationDragOverlay.superlayer == nil {
+            layer.addSublayer(freeInkArticulationDragOverlay)
+        }
+        CATransaction.commit()
+    }
+
+    private func updateFreeInkArticulationDragOverlay(for drag: FreeInkArticulationDrag) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        freeInkArticulationDragGlyph.position = drag.center
+        let anchor = drag.attachment?.guidePoint
+        freeInkArticulationDragGuide.isHidden = anchor == nil
+        freeInkArticulationDragAnchor.isHidden = anchor == nil
+        guard let anchor else { return }
+        let center = drag.center
+        let segment = CGRect(x: min(center.x, anchor.x), y: min(center.y, anchor.y),
+            width: abs(center.x - anchor.x), height: abs(center.y - anchor.y))
+        let padding = freeInkArticulationDragGuide.lineWidth
+        let frame = segment.insetBy(dx: -padding, dy: -padding)
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: center.x - frame.minX, y: center.y - frame.minY))
+        path.addLine(to: CGPoint(x: anchor.x - frame.minX, y: anchor.y - frame.minY))
+        freeInkArticulationDragGuide.frame = frame
+        freeInkArticulationDragGuide.path = path
+        freeInkArticulationDragAnchor.position = anchor
     }
 
     private func commonInit() {
@@ -2592,6 +2635,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         freeInkArticulationDeleteButton.addTarget(self,
             action: #selector(deleteSelectedFreeInkArticulation), for: .touchUpInside)
         addSubview(freeInkArticulationDeleteButton)
+        freeInkArticulationDragOverlay.name = "free-ink-articulation-drag"
+        freeInkArticulationDragGuide.name = "guide"
+        freeInkArticulationDragAnchor.name = "anchor"
+        freeInkArticulationDragGlyph.name = "glyph"
+        freeInkArticulationDragOverlay.addSublayer(freeInkArticulationDragGuide)
+        freeInkArticulationDragOverlay.addSublayer(freeInkArticulationDragAnchor)
+        freeInkArticulationDragOverlay.addSublayer(freeInkArticulationDragGlyph)
 
         updateInteractionMode()
         NotificationCenter.default.addObserver(
@@ -5991,11 +6041,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         guard let hit = freeInkArticulationHit(at: point) else { return false }
         let pageInkBounds = savedPageInkCanvasView.isHidden ? [] :
             savedPageInkCanvasView.drawing.strokes.map { convert($0.renderBounds, from: savedPageInkCanvasView) }
-        freeInkArticulationDrag = FreeInkArticulationDrag(chartID: chart.id,
+        let drag = FreeInkArticulationDrag(chartID: chart.id,
             mark: hit.mark, target: hit.target, startPoint: point, pageInkBounds: pageInkBounds)
+        freeInkArticulationDrag = drag
         selectFreeInkArticulation(hit.mark.id)
         refreshFreeInkArticulationDeleteButton()
         lockParentScrollForChordMove()
+        prepareFreeInkArticulationDragOverlay(for: drag)
+        setNeedsDisplay()
         return true
     }
 
@@ -6003,11 +6056,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     func updateFreeInkArticulationDrag(to point: CGPoint) -> FreeInkArticulationPlacement.AttachmentMatch? {
         guard var drag = freeInkArticulationDrag, let pageLayout else { return nil }
         drag.translation = CGPoint(x: point.x - drag.startPoint.x, y: point.y - drag.startPoint.y)
-        let nearbyInk = measureInkBounds(near: drag.center, in: pageLayout, cache: &drag.measureInkBounds)
-        drag.attachment = FreeInkArticulationPlacement.attachment(near: drag.center, chart: chart,
-            pageLayout: pageLayout, staffInkBounds: drag.pageInkBounds + nearbyInk, retaining: drag.attachment)
+        if drag.attachment?.retains(at: drag.center) != true {
+            let nearbyInk = measureInkBounds(near: drag.center, in: pageLayout, cache: &drag.measureInkBounds)
+            drag.attachment = FreeInkArticulationPlacement.attachment(near: drag.center, chart: chart,
+                pageLayout: pageLayout, staffInkBounds: drag.pageInkBounds + nearbyInk)
+        }
         freeInkArticulationDrag = drag
-        setNeedsDisplay()
+        // Keep the chart backing clean during the pan. Only the glyph and guide move.
+        updateFreeInkArticulationDragOverlay(for: drag)
         return drag.attachment
     }
 
@@ -6023,6 +6079,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     func cancelFreeInkArticulationDrag() {
         guard freeInkArticulationDrag != nil else { return }
         freeInkArticulationDrag = nil
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        freeInkArticulationDragOverlay.removeFromSuperlayer()
+        freeInkArticulationDragGlyph.contents = nil
+        CATransaction.commit()
         unlockParentScrollForChordMove()
         refreshFreeInkArticulationDeleteButton()
         setNeedsDisplay()

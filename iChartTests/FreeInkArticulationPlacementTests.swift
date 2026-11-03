@@ -181,6 +181,7 @@ final class FreeInkArticulationPlacementTests: XCTestCase {
         ))
         XCTAssertEqual(acquired.attachment, .chord(id: first.id))
         let overlap = CGPoint(x: first.frame.maxX + 0.65 * space, y: first.frame.midY)
+        XCTAssertTrue(acquired.retains(at: overlap))
         XCTAssertEqual(FreeInkArticulationPlacement.attachment(
             near: overlap, chart: chart, pageLayout: layout
         )?.attachment, .chord(id: second.id))
@@ -189,6 +190,7 @@ final class FreeInkArticulationPlacementTests: XCTestCase {
         ), acquired)
 
         let beyondFirst = CGPoint(x: first.frame.maxX + 1.1 * space, y: first.frame.midY)
+        XCTAssertFalse(acquired.retains(at: beyondFirst))
         XCTAssertEqual(FreeInkArticulationPlacement.attachment(
             near: beyondFirst, chart: chart, pageLayout: layout, retaining: acquired
         )?.attachment, .chord(id: second.id))
@@ -217,6 +219,7 @@ final class FreeInkArticulationPlacementTests: XCTestCase {
         XCTAssertEqual(hit.guidePoint, CGPoint(x: stroke.midX, y: stroke.minY))
         let secondStroke = stroke.offsetBy(dx: 9, dy: 0)
         let secondPoint = CGPoint(x: secondStroke.midX, y: point.y)
+        XCTAssertTrue(hit.retains(at: secondPoint))
         XCTAssertEqual(FreeInkArticulationPlacement.attachment(
             near: secondPoint, chart: chart, pageLayout: layout, staffInkBounds: [stroke, secondStroke]
         )?.guidePoint, CGPoint(x: secondStroke.midX, y: secondStroke.minY))
@@ -224,10 +227,17 @@ final class FreeInkArticulationPlacementTests: XCTestCase {
             near: secondPoint, chart: chart, pageLayout: layout,
             staffInkBounds: [stroke, secondStroke], retaining: hit
         ), hit)
+        let away = CGPoint(x: staff.midX, y: staff.minY - 30)
+        XCTAssertFalse(hit.retains(at: away))
         XCTAssertNil(FreeInkArticulationPlacement.attachment(
-            near: CGPoint(x: staff.midX, y: staff.minY - 30), chart: chart, pageLayout: layout,
+            near: away, chart: chart, pageLayout: layout,
             staffInkBounds: [stroke, secondStroke], retaining: hit
         ))
+        let staffCenter = CGPoint(x: staff.midX, y: staff.midY)
+        let bareStaff = try XCTUnwrap(FreeInkArticulationPlacement.attachment(
+            near: staffCenter, chart: chart, pageLayout: layout
+        ))
+        XCTAssertFalse(bareStaff.retains(at: staffCenter))
     }
 
     func testLastConversionRetainsSavedPaperWidthAndRemainingInkTakesPrecedence() throws {

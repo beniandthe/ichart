@@ -7,6 +7,16 @@ enum FreeInkArticulationPlacement {
         let measureID: UUID
         let attachment: FreeInkArticulationAttachment
         let guidePoint: CGPoint
+        fileprivate let retentionFrame: CGRect?
+
+        /// Valid for the layout and ink snapshot that produced this match.
+        func retains(at point: CGPoint) -> Bool {
+            retentionFrame?.contains(point) == true
+        }
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.measureID == rhs.measureID && lhs.attachment == rhs.attachment && lhs.guidePoint == rhs.guidePoint
+        }
     }
 
     struct Target: Equatable {
@@ -49,9 +59,8 @@ enum FreeInkArticulationPlacement {
         staffInkBounds: [CGRect] = [],
         retaining previous: AttachmentMatch? = nil
     ) -> AttachmentMatch? {
-        guard chart.layoutStyle == .rhythmSectionSheet,
-              let pagePoint = pagePoint(at: point, pageLayout: pageLayout),
-              let page = pageLayout.pages.first(where: { $0.index == pagePoint.pageIndex }) else { return nil }
+        guard chart.layoutStyle == .rhythmSectionSheet, point.x.isFinite, point.y.isFinite,
+              let page = pageLayout.pages.first(where: { $0.frame.contains(point) }) else { return nil }
 
         // Test actual engraving geometry before considering the bare staff.
         // A broad measure or chord band alone does not claim a mark.
@@ -59,14 +68,17 @@ enum FreeInkArticulationPlacement {
         var nearest: (match: AttachmentMatch, distance: CGFloat)?
         var staffMatches: [AttachmentMatch] = []
         for system in pageLayout.systems where page.systemIDs.contains(system.id) {
-            guard let spacing = staffSpace(in: system),
-                  system.frame.insetBy(dx: -spacing, dy: -1.5 * spacing).contains(point) else { continue }
+            guard let spacing = staffSpace(in: system) else { continue }
+            let systemHitFrame = system.frame.insetBy(dx: -spacing, dy: -1.5 * spacing).intersection(page.frame)
+            guard systemHitFrame.contains(point) else { continue }
             for layout in system.measures {
                 guard let measureID = layout.sourceMeasureID, let measure = chart.measure(id: measureID) else { continue }
                 func consider(_ attachment: FreeInkArticulationAttachment, in frame: CGRect) {
-                    guard frame.insetBy(dx: -spacing, dy: -1.5 * spacing).contains(point) else { return }
+                    let hitFrame = frame.insetBy(dx: -spacing, dy: -1.5 * spacing)
+                    guard hitFrame.contains(point) else { return }
                     let match = AttachmentMatch(measureID: measureID, attachment: attachment,
-                        guidePoint: CGPoint(x: frame.midX, y: frame.minY))
+                        guidePoint: CGPoint(x: frame.midX, y: frame.minY),
+                        retentionFrame: hitFrame.intersection(systemHitFrame))
                     if previous?.measureID == measureID, previous?.attachment == attachment {
                         retained = match
                     }
@@ -78,36 +90,49 @@ enum FreeInkArticulationPlacement {
                 for chord in layout.chordLayouts {
                     consider(.chord(id: chord.id), in: chord.frame)
                 }
-                for (position, note) in attachableNotes(measure: measure, layout: layout, chart: chart) {
-                    consider(.note(beat: position.beat, subdivision: position.subdivision),
-                             in: note.noteheadFrame)
+                if layout.noteLayouts.contains(where: {
+                    $0.noteheadFrame.insetBy(dx: -spacing, dy: -1.5 * spacing).contains(point)
+                }) {
+                    for (position, note) in attachableNotes(measure: measure, layout: layout, chart: chart) {
+                        consider(.note(beat: position.beat, subdivision: position.subdivision),
+                                 in: note.noteheadFrame)
+                    }
                 }
 
                 let staff = layout.staffFrame
                 guard staff.width > 0, staff.height > 0,
                       point.x >= staff.minX, point.x < staff.maxX else { continue }
-                let nearbyStrokes = staffInkBounds.filter { bounds in
-                    staff.insetBy(dx: 0, dy: -spacing).intersects(bounds)
-                        && bounds.insetBy(dx: -spacing, dy: -spacing).contains(point)
-                }
-                func staffMatch(placing center: CGPoint, guidePoint: CGPoint) -> AttachmentMatch {
+                let staffInkFrame = staff.insetBy(dx: 0, dy: -spacing)
+                let staffHitFrame = CGRect(x: staff.minX, y: systemHitFrame.minY,
+                    width: staff.width, height: systemHitFrame.height).intersection(systemHitFrame)
+                func staffMatch(placing center: CGPoint, guidePoint: CGPoint, retentionFrame: CGRect? = nil)
+                    -> AttachmentMatch {
                     AttachmentMatch(measureID: measureID,
                         attachment: .staff(xFraction: (center.x - staff.minX) / staff.width,
                                            yFraction: (center.y - staff.minY) / staff.height),
-                        guidePoint: guidePoint)
+                        guidePoint: guidePoint, retentionFrame: retentionFrame)
                 }
-                func strokeMatch(_ bounds: CGRect) -> AttachmentMatch {
+                func strokeMatch(_ bounds: CGRect, hitFrame: CGRect) -> AttachmentMatch {
                     let x = min(max(bounds.midX, staff.minX), staff.maxX)
                     return staffMatch(placing: CGPoint(x: x, y: bounds.minY - 0.6 * spacing),
-                        guidePoint: CGPoint(x: x, y: bounds.minY))
+                        guidePoint: CGPoint(x: x, y: bounds.minY), retentionFrame: hitFrame.intersection(staffHitFrame))
                 }
-                if let previous, let match = nearbyStrokes.lazy.map(strokeMatch).first(where: { $0 == previous }) {
-                    retained = match
+                var nearestStroke: (bounds: CGRect, hitFrame: CGRect, distance: CGFloat)?
+                for bounds in staffInkBounds {
+                    let hitFrame = bounds.insetBy(dx: -spacing, dy: -spacing)
+                    guard hitFrame.contains(point), staffInkFrame.intersects(bounds) else { continue }
+                    if let previous, previous.measureID == measureID,
+                       case .staff = previous.attachment {
+                        let match = strokeMatch(bounds, hitFrame: hitFrame)
+                        if match == previous { retained = match }
+                    }
+                    let distance = hypot(bounds.midX - point.x, bounds.midY - point.y)
+                    if nearestStroke.map({ distance < $0.distance }) ?? true {
+                        nearestStroke = (bounds, hitFrame, distance)
+                    }
                 }
-                if let nearbyStroke = nearbyStrokes.min(by: { lhs, rhs in
-                    hypot(lhs.midX - point.x, lhs.midY - point.y) < hypot(rhs.midX - point.x, rhs.midY - point.y)
-                }) {
-                    staffMatches.append(strokeMatch(nearbyStroke))
+                if let nearestStroke {
+                    staffMatches.append(strokeMatch(nearestStroke.bounds, hitFrame: nearestStroke.hitFrame))
                 } else if staff.contains(point) {
                     let line = system.staffLineYPositions.min { abs($0 - point.y) < abs($1 - point.y) } ?? point.y
                     staffMatches.append(staffMatch(placing: point, guidePoint: CGPoint(x: point.x, y: line)))
