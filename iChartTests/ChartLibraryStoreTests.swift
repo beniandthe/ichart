@@ -1140,6 +1140,63 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertEqual(updatedChart.cloudBackupStatus.intent, .included)
     }
 
+    func testDelayedEditorInkWriteUsesChartIDAfterLibraryReorders() throws {
+        let repository = RecordingChartRepository()
+        let editing = Chart.blank(title: "Open editor")
+        let other = Chart.blank(title: "Other chart")
+        let store = ChartLibraryStore(
+            charts: [other, editing], selectedChartID: editing.id, repository: repository
+        )
+        let binding = try XCTUnwrap(store.editorBinding(for: editing.id))
+        var pendingEdit = binding.wrappedValue
+        pendingEdit.pageHandwrittenNotationData = Data([1, 2, 3])
+        var reordered = store.snapshot
+        reordered.charts = [editing, other]
+        store.applySyncedSnapshot(reordered)
+
+        XCTAssertEqual(binding.wrappedValue.id, editing.id)
+        binding.wrappedValue = pendingEdit
+
+        XCTAssertEqual(store.charts, [pendingEdit, other])
+        XCTAssertEqual(repository.savedSnapshots.last?.charts, [pendingEdit, other])
+    }
+
+    func testDelayedEditorWriteCannotReplaceAnotherChartAfterDeletion() throws {
+        let repository = RecordingChartRepository()
+        let editing = Chart.blank(title: "Open editor")
+        let other = Chart.blank(title: "Other chart")
+        let store = ChartLibraryStore(
+            charts: [editing, other], selectedChartID: editing.id, repository: repository
+        )
+        let binding = try XCTUnwrap(store.editorBinding(for: editing.id))
+        XCTAssertTrue(store.deleteChart(id: editing.id))
+        let saveCount = repository.saveAttemptCount
+
+        binding.wrappedValue = editing
+
+        XCTAssertEqual(store.charts, [other])
+        XCTAssertEqual(repository.saveAttemptCount, saveCount)
+    }
+
+    func testCloudBackupAcknowledgmentSkipsDuplicateChartIDs() {
+        let duplicate = Chart.blank(title: "Duplicate")
+        var conflicting = duplicate
+        conflicting.pageHandwrittenNotationData = Data([1, 2, 3])
+        let valid = Chart.blank(title: "Valid")
+        let store = ChartLibraryStore(charts: [duplicate, conflicting, valid])
+        let ownerID = UUID()
+
+        store.markChartsBackedUpToCloud(
+            chartIDs: [duplicate.id, valid.id],
+            ownerID: ownerID,
+            backedUpAt: Date(),
+            from: store.snapshot
+        )
+
+        XCTAssertEqual(Array(store.charts.prefix(2)), [duplicate, conflicting])
+        XCTAssertEqual(store.charts.last?.cloudBackupStatus.ownerID, ownerID)
+    }
+
     func testGuardedSyncedSnapshotAppliesWhenLocalLibraryIsUnchanged() throws {
         let repository = RecordingChartRepository()
         let localChart = Chart.blank(title: "Local Chart")

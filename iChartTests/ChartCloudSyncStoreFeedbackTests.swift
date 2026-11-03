@@ -186,6 +186,43 @@ final class ChartCloudSyncStoreFeedbackTests: XCTestCase {
         XCTAssertEqual(library.charts.count, 1)
     }
 
+    func testDuplicateLocalChartIDsBlockBackupAndRestoreWithoutChangingCharts() async {
+        let (store, library, service) = await configuredStore()
+        var duplicate = library.charts[0]
+        duplicate.title = "Distinct chart contents under a duplicate ID"
+        duplicate.cloudBackupStatus = .legacyLocal
+        library.charts.append(duplicate)
+        let corruptedSnapshot = library.snapshot
+
+        store.backUpNow()
+        XCTAssertEqual(store.lastFailure, ChartCloudSyncFailure(
+            operation: .backup, stage: .validatingLocalCharts, category: .invalidLocalLibrary
+        ))
+        XCTAssertEqual(library.snapshot, corruptedSnapshot)
+
+        store.restoreChartsFromCloud()
+        XCTAssertEqual(store.lastFailure, ChartCloudSyncFailure(
+            operation: .restore, stage: .validatingLocalCharts, category: .invalidLocalLibrary
+        ))
+        XCTAssertNil(store.lastRestoreResult)
+
+        let rejected = expectation(description: "Automatic backup rejected the conflicting chart IDs")
+        let observer = store.$lastFailure.compactMap { $0 }
+            .filter { $0.operation == .backup && $0.category == .invalidLocalLibrary }
+            .first().sink { _ in rejected.fulfill() }
+        library.onSnapshotSaved?(corruptedSnapshot)
+        await fulfillment(of: [rejected], timeout: operationCompletionTimeout)
+        observer.cancel()
+
+        let pushCount = await service.pushCount
+        let restoreCount = await service.restoreCount
+        XCTAssertEqual(pushCount, 1) // Initial valid signed-in backup only.
+        XCTAssertEqual(restoreCount, 0)
+        XCTAssertNil(store.progress)
+        XCTAssertFalse(store.isWorking)
+        XCTAssertEqual(library.snapshot, corruptedSnapshot)
+    }
+
     func testSDKClassificationUsesTypedEvidenceAndKeepsSessionPreparationStage() {
         let permission = ChartCloudSyncStore.failureFeedback(for: PostgrestError(code: "42501", message: "JWT 401"), operation: .backup)
         XCTAssertEqual(permission.category, .permissionDenied)
@@ -221,6 +258,7 @@ final class ChartCloudSyncStoreFeedbackTests: XCTestCase {
 private actor FeedbackCloudService: ChartCloudSyncServicing {
     let ownerID: UUID
     private(set) var pushCount = 0
+    private(set) var restoreCount = 0
     private var holdsRestore = false
     private var continuation: CheckedContinuation<Void, Never>?
     private var extraCharts: [Chart] = []
@@ -242,6 +280,7 @@ private actor FeedbackCloudService: ChartCloudSyncServicing {
     func setRestoreError(_ error: Error) { restoreError = error }
 
     func restoreFromCloud(localSnapshot: ChartLibrarySnapshot, onProgress: ChartCloudSyncProgressHandler?) async throws -> ChartCloudRestoreOutcome {
+        restoreCount += 1
         await onProgress?(.readingSnapshots)
         if holdsRestore { await withCheckedContinuation { continuation = $0 } }
         if let restoreError { throw restoreError }

@@ -32,7 +32,7 @@ struct AppRootView: View {
                                 systemImage: "lock.doc",
                                 description: Text("Remove local charts until the library has 3 Basic charts, or restore Pro to keep editing.")
                             )
-                        } else if let chart = chartBinding(for: chartID) {
+                        } else if let chart = store.editorBinding(for: chartID) {
                             EditorView(chart: chart, initialCanvasMode: initialCanvasMode) {
                                 store.selectedChartID = nil
                                 projectPath.removeAll()
@@ -193,14 +193,6 @@ struct AppRootView: View {
                 ]
             )
         }
-    }
-
-    private func chartBinding(for chartID: Chart.ID) -> Binding<Chart>? {
-        guard let index = store.charts.firstIndex(where: { $0.id == chartID }) else {
-            return nil
-        }
-
-        return $store.charts[index]
     }
 }
 
