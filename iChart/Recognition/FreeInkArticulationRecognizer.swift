@@ -62,22 +62,64 @@ enum FreeInkArticulationRecognizer {
             if isFermata(arc: arc, arcBounds: arcBounds, dotBounds: dotBounds) {
                 return .fermata
             }
-            return isAccent(first[...], second[...]) ? .accent : nil
+            return unambiguousChevron(accent: isAccent(first[...], second[...]),
+                marcato: isMarcato(first[...], second[...]))
         }
 
-        guard let tip = first.indices.max(by: { first[$0].x < first[$1].x }),
-              tip > first.startIndex, tip < first.index(before: first.endIndex) else {
-            return nil
+        let accent = isSingleStrokeAccent(first)
+        let marcato: Bool
+        if let apex = first.indices.min(by: { first[$0].y < first[$1].y }),
+           apex > first.startIndex, apex < first.index(before: first.endIndex) {
+            marcato = isMarcato(first[...apex], first[apex...])
+        } else {
+            marcato = false
         }
-        let beforeTip = first[...tip]
-        let afterTip = first[tip...]
+        return unambiguousChevron(accent: accent, marcato: marcato)
+    }
+
+    private static func unambiguousChevron(accent: Bool, marcato: Bool) -> FreeInkArticulationKind? {
+        switch (accent, marcato) {
+        case (true, false): return .accent
+        case (false, true): return .marcato
+        default: return nil
+        }
+    }
+
+    private static func isSingleStrokeAccent(_ points: [InkPoint]) -> Bool {
+        guard let tip = points.indices.max(by: { points[$0].x < points[$1].x }),
+              tip > points.startIndex, tip < points.index(before: points.endIndex) else { return false }
+        let beforeTip = points[...tip]
+        let afterTip = points[tip...]
         if isAccent(beforeTip, afterTip) {
-            return .accent
+            return true
         }
-        let bounds = InkBounds.enclosing(first)
+        let bounds = InkBounds.enclosing(points)
         let reversedAfterTip = Array(afterTip.reversed())[...]
         return hasAccentWithRetracedLeadIn(beforeTip, reversedAfterTip, bounds: bounds)
-            || hasAccentWithRetracedLeadIn(reversedAfterTip, beforeTip, bounds: bounds) ? .accent : nil
+            || hasAccentWithRetracedLeadIn(reversedAfterTip, beforeTip, bounds: bounds)
+    }
+
+    private static func isMarcato(_ first: ArraySlice<InkPoint>, _ second: ArraySlice<InkPoint>) -> Bool {
+        guard let firstLeg = straightLeg(first), let secondLeg = straightLeg(second) else { return false }
+        let bounds = InkBounds.enclosing(Array(first) + Array(second))
+        let width = bounds.width
+        let height = bounds.height
+        guard width.isFinite, height.isFinite, height > 0, (0.65...1.9).contains(width / height) else {
+            return false
+        }
+
+        // Require two straight, opposite slopes whose low ends spread out
+        // from one centered high tip. A rounded arch or slanted mark stays ink.
+        let (left, right) = firstLeg.left.x < secondLeg.left.x ? (firstLeg, secondLeg) : (secondLeg, firstLeg)
+        let leftTip = left.right
+        let rightTip = right.left
+        let tipXRange = (bounds.minX + 0.34 * width)...(bounds.maxX - 0.34 * width)
+        return left.left.x <= bounds.minX + 0.12 * width
+            && right.right.x >= bounds.maxX - 0.12 * width
+            && min(left.left.y, right.right.y) >= bounds.maxY - 0.16 * height
+            && max(leftTip.y, rightTip.y) <= bounds.minY + 0.15 * height
+            && tipXRange.contains(leftTip.x) && tipXRange.contains(rightTip.x)
+            && hypot(leftTip.x - rightTip.x, leftTip.y - rightTip.y) <= 0.12 * min(width, height)
     }
 
     private static func isFermata(arc: [InkPoint], arcBounds: InkBounds, dotBounds: InkBounds) -> Bool {

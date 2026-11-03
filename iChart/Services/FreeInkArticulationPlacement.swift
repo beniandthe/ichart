@@ -57,6 +57,8 @@ enum FreeInkArticulationPlacement {
         chart: Chart,
         pageLayout: LeadSheetPageLayout,
         staffInkBounds: [CGRect] = [],
+        allowsBareStaff: Bool = true,
+        staffInkVerticalAllowance: CGFloat = 0,
         retaining previous: AttachmentMatch? = nil
     ) -> AttachmentMatch? {
         guard chart.layoutStyle == .rhythmSectionSheet, point.x.isFinite, point.y.isFinite,
@@ -119,7 +121,8 @@ enum FreeInkArticulationPlacement {
                 }
                 var nearestStroke: (bounds: CGRect, hitFrame: CGRect, distance: CGFloat)?
                 for bounds in staffInkBounds {
-                    let hitFrame = bounds.insetBy(dx: -spacing, dy: -spacing)
+                    let hitFrame = bounds.insetBy(dx: -spacing,
+                        dy: -spacing - min(spacing, staffInkVerticalAllowance))
                     guard hitFrame.contains(point), staffInkFrame.intersects(bounds) else { continue }
                     if let previous, previous.measureID == measureID,
                        case .staff = previous.attachment {
@@ -133,7 +136,7 @@ enum FreeInkArticulationPlacement {
                 }
                 if let nearestStroke {
                     staffMatches.append(strokeMatch(nearestStroke.bounds, hitFrame: nearestStroke.hitFrame))
-                } else if staff.contains(point) {
+                } else if allowsBareStaff, staff.contains(point) {
                     let line = system.staffLineYPositions.min { abs($0 - point.y) < abs($1 - point.y) } ?? point.y
                     staffMatches.append(staffMatch(placing: point, guidePoint: CGPoint(x: point.x, y: line)))
                 }

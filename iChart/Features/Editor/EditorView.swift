@@ -2018,7 +2018,7 @@ struct EditorView: View {
                             presentFreeInkArticulationMessage("Couldn’t bring back the deleted mark.")
                         }
                     }
-                    .accessibilityHint("Bring back the last deleted fermata or accent")
+                    .accessibilityHint("Bring back the last deleted converted mark")
                 }
                 selectedRenderedEditLabel
 

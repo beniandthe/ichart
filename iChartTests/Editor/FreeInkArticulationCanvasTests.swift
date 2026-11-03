@@ -262,6 +262,123 @@ final class FreeInkArticulationCanvasTests: XCTestCase {
         XCTAssertEqual(view.chart.freeInkArticulations, [second])
     }
 
+    func testMarcatoRequiresAnAnchorToConvertAndCanFloatAfterDragging() async throws {
+        let pageSize = CGSize(width: 1_200, height: 1_200)
+        var chart = Chart.draft(title: "Marcato anchor", layoutStyle: .rhythmSectionSheet)
+        chart.completeInitialSetup(title: chart.title, key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine, startingMeasureCount: 4)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        XCTAssertTrue(chart.appendRecognizedChord(
+            ChordSymbol(root: .c, accidental: .natural, quality: "", extensions: [], alterations: [], slashBass: nil),
+            rawInput: "C", to: measureID, atFraction: 0.4
+        ))
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize)
+        let measure = try XCTUnwrap(layout.systems.first?.measures.first)
+        let chord = try XCTUnwrap(measure.chordLayouts.first)
+        let pageFrame = LeadSheetActiveInkScope.pageWritingFrame(for: layout)
+        let floatingPoint = CGPoint(x: chord.frame.midX, y: chord.frame.minY - 72)
+        let chordPoint = CGPoint(x: chord.frame.midX, y: chord.frame.minY - 4)
+        let inkMeasure = try XCTUnwrap(layout.systems.first?.measures.dropFirst().first)
+        let staff = inkMeasure.staffFrame
+        let staffPoint = CGPoint(x: staff.midX, y: staff.minY + 4)
+        let staffInk = stroke([
+            CGPoint(x: staff.midX - pageFrame.minX, y: staff.minY + 20 - pageFrame.minY),
+            CGPoint(x: staff.midX - pageFrame.minX, y: staff.minY + 29 - pageFrame.minY)
+        ], seed: 20)
+
+        func marcato(near center: CGPoint, seed: UInt32) -> PKStroke {
+            let x = center.x - pageFrame.minX
+            let y = center.y - pageFrame.minY
+            return stroke([CGPoint(x: x - 12, y: y + 7), CGPoint(x: x - 6, y: y),
+                CGPoint(x: x, y: y - 7), CGPoint(x: x + 6, y: y), CGPoint(x: x + 12, y: y + 7)],
+                seed: seed)
+        }
+        let floating = marcato(near: floatingPoint, seed: 21)
+        let anchored = marcato(near: chordPoint, seed: 22)
+        let aboveStaffInk = marcato(near: staffPoint, seed: 23)
+        XCTAssertEqual(FreeInkArticulationSourceInk.automaticCandidate(
+            in: PKDrawing(strokes: [floating]), firstNewStrokeIndex: 0)?.kind, .marcato)
+
+        let view = LeadSheetCanvasUIKitView(frame: CGRect(origin: .zero, size: pageSize))
+        view.chart = chart
+        view.interactionMode = .freeHand
+        let controller = UIViewController()
+        controller.view = view
+        let window = UIWindow(frame: view.frame)
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        view.layoutIfNeeded()
+        let authoring = try XCTUnwrap(view.subviews.compactMap { $0 as? PKCanvasView }.last)
+
+        func write(_ strokes: [PKStroke]) {
+            view.canvasViewDidBeginUsingTool(authoring)
+            authoring.drawing = PKDrawing(strokes: strokes)
+            view.canvasViewDrawingDidChange(authoring)
+            view.canvasViewDidEndUsingTool(authoring)
+        }
+
+        let unexpectedConversion = expectation(description: "Open-space marcato should remain ink")
+        unexpectedConversion.isInverted = true
+        view.onFreeInkArticulationWillSave = { unexpectedConversion.fulfill() }
+        write([staffInk, floating])
+        await fulfillment(of: [unexpectedConversion], timeout: 1.15)
+        XCTAssertTrue(view.chart.freeInkArticulations.isEmpty)
+        assertStrokes(authoring.drawing, equalTo: [staffInk, floating])
+
+        let conversion = expectation(description: "Marcato attaches to the chord")
+        view.onFreeInkArticulationWillSave = nil
+        view.onChartChanged = { chart in
+            if !chart.freeInkArticulations.isEmpty { conversion.fulfill() }
+        }
+        write([staffInk, floating, anchored])
+        await fulfillment(of: [conversion], timeout: 4)
+        let mark = try XCTUnwrap(view.chart.freeInkArticulations.first)
+        XCTAssertEqual(mark.kind, .marcato)
+        XCTAssertEqual(mark.attachment, .chord(id: chord.id))
+        assertStrokes(try PKDrawing(data: mark.sourceInkData), equalTo: [anchored])
+        assertStrokes(try PKDrawing(data: XCTUnwrap(view.chart.pageHandwrittenNotationData)),
+            equalTo: [staffInk, floating])
+
+        let inkConversion = expectation(description: "Marcato attaches to existing staff ink")
+        view.onChartChanged = { chart in
+            if chart.freeInkArticulations.count == 2 { inkConversion.fulfill() }
+        }
+        write([staffInk, floating, aboveStaffInk])
+        await fulfillment(of: [inkConversion], timeout: 4)
+        view.onChartChanged = nil
+        let inkMark = try XCTUnwrap(view.chart.freeInkArticulations.last)
+        XCTAssertEqual(inkMark.kind, .marcato)
+        XCTAssertEqual(inkMark.measureID, inkMeasure.sourceMeasureID)
+        guard case .staff = inkMark.attachment else { return XCTFail("Expected staff ink attachment") }
+        assertStrokes(try PKDrawing(data: inkMark.sourceInkData), equalTo: [aboveStaffInk])
+        assertStrokes(try PKDrawing(data: XCTUnwrap(view.chart.pageHandwrittenNotationData)),
+            equalTo: [staffInk, floating])
+
+        view.interactionMode = .browse
+        view.layoutIfNeeded()
+        let target = try XCTUnwrap(FreeInkArticulationPlacement.target(for: mark, chart: view.chart, pageLayout: layout))
+        XCTAssertTrue(view.handleFreeInkArticulationTap(at: target.center))
+        XCTAssertTrue(view.beginFreeInkArticulationDrag(at: target.center))
+        XCTAssertNil(view.updateFreeInkArticulationDrag(to: floatingPoint))
+        XCTAssertTrue(view.endFreeInkArticulationDrag(at: floatingPoint))
+        let floated = try XCTUnwrap(view.chart.freeInkArticulations.first)
+        XCTAssertNil(floated.attachment)
+        XCTAssertEqual(floated.sourceInkData, mark.sourceInkData)
+
+        XCTAssertTrue(view.beginFreeInkArticulationDrag(at: floatingPoint))
+        XCTAssertEqual(view.updateFreeInkArticulationDrag(to: chordPoint)?.attachment, .chord(id: chord.id))
+        XCTAssertTrue(view.endFreeInkArticulationDrag(at: chordPoint))
+        XCTAssertEqual(view.chart.freeInkArticulations.first?.attachment, .chord(id: chord.id))
+
+        let saved = ChartLibrarySnapshot(charts: [view.chart], selectedChartID: view.chart.id, entitlements: .free)
+        let compatibilityFixture = XCTAttachment(data: try ChartPersistenceCoders.encoder.encode(saved),
+            uniformTypeIdentifier: "public.json")
+        compatibilityFixture.name = "marcato-legacy-open"
+        compatibilityFixture.lifetime = .keepAlways
+        add(compatibilityFixture)
+    }
+
     private func accent(at origin: CGPoint, seed: UInt32) -> PKStroke {
         let offsets: [(CGFloat, CGFloat)] = [(0, 0), (12, 3.3), (24, 7), (13, 10.4), (0, 14)]
         return stroke(offsets.map { CGPoint(x: origin.x + $0.0, y: origin.y + $0.1) }, seed: seed)

@@ -342,10 +342,10 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Tap Done to leave the current tool and return to Select.",
                 "You can switch directly between Write & Render, Free Ink, Measures, and Tools without returning to Select first.",
                 "Tap a chord, barline, text label, marker, or measure to show its buttons.",
-                "On a Rhythm Section Sheet, tap a converted fermata or accent to select it. Drag to move it or tap the red X to delete it.",
+                "On a Rhythm Section Sheet, tap a converted mark to select it. Drag to move it or tap the red X to delete it.",
                 "While you drag, a line points to the nearby chord, rhythm note, or staff ink the mark can attach to. Release to attach when the line is visible.",
                 "Drag out of range and the line disappears. Release in open space to leave the mark floating.",
-                "Tap Undo Delete to bring back the last deleted fermata or accent.",
+                "Tap Undo Delete to bring back the last deleted converted mark.",
                 "Use the buttons to correct, move, resize, delete, or clean up what you selected."
             ]
         ),
@@ -360,7 +360,7 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Turn on Manual Render with Preview in app Settings to check the small preview text before tapping Render Chords or Review & Render.",
                 "On a Simple Chord Sheet or Rhythm Section Sheet, draw a tall, nearly vertical barline in the highlighted lane with space on either side.",
                 "On a Rhythm Section Sheet, a handwritten barline can split an open measure. Use Measures for committed measures. If a barline cannot be placed, the draft stays on the page so you can erase or redraw the mark.",
-                "If a converted fermata or accent blocks a split, use Restore Ink in Free Ink first.",
+                "If a converted mark blocks a split, use Restore Ink in Free Ink first.",
                 "Draw repeat bars with two dots on the right to start a repeat, on the left to end one, or on both sides to end one repeat and start another.",
                 "Complete each start repeat with an end repeat. If an end repeat has no matching start, Render asks whether to repeat from the beginning.",
                 "When review opens, correct the chord text or choose a suggestion before rendering. Erasing just that writing and rewriting it is another option."
@@ -423,7 +423,8 @@ private struct IChartHelpArticleSection: Identifiable {
             bullets: [
                 "Use it for handwritten rhythm notes and reminders.",
                 "On a Rhythm Section Sheet, draw a fermata or accent anywhere on the page. Lift the Pencil and pause. iChart converts clear marks into notation and leaves unclear marks as handwriting.",
-                "A converted mark attaches above a nearby chord, rhythm note, or staff ink. In open space, it stays where you drew it. Use Select to move or delete a converted mark.",
+                "Draw a marcato (^) near a chord, rhythm note, or staff ink, then lift the Pencil and pause. In open space, the caret stays handwritten.",
+                "A converted mark attaches above a nearby chord, rhythm note, or staff ink. Fermatas and accents drawn in open space stay where you drew them. Use Select to move or delete a converted mark.",
                 "Use Restore Ink to bring the handwriting back, including before splitting, joining, or deleting a measure that holds the mark or its original writing.",
                 "Switch directly to another tool, or tap Done to return to Select."
             ]

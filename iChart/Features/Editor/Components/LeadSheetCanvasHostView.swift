@@ -8893,9 +8893,16 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         guard let pagePoint = FreeInkArticulationPlacement.pagePoint(at: center, pageLayout: pageLayout) else { return }
         let pageInkBounds = candidate.remaining.strokes.map { convert($0.renderBounds, from: pageInkCanvasView) }
         var measureInkCache: [UUID: [CGRect]] = [:]
+        let requiresConcreteAnchor = candidate.kind == .marcato
+        // Measure the reach of a caret from its drawn edge so nearby staff ink can
+        // be an anchor while the recognizer's stroke-ownership clearance still holds.
         let attachment = FreeInkArticulationPlacement.attachment(near: center, chart: chart,
             pageLayout: pageLayout, staffInkBounds: pageInkBounds
-                + measureInkBounds(near: center, in: pageLayout, cache: &measureInkCache))
+                + measureInkBounds(near: center, in: pageLayout, cache: &measureInkCache),
+            allowsBareStaff: !requiresConcreteAnchor,
+            staffInkVerticalAllowance: requiresConcreteAnchor ? bounds.height / 2 : 0)
+        // A caret needs musical context before its handwritten strokes can be consumed.
+        guard !requiresConcreteAnchor || attachment != nil else { return }
         var sourceSpace = input.coordinateSpace
         sourceSpace.measureAnchors = attachment.flatMap { attached in
             input.coordinateSpace.measureAnchors?.first { $0.measureID == attached.measureID }.map { [$0] }

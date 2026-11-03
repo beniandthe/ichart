@@ -32,6 +32,44 @@ final class FreeInkArticulationRecognizerTests: XCTestCase {
         }
     }
 
+    func testMarcatoAcceptsAnUprightCaretWithOneOrTwoStrokes() {
+        let caret = [(0.0, 14.0), (4.5, 7), (9, 0), (13.5, 6.5), (18, 13.4)]
+        let left = [(0.0, 14.0), (4.5, 7), (8.7, 0)]
+        let right = [(9.5, 0.6), (14, 6.8), (18, 13.4)]
+
+        for points in [caret, Array(caret.reversed())] {
+            let candidate = FreeInkArticulationRecognizer.automaticCandidate(
+                in: [stroke(points)], eligibleStrokeIndices: [0]
+            )
+            XCTAssertEqual(candidate?.kind, .marcato)
+            XCTAssertEqual(candidate?.indices, [0])
+        }
+        for pair in [[left, Array(right.reversed())], [right, Array(left.reversed())]] {
+            let candidate = FreeInkArticulationRecognizer.automaticCandidate(
+                in: [stroke(pair[0], creationTimeOffset: 1, duration: 0.2),
+                     stroke(pair[1], creationTimeOffset: 1.35, duration: 0.2)],
+                eligibleStrokeIndices: [0, 1]
+            )
+            XCTAssertEqual(candidate?.kind, .marcato)
+            XCTAssertEqual(candidate?.indices, [0, 1])
+        }
+    }
+
+    func testMarcatoAbstainsOnAnAmbiguousCaretOrNearbyWriting() {
+        let caret = stroke([(0, 14), (4.5, 7), (9, 0), (13.5, 6.5), (18, 13.4)])
+        let dot = stroke([(9, 9)])
+        let crossbar = stroke([(4, 9), (14, 9)])
+        let inverted = stroke([(0, 0), (4.5, 7), (9, 14), (13.5, 7.5), (18, 0)])
+        let wideGap = [stroke([(0, 14), (7, 0)]), stroke([(11, 0), (18, 14)])]
+        XCTAssertNil(FreeInkArticulationRecognizer.recognize(wideGap))
+        XCTAssertNil(FreeInkArticulationRecognizer.recognize([inverted]))
+        for strokes in [[caret, dot], [dot, caret], [crossbar, caret], [caret, crossbar]] {
+            XCTAssertNil(FreeInkArticulationRecognizer.automaticCandidate(
+                in: strokes, eligibleStrokeIndices: [0, 1]
+            ))
+        }
+    }
+
     func testRejectsPartialMarksAndAmbiguousSelections() {
         let arch = stroke([(0, 11), (3, 6), (7, 2), (12, 0), (18, 1.5), (23, 5.3), (26, 10)])
         let caret = stroke([(0, 11), (6, 5.5), (12, 0), (19, 5.5), (26, 11)])

@@ -145,7 +145,7 @@ enum EditorCanvasMode: Hashable {
         switch self {
         case .browse:
             if layoutStyle == .rhythmSectionSheet && hasFreeInkArticulations {
-                return "Tap an item for actions. Double-tap a chord to correct it. Tap a fermata or accent, then drag to move it. Release to attach when the line is visible. Tap its red X to delete."
+                return "Tap an item for actions. Double-tap a chord to correct it. Tap a converted mark, then drag to move it. Release to attach when the line is visible. Tap its red X to delete."
             }
             return "Tap a measure, chord, or cue to see its actions. Double-tap a chord to correct it."
         case .measureEdit:
@@ -175,7 +175,7 @@ enum EditorCanvasMode: Hashable {
             return "Tap a rendered rhythm note to see its editing actions."
         case .freeHand:
             if layoutStyle == .rhythmSectionSheet {
-                return "Draw a fermata or accent anywhere on the page. Lift the Pencil and pause to convert it."
+                return "Draw a fermata or accent anywhere, or a marcato (^) near a chord, note, or staff ink. Lift the Pencil and pause to convert."
             }
             return "Write or erase notes and marks that stay as handwriting."
         case .textEdit:

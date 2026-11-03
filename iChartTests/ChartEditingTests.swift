@@ -2394,20 +2394,25 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(floating.pagePoint, destination)
     }
 
+    private struct PreMarcatoArticulationRecord: Codable {
+        enum Kind: String, Codable { case fermata, accent }
+
+        var id: UUID
+        var kind: Kind
+        var measureID: UUID
+        var beatIndex: Int
+        var sourceInkData: Data
+        var sourceCoordinateSpace: PersistentInkCoordinateSpace?
+        var attachment: FreeInkArticulationAttachment?
+        var pagePoint: FreeInkArticulationPagePoint?
+        var sourcePagePoint: FreeInkArticulationPagePoint?
+    }
+
+    private struct PreMarcatoChartRecord: Decodable {
+        var freeInkArticulations: [PreMarcatoArticulationRecord]
+    }
+
     func testFreeInkArticulationChartRemainsReadableByLegacyDecoder() throws {
-        struct LegacyChart: Decodable {
-            struct Articulation: Decodable {
-                var id: UUID
-                var kind: FreeInkArticulationKind
-                var measureID: UUID
-                var beatIndex: Int
-                var sourceInkData: Data
-                var sourceCoordinateSpace: PersistentInkCoordinateSpace?
-            }
-
-            var freeInkArticulations: [Articulation]
-        }
-
         var chart = Chart.blank(title: "Legacy Reader", measureCount: 2, layoutStyle: .rhythmSectionSheet)
         let measureID = chart.measures[1].id
         let point = FreeInkArticulationPagePoint(pageIndex: 0, x: 100, y: 210)
@@ -2430,7 +2435,7 @@ final class ChartEditingTests: XCTestCase {
         )
         chart.freeInkArticulations = [attached, floating]
 
-        let oldChart = try JSONDecoder().decode(LegacyChart.self, from: JSONEncoder().encode(chart))
+        let oldChart = try JSONDecoder().decode(PreMarcatoChartRecord.self, from: JSONEncoder().encode(chart))
         XCTAssertEqual(oldChart.freeInkArticulations.map(\.id), [attached.id, floating.id])
         XCTAssertEqual(oldChart.freeInkArticulations.map(\.kind), [.accent, .fermata])
         XCTAssertEqual(oldChart.freeInkArticulations.map(\.sourceInkData), [Data([1]), Data([2])])
@@ -2447,6 +2452,61 @@ final class ChartEditingTests: XCTestCase {
         interimPayload.removeValue(forKey: "beatIndex")
         let interimData = try JSONSerialization.data(withJSONObject: interimPayload)
         XCTAssertEqual(try JSONDecoder().decode(FreeInkArticulation.self, from: interimData), floating)
+    }
+
+    func testFreeInkArticulationMarcatoArchiveSurvivesLegacySave() throws {
+        var chart = Chart.blank(title: "Marcato", measureCount: 2, layoutStyle: .rhythmSectionSheet)
+        let source = FreeInkArticulationPagePoint(pageIndex: 0, x: 100, y: 210)
+        let destination = FreeInkArticulationPagePoint(pageIndex: 1, x: 310, y: 420)
+        let sourceSpace = PersistentInkCoordinateSpace(width: 720, height: 1024)
+        let mark = FreeInkArticulation(
+            kind: .marcato,
+            measureID: chart.measures[1].id,
+            sourceInkData: Data([4, 3, 2, 1]),
+            sourceCoordinateSpace: sourceSpace,
+            attachment: .chord(id: UUID()),
+            pagePoint: destination,
+            sourcePagePoint: source
+        )
+        chart.freeInkArticulations = [mark]
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+        let encoded = try encoder.encode(chart)
+        let reopened = try decoder.decode(Chart.self, from: encoded)
+        XCTAssertEqual(reopened.freeInkArticulations, [mark])
+
+        // Builds 112–116 accept only the two original kinds. A recognized
+        // legacy record must have no visible placement and retain the archive.
+        let legacyChart = try decoder.decode(PreMarcatoChartRecord.self, from: encoded)
+        var legacy = try XCTUnwrap(legacyChart.freeInkArticulations.first)
+        XCTAssertEqual(legacy.kind, .accent)
+        XCTAssertEqual(legacy.measureID.uuidString, "00000000-0000-0000-0000-000000000000")
+        XCTAssertEqual(legacy.beatIndex, -2)
+        XCTAssertNil(legacy.attachment)
+        XCTAssertNil(legacy.pagePoint)
+        XCTAssertEqual(legacy.sourceInkData, mark.sourceInkData)
+        XCTAssertEqual(legacy.sourceCoordinateSpace, sourceSpace)
+        XCTAssertEqual(legacy.sourcePagePoint, source)
+
+        let afterBuild116 = try decoder.decode(FreeInkArticulation.self, from: encoder.encode(legacy))
+        XCTAssertEqual(afterBuild116, FreeInkArticulation(
+            id: mark.id,
+            kind: .marcato,
+            sourceInkData: mark.sourceInkData,
+            sourceCoordinateSpace: sourceSpace,
+            pagePoint: source,
+            sourcePagePoint: source
+        ))
+
+        // Build 112 also predates the source page point.
+        legacy.sourcePagePoint = nil
+        let afterBuild112 = try decoder.decode(FreeInkArticulation.self, from: encoder.encode(legacy))
+        XCTAssertEqual(afterBuild112, FreeInkArticulation(
+            id: mark.id,
+            kind: .marcato,
+            sourceInkData: mark.sourceInkData,
+            sourceCoordinateSpace: sourceSpace
+        ))
     }
 
     func testFreeInkArticulationProtectsBothAnchorsAndFollowsSystemReflow() throws {

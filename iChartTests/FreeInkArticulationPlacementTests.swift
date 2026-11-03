@@ -119,7 +119,8 @@ final class FreeInkArticulationPlacementTests: XCTestCase {
         let measure = try XCTUnwrap(layout.systems.flatMap(\.measures).first { $0.sourceMeasureID == measureID })
         let chord = try XCTUnwrap(measure.chordLayouts.first)
         let chordHit = try XCTUnwrap(FreeInkArticulationPlacement.attachment(
-            near: CGPoint(x: chord.frame.midX, y: chord.frame.midY), chart: chart, pageLayout: layout
+            near: CGPoint(x: chord.frame.midX, y: chord.frame.midY), chart: chart, pageLayout: layout,
+            allowsBareStaff: false
         ))
         XCTAssertEqual(chordHit.measureID, measureID)
         XCTAssertEqual(chordHit.attachment, .chord(id: chord.id))
@@ -127,7 +128,8 @@ final class FreeInkArticulationPlacementTests: XCTestCase {
 
         let note = try XCTUnwrap(measure.noteLayouts.dropFirst().first)
         let noteHit = try XCTUnwrap(FreeInkArticulationPlacement.attachment(
-            near: CGPoint(x: note.noteheadFrame.midX, y: note.noteheadFrame.midY), chart: chart, pageLayout: layout
+            near: CGPoint(x: note.noteheadFrame.midX, y: note.noteheadFrame.midY), chart: chart, pageLayout: layout,
+            allowsBareStaff: false
         ))
         XCTAssertEqual(noteHit.measureID, measureID)
         XCTAssertEqual(noteHit.attachment, .note(beat: 2, subdivision: 0))
@@ -210,7 +212,7 @@ final class FreeInkArticulationPlacementTests: XCTestCase {
         XCTAssertNil(FreeInkArticulationPlacement.attachment(near: point, chart: chart, pageLayout: layout))
         let stroke = CGRect(x: staff.midX - 3, y: staff.minY + 1, width: 6, height: 8)
         let hit = try XCTUnwrap(FreeInkArticulationPlacement.attachment(
-            near: point, chart: chart, pageLayout: layout, staffInkBounds: [stroke]
+            near: point, chart: chart, pageLayout: layout, staffInkBounds: [stroke], allowsBareStaff: false
         ))
         XCTAssertEqual(hit.measureID, measure.sourceMeasureID)
         guard case .staff(let x, let y) = hit.attachment else { return XCTFail("Expected a staff attachment") }
@@ -238,6 +240,9 @@ final class FreeInkArticulationPlacementTests: XCTestCase {
             near: staffCenter, chart: chart, pageLayout: layout
         ))
         XCTAssertFalse(bareStaff.retains(at: staffCenter))
+        XCTAssertNil(FreeInkArticulationPlacement.attachment(
+            near: staffCenter, chart: chart, pageLayout: layout, allowsBareStaff: false
+        ))
     }
 
     func testLastConversionRetainsSavedPaperWidthAndRemainingInkTakesPrecedence() throws {
@@ -277,7 +282,7 @@ final class FreeInkArticulationPlacementTests: XCTestCase {
         let measureID = try XCTUnwrap(chart.measures.first?.id)
         let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart,
             pageSize: CGSize(width: LeadSheetFreeInkDocumentLayoutPolicy.portraitCanvasWidth, height: 1_100))
-        var targets = try [1, 2].map { beat in
+        var targets = try [1, 2, 3].map { beat in
             try XCTUnwrap(FreeInkArticulationPlacement.target(
                 measureID: measureID, beatIndex: beat, chart: chart, pageLayout: layout
             ))
@@ -286,7 +291,8 @@ final class FreeInkArticulationPlacementTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let exporter = PDFChartExporter(exportDirectory: directory)
         let baseline = try await renderedPage(for: chart, exporter: exporter)
-        chart.freeInkArticulations = zip([FreeInkArticulationKind.fermata, .accent], targets).map { kind, target in
+        let attachedKinds: [FreeInkArticulationKind] = [.fermata, .accent, .marcato]
+        chart.freeInkArticulations = zip(attachedKinds, targets).map { kind, target in
             FreeInkArticulation(kind: kind, measureID: measureID, beatIndex: target.beatIndex,
                                 sourceInkData: Data([0x01]), sourceCoordinateSpace: nil)
         }

@@ -1003,6 +1003,7 @@ struct LeadSheetNotationRenderer {
         switch kind {
         case .fermata: symbol = target.isBelowStaff ? .fermataBelow : .fermataAbove
         case .accent: symbol = target.isBelowStaff ? .accentBelow : .accentAbove
+        case .marcato: symbol = target.isBelowStaff ? .marcatoBelow : .marcatoAbove
         }
         var displayStaffSpace = target.staffSpace * 0.72
         if let box = style.glyphMetrics(for: symbol)?.boundingBox, box.width > 0, box.height > 0 {
