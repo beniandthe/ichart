@@ -536,6 +536,7 @@ struct ChordInkBatchConfirmationSheetView: View {
     let onRewriteChord: ((PendingChordInkConfirmation) -> Void)?
     let onEntryTextsChanged: (([UUID: String]) -> Void)?
     let initialFocusedConfirmationID: UUID?
+    @Binding private var renderError: String?
     @State private var candidateTextByID: [UUID: String]
     // UIKit reports focus through its delegate, not a SwiftUI .focused modifier.
     @State private var focusedConfirmationID: UUID?
@@ -552,7 +553,8 @@ struct ChordInkBatchConfirmationSheetView: View {
         onRewriteChord: ((PendingChordInkConfirmation) -> Void)? = nil,
         initialEntryTextsByID: [UUID: String] = [:],
         initialFocusedConfirmationID: UUID? = nil,
-        onEntryTextsChanged: (([UUID: String]) -> Void)? = nil
+        onEntryTextsChanged: (([UUID: String]) -> Void)? = nil,
+        renderError: Binding<String?> = .constant(nil)
     ) {
         self.batch = batch
         self.highlightsForwardActions = highlightsForwardActions
@@ -562,6 +564,7 @@ struct ChordInkBatchConfirmationSheetView: View {
         self.onRewriteChord = onRewriteChord
         self.onEntryTextsChanged = onEntryTextsChanged
         self.initialFocusedConfirmationID = initialFocusedConfirmationID
+        _renderError = renderError
         _focusedConfirmationID = State(initialValue: initialFocusedConfirmationID)
         _keyboardScrollConfirmationID = State(initialValue: initialFocusedConfirmationID)
         _candidateTextByID = State(
@@ -606,6 +609,7 @@ struct ChordInkBatchConfirmationSheetView: View {
                         HStack(spacing: 10) {
                             if let onBackToInk {
                                 ChordInkReviewButton(title: "Back to Writing", isRequiredForKeyboardTelemetry: true) {
+                                    onEntryTextsChanged?(candidateTextByID)
                                     focusedConfirmationID = nil
                                     onBackToInk()
                                 }
@@ -618,6 +622,7 @@ struct ChordInkBatchConfirmationSheetView: View {
                                 isEnabled: canRenderAll,
                                 isRequiredForKeyboardTelemetry: true
                             ) {
+                                onEntryTextsChanged?(candidateTextByID)
                                 focusedConfirmationID = nil
                                 onAcceptAll(trimmedCandidateTextByID)
                             }
@@ -684,12 +689,24 @@ struct ChordInkBatchConfirmationSheetView: View {
         .onChange(of: candidateTextByID) { _, entries in
             onEntryTextsChanged?(entries)
         }
+        .alert("Write & Render", isPresented: isRenderErrorPresented, presenting: renderError) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { error in
+            Text(error)
+        }
         .confirmationDialog("Rewrite all chord ink?", isPresented: $confirmsRewriteAll, titleVisibility: .visible) {
             Button("Rewrite All Ink", role: .destructive) { onClearAndRewrite() }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This clears all pending chord ink. Use Rewrite This Chord to keep the rest of your writing.")
         }
+    }
+
+    private var isRenderErrorPresented: Binding<Bool> {
+        Binding(
+            get: { renderError != nil },
+            set: { if !$0 { renderError = nil } }
+        )
     }
 
     private var trimmedCandidateTextByID: [UUID: String] {

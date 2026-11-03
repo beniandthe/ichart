@@ -14,6 +14,55 @@ final class ChordInkReviewSnapshotDiagnosticTests: XCTestCase {
         try await exerciseReplacement(dismissBeforeReplacement: false)
     }
 
+    func testRejectedRenderShowsErrorInReviewAndKeepsTypedEntry() async throws {
+        let state = ReviewPresentationState()
+        let rejected = "The repeat signs could not be placed. Your ink is still on the page."
+        state.submissionError = rejected
+        let host = UIHostingController(rootView: ReviewPresentationHarness(state: state))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 820, height: 1180))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            state.batch = nil
+            window.isHidden = true
+        }
+        host.view.layoutIfNeeded()
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        let currentBatch = batch(texts: ["C", ""])
+        state.batch = currentBatch
+        let original = try await waitForMountedReview(in: host, window: window, expectedTexts: ["C", ""])
+        let field = try XCTUnwrap(original.fields.first { ($0.text ?? "").isEmpty })
+        field.text = "Eb7"
+        field.sendActions(for: .editingChanged)
+        let review = try await waitForMountedReview(in: host, window: window, expectedTexts: ["C", "Eb7"])
+        let render = try XCTUnwrap(descendants(review.view).compactMap { $0 as? PencilOnlyUIButton }
+            .first { $0.accessibilityLabel == "Render All" })
+        XCTAssertTrue(render.isEnabled)
+        render.sendActions(for: .touchUpInside)
+
+        try await waitUntil {
+            let alert = host.presentedViewController?.presentedViewController as? UIAlertController
+            return alert?.message == rejected
+        }
+        XCTAssertEqual(state.accepted.last?.entries[currentBatch.confirmations[1].id], "Eb7")
+        XCTAssertEqual(state.batch?.id, currentBatch.id)
+        XCTAssertEqual(state.clearCount, 0)
+
+        state.renderError = nil
+        try await waitUntil { host.presentedViewController?.presentedViewController == nil }
+        let restored = try await waitForMountedReview(in: host, window: window, expectedTexts: ["C", "Eb7"])
+        let back = try XCTUnwrap(descendants(restored.view).compactMap { $0 as? PencilOnlyUIButton }
+            .first { $0.accessibilityLabel == "Back to Writing" })
+        back.sendActions(for: .touchUpInside)
+        try await waitUntil { host.presentedViewController == nil }
+
+        let reopenedBatch = batch(texts: ["C", ""])
+        XCTAssertNotEqual(reopenedBatch.confirmations[1].id, currentBatch.confirmations[1].id)
+        state.batch = reopenedBatch
+        _ = try await waitForMountedReview(in: host, window: window, expectedTexts: ["C", "Eb7"])
+    }
+
     func testEveryPreviewUpdateModeAndReviewCombinationUsesTheSameSuspensionRule() {
         let modes: [EditorCanvasMode] = [.browse, .measureEdit, .repeatEdit, .timeSignatureEdit,
             .rhythmicNotationEdit, .headerEntry, .chordEntry, .noteEdit, .freeHand, .textEdit]
@@ -137,7 +186,7 @@ final class ChordInkReviewSnapshotDiagnosticTests: XCTestCase {
                 match: ChordRecognitionCompendium.match(text), confidence: 1)
             let decision = ChordInkRecognitionPolicy.decision(for: result)
             return PendingChordInkConfirmation(measureID: UUID(), measureIndex: index, result: result,
-                drawingData: Data([UInt8(index + 1)]), targetFraction: 0,
+                drawingData: Data([UInt8(index + 1)] + text.utf8), targetFraction: 0,
                 primaryDecision: decision, decision: decision)
         }
         return PendingChordInkBatchConfirmation(confirmations: confirmations)
@@ -213,6 +262,9 @@ final class ChordInkReviewSnapshotDiagnosticTests: XCTestCase {
 private final class ReviewPresentationState: ObservableObject {
     @Published var batch: PendingChordInkBatchConfirmation?
     @Published var refreshCount = 0
+    @Published var renderError: String?
+    var submissionError: String?
+    var entriesByInk: [Data: String] = [:]
     var processedRefreshCount = 0
     var accepted: [(batchID: UUID, entries: [UUID: String])] = []
     var clearCount = 0
@@ -228,9 +280,21 @@ private struct ReviewPresentationHarness: View {
             }
             .sheet(item: $state.batch) { batch in
                 ChordInkBatchConfirmationSheetView(batch: batch,
-                    onAcceptAll: { state.accepted.append((batch.id, $0)) },
+                    onAcceptAll: {
+                        state.accepted.append((batch.id, $0))
+                        state.renderError = state.submissionError
+                    },
                     onClearAndRewrite: { state.clearCount += 1 },
-                    onBackToInk: { state.batch = nil })
+                    onBackToInk: { state.batch = nil },
+                    initialEntryTextsByID: Dictionary(uniqueKeysWithValues: batch.confirmations.compactMap { confirmation in
+                        state.entriesByInk[confirmation.drawingData].map { (confirmation.id, $0) }
+                    }),
+                    onEntryTextsChanged: { entries in
+                        for confirmation in batch.confirmations {
+                            state.entriesByInk[confirmation.drawingData] = entries[confirmation.id]
+                        }
+                    },
+                    renderError: $state.renderError)
                     .id(batch.id)
             }
     }

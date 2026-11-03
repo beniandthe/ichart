@@ -2421,7 +2421,9 @@ extension Chart {
                 guard barline.kind.isRepeat else { return true }
                 let placement = ChordInkRepeatSignCommitPolicy.boundaryPlacement(
                     fraction: barline.fraction,
-                    sourceWidth: sourceGeometry?.fractionFrame.width ?? 1_000
+                    sourceWidth: sourceGeometry?.fractionFrame.width ?? 1_000,
+                    repeatBarWidth: barline.metrics.width,
+                    edgeTolerance: layoutStyle == .rhythmSectionSheet ? 9 : 6
                 )
                 if placement == .interior { return true }
                 endpointRepeats.append((barline, placement))

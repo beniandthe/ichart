@@ -143,6 +143,7 @@ enum ChordDraftRepeatSignRecognizer {
             for: centerLine, chordFrame: chordFrame, pageLayout: pageLayout
         ) else { return nil }
         draft.kind = left.isEmpty ? .repeatStart : (right.isEmpty ? .repeatEnd : .repeatBoth)
+        draft.metrics.width = bounds.width
         draft.sourceStrokeIndex = anchor.index
         draft.sourceStrokeIndices = members
         draft.sourceStrokeGeometry = members.sorted().map { strokes[$0] }

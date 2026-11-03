@@ -452,6 +452,7 @@ struct EditorView: View {
     @State private var chordInkAutomaticRewriteFailures = ChordInkAutomaticRewriteFailureTracker()
     @State private var chordInkErrorMessage = ""
     @State private var showingChordInkError = false
+    @State private var chordBatchReviewError: String?
     @State private var pendingChordDraftClearChartID: UUID?
     @State private var pendingChordDraftRepeatConfirmation: PendingChordDraftRepeatConfirmation?
     @State private var pendingChordDraftEndingReview: PendingChordDraftEndingReview?
@@ -740,7 +741,8 @@ struct EditorView: View {
                             chordReviewEntriesByInk[confirmation.drawingData] = text
                         }
                     }
-                }
+                },
+                renderError: $chordBatchReviewError
             )
             .id(batch.id)
         }
@@ -5305,15 +5307,13 @@ struct EditorView: View {
         workflowProperties: IChartTelemetryProperties = [:]
     ) -> Bool {
         guard ChordDraftEndingReviewPolicy.firstEndingNeedingReview(chart: chart, state: state) == nil else {
-            chordInkErrorMessage = "An ending label or measure range needs review. Review the bracket to choose its measures. Your ink has not been erased."
-            showingChordInkError = true
+            presentChordRenderError("An ending label or measure range needs review. Review the bracket to choose its measures. Your ink has not been erased.")
             return false
         }
         guard ChordInkRepeatSignPairingPolicy.review(state: state).canRender else {
             LeadSheetInkFeatureContract.recordRenderGuard(chart: chart, reason: "render_repeat_review_required")
-            chordInkErrorMessage = ChordDraftRepeatReviewPolicy.blockingMessage(for: state)
-                ?? "An end repeat still needs confirmation. Keep the ink and tap Render again to review it. Nothing was rendered or erased."
-            showingChordInkError = true
+            presentChordRenderError(ChordDraftRepeatReviewPolicy.blockingMessage(for: state)
+                ?? "An end repeat still needs confirmation. Keep the ink and tap Render again to review it. Nothing was rendered or erased.")
             return false
         }
 
@@ -5333,8 +5333,7 @@ struct EditorView: View {
                 let reason = attempt.feedback.globalReason
                     ?? state.draftChords.compactMap { attempt.feedback.reasonsByDraftID[$0.id] }.first
                     ?? .placementUnavailable
-                chordInkErrorMessage = reason.userMessage + " Your ink is still on the page. Use Rewrite This Chord, or return to writing and move it with more room."
-                showingChordInkError = true
+                presentChordRenderError(reason.userMessage + " Your ink is still on the page. Use Rewrite This Chord, or return to writing and move it with more room.")
                 return false
             }
             preparedOutcome = .init(chart: automaticOutcome.chart, result: automaticOutcome.result)
@@ -5343,32 +5342,29 @@ struct EditorView: View {
             LeadSheetInkFeatureContract.recordRenderGuard(
                 chart: chart, reason: "render_canvas_unavailable", unavailable: true
             )
-            chordInkErrorMessage = "The chord canvas is not ready to render. Finish the current stroke and try again. Your ink has not been erased."
-            showingChordInkError = true
+            presentChordRenderError("The chord canvas is not ready to render. Finish the current stroke and try again. Your ink has not been erased.")
             return false
         }
         let renderResult = outcome.result
         let updatedChart = outcome.chart
         guard !renderResult.didRejectIncompleteSourceCoverage else {
-            chordInkErrorMessage = "Some current ink is missing from chord review or the preview is out of date. Nothing was rendered or erased. Review or rewrite that ink, then try again."
-            showingChordInkError = true
+            presentChordRenderError("Some current ink is missing from chord review or the preview is out of date. Nothing was rendered or erased. Review or rewrite that ink, then try again.")
             return false
         }
         guard renderResult.unresolvedDraftIDs.isEmpty else {
             let repeatIDs = Set(state.draftBarlines.filter { $0.kind.isRepeat }.map(\.id))
             let hasUnresolvedRepeat = !repeatIDs.isDisjoint(with: renderResult.unresolvedDraftIDs)
             let hasUnresolvedEnding = !Set(state.draftEndings.map(\.id)).isDisjoint(with: renderResult.unresolvedDraftIDs)
-            chordInkErrorMessage = hasUnresolvedEnding
+            let message = hasUnresolvedEnding
                 ? "An ending could not be placed. Review its measure range and check whether that ending is already on the chart. Nothing was rendered or erased."
                 : hasUnresolvedRepeat
                 ? "These repeat signs could not be placed. Check their measure boundaries and whether that repeat is already on the chart. Nothing was rendered or erased."
                 : "One or more reviewed chords could not be rendered. The draft ink is still available."
-            showingChordInkError = true
+            presentChordRenderError(message)
             return false
         }
         guard renderResult.renderedChordCount > 0 || renderResult.renderedBarlineCount > 0 || renderResult.renderedEndingCount > 0 else {
-            chordInkErrorMessage = "No draft notation was ready to render yet."
-            showingChordInkError = true
+            presentChordRenderError("No draft notation was ready to render yet.")
             return false
         }
 
@@ -5403,6 +5399,17 @@ struct EditorView: View {
         chordDraftRenderCoordinator.renderSessionReadyAt = nil
         resetAutomaticChordFeedback()
         return true
+    }
+
+    private func presentChordRenderError(_ message: String) {
+        // Present over the active review so the user can read the error and
+        // keep their current entries in place.
+        if pendingChordInkBatchConfirmation != nil {
+            chordBatchReviewError = message
+        } else {
+            chordInkErrorMessage = message
+            showingChordInkError = true
+        }
     }
 
     private var isChordDraftRepeatConfirmationPresented: Binding<Bool> {
@@ -5721,9 +5728,8 @@ struct EditorView: View {
             reviewedState = state
         case .failure(let reason):
             recordChordReviewRejection(reason, batch: batch, entryTexts: candidateTextByID)
-            chordInkErrorMessage = reason.recoveryMessage
-                + " Nothing was rendered or erased. Diagnostic: \(reason.rawValue)."
-            showingChordInkError = true
+            presentChordRenderError(reason.recoveryMessage
+                + " Nothing was rendered or erased. Diagnostic: \(reason.rawValue).")
             return false
         }
 
@@ -5989,8 +5995,7 @@ struct EditorView: View {
         }
 
         guard acceptedCandidates.count == batch.confirmations.count else {
-            chordInkErrorMessage = "One or more chord candidates are not supported yet. Edit the text and try again."
-            showingChordInkError = true
+            presentChordRenderError("One or more chord candidates are not supported yet. Edit the text and try again.")
             IChartTelemetry.record(
                 "chord.recognition_failed",
                 properties: [
@@ -6018,8 +6023,7 @@ struct EditorView: View {
                     from: confirmation.candidateTexts
                 )
             ) else {
-                chordInkErrorMessage = "One of those measures is no longer available. Keep the ink and try again."
-                showingChordInkError = true
+                presentChordRenderError("One of those measures is no longer available. Keep the ink and try again.")
                 IChartTelemetry.record(
                     "chord.recognition_failed",
                     properties: [
@@ -6492,6 +6496,7 @@ struct EditorView: View {
     }
 
     private func handleChordBatchReviewDismissed() {
+        chordBatchReviewError = nil
         automaticReviewFocusedDraftID = nil
         guard !manualRenderWithPreview, canvasMode == .chordEntry,
               pendingChordInkBatchConfirmation == nil, hasAutomaticSourceInk else { return }
@@ -6514,8 +6519,7 @@ struct EditorView: View {
         guard let draft = chordPreviewState.draftChords.first(where: { $0.id == confirmation.id }),
               draft.drawingData == confirmation.drawingData,
               let outcome = chordDraftRenderCoordinator.rewrite(chart: chart, state: chordPreviewState, draft: draft) else {
-            chordInkErrorMessage = "This chord's ink changed or shares a stroke with other ink. Nothing was erased. Return to ink and use the eraser on that chord."
-            showingChordInkError = true
+            presentChordRenderError("This chord's ink changed or shares a stroke with other ink. Nothing was erased. Return to ink and use the eraser on that chord.")
             return
         }
         chart = outcome.chart

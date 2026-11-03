@@ -69,6 +69,76 @@ final class ChordInkRepeatSignWorkflowTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testManualReviewRendersRhythmChordsAndRepeatNearExistingMeasureBoundary() throws {
+        var fixture = try workflowFixture(style: .rhythmSectionSheet, startingMeasureCount: 4)
+        let system = try XCTUnwrap(fixture.layout.systems.first)
+        let firstID = fixture.chart.measures[0].id
+        let secondID = fixture.chart.measures[1].id
+        let first = try XCTUnwrap(system.measures.first { $0.sourceMeasureID == firstID })
+        let second = try XCTUnwrap(system.measures.first { $0.sourceMeasureID == secondID })
+        XCTAssertEqual(fixture.chart.measures[1].authoringState, .committed)
+        let staffSpace = try XCTUnwrap(PersistentInkCoordinateSpace(
+            size: LeadSheetRhythmicNotationInkCapturePolicy.captureFrame(for: first).size
+        ))
+        let staffDrawing = PKDrawing(strokes: [
+            stroke(points: [CGPoint(x: 16, y: 36), CGPoint(x: 26, y: 36), CGPoint(x: 26, y: 14)])
+        ])
+        XCTAssertTrue(fixture.chart.setMeasureHandwrittenRhythmicNotationDrawing(
+            staffDrawing.dataRepresentation(), coordinateSpace: staffSpace, for: firstID
+        ))
+        let staffInk = try XCTUnwrap(fixture.chart.measure(id: firstID)?.handwrittenRhythmicNotationData)
+        let chordA = try rootStrokes(in: fixture, offset: first.staffFrame.midX - fixture.lane.minX)
+        let chordB = try rootStrokes(in: fixture, offset: second.staffFrame.midX - fixture.lane.minX)
+        let start = repeatStrokes(in: fixture, centerX: second.staffFrame.minX + 8, startsRepeat: true, barSeparation: 6)
+        let end = repeatStrokes(in: fixture, centerX: second.staffFrame.maxX - 11.5, startsRepeat: false, barSeparation: 8)
+        let drawing = PKDrawing(strokes: chordA + start + chordB + end)
+        let preparation = prepare(drawing, fixture: fixture)
+        XCTAssertEqual(preparation.barlines.map(\.kind), [.repeatStart, .repeatEnd])
+        guard case .ready(let requests, _) = preparation.outcome, requests.count == 2 else {
+            return XCTFail("Expected two chord targets separate from the recognized repeat signs: \(preparation.outcome)")
+        }
+        var state = previewState(preparation.barlines, pageSize: fixture.layout.pageBounds.size)
+        state.replaceDraftChords(with: try requests.enumerated().map { index, request in
+            let measure = try XCTUnwrap(fixture.chart.measure(id: request.target.measureID))
+            return ChordInkDraftInput(measureID: measure.id, measureIndex: measure.index,
+                targetFraction: request.target.fraction, visualOrder: request.visualOrder,
+                laneLocation: request.laneLocation, layoutPageSize: request.layoutPageSize,
+                drawingData: request.drawingData, candidateTexts: index == 0 ? [] : ["Bbø7"],
+                bestCandidateText: index == 0 ? nil : "Bbø7", confidence: index == 0 ? 0 : 4.6,
+                strokeCount: request.strokes.count)
+        })
+        XCTAssertEqual(state.unresolvedChordCount, 1)
+        XCTAssertEqual(state.draftChords.map(\.previewText), [nil, "Bbø7"])
+        let batch = try XCTUnwrap(ChordInkDraftReviewPolicy.batch(for: state))
+        let reviewed = try XCTUnwrap(ChordInkDraftReviewPolicy.reviewedState(from: state, batch: batch,
+            candidateTextByDraftID: [state.draftChords[0].id: "Cmaj7", state.draftChords[1].id: "Bbmaj7"]))
+        let outcome = ChordInkDraftRenderCoordinator.prepare(chart: fixture.chart, state: reviewed,
+            currentDrawing: drawing, coordinateSpace: nil)
+
+        XCTAssertFalse(outcome.result.didRejectIncompleteSourceCoverage)
+        XCTAssertTrue(outcome.canConsumeSource, "Unresolved drafts: \(outcome.result.unresolvedDraftIDs)")
+        XCTAssertEqual(outcome.result.renderedChordCount, 2)
+        XCTAssertEqual(outcome.result.renderedBarlineCount, 2)
+        XCTAssertEqual(outcome.chart.measures.map(\.id), fixture.chart.measures.map(\.id))
+        for (id, label, source) in [(firstID, "Cmaj7", chordA), (secondID, "Bbmaj7", chordB)] {
+            let chords = try XCTUnwrap(outcome.chart.measure(id: id)).chordEvents
+            XCTAssertEqual(chords.map(\.rawInput), [label])
+            let event = try XCTUnwrap(chords.first)
+            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+                expected: PKDrawing(strokes: source), current: try PKDrawing(data: XCTUnwrap(event.sourceInkData))))
+        }
+        XCTAssertEqual(outcome.chart.measure(id: firstID)?.handwrittenRhythmicNotationData, staffInk)
+        XCTAssertEqual(outcome.chart.measure(id: firstID)?.handwrittenRhythmicNotationCoordinateSpace, staffSpace)
+        let repeatSpan = try XCTUnwrap(outcome.chart.roadmapObjects.first { $0.type == .repeatSpan })
+        XCTAssertEqual(repeatSpan.startMeasureID, secondID)
+        XCTAssertEqual(repeatSpan.endMeasureID, secondID)
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+            expected: PKDrawing(strokes: start + end),
+            current: try PKDrawing(data: XCTUnwrap(repeatSpan.sourceInkData))))
+        XCTAssertNil(outcome.chart.pageHandwrittenChordData)
+    }
+
     func testTinyRepeatDotsArePromotedWithoutClaimingAnUnrelatedTinyMark() throws {
         let fixture = try workflowFixture()
         let unrelated = pointStroke(
@@ -291,38 +361,46 @@ final class ChordInkRepeatSignWorkflowTests: XCTestCase {
         var lane: CGRect
     }
 
-    private func workflowFixture(style: ChartLayoutStyle = .simpleChordSheet) throws -> Fixture {
+    private func workflowFixture(style: ChartLayoutStyle = .simpleChordSheet, startingMeasureCount: Int = 1) throws -> Fixture {
         var chart = Chart.draft(title: "Repeat source workflow", layoutStyle: style)
-        chart.completeInitialSetup(title: chart.title, key: .cMajor, meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine, startingMeasureCount: 1)
+        chart.completeInitialSetup(title: chart.title, key: .cMajor, meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine, startingMeasureCount: startingMeasureCount)
         let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: CGSize(width: 900, height: 1_400), includesChordInkContinuationLanes: true)
         let region = LeadSheetActiveInkScope.chordWritingRegion(for: layout)
         return Fixture(chart: chart, layout: layout, chordFrame: region.frame, lane: try XCTUnwrap(region.inputFrames.first))
     }
 
     private func repeatEndStrokes(in fixture: Fixture) -> [PKStroke] {
+        repeatStrokes(in: fixture, centerX: fixture.lane.minX + fixture.lane.width * 0.65, startsRepeat: false)
+    }
+
+    private func repeatStrokes(
+        in fixture: Fixture, centerX: CGFloat, startsRepeat: Bool, barSeparation: CGFloat? = nil
+    ) -> [PKStroke] {
         let lane = fixture.lane
         let origin = fixture.chordFrame.origin
-        let x = lane.minX + lane.width * 0.65 - origin.x
         let top = lane.minY + lane.height * 0.08 - origin.y
         let bottom = lane.maxY - lane.height * 0.08 - origin.y
         let centerY = lane.midY - origin.y
         let height = bottom - top
-        let separation = max(2, height * 0.12)
+        let separation = barSeparation ?? max(2, height * 0.12)
+        let x = centerX - origin.x - separation / 2
         let dotOffset = max(5, height * 0.20)
+        let dotX = startsRepeat ? x + separation + dotOffset : x - dotOffset
         let dotSeparation = height * 0.18
         return [
             stroke(points: [CGPoint(x: x, y: top), CGPoint(x: x, y: bottom)]),
             stroke(points: [CGPoint(x: x + separation, y: top), CGPoint(x: x + separation, y: bottom)]),
-            pointStroke(x: x - dotOffset, y: centerY - dotSeparation, size: 1.4),
-            pointStroke(x: x - dotOffset, y: centerY + dotSeparation, size: 1.4)
+            pointStroke(x: dotX, y: centerY - dotSeparation, size: 1.4),
+            pointStroke(x: dotX, y: centerY + dotSeparation, size: 1.4)
         ]
     }
 
-    private func rootStrokes(in fixture: Fixture) throws -> [PKStroke] {
+    private func rootStrokes(in fixture: Fixture, offset: CGFloat = 40) throws -> [PKStroke] {
         let template = try XCTUnwrap(ChordGlyphTemplateLibrary.initialTemplates.first { $0.text == "C" })
         return template.strokes.map { ink in
             stroke(points: ink.points.map { point in
-                CGPoint(x: fixture.lane.minX + 40 + CGFloat(point.x) * 0.72 - fixture.chordFrame.minX,
+                CGPoint(x: fixture.lane.minX + offset + CGFloat(point.x) * 0.72 - fixture.chordFrame.minX,
                         y: fixture.lane.midY + CGFloat(point.y - 36) * 0.72 - fixture.chordFrame.minY)
             })
         }

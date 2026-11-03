@@ -106,9 +106,13 @@ enum ChordInkRepeatSignCommitPolicy {
     }
 
     /// Endpoint marks use the existing boundary instead of creating a sliver
-    /// measure. The tolerance is in source-page points, not a global lane ratio.
-    static func boundaryPlacement(fraction: Double, sourceWidth: CGFloat) -> BoundaryPlacement {
-        let tolerance = min(0.15, 6 / max(1, Double(sourceWidth)))
+    /// measure. Measure from the repeat's vertical bars so the center of a
+    /// two-bar sign can sit farther from the existing boundary than its edge.
+    static func boundaryPlacement(
+        fraction: Double, sourceWidth: CGFloat, repeatBarWidth: Double = 0, edgeTolerance: Double = 6
+    ) -> BoundaryPlacement {
+        let edgeAllowance = edgeTolerance + repeatBarWidth / 2
+        let tolerance = min(0.15, edgeAllowance / max(1, Double(sourceWidth)))
         if fraction <= tolerance { return .leading }
         if fraction >= 1 - tolerance { return .trailing }
         return .interior
