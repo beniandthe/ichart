@@ -294,7 +294,14 @@ final class FreeInkArticulationCanvasTests: XCTestCase {
                 seed: seed)
         }
         let floating = marcato(near: floatingPoint, seed: 21)
-        let anchored = marcato(near: chordPoint, seed: 22)
+        // Start at the tip, retrace the left leg, then draw the longer right leg.
+        let retracedCaret: [(CGFloat, CGFloat)] = [
+            (0.24, -4.85), (-2.63, -1.51), (-4.43, 0.87), (-1.10, -3.15),
+            (-0.29, -4.79), (1.62, -0.87), (4.43, 4.85)
+        ]
+        let anchored = stroke(retracedCaret.map { x, y in
+            CGPoint(x: chordPoint.x - pageFrame.minX + x, y: chordPoint.y - pageFrame.minY + y)
+        }, seed: 22)
         let aboveStaffInk = marcato(near: staffPoint, seed: 23)
         XCTAssertEqual(FreeInkArticulationSourceInk.automaticCandidate(
             in: PKDrawing(strokes: [floating]), firstNewStrokeIndex: 0)?.kind, .marcato)

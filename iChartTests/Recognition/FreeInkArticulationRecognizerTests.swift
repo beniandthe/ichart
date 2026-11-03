@@ -70,6 +70,35 @@ final class FreeInkArticulationRecognizerTests: XCTestCase {
         }
     }
 
+    func testMarcatoAcceptsApexStartWithOneRetracedLeg() {
+        // Normalized centerline of the build 117 miss. The writer drew down
+        // the shorter leg, retraced to the tip, and drew the longer leg.
+        let points = [(4.67, 0.0), (3.77, 1.27), (2.76, 2.33), (0.90, 4.50), (0, 5.72),
+            (1.43, 4.13), (2.33, 2.81), (2.97, 1.69), (4.14, 0.05), (5.09, 1.38),
+            (5.57, 2.59), (6.05, 3.97), (6.47, 5.40), (7.58, 8.31), (8.86, 9.69)]
+        let mirrored = points.map { x, y in (8.86 - x, y) }
+        for motion in [points, Array(points.reversed()), mirrored, Array(mirrored.reversed())] {
+            let candidate = FreeInkArticulationRecognizer.automaticCandidate(
+                in: [stroke(motion)], eligibleStrokeIndices: [0]
+            )
+            XCTAssertEqual(candidate?.kind, .marcato)
+            XCTAssertEqual(candidate?.indices, [0])
+        }
+
+        let falseRetrace = [(6.8, 0.0), (4.3, 2.1), (2.1, 4.0)] + Array(points.dropFirst(4))
+        let sameSide = Array(points.prefix(9)) + [(3.2, 2.8), (2, 5.8), (1, 9.7)]
+        XCTAssertNil(FreeInkArticulationRecognizer.recognize([stroke(falseRetrace)]))
+        XCTAssertNil(FreeInkArticulationRecognizer.recognize([stroke(sameSide)]))
+
+        let caret = stroke(points)
+        let dot = stroke([(4.5, 6)])
+        for strokes in [[caret, dot], [dot, caret]] {
+            XCTAssertNil(FreeInkArticulationRecognizer.automaticCandidate(
+                in: strokes, eligibleStrokeIndices: [0, 1]
+            ))
+        }
+    }
+
     func testRejectsPartialMarksAndAmbiguousSelections() {
         let arch = stroke([(0, 11), (3, 6), (7, 2), (12, 0), (18, 1.5), (23, 5.3), (26, 10)])
         let caret = stroke([(0, 11), (6, 5.5), (12, 0), (19, 5.5), (26, 11)])

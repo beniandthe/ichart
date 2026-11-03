@@ -66,15 +66,8 @@ enum FreeInkArticulationRecognizer {
                 marcato: isMarcato(first[...], second[...]))
         }
 
-        let accent = isSingleStrokeAccent(first)
-        let marcato: Bool
-        if let apex = first.indices.min(by: { first[$0].y < first[$1].y }),
-           apex > first.startIndex, apex < first.index(before: first.endIndex) {
-            marcato = isMarcato(first[...apex], first[apex...])
-        } else {
-            marcato = false
-        }
-        return unambiguousChevron(accent: accent, marcato: marcato)
+        return unambiguousChevron(accent: isSingleStrokeAccent(first),
+            marcato: isSingleStrokeMarcato(first))
     }
 
     private static func unambiguousChevron(accent: Bool, marcato: Bool) -> FreeInkArticulationKind? {
@@ -99,7 +92,38 @@ enum FreeInkArticulationRecognizer {
             || hasAccentWithRetracedLeadIn(reversedAfterTip, beforeTip, bounds: bounds)
     }
 
-    private static func isMarcato(_ first: ArraySlice<InkPoint>, _ second: ArraySlice<InkPoint>) -> Bool {
+    private static func isSingleStrokeMarcato(_ points: [InkPoint]) -> Bool {
+        if let apex = points.indices.min(by: { points[$0].y < points[$1].y }),
+           apex > points.startIndex, apex < points.index(before: points.endIndex),
+           isMarcato(points[...apex], points[apex...]) {
+            return true
+        }
+        let bounds = InkBounds.enclosing(points)
+        return hasMarcatoWithRetracedLeg(points, bounds: bounds)
+            || hasMarcatoWithRetracedLeg(Array(points.reversed()), bounds: bounds)
+    }
+
+    private static func hasMarcatoWithRetracedLeg(_ points: [InkPoint], bounds: InkBounds) -> Bool {
+        guard points.count >= 4, let start = points.first, let end = points.last,
+              start.y <= bounds.minY + 0.15 * bounds.height else { return false }
+        let foot = end.x > start.x
+            ? points.indices.min(by: { points[$0].x < points[$1].x })
+            : points.indices.max(by: { points[$0].x < points[$1].x })
+        guard let foot, foot > points.startIndex, foot < points.index(before: points.endIndex),
+              let apex = points.indices[(foot + 1)...].min(by: { points[$0].y < points[$1].y }),
+              apex < points.index(before: points.endIndex),
+              hypot(start.x - points[apex].x, start.y - points[apex].y) <= 0.12 * min(bounds.width, bounds.height),
+              straightLeg(points[...foot]) != nil else { return false }
+
+        // A writer can start at the tip, draw down one leg, and retrace it
+        // before drawing down the other. Only this form allows uneven feet.
+        return isMarcato(points[foot...apex], points[apex...], minimumFootHeight: 0.55)
+    }
+
+    private static func isMarcato(
+        _ first: ArraySlice<InkPoint>, _ second: ArraySlice<InkPoint>,
+        minimumFootHeight: Double = 0.84
+    ) -> Bool {
         guard let firstLeg = straightLeg(first), let secondLeg = straightLeg(second) else { return false }
         let bounds = InkBounds.enclosing(Array(first) + Array(second))
         let width = bounds.width
@@ -116,7 +140,7 @@ enum FreeInkArticulationRecognizer {
         let tipXRange = (bounds.minX + 0.34 * width)...(bounds.maxX - 0.34 * width)
         return left.left.x <= bounds.minX + 0.12 * width
             && right.right.x >= bounds.maxX - 0.12 * width
-            && min(left.left.y, right.right.y) >= bounds.maxY - 0.16 * height
+            && min(left.left.y, right.right.y) >= bounds.minY + minimumFootHeight * height
             && max(leftTip.y, rightTip.y) <= bounds.minY + 0.15 * height
             && tipXRange.contains(leftTip.x) && tipXRange.contains(rightTip.x)
             && hypot(leftTip.x - rightTip.x, leftTip.y - rightTip.y) <= 0.12 * min(width, height)
