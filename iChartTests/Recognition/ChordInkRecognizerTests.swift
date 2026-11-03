@@ -852,6 +852,33 @@ final class ChordInkRecognizerTests: XCTestCase {
         XCTAssertFalse(Array(result.rawCandidates.prefix(8)).contains("Bb9b5"), debugSummary)
     }
 
+    func testSplitMajorTriangleWithLeftwardBaseOverhangSurvivesEitherPenDirection() throws {
+        let fixture = try InkFixtureLoader.load("BFlatMajor7SplitTriangleDevice02", file: #filePath)
+        let leftLeg = [(3.1, 1.0), (4.0, 2.0), (3.4, 3.6), (2.5, 5.5), (1.5, 7.5), (0.8, 9.5)]
+        let legAndBase = [
+            (2.5, 0.0), (3.5, 1.3), (4.6, 2.6), (5.9, 4.0), (7.0, 5.3), (8.3, 6.6),
+            (9.0, 7.7), (8.0, 8.7), (6.5, 9.2), (5.0, 9.5), (3.5, 9.8), (2.0, 10.0),
+            (0.5, 10.1), (0.0, 9.9)
+        ]
+        for reverseLeft in [false, true] {
+            for reverseRight in [false, true] {
+                let triangle = [(leftLeg, reverseLeft), (legAndBase, reverseRight)].map { points, reverse in
+                    InkStroke(points: (reverse ? Array(points.reversed()) : points).map { x, y in
+                        InkPoint(x: 87 + x, y: 41 + y, timeOffset: nil)
+                    })
+                }
+                // Keep the real root, accidental and 7 around the controlled triangle.
+                let strokes = Array(fixture.strokes.prefix(4)) + triangle + Array(fixture.strokes.suffix(1))
+                let clusters = StrokeClusterer().indexedClusters(strokes)
+                XCTAssertEqual(clusters.map(\.originalIndexes), [[0, 1], [2, 3], [4, 5], [6]])
+                let result = ChordInkMaximumTrustRecognizer().recognize(strokes: strokes)
+                let context = "left reversed: \(reverseLeft), right reversed: \(reverseRight), raw: \(result.rawCandidates.prefix(6))"
+                XCTAssertEqual(result.glyphCandidates.dropFirst(2).first?.first?.text, "△", context)
+                XCTAssertEqual(result.match?.displayText, "Bb△7", context)
+            }
+        }
+    }
+
     func testRecognizesTinyUpperDegreeLookalikeBeforeSevenAsDiminishedSeventh() throws {
         let degreeLookalike = InkStroke(points: [
             InkPoint(x: 78, y: 5, timeOffset: nil),

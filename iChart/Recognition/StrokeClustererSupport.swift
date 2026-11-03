@@ -1,5 +1,75 @@
 import Foundation
 
+enum InkSplitMajorTriangleGeometry {
+    static func matches(_ first: InkStroke, _ second: InkStroke) -> Bool {
+        let bounds = first.bounds.union(second.bounds)
+        let aspectRatio = bounds.width / max(bounds.height, 1)
+        let smallerHeight = max(min(first.bounds.height, second.bounds.height), 1)
+        guard (8...28).contains(bounds.width),
+              (8...28).contains(bounds.height),
+              (0.55...1.75).contains(aspectRatio),
+              first.bounds.horizontalGap(to: second.bounds) <= max(3, bounds.width * 0.20),
+              first.bounds.verticalOverlap(with: second.bounds) >= smallerHeight * 0.35 else {
+            return false
+        }
+
+        // The base can extend just past the left leg. Assign roles by
+        // shape, with either pen direction, instead of sorting by minX.
+        return (isLeftLeg(first, in: bounds) && isRightLegWithBase(second, in: bounds))
+            || (isLeftLeg(second, in: bounds) && isRightLegWithBase(first, in: bounds))
+    }
+
+    private static func isLeftLeg(_ stroke: InkStroke, in bounds: InkBounds) -> Bool {
+        guard let endpoints = endpointsFromTop(stroke) else { return false }
+        let startX = xRatio(endpoints.top, in: bounds)
+        let endX = xRatio(endpoints.bottom, in: bounds)
+
+        return stroke.points.count >= 3
+            && stroke.bounds.height >= 6
+            && stroke.bounds.width <= max(8, stroke.bounds.height * 0.85)
+            && stroke.straightness >= 0.50
+            && (45...82).contains(stroke.diagonalAngleMagnitude)
+            && endpoints.top.x >= endpoints.bottom.x + max(2, bounds.width * 0.12)
+            && endpoints.bottom.y >= endpoints.top.y + max(5, bounds.height * 0.35)
+            && (0.08...0.58).contains(startX)
+            && yRatio(endpoints.top, in: bounds) <= 0.36
+            && endX <= startX - 0.08
+            && yRatio(endpoints.bottom, in: bounds) >= 0.62
+    }
+
+    private static func isRightLegWithBase(_ stroke: InkStroke, in bounds: InkBounds) -> Bool {
+        guard let endpoints = endpointsFromTop(stroke),
+              stroke.points.count >= 8,
+              stroke.bounds.width >= 7,
+              stroke.bounds.height >= 7,
+              (0.08...0.62).contains(xRatio(endpoints.top, in: bounds)),
+              yRatio(endpoints.top, in: bounds) <= 0.34,
+              xRatio(endpoints.bottom, in: bounds) <= 0.26,
+              yRatio(endpoints.bottom, in: bounds) >= 0.62 else {
+            return false
+        }
+
+        // Reaching both ends of the lower base with both endpoints left of
+        // its right corner proves the turn even when every sample step is small.
+        let lowerPoints = stroke.points.filter { yRatio($0, in: bounds) >= 0.68 }
+        return lowerPoints.contains { xRatio($0, in: bounds) <= 0.26 }
+            && lowerPoints.contains { xRatio($0, in: bounds) >= 0.72 }
+    }
+
+    private static func endpointsFromTop(_ stroke: InkStroke) -> (top: InkPoint, bottom: InkPoint)? {
+        guard let first = stroke.points.first, let last = stroke.points.last else { return nil }
+        return first.y <= last.y ? (first, last) : (last, first)
+    }
+
+    private static func xRatio(_ point: InkPoint, in bounds: InkBounds) -> Double {
+        (point.x - bounds.minX) / max(bounds.width, 1)
+    }
+
+    private static func yRatio(_ point: InkPoint, in bounds: InkBounds) -> Double {
+        (point.y - bounds.minY) / max(bounds.height, 1)
+    }
+}
+
 struct MutableInkCluster: Hashable {
     var strokes: [InkStroke]
     var originalIndexes: [Int]

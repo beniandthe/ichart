@@ -649,6 +649,48 @@ final class GestureTemplateRecognizerTests: XCTestCase {
         XCTAssertLessThan(candidateRank(of: "E", in: candidates), candidateRank(of: "F", in: candidates), candidateSummary)
     }
 
+    func testRootFRecognizesReversedBarsAndLeaningStems() {
+        let reader = ChordInkMaximumTrustRecognizer()
+        let top = [InkPoint(x: 10, y: 12, timeOffset: nil), InkPoint(x: 42, y: 12, timeOffset: nil)]
+
+        for stemEndX in [10.0, 32.0] {
+            let stem = InkStroke(points: [top[0], InkPoint(x: stemEndX, y: 60, timeOffset: nil)])
+            let middle = [
+                InkPoint(x: (10 + stemEndX) / 2, y: 35, timeOffset: nil),
+                InkPoint(x: 36, y: 35, timeOffset: nil)
+            ]
+            for reverseBars in [false, true] {
+                let bars = [top, middle].map { points in
+                    InkStroke(points: reverseBars ? Array(points.reversed()) : points)
+                }
+                let result = reader.recognize(strokes: [stem] + bars)
+                XCTAssertEqual(result.match?.displayText, "F", "stemEndX=\(stemEndX), reverseBars=\(reverseBars)")
+            }
+        }
+    }
+
+    func testRootERecognizesReversedBarsWithJoinedBottomStroke() {
+        let strokes = [
+            InkStroke(points: [
+                InkPoint(x: 10, y: 12, timeOffset: nil),
+                InkPoint(x: 10, y: 60, timeOffset: nil),
+                InkPoint(x: 31, y: 60, timeOffset: nil)
+            ]),
+            InkStroke(points: [
+                InkPoint(x: 42, y: 12, timeOffset: nil),
+                InkPoint(x: 10, y: 12, timeOffset: nil)
+            ]),
+            InkStroke(points: [
+                InkPoint(x: 34, y: 35, timeOffset: nil),
+                InkPoint(x: 10, y: 35, timeOffset: nil)
+            ])
+        ]
+
+        let result = ChordInkMaximumTrustRecognizer().recognize(strokes: strokes)
+
+        XCTAssertEqual(result.match?.displayText, "E")
+    }
+
     func testCapturedBaseLetterFamiliesRankExpectedGlyphFirst() throws {
         let templates = ChordGlyphTemplateLibrary.initialTemplates
 
