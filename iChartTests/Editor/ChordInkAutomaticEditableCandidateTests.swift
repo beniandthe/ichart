@@ -11,6 +11,67 @@ final class ChordInkAutomaticEditableCandidateTests: XCTestCase {
     private let pageSize = CGSize(width: 932, height: 1_200)
     private let inputAt = Date(timeIntervalSinceReferenceDate: 100)
 
+    func testUnclearTriangleKeepsItsInkForExplicitReviewDespiteFallbackSuggestion() throws {
+        let chart = makeChart()
+        let source = drawing(x: 106)
+        var draft = makeDraft(chart, source: source, text: "Bbø7")
+        draft.recognitionResult?.requiresTriangleQualityReview = true
+        draft.recognitionResult?.reviewCandidateScores = [
+            .init(text: "Bbø7", displayText: "Bbø7", confidence: 4)
+        ]
+
+        let blocked = attempt(chart, drafts: [draft], source: source)
+        XCTAssertNil(blocked.outcome)
+        XCTAssertNil(draft.previewText)
+        XCTAssertEqual(blocked.feedback.reasonsByDraftID[draft.id], .triangleQualityReview)
+        let status = ChordInkAutomaticFeedbackPresentationPolicy.status(
+            for: draft, activity: nil, feedback: blocked.feedback, now: inputAt
+        )
+        XCTAssertEqual(status?.title, "Review Chord")
+        XCTAssertEqual(status?.canReview, true)
+
+        let page = layout(chart)
+        let frame = LeadSheetActiveInkScope.chordWritingFrame(for: page)
+        func reviewed(_ draft: ChordInkDraft) -> ChordInkDraftRenderCoordinator.AutomaticAttempt {
+            ChordInkDraftRenderCoordinator.prepareReviewedAutomaticAttempt(
+                chart: chart, state: .init(draftChords: [draft], layoutPageSize: pageSize),
+                currentDrawing: source, coordinateSpace: .init(size: frame.size), isUsingTool: false,
+                sourcePageLayout: page, sourceChordFrame: frame
+            )
+        }
+        XCTAssertNil(reviewed(draft).outcome)
+        draft.selectedText = "Bbø7"
+        let rendered = try XCTUnwrap(reviewed(draft).outcome)
+        let event = try XCTUnwrap(rendered.chart.measures.flatMap(\.chordEvents).first)
+        XCTAssertEqual(event.symbol.displayText, "Bbø7")
+        assertSameInk(source, try PKDrawing(data: XCTUnwrap(event.sourceInkData)))
+    }
+
+    func testCapturedHalfDiminishedStillRendersAutomatically() throws {
+        let chart = makeChart()
+        let fixture = try InkFixtureLoader.load("BFlatHalfDiminished7Captured01", file: #filePath)
+        let bounds = InkBounds.enclosing(fixture.strokes.map(\.bounds))
+        let source = PKDrawing(strokes: fixture.strokes.enumerated().map { index, stroke in
+            let points = stroke.points.enumerated().map { pointIndex, point in
+                PKStrokePoint(location: CGPoint(x: 106 + point.x - bounds.minX, y: 45 + point.y - bounds.minY),
+                    timeOffset: Double(pointIndex) * 0.01, size: CGSize(width: 3, height: 3),
+                    opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+            }
+            return PKStroke(ink: PKInk(.pen, color: LeadSheetPersistentInkColorPolicy.inkColor),
+                path: PKStrokePath(controlPoints: points, creationDate: inputAt.addingTimeInterval(Double(index))),
+                transform: .identity, mask: nil, randomSeed: UInt32(index))
+        })
+        let result = ChordInkMaximumTrustRecognizer().recognize(strokes: PencilKitInkAdapter.inkStrokes(from: source))
+        XCTAssertEqual(result.match?.displayText, "Bbø7")
+        XCTAssertFalse(result.requiresTriangleQualityReview)
+        var draft = makeDraft(chart, source: source, text: result.match?.displayText)
+        draft.recognitionResult = result
+        let rendered = try XCTUnwrap(attempt(chart, drafts: [draft], source: source).outcome)
+        let event = try XCTUnwrap(rendered.chart.measures.flatMap(\.chordEvents).first)
+        XCTAssertEqual(event.symbol.displayText, "Bbø7")
+        assertSameInk(source, try PKDrawing(data: XCTUnwrap(event.sourceInkData)))
+    }
+
     func testSettledSupportedGuessRendersWithoutPromotingConfidenceOrConfirmationToTrust() throws {
         let chart = makeChart()
         let source = drawing(x: 106)

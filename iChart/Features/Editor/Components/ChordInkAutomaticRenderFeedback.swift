@@ -4,7 +4,7 @@ import Foundation
 enum ChordInkAutomaticRenderReason: String, Equatable {
     case waiting, reading, recognitionReview, noRead, needsSpace
     case needsSourceRefresh, repeatReview, endingReview, placementUnavailable, barlinePlacementUnavailable
-    case unrepresentedInk, restoredInk, adjacentWriting
+    case unrepresentedInk, restoredInk, adjacentWriting, triangleQualityReview
 
     var userMessage: String {
         switch self {
@@ -21,6 +21,7 @@ enum ChordInkAutomaticRenderReason: String, Equatable {
         case .unrepresentedInk: return "Some writing could not be matched to a chord or chart mark. Review or rewrite it."
         case .restoredInk: return "Review this saved writing, or continue writing to render automatically."
         case .adjacentWriting: return "Finish or review the nearby writing so these chords can be separated."
+        case .triangleQualityReview: return "The triangle is unclear. Enter the chord you meant or rewrite it."
         }
     }
 
@@ -66,6 +67,9 @@ enum ChordInkAutomaticFeedbackPolicy {
     static func recognitionReason(for draft: ChordInkDraft) -> ChordInkAutomaticRenderReason {
         if draft.isStale { return .needsSourceRefresh }
         if draft.targetLifecycle?.stage == .collecting { return .reading }
+        if draft.recognitionResult?.requiresTriangleQualityReview == true, draft.previewText == nil {
+            return .triangleQualityReview
+        }
         if ChordInkAutomaticRenderPolicy.isTrusted(draft) { return .waiting }
         // Automatic mode can recover supported score/raw evidence that the
         // preview has not selected yet. Report the same eligibility used by

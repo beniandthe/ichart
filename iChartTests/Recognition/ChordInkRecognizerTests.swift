@@ -905,9 +905,61 @@ final class ChordInkRecognizerTests: XCTestCase {
             XCTAssertEqual(result.trustEvidence?.outcome, .insufficientCapturedFamilyEvidence)
         }
 
-        let halfDiminished = try InkFixtureLoader.load("BFlatHalfDiminished7Captured01", file: #filePath)
-        let control = ChordInkMaximumTrustRecognizer().recognize(strokes: halfDiminished.strokes)
-        XCTAssertEqual(control.match?.displayText, halfDiminished.expectedDisplayText)
+        for name in ["BFlatHalfDiminished7Captured01", "BFlatHalfDiminished7Captured02"] {
+            let fixture = try InkFixtureLoader.load(name, file: #filePath)
+            let control = ChordInkMaximumTrustRecognizer().recognize(strokes: fixture.strokes)
+            XCTAssertEqual(control.match?.displayText, fixture.expectedDisplayText, name)
+            XCTAssertFalse(control.requiresTriangleQualityReview, name)
+        }
+    }
+
+    func testCompactSplitMajorTriangleAllowsSmallApexGapWithFullBase() throws {
+        let left = [(5.35, 0.65), (4.3, 1.6), (3.1, 3.0), (2.4, 4.5), (1.2, 6.3), (0.0, 7.6)]
+        let right = [
+            (2.38, 0.0), (4.1, 1.0), (6.1, 2.8), (7.4, 4.3), (8.25, 6.1),
+            (7.2, 7.0), (5.4, 7.7), (3.1, 8.35), (2.15, 8.27), (0.85, 7.45)
+        ]
+        func stroke(_ points: [(Double, Double)], scale: Double = 1) -> InkStroke {
+            InkStroke(points: points.map { x, y in
+                InkPoint(x: x * scale, y: y * scale, timeOffset: nil)
+            })
+        }
+
+        XCTAssertEqual(InkSplitMajorTriangleGeometry.match(stroke(left), stroke(right)), .offsetJoin)
+        XCTAssertFalse(InkSplitMajorTriangleGeometry.isAmbiguous(stroke(left), stroke(right)))
+        XCTAssertEqual(
+            InkSplitMajorTriangleGeometry.match(stroke(Array(right.reversed())), stroke(Array(left.reversed()))),
+            .offsetJoin
+        )
+
+        let shortBase = Array(right.dropLast())
+        XCTAssertNil(InkSplitMajorTriangleGeometry.match(stroke(left), stroke(shortBase)))
+        XCTAssertFalse(InkSplitMajorTriangleGeometry.isAmbiguous(stroke(left), stroke(shortBase)))
+
+        var widerApex = right
+        widerApex[0].0 -= 0.16
+        XCTAssertNil(InkSplitMajorTriangleGeometry.match(stroke(left), stroke(widerApex)))
+        XCTAssertTrue(InkSplitMajorTriangleGeometry.isAmbiguous(stroke(left), stroke(widerApex)))
+        XCTAssertFalse(InkSplitMajorTriangleGeometry.isAmbiguous(stroke(left), stroke(Array(widerApex.dropLast()))))
+
+        let fixture = try InkFixtureLoader.load("BFlatMajor7SplitTriangleDevice02", file: #filePath)
+        let triangle = [left, widerApex].map { points in
+            stroke(points.map { x, y in (87 + x, 41 + y) })
+        }
+        let chordStrokes = Array(fixture.strokes.prefix(4)) + triangle + Array(fixture.strokes.suffix(1))
+        let read = ChordInkMaximumTrustRecognizer().recognize(strokes: chordStrokes)
+        XCTAssertTrue(read.requiresTriangleQualityReview, "\(read.rawCandidates.prefix(8))")
+        XCTAssertNil(read.match)
+        XCTAssertTrue(read.rawCandidates.isEmpty)
+        XCTAssertTrue(ChordInkRenderResolutionPolicy.candidateTexts(for: read).isEmpty)
+        XCTAssertEqual(ChordInkRecognitionPolicy.decision(for: read).action, .confirm)
+
+        widerApex[0].0 -= 1.15
+        XCTAssertNil(InkSplitMajorTriangleGeometry.match(stroke(left), stroke(widerApex)))
+        XCTAssertFalse(InkSplitMajorTriangleGeometry.isAmbiguous(stroke(left), stroke(widerApex)))
+
+        XCTAssertNil(InkSplitMajorTriangleGeometry.match(stroke(left, scale: 1.35), stroke(right, scale: 1.35)))
+        XCTAssertFalse(InkSplitMajorTriangleGeometry.isAmbiguous(stroke(left, scale: 1.65), stroke(right, scale: 1.65)))
     }
 
     func testRecognizesTinyUpperDegreeLookalikeBeforeSevenAsDiminishedSeventh() throws {

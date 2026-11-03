@@ -645,6 +645,7 @@ struct ChordInkDraft: Identifiable, Hashable {
                 preferredTexts: [selectedText], candidateTexts: []
             )
         }
+        guard recognitionResult?.requiresTriangleQualityReview != true else { return nil }
         return ChordInkRenderResolutionPolicy.bestCandidateText(
             preferredTexts: [bestCandidateText],
             candidateTexts: candidateTexts

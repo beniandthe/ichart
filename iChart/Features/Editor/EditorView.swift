@@ -47,6 +47,10 @@ enum ChordInkAutomaticFeedbackPresentationPolicy {
         guard restored || elapsed >= ChordInkAutomaticRenderPolicy.idleDelay else {
             return reading("Finishing…")
         }
+        if reason == .triangleQualityReview {
+            return .init(title: "Review Chord", detail: reason.userMessage,
+                accessibilityLabel: "Review Chord. \(reason.userMessage)", canReview: true, isReading: false)
+        }
         if let text = ChordInkAutomaticRenderPolicy.automaticCandidateText(for: draft) {
             return .init(title: "Rendering \(text)…", detail: "Double-tap a chord to edit.",
                 accessibilityLabel: "Rendering \(text)", canReview: false, isReading: true)

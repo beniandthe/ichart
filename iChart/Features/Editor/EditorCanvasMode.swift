@@ -169,7 +169,7 @@ enum EditorCanvasMode: Hashable {
             }
             let rendering = manualRenderWithPreview
                 ? "Check each preview, then tap Render Chords or Review & Render."
-                : "Leave space between chords and pause to render. Follow any review prompts."
+                : "Leave space between chords and pause to render. Tap Review Chord for an unclear triangle."
             return writing + " " + rendering
         case .noteEdit:
             return "Tap a rendered rhythm note to see its editing actions."

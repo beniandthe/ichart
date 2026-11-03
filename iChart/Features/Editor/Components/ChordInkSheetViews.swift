@@ -348,7 +348,9 @@ enum ChordInkDraftReviewPolicy {
             )) : ChordInkRecognitionDecision(
                 action: .confirm,
                 acceptedText: nil,
-                reason: "No supported read. Type the chord or rewrite just this ink.",
+                reason: result.requiresTriangleQualityReview
+                    ? primaryDecision.reason
+                    : "No supported read. Type the chord or rewrite just this ink.",
                 isCloseRace: false,
                 competingCandidateText: nil,
                 confidenceGap: nil

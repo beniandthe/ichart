@@ -357,6 +357,7 @@ private struct IChartHelpArticleSection: Identifiable {
             bullets: [
                 "Write in the highlighted Corridor Lane above the staff.",
                 "Chords render automatically after a pause. Keep the symbols for each chord together, with space before the next chord.",
+                "If a triangle is unclear, the ink stays on the chart. Tap Review Chord in Automatic, or Review & Render in Manual, to enter the intended chord.",
                 "Turn on Manual Render with Preview in app Settings to check the small preview text before tapping Render Chords or Review & Render.",
                 "On a Simple Chord Sheet or Rhythm Section Sheet, draw a tall, nearly vertical barline in the highlighted lane with space on either side.",
                 "On a Rhythm Section Sheet, a handwritten barline can split an open measure. To add measures at the end of a short row, draw tall barlines on their own in the empty lane and leave space between them. Use Measures for committed measures.",

@@ -1018,6 +1018,7 @@ final class ChordInkRecognitionSession {
                         recognitionFinishedAt: Date(), strokeCount: request.strokes.count,
                         cacheHit: recognized.cacheHit), evaluation: recognized.evaluation)
                 if !self.automaticFallbackRecognizers.isEmpty,
+                   !read.result.requiresTriangleQualityReview,
                    !ChordInkAutomaticFallbackCandidatePolicy.hasCandidate(read.result),
                    ChordInkAutomaticFallbackCandidatePolicy.sourceIsUsable(request.strokes, maximumStrokeCount: 128) {
                     // Leave this target collecting while its separate worker

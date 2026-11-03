@@ -6,11 +6,26 @@ enum InkSplitMajorTriangleGeometry {
         case offsetJoin
     }
 
+    private enum Geometry {
+        case matched(Match)
+        case ambiguous
+    }
+
     static func matches(_ first: InkStroke, _ second: InkStroke) -> Bool {
         match(first, second) != nil
     }
 
     static func match(_ first: InkStroke, _ second: InkStroke) -> Match? {
+        guard case let .matched(match)? = classify(first, second) else { return nil }
+        return match
+    }
+
+    static func isAmbiguous(_ first: InkStroke, _ second: InkStroke) -> Bool {
+        guard case .ambiguous? = classify(first, second) else { return false }
+        return true
+    }
+
+    private static func classify(_ first: InkStroke, _ second: InkStroke) -> Geometry? {
         let bounds = first.bounds.union(second.bounds)
         let aspectRatio = bounds.width / max(bounds.height, 1)
         let smallerHeight = max(min(first.bounds.height, second.bounds.height), 1)
@@ -26,18 +41,24 @@ enum InkSplitMajorTriangleGeometry {
         // shape, with either pen direction, instead of sorting by minX.
         if matchesRoles(left: first, right: second, in: bounds, apexLimit: 0.58, baseLimit: 0.26)
             || matchesRoles(left: second, right: first, in: bounds, apexLimit: 0.58, baseLimit: 0.26) {
-            return .standard
+            return .matched(.standard)
         }
         guard let firstTop = endpointsFromTop(first)?.top,
-              let secondTop = endpointsFromTop(second)?.top,
-              hypot(firstTop.x - secondTop.x, firstTop.y - secondTop.y) <= max(3, bounds.width * 0.25) else {
+              let secondTop = endpointsFromTop(second)?.top else {
             return nil
         }
-        // A nearby join at the apex provides extra evidence when the left leg
-        // starts farther right or the bottom stroke falls short of the foot.
-        if matchesRoles(left: first, right: second, in: bounds, apexLimit: 0.66, baseLimit: 0.34)
-            || matchesRoles(left: second, right: first, in: bounds, apexLimit: 0.66, baseLimit: 0.34) {
-            return .offsetJoin
+        let apexGap = hypot(firstTop.x - secondTop.x, firstTop.y - secondTop.y)
+        let usualApexGapLimit = max(3, bounds.width * 0.25)
+        let smallerDimension = min(bounds.width, bounds.height)
+        let compactApexGapLimit = min(3.25, smallerDimension * 0.38)
+        let matchesApex = apexGap <= max(usualApexGapLimit, compactApexGapLimit)
+        guard matchesApex || apexGap <= min(4.5, smallerDimension * 0.50) else { return nil }
+
+        // Require a fuller base when allowing extra space between the tips of a small triangle.
+        let baseLimit = apexGap <= usualApexGapLimit ? 0.34 : 0.20
+        if matchesRoles(left: first, right: second, in: bounds, apexLimit: 0.66, baseLimit: baseLimit)
+            || matchesRoles(left: second, right: first, in: bounds, apexLimit: 0.66, baseLimit: baseLimit) {
+            return matchesApex ? .matched(.offsetJoin) : .ambiguous
         }
         return nil
     }

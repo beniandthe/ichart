@@ -40,6 +40,7 @@ enum ChordInkAutomaticRenderPolicy {
             // Never replace an explicit invalid edit with a different guess.
             return ChordInkRenderResolutionPolicy.bestCandidateText(preferredTexts: [selected], candidateTexts: [])
         }
+        guard draft.recognitionResult?.requiresTriangleQualityReview != true else { return nil }
         var candidates = draft.candidateTexts
         if let result = draft.recognitionResult {
             let ranked = result.candidateScores.sorted { $0.confidence > $1.confidence }
