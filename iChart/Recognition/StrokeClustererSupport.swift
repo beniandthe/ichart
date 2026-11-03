@@ -27,6 +27,13 @@ enum InkSplitMajorTriangleGeometry {
 
     private static func classify(_ first: InkStroke, _ second: InkStroke) -> Geometry? {
         let bounds = first.bounds.union(second.bounds)
+        return classifyAtWrittenScale(first, second, in: bounds)
+            ?? classifyCompactTriangle(first, second, in: bounds)
+    }
+
+    private static func classifyAtWrittenScale(
+        _ first: InkStroke, _ second: InkStroke, in bounds: InkBounds
+    ) -> Geometry? {
         let aspectRatio = bounds.width / max(bounds.height, 1)
         let smallerHeight = max(min(first.bounds.height, second.bounds.height), 1)
         guard (8...28).contains(bounds.width),
@@ -61,6 +68,38 @@ enum InkSplitMajorTriangleGeometry {
             return matchesApex ? .matched(.offsetJoin) : .ambiguous
         }
         return nil
+    }
+
+    private static func classifyCompactTriangle(
+        _ first: InkStroke, _ second: InkStroke, in bounds: InkBounds
+    ) -> Geometry? {
+        // Reuse the usual role checks at a reference width for small glyphs.
+        // The original ink stays in place and must still have a close apex.
+        guard (6.4..<9).contains(bounds.width), bounds.height >= 6.4,
+              let firstTop = endpointsFromTop(first)?.top,
+              let secondTop = endpointsFromTop(second)?.top else {
+            return nil
+        }
+        let scale = 9.25 / bounds.width
+        let apexGap = hypot(firstTop.x - secondTop.x, firstTop.y - secondTop.y)
+        guard apexGap * scale <= 3 else { return nil }
+
+        func normalized(_ stroke: InkStroke) -> InkStroke {
+            InkStroke(points: stroke.points.map { point in
+                InkPoint(
+                    x: (point.x - bounds.minX) * scale,
+                    y: (point.y - bounds.minY) * scale,
+                    timeOffset: point.timeOffset
+                )
+            }, creationTimeOffset: stroke.creationTimeOffset)
+        }
+        let normalizedFirst = normalized(first)
+        let normalizedSecond = normalized(second)
+        let normalizedBounds = normalizedFirst.bounds.union(normalizedSecond.bounds)
+        guard case .matched? = classifyAtWrittenScale(normalizedFirst, normalizedSecond, in: normalizedBounds) else {
+            return nil
+        }
+        return .matched(.offsetJoin)
     }
 
     private static func matchesRoles(
@@ -861,24 +900,20 @@ extension InkStroke {
     }
 
     var isSevenCandidate: Bool {
-        let standardSeven = points.count >= 7
-            && bounds.width >= 5
-            && bounds.height >= 8
-            && aspectRatio >= 0.25
-            && aspectRatio <= 1.65
-            && angleDegrees >= 35
-            && angleDegrees <= 105
-            && hasEarlyTopHorizontalRun
-        let trailingSeven = points.count >= 7
-            && bounds.width >= 5
-            && bounds.height >= 8
-            && aspectRatio >= 0.25
-            && aspectRatio <= 1.65
-            && angleDegrees >= 35
-            && angleDegrees <= 105
-            && points.last.map { $0.y >= bounds.minY + bounds.height * 0.70 } == true
+        isSevenCandidate(minimumHeight: 8)
+    }
 
-        return standardSeven || trailingSeven
+    func isSevenCandidate(minimumHeight: Double) -> Bool {
+        guard points.count >= 7,
+              bounds.width >= 5,
+              bounds.height >= minimumHeight,
+              (0.25...1.65).contains(aspectRatio),
+              (35...105).contains(angleDegrees) else {
+            return false
+        }
+
+        return hasEarlyTopHorizontalRun
+            || points.last.map { $0.y >= bounds.minY + bounds.height * 0.70 } == true
     }
 
     var isOneGlyphCandidate: Bool {

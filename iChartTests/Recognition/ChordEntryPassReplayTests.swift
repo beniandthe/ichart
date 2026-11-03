@@ -7,6 +7,40 @@ import XCTest
 
 final class ChordEntryPassReplayTests: XCTestCase {
     @MainActor
+    func testReplayCommittedChordInkThroughAutomaticWriteAndRender() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let statePath = environment["ICHART_STATE"],
+              let eventList = environment["ICHART_REPLAY_AUTOMATIC_EVENT_IDS"],
+              let expectedText = environment["ICHART_REPLAY_AUTOMATIC_EXPECTED_TEXT"] else {
+            throw XCTSkip("Set ICHART_STATE, ICHART_REPLAY_AUTOMATIC_EVENT_IDS and ICHART_REPLAY_AUTOMATIC_EXPECTED_TEXT.")
+        }
+        let tokens = eventList.split(separator: ",")
+        let eventIDs = tokens.compactMap { UUID(uuidString: String($0)) }
+        XCTAssertFalse(eventIDs.isEmpty)
+        XCTAssertEqual(eventIDs.count, tokens.count)
+        let repository = FileChartRepository(url: URL(fileURLWithPath: statePath))
+        let snapshot = try XCTUnwrap(try repository.loadSnapshot())
+        let chart = try XCTUnwrap(selectedChart(in: snapshot))
+        let layout = try XCTUnwrap(inferredStoredPageLayout(for: chart))
+        let region = LeadSheetActiveInkScope.chordWritingRegion(for: layout)
+        let scope = LeadSheetActiveInkScope.chords(frame: region.frame, inputFrames: region.inputFrames)
+        let coordinateSpace = LeadSheetPersistentInkCoordinateSpacePolicy.coordinateSpace(for: scope, pageLayout: layout)
+
+        // Each event is one real writing attempt. Replay it in an in-memory
+        // chart copy so nearby committed chords and layout remain in place.
+        for eventID in eventIDs {
+            let event = try XCTUnwrap(chart.chordEvent(id: eventID))
+            let drawingData = try XCTUnwrap(event.sourceInkData)
+            var replayChart = chart
+            XCTAssertTrue(replayChart.deleteChordEvent(eventID))
+            XCTAssertTrue(replayChart.setPageHandwrittenChordDrawing(drawingData, coordinateSpace: coordinateSpace))
+            print("Replaying committed event \(eventID), originally rendered as \(event.symbol.displayText).")
+            try auditProductionPreparation(chart: replayChart, drawingData: drawingData,
+                expectedSequence: [expectedText], minimumY: nil, maximumY: nil, checksAutomaticCommit: true)
+        }
+    }
+
+    @MainActor
     func testReplayAutomaticRhythmRowBarlinesFromSavedState() throws {
         let environment = ProcessInfo.processInfo.environment
         guard let statePath = environment["ICHART_STATE"],
@@ -617,7 +651,8 @@ final class ChordEntryPassReplayTests: XCTestCase {
         drawingData: Data,
         expectedSequence: [String],
         minimumY: Double?,
-        maximumY: Double?
+        maximumY: Double?,
+        checksAutomaticCommit: Bool = ProcessInfo.processInfo.environment["ICHART_REPLAY_AUTOMATIC_COMMIT"] == "1"
     ) throws {
         guard let pageLayout = inferredStoredPageLayout(for: chart) else {
             XCTFail("Production preparation replay requires a stored page coordinate space.")
@@ -731,7 +766,7 @@ final class ChordEntryPassReplayTests: XCTestCase {
                 "The live confirmation UI hid \(expectedText) behind choices \(choices)."
             )
         }
-        if ProcessInfo.processInfo.environment["ICHART_REPLAY_AUTOMATIC_COMMIT"] == "1" {
+        if checksAutomaticCommit {
             XCTAssertEqual(selectedSourceStrokeIndexes.count, loadedStrokes.count)
             try auditAutomaticCommit(
                 chart: chart, drawing: loadedDrawing, coordinateSpace: targetCoordinateSpace,
@@ -783,6 +818,10 @@ final class ChordEntryPassReplayTests: XCTestCase {
             try count + PKDrawing(data: XCTUnwrap(event.sourceInkData)).strokes.count
         }
         XCTAssertEqual(sourceCount, drawing.strokes.count)
+        if let onlyEvent = events.first, events.count == 1 {
+            let archived = try PKDrawing(data: XCTUnwrap(onlyEvent.sourceInkData))
+            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: drawing, current: archived))
+        }
         XCTAssertEqual(reopened.measures.map(\.id), chart.measures.map(\.id))
         XCTAssertEqual(reopened.pageHandwrittenNotationData, chart.pageHandwrittenNotationData)
         XCTAssertEqual(reopened.pageHandwrittenNotationCoordinateSpace, chart.pageHandwrittenNotationCoordinateSpace)

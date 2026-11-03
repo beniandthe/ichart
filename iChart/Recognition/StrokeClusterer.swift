@@ -109,7 +109,7 @@ struct StrokeClusterer {
         let alteredFlatNormalizedClusters = mergeDominantAlterationFlatFragments(in: wrapperNormalizedClusters)
         let semanticClusters = mergeDominantAlteredFiveSuffixFragments(in: alteredFlatNormalizedClusters)
         let finalClusters = semanticClusters.flatMap { cluster in
-            splitMinorSeventhSuffix(in: cluster) ?? [cluster]
+            splitTriangleMajorSeventhSuffix(in: cluster) ?? splitMinorSeventhSuffix(in: cluster) ?? [cluster]
         }
         let suspendedSuffixClusters = splitSuspendedSuffixFragments(in: finalClusters)
         let slashSeparatedClusters = splitSlashBassSeparatorFragments(in: suspendedSuffixClusters)
@@ -979,6 +979,42 @@ struct StrokeClusterer {
         }
 
         return singleStrokeClusters
+    }
+
+    private func splitTriangleMajorSeventhSuffix(
+        in cluster: MutableInkCluster
+    ) -> [MutableInkCluster]? {
+        // Nearby strokes may have merged in either order. Recover the rightmost
+        // digit only if the other two strokes form a plausible major triangle.
+        guard cluster.strokes.count == 3,
+              cluster.recognitionHints.isEmpty,
+              let sevenIndex = cluster.strokes.indices.max(by: {
+                  cluster.strokes[$0].bounds.minX < cluster.strokes[$1].bounds.minX
+              }) else {
+            return nil
+        }
+
+        let seven = cluster.strokes[sevenIndex]
+        guard seven.hasEarlyTopHorizontalRun else {
+            return nil
+        }
+
+        let triangleIndexes = cluster.strokes.indices.filter { $0 != sevenIndex }
+        let triangle = MutableInkCluster(
+            strokes: triangleIndexes.map { cluster.strokes[$0] },
+            originalIndexes: triangleIndexes.map { cluster.originalIndexes[$0] }
+        )
+        let triangleBounds = triangle.bounds
+        let minimumSevenHeight = max(6.5, min(7.5, triangleBounds.height * 0.65))
+        guard seven.isSevenCandidate(minimumHeight: minimumSevenHeight),
+              seven.bounds.minX >= triangleBounds.maxX,
+              seven.bounds.verticalOverlap(with: triangleBounds) > 0,
+              InkSplitMajorTriangleGeometry.matches(triangle.strokes[0], triangle.strokes[1])
+                || InkSplitMajorTriangleGeometry.isAmbiguous(triangle.strokes[0], triangle.strokes[1]) else {
+            return nil
+        }
+
+        return [triangle, MutableInkCluster(strokes: [seven], originalIndexes: [cluster.originalIndexes[sevenIndex]])]
     }
 
     private func splitMinorSeventhSuffix(

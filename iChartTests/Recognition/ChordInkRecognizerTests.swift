@@ -962,6 +962,61 @@ final class ChordInkRecognizerTests: XCTestCase {
         XCTAssertFalse(InkSplitMajorTriangleGeometry.isAmbiguous(stroke(left, scale: 1.65), stroke(right, scale: 1.65)))
     }
 
+    func testCompactSplitMajorTriangleWithCloseApexSurvivesSmallScaleChanges() {
+        func stroke(_ points: [(Double, Double)], scale: Double = 1) -> InkStroke {
+            InkStroke(points: points.map { InkPoint(x: $0.0 * scale, y: $0.1 * scale, timeOffset: nil) })
+        }
+
+        let left = [(5.4, 1.45), (4.2, 2.3), (3.1, 4.3), (1.7, 6.6), (0, 9.4)]
+        let narrowRight = [
+            (3.6, 0.0), (2.75, 0.8), (4.1, 2.5), (6.2, 4.7), (7.5, 6.5), (8.3, 7.7),
+            (7.5, 9), (6.15, 10.0), (4.6, 10.55), (3.2, 10.8), (1.92, 10.7), (2.5, 9.05)
+        ]
+        let narrowLeft = [(4.0, 0.7), (3.2, 2.5), (2.5, 4.4), (1.9, 6), (1.5, 7.2)]
+        let compactRight = [
+            (3.1, 0.0), (4.25, 1.25), (5.35, 3.0), (6.6, 5), (7.4, 6.6), (7.65, 8.2),
+            (6.25, 9.5), (4.45, 9.7), (2.3, 9.8), (0.95, 9.4), (0, 8.25), (0, 7.5)
+        ]
+        for scale in [0.85, 0.90, 1, 1.10] {
+            XCTAssertEqual(InkSplitMajorTriangleGeometry.match(
+                stroke(left, scale: scale), stroke(narrowRight, scale: scale)
+            ), .offsetJoin, "scale: \(scale)")
+            XCTAssertTrue(InkSplitMajorTriangleGeometry.matches(
+                stroke(compactRight.reversed(), scale: scale), stroke(narrowLeft.reversed(), scale: scale)
+            ), "scale: \(scale)")
+        }
+
+        var detachedRight = narrowRight
+        detachedRight[0].0 = 2.1
+        XCTAssertNil(InkSplitMajorTriangleGeometry.match(stroke(left), stroke(detachedRight)))
+        XCTAssertNil(InkSplitMajorTriangleGeometry.match(
+            stroke(narrowLeft, scale: 0.80), stroke(compactRight, scale: 0.80)
+        ))
+    }
+
+    func testCompactCapturedSplitMajorTriangleRetainsConfirmationAtDifferentScales() throws {
+        let fixture = try InkFixtureLoader.load("BFlatMajor7SplitTriangleDevice02", file: #filePath)
+        let triangle = Array(fixture.strokes[4...5])
+        let bounds = InkBounds.enclosing(triangle.map(\.bounds))
+        for scale in [0.85, 0.90, 1, 1.10] {
+            let triangleScale = 8.1 / bounds.width * scale
+            let compactTriangle = triangle.map { stroke in
+                InkStroke(points: stroke.points.map { point in
+                    InkPoint(
+                        x: bounds.minX + (point.x - bounds.minX) * triangleScale,
+                        y: bounds.minY + (point.y - bounds.minY) * triangleScale,
+                        timeOffset: point.timeOffset
+                    )
+                }, creationTimeOffset: stroke.creationTimeOffset)
+            }
+            let strokes = Array(fixture.strokes.prefix(4)) + compactTriangle + Array(fixture.strokes.suffix(1))
+            let read = ChordInkMaximumTrustRecognizer().recognize(strokes: strokes)
+            let decision = ChordInkRecognitionPolicy.decision(for: read)
+            XCTAssertEqual(read.match?.displayText, "Bb△7", "scale: \(scale)")
+            XCTAssertEqual(decision.action, .confirm, "scale: \(scale)")
+        }
+    }
+
     func testRecognizesTinyUpperDegreeLookalikeBeforeSevenAsDiminishedSeventh() throws {
         let degreeLookalike = InkStroke(points: [
             InkPoint(x: 78, y: 5, timeOffset: nil),

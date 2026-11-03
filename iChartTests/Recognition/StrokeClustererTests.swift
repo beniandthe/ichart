@@ -246,6 +246,50 @@ final class StrokeClustererTests: XCTestCase {
         XCTAssertTrue(clusters.areSortedLeftToRight)
     }
 
+    func testAdjacentCompactTriangleAndSevenRetainSeparateStrokeOwnership() throws {
+        let fixture = try InkFixtureLoader.load("BFlatMajor7SplitTriangleDevice02", file: #filePath)
+        let left = testStroke([
+            (92.35, 41.65), (91.3, 42.6), (90.1, 44), (89.4, 45.5), (88.2, 47.3), (87, 48.6)
+        ])
+        let compactSeven = testStroke([
+            (96, 38.5), (98.4, 38.5), (101.5, 38.5), (104.6, 38.6),
+            (102.7, 40.8), (101, 42.9), (99.3, 44.8), (98.5, 46.48)
+        ])
+        XCTAssertFalse(compactSeven.isSevenCandidate)
+
+        for requiresReview in [false, true] {
+            let right = testStroke([
+                (requiresReview ? 89.22 : 90.4, 41), (91.1, 42), (93.1, 43.8), (94.4, 45.3),
+                (95.25, 47.1), (94.2, 48), (92.4, 48.7), (90.1, 49.35), (89.15, 49.27), (87.85, 48.45)
+            ])
+
+            let prefix = Array(fixture.strokes.prefix(4))
+            for scale in requiresReview ? [1.0] : [0.85, 0.90, 1.0, 1.10] {
+                func scaled(_ stroke: InkStroke) -> InkStroke {
+                    InkStroke(points: stroke.points.map {
+                        InkPoint(x: $0.x * scale, y: $0.y * scale, timeOffset: $0.timeOffset)
+                    }, creationTimeOffset: stroke.creationTimeOffset)
+                }
+                let leftLeg = scaled(left)
+                let rightLeg = scaled(right)
+                let seven = scaled(compactSeven)
+                let context = "compact triangle, ambiguous=\(requiresReview), scale=\(scale)"
+                XCTAssertEqual(InkSplitMajorTriangleGeometry.matches(leftLeg, rightLeg), !requiresReview, context)
+                XCTAssertEqual(InkSplitMajorTriangleGeometry.isAmbiguous(leftLeg, rightLeg), requiresReview, context)
+
+                for suffix in [[leftLeg, rightLeg, seven], [seven, rightLeg, leftLeg]] {
+                    let strokes = prefix.map(scaled) + suffix
+                    let clusters = clusterer.indexedClusters(strokes)
+                    XCTAssertEqual(clusters.map { $0.cluster.strokes.count }, [2, 2, 2, 1], context)
+                    guard clusters.count == 4 else { continue }
+                    XCTAssertEqual(Set(clusters[2].cluster.strokes), [leftLeg, rightLeg], context)
+                    XCTAssertEqual(clusters[3].cluster.strokes, [seven], context)
+                    assertOriginalInkPartition(strokes, context: context)
+                }
+            }
+        }
+    }
+
     func testHalfDiminishedConstructionSurvivesLiveWritingScale() throws {
         let fixture = try InkFixtureLoader.load("BFlatHalfDiminished7Captured01", file: #filePath)
         let fixtureBounds = InkBounds.enclosing(fixture.strokes.map(\.bounds))
