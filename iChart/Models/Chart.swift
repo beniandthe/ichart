@@ -220,6 +220,29 @@ struct ChartCloudBackupStatus: Codable, Hashable {
     }
 }
 
+enum FreeInkArticulationKind: String, Codable, CaseIterable, Identifiable, Hashable {
+    case fermata
+    case accent
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .fermata: "Fermata"
+        case .accent: "Accent"
+        }
+    }
+}
+
+struct FreeInkArticulation: Identifiable, Codable, Hashable {
+    var id: UUID = UUID()
+    var kind: FreeInkArticulationKind
+    var measureID: UUID
+    var beatIndex: Int
+    var sourceInkData: Data
+    var sourceCoordinateSpace: PersistentInkCoordinateSpace?
+}
+
 struct Chart: Identifiable, Codable, Hashable {
     var id: UUID
     var title: String
@@ -254,6 +277,7 @@ struct Chart: Identifiable, Codable, Hashable {
     var repeatWings: Bool
     var pageHandwrittenNotationData: Data?
     var pageHandwrittenNotationCoordinateSpace: PersistentInkCoordinateSpace?
+    var freeInkArticulations: [FreeInkArticulation]
     var pageHandwrittenHeaderData: Data?
     var pageHandwrittenHeaderCoordinateSpace: PersistentInkCoordinateSpace?
     var pageHandwrittenChordData: Data?
@@ -308,6 +332,7 @@ struct Chart: Identifiable, Codable, Hashable {
         repeatWings: Bool = false,
         pageHandwrittenNotationData: Data? = nil,
         pageHandwrittenNotationCoordinateSpace: PersistentInkCoordinateSpace? = nil,
+        freeInkArticulations: [FreeInkArticulation] = [],
         pageHandwrittenHeaderData: Data? = nil,
         pageHandwrittenHeaderCoordinateSpace: PersistentInkCoordinateSpace? = nil,
         pageHandwrittenChordData: Data? = nil,
@@ -355,6 +380,7 @@ struct Chart: Identifiable, Codable, Hashable {
             pageHandwrittenNotationCoordinateSpace,
             for: self.pageHandwrittenNotationData
         )
+        self.freeInkArticulations = freeInkArticulations
         self.pageHandwrittenHeaderData = normalizedPersistentInkDrawingData(pageHandwrittenHeaderData)
         self.pageHandwrittenHeaderCoordinateSpace = Self.coordinateSpace(
             pageHandwrittenHeaderCoordinateSpace,
@@ -404,6 +430,7 @@ struct Chart: Identifiable, Codable, Hashable {
         case repeatWings
         case pageHandwrittenNotationData
         case pageHandwrittenNotationCoordinateSpace
+        case freeInkArticulations
         case pageHandwrittenHeaderData
         case pageHandwrittenHeaderCoordinateSpace
         case pageHandwrittenChordData
@@ -469,6 +496,7 @@ struct Chart: Identifiable, Codable, Hashable {
             try container.decodeIfPresent(PersistentInkCoordinateSpace.self, forKey: .pageHandwrittenNotationCoordinateSpace),
             for: pageHandwrittenNotationData
         )
+        freeInkArticulations = try container.decodeIfPresent([FreeInkArticulation].self, forKey: .freeInkArticulations) ?? []
         pageHandwrittenHeaderData = normalizedPersistentInkDrawingData(
             try container.decodeIfPresent(Data.self, forKey: .pageHandwrittenHeaderData)
         )

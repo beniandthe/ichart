@@ -10,19 +10,31 @@ enum LeadSheetFreeInkDocumentLayoutPolicy {
     static let portraitPageHeight: CGFloat = 1_100
 
     static func savedCanvasWidth(for chart: Chart) -> CGFloat? {
-        guard chart.pageHandwrittenNotationData?.isEmpty == false,
-              let coordinateSpace = chart.pageHandwrittenNotationCoordinateSpace,
-              coordinateSpace.width.isFinite,
-              coordinateSpace.height.isFinite,
-              coordinateSpace.width > 0,
-              coordinateSpace.height > 0 else {
-            return nil
-        }
-
+        guard let coordinateSpace = savedPageCoordinateSpace(for: chart) else { return nil }
         return LeadSheetPageLayoutEngine.canvasWidth(
             forPageWritingWidth: CGFloat(coordinateSpace.width),
             layoutStyle: chart.layoutStyle
         )
+    }
+
+    static func savedPageCoordinateSpace(for chart: Chart) -> PersistentInkCoordinateSpace? {
+        if chart.pageHandwrittenNotationData?.isEmpty == false {
+            return validPageCoordinateSpace(chart.pageHandwrittenNotationCoordinateSpace)
+        }
+        // A conversion can consume the final visible stroke. Its archived
+        // drawing still records the width of the document it was authored on.
+        return chart.freeInkArticulations.reversed().lazy.compactMap {
+            validPageCoordinateSpace($0.sourceCoordinateSpace)
+        }.first
+    }
+
+    private static func validPageCoordinateSpace(
+        _ coordinateSpace: PersistentInkCoordinateSpace?
+    ) -> PersistentInkCoordinateSpace? {
+        guard let coordinateSpace,
+              coordinateSpace.width.isFinite, coordinateSpace.height.isFinite,
+              coordinateSpace.width > 0, coordinateSpace.height > 0 else { return nil }
+        return coordinateSpace
     }
 
     static func canvasWidthToRetain(for chart: Chart, viewportWidth _: CGFloat) -> CGFloat {

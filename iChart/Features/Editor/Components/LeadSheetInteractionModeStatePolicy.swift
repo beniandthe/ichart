@@ -377,7 +377,7 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
                   matches.allSatisfy({ abs($0.minY - first.minY) < 0.01
                       && abs($0.height - first.height) < 0.01 }) else { return nil }
             let destination = matches.reduce(CGRect.null) { $0.union($1) }
-            guard let transform = staffTransform(from: row.staff, to: destination),
+            guard let transform = frameTransform(from: row.staff, to: destination),
                   zip(row.anchors, matches).allSatisfy({ anchor, targetFrame in
                       let projected = anchor.staffFrame!.rect.applying(transform)
                       return abs(projected.minX - targetFrame.minX) < 0.01
@@ -418,7 +418,7 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
                 }
                 transform = owner.flatMap { anchor in
                     targetAnchors[anchor.measureID]?.staffFrame.flatMap {
-                        staffTransform(from: anchor.staffFrame!.rect, to: $0.rect)
+                        frameTransform(from: anchor.staffFrame!.rect, to: $0.rect)
                     }
                 }
             }
@@ -431,7 +431,7 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
         return PKDrawing(strokes: strokes)
     }
 
-    private static func staffTransform(from source: CGRect, to target: CGRect) -> CGAffineTransform? {
+    static func frameTransform(from source: CGRect, to target: CGRect) -> CGAffineTransform? {
         let sx = target.width / source.width
         let sy = target.height / source.height
         let tx = target.minX - source.minX * sx

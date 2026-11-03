@@ -529,6 +529,16 @@ extension Chart {
         after measureID: UUID,
         scope: TimeSignatureApplicationScope
     ) -> UUID? {
+        applyingMeterChangePreservingArticulationBeats { chart in
+            chart.applyMeterChangeAfterMeasure(meter, measureID: measureID, scope: scope)
+        }
+    }
+
+    private mutating func applyMeterChangeAfterMeasure(
+        _ meter: Meter,
+        measureID: UUID,
+        scope: TimeSignatureApplicationScope
+    ) -> UUID? {
         guard let location = measureLocation(id: measureID) else {
             return nil
         }
@@ -590,12 +600,45 @@ extension Chart {
 
         let selectedIndex = flattenedMeasureIndex(for: location)
         guard selectedIndex > 0 else {
-            return applyMeterChangeStartingAtFirstMeasure(meter, scope: scope)
+            return applyingMeterChangePreservingArticulationBeats { chart in
+                chart.applyMeterChangeStartingAtFirstMeasure(meter, scope: scope)
+            }
         }
 
         let refreshedMeasures = measures
         let previousMeasureID = refreshedMeasures[selectedIndex - 1].id
         return applyMeterChange(meter, after: previousMeasureID, scope: scope)
+    }
+
+    func canApplyMeterToFreeInkArticulations(
+        _ meter: Meter,
+        startingAt measureID: UUID,
+        scope: TimeSignatureApplicationScope
+    ) -> Bool {
+        guard !freeInkArticulations.isEmpty, measure(id: measureID) != nil else { return true }
+        var candidate = self
+        return candidate.applyMeterChange(meter, startingAt: measureID, scope: scope) != nil
+    }
+
+    private mutating func applyingMeterChangePreservingArticulationBeats(
+        _ edit: (inout Chart) -> UUID?
+    ) -> UUID? {
+        guard !freeInkArticulations.isEmpty else { return edit(&self) }
+        var candidate = self
+        guard let changedMeasureID = edit(&candidate),
+              freeInkArticulations.allSatisfy({ articulation in
+                  guard let newMeasure = candidate.measure(id: articulation.measureID) else { return true }
+                  let newMeter = newMeasure.resolvedMeter(defaultMeter: candidate.defaultMeter)
+                  if articulation.beatIndex >= 0, articulation.beatIndex < newMeter.numerator {
+                      return true
+                  }
+                  let oldMeter = measure(id: articulation.measureID)?.resolvedMeter(defaultMeter: defaultMeter)
+                  return oldMeter == newMeter
+              }) else {
+            return nil
+        }
+        self = candidate
+        return changedMeasureID
     }
 
     @discardableResult
@@ -767,7 +810,8 @@ extension Chart {
             return false
         }
 
-        return measures.count > 1 || canClearFirstMeasureTrailingBarline(at: location)
+        return canClearFirstMeasureTrailingBarline(at: location)
+            || (measures.count > 1 && !hasFreeInkArticulations(in: [measureID]))
     }
 
     func canDeleteMeasures(from startMeasureID: UUID, through endMeasureID: UUID) -> Bool {
@@ -775,7 +819,19 @@ extension Chart {
             return false
         }
 
-        return deletionRange.count < measures.count
+        let flattenedMeasures = measures
+        let removedMeasureIDs = Set(flattenedMeasures[deletionRange].map(\.id))
+        return deletionRange.count < flattenedMeasures.count
+            && !hasFreeInkArticulations(in: removedMeasureIDs)
+    }
+
+    func hasFreeInkArticulations(in measureIDs: Set<UUID>) -> Bool {
+        freeInkArticulations.contains { articulation in
+            measureIDs.contains(articulation.measureID)
+                || articulation.sourceCoordinateSpace?.measureAnchors?.contains {
+                    measureIDs.contains($0.measureID)
+                } == true
+        }
     }
 
     @discardableResult
@@ -830,7 +886,8 @@ extension Chart {
         guard leftMeasure.authoringState == .committed,
               leftMeasure.barlineAfter == .single,
               keyChange(atStartOf: rightMeasure.id) == nil,
-              effectiveMeter(for: leftMeasure) == effectiveMeter(for: rightMeasure) else {
+              effectiveMeter(for: leftMeasure) == effectiveMeter(for: rightMeasure),
+              !hasFreeInkArticulations(in: [leftMeasure.id, rightMeasure.id]) else {
             return false
         }
 
@@ -983,7 +1040,8 @@ extension Chart {
         }
 
         let originalMeasure = flattenedMeasures[flattenedIndex]
-        guard originalMeasure.rhythmMap == nil else {
+        guard originalMeasure.rhythmMap == nil,
+              !hasFreeInkArticulations(in: [originalMeasure.id]) else {
             return nil
         }
 
@@ -2130,6 +2188,7 @@ extension Chart {
                     && !canPreserveRangeEndpointAcrossSplit($0)
             }
             || freehandSymbols.contains { $0.anchorMeasureID == measureID }
+            || hasFreeInkArticulations(in: [measureID])
     }
 
     @discardableResult
@@ -2988,6 +3047,7 @@ extension Chart {
             && measure.handwrittenRhythmicNotationData == nil
             && measure.cueTextIDs.isEmpty
             && measure.roadmapObjectIDs.isEmpty
+            && !hasFreeInkArticulations(in: [measure.id])
     }
 
     private var simpleSystemMeasureCap: Int {

@@ -979,6 +979,35 @@ struct LeadSheetNotationRenderer {
             style.inkColor.withAlphaComponent(style.staffLineAlpha).setStroke()
             path.stroke()
         }
+        drawFreeInkArticulations(for: system)
+    }
+
+    private func drawFreeInkArticulations(for system: LeadSheetSystemLayout) {
+        guard chart.layoutStyle == .rhythmSectionSheet, !chart.freeInkArticulations.isEmpty else { return }
+        for mark in chart.freeInkArticulations {
+            guard let layout = system.measures.first(where: { $0.sourceMeasureID == mark.measureID }),
+                  let measure = chart.measure(id: mark.measureID),
+                  let target = FreeInkArticulationPlacement.target(
+                      measure: measure, beatIndex: mark.beatIndex, chart: chart, layout: layout, system: system
+                  ) else { continue }
+            drawFreeInkArticulation(mark.kind, at: target)
+        }
+    }
+
+    func drawFreeInkArticulation(_ kind: FreeInkArticulationKind, at target: FreeInkArticulationPlacement.Target) {
+        let symbol: NotationGlyphCatalog.Symbol
+        switch kind {
+        case .fermata: symbol = target.isBelowStaff ? .fermataBelow : .fermataAbove
+        case .accent: symbol = target.isBelowStaff ? .accentBelow : .accentAbove
+        }
+        var displayStaffSpace = target.staffSpace * 0.72
+        if let box = style.glyphMetrics(for: symbol)?.boundingBox, box.width > 0, box.height > 0 {
+            let glyphScale = CGFloat(chart.engravingPreset.glyphScale)
+            displayStaffSpace = min(displayStaffSpace,
+                                    target.markFrame.width / (CGFloat(box.width) * glyphScale),
+                                    target.markFrame.height / (CGFloat(box.height) * glyphScale))
+        }
+        drawNotationSymbol(symbol, centeredAt: target.center, staffSpace: displayStaffSpace)
     }
 
     func drawClef(in frame: CGRect) {

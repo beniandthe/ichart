@@ -475,6 +475,13 @@ struct EditorView: View {
     @State private var editingCueTextID: UUID?
     @State private var canvasMode: EditorCanvasMode = .browse
     @State private var inkToolMode: EditorInkToolMode = .write
+    @State private var freeInkArticulationCoordinator = FreeInkArticulationCoordinator()
+    @State private var selectsFreeInkArticulation = false
+    @State private var freeInkArticulationReview: FreeInkArticulationSelection?
+    @State private var freeInkArticulationMessage = ""
+    @State private var showsFreeInkArticulationMessage = false
+    @State private var freeInkArticulationSavePending = false
+    @State private var freeInkArticulationSaveFailed = false
     @State private var editorGuidedTourStep: IChartEditorGuidedTourStep?
     @State private var latestEditorContentSize = CGSize(width: 900, height: 1400)
     @State private var freeInkDocumentCanvasWidth: CGFloat?
@@ -521,6 +528,17 @@ struct EditorView: View {
 
     var body: some View {
         editorContent
+            .alert("Free Ink", isPresented: $showsFreeInkArticulationMessage) {
+                if freeInkArticulationSaveFailed {
+                    Button("Retry Save") {
+                        freeInkArticulationSavePending = true
+                        store.retrySavingCurrentSnapshot()
+                    }
+                }
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(freeInkArticulationMessage)
+            }
             .confirmationDialog(
                 "Clear draft ink?",
                 isPresented: isChordDraftClearPresented,
@@ -852,6 +870,7 @@ struct EditorView: View {
         .onChange(of: canvasMode) { previousMode, mode in
             cancelAutomaticChordRendering()
             if previousMode != mode { resetAutomaticChordFeedback() }
+            if mode != .freeHand { cancelFreeInkArticulationSelection() }
             if mode == .freeHand {
                 retainFreeInkDocumentWidth()
             }
@@ -885,6 +904,9 @@ struct EditorView: View {
             }
         }
         .onChange(of: chart) { previousChart, updatedChart in
+            if previousChart.id != updatedChart.id || updatedChart.layoutStyle != .rhythmSectionSheet {
+                cancelFreeInkArticulationSelection()
+            }
             if let endingID = selectedEndingSpanID,
                previousChart.id != updatedChart.id || updatedChart.roadmapObject(id: endingID)?.type.isEnding != true {
                 selectedEndingSpanID = nil
@@ -911,6 +933,22 @@ struct EditorView: View {
             #if DEBUG && targetEnvironment(simulator)
             recordPendingChordRenderHandoff()
             #endif
+        }
+        .onReceive(store.$persistenceStatus) { status in
+            guard freeInkArticulationSavePending else { return }
+            switch status {
+            case .ready:
+                break
+            case .saved, .notTracking:
+                freeInkArticulationSavePending = false
+                freeInkArticulationSaveFailed = false
+            case .failed:
+                freeInkArticulationSavePending = false
+                presentFreeInkArticulationMessage(
+                    "The chart couldn’t save. Your handwriting is still available in Free Ink or through Restore Ink. Try Retry Save before closing the chart.",
+                    saveFailed: true
+                )
+            }
         }
         .onDisappear {
             cancelAutomaticChordRendering()
@@ -1814,8 +1852,12 @@ struct EditorView: View {
             .font(.subheadline.weight(.semibold))
             .fixedSize()
 
-        if canvasMode.allowsAnyInkEditing {
+        if canvasMode.allowsAnyInkEditing && !selectsFreeInkArticulation && freeInkArticulationReview == nil {
             InkToolModeTab(mode: $inkToolMode)
+        }
+
+        if canvasMode == .freeHand && chart.layoutStyle == .rhythmSectionSheet {
+            freeInkArticulationControls
         }
 
         if canvasMode == .measureEdit {
@@ -1861,7 +1903,18 @@ struct EditorView: View {
         )
         switch canvasMode {
         case .freeHand:
+            if freeInkArticulationReview != nil {
+                if freeInkArticulationBeatIsOccupied {
+                    return "This beat already has a converted mark. Choose another beat or tap Cancel."
+                }
+                return "Check the preview. Change the mark or placement, then tap Convert Mark or Cancel."
+            }
+            if selectsFreeInkArticulation {
+                return "Drag one finger around the whole handwritten mark."
+            }
             return instruction + " " + LeadSheetFreeInkNavigationPolicy.hintText
+        case .measureEdit where freeInkArticulationBlocksMeasureEdit:
+            return "Use Restore Ink in Free Ink before splitting, joining, or deleting measures that hold the mark or its original writing."
         case .repeatEdit:
             if pendingRepeatStartMeasureID != nil {
                 return "Tap the last measure, then choose End Repeat."
@@ -1879,6 +1932,141 @@ struct EditorView: View {
             break
         }
         return instruction
+    }
+
+    @ViewBuilder
+    private var freeInkArticulationControls: some View {
+        if let review = freeInkArticulationReview {
+            Menu {
+                ForEach(FreeInkArticulationKind.allCases) { kind in
+                    Button(kind.title) { freeInkArticulationReview?.kind = kind }
+                }
+            } label: {
+                activeToolMenuLabel(title: review.kind.title, systemImage: "music.note")
+            }
+            .accessibilityLabel("Mark type, \(review.kind.title)")
+
+            Menu {
+                Menu("Measure") {
+                    ForEach(chart.measures) { measure in
+                        Button("Measure \(measure.index)") {
+                            freeInkArticulationReview?.measureID = measure.id
+                            freeInkArticulationReview?.beatIndex = min(
+                                review.beatIndex, freeInkBeatCount(in: measure.id) - 1
+                            )
+                        }
+                    }
+                }
+                Menu("Beat") {
+                    ForEach(0..<freeInkBeatCount(in: review.measureID), id: \.self) { beat in
+                        Button("Beat \(beat + 1)") { freeInkArticulationReview?.beatIndex = beat }
+                    }
+                }
+            } label: {
+                activeToolMenuLabel(
+                    title: "M\(chart.measure(id: review.measureID)?.index ?? 0) · Beat \(review.beatIndex + 1)",
+                    systemImage: "scope"
+                )
+            }
+            .accessibilityLabel("Change measure or beat")
+
+            activeToolButton(
+                title: "Convert Mark",
+                systemImage: "checkmark",
+                isDisabled: freeInkArticulationBeatIsOccupied,
+                action: convertFreeInkArticulation
+            )
+            activeToolButton(title: "Cancel", systemImage: "xmark.circle", action: cancelFreeInkArticulationSelection)
+        } else if selectsFreeInkArticulation {
+            activeToolButton(title: "Cancel", systemImage: "xmark.circle", action: cancelFreeInkArticulationSelection)
+        } else {
+            activeToolButton(title: "Select Ink", systemImage: "selection.pin.in.out") {
+                selectsFreeInkArticulation = true
+            }
+            .accessibilityHint("Select a handwritten fermata or accent")
+            if !chart.freeInkArticulations.isEmpty {
+                Menu {
+                    ForEach(chart.freeInkArticulations) { mark in
+                        Button("\(mark.kind.title), measure \(chart.measure(id: mark.measureID)?.index ?? 0), beat \(mark.beatIndex + 1)") {
+                            restoreFreeInkArticulation(mark.id)
+                        }
+                    }
+                } label: {
+                    activeToolMenuLabel(title: "Restore Ink", systemImage: "arrow.uturn.backward")
+                }
+                .accessibilityHint("Bring back the original handwriting for a converted mark")
+            }
+        }
+    }
+
+    private func freeInkBeatCount(in measureID: UUID) -> Int {
+        max(1, (chart.measure(id: measureID)?.meterOverride ?? chart.defaultMeter).numerator)
+    }
+
+    private var freeInkArticulationBeatIsOccupied: Bool {
+        guard let review = freeInkArticulationReview else { return false }
+        return chart.freeInkArticulations.contains {
+            $0.measureID == review.measureID && $0.beatIndex == review.beatIndex
+        }
+    }
+
+    private var freeInkArticulationBlocksMeasureEdit: Bool {
+        guard !chart.freeInkArticulations.isEmpty,
+              let target = resolvedMeasureActionTargetID(),
+              let targetIndex = chart.measures.firstIndex(where: { $0.id == target }) else { return false }
+        let measures = chart.measures
+        if let start = pendingDeleteStartMeasureID,
+           let startIndex = measures.firstIndex(where: { $0.id == start }) {
+            return chart.hasFreeInkArticulations(in: Set(measures[min(startIndex, targetIndex)...max(startIndex, targetIndex)].map(\.id)))
+        }
+        let nextIndex = min(targetIndex + 1, measures.count - 1)
+        return chart.hasFreeInkArticulations(in: Set(measures[targetIndex...nextIndex].map(\.id)))
+    }
+
+    private func handleFreeInkArticulationSelection(
+        _ result: Result<FreeInkArticulationSelection, FreeInkArticulationSelectionError>
+    ) {
+        guard selectsFreeInkArticulation, canvasMode == .freeHand else { return }
+        selectsFreeInkArticulation = false
+        switch result {
+        case .success(let selection):
+            freeInkArticulationReview = selection
+        case .failure(let error):
+            presentFreeInkArticulationMessage(error.localizedDescription)
+        }
+    }
+
+    private func cancelFreeInkArticulationSelection() {
+        selectsFreeInkArticulation = false
+        freeInkArticulationReview = nil
+        freeInkArticulationCoordinator.cancel()
+    }
+
+    private func convertFreeInkArticulation() {
+        guard let review = freeInkArticulationReview, !freeInkArticulationBeatIsOccupied else { return }
+        freeInkArticulationSavePending = true
+        let converted = freeInkArticulationCoordinator.convert(
+            selectionID: review.id, kind: review.kind, measureID: review.measureID, beatIndex: review.beatIndex
+        )
+        cancelFreeInkArticulationSelection()
+        if !converted {
+            freeInkArticulationSavePending = false
+            presentFreeInkArticulationMessage("Couldn’t convert this selection. Tap Select Ink and select the mark again.")
+        }
+    }
+
+    private func restoreFreeInkArticulation(_ id: UUID) {
+        freeInkArticulationSavePending = true
+        if !freeInkArticulationCoordinator.restore(articulationID: id) {
+            freeInkArticulationSavePending = false
+            presentFreeInkArticulationMessage("Couldn’t restore this mark at its original position. The source ink is still saved with the mark.")
+        }
+    }
+
+    private func presentFreeInkArticulationMessage(_ message: String, saveFailed: Bool = false) {
+        freeInkArticulationMessage = message
+        freeInkArticulationSaveFailed = saveFailed
+        showsFreeInkArticulationMessage = true
     }
 
     private var activeToolDoneButton: some View {
@@ -2531,7 +2719,7 @@ struct EditorView: View {
                 Text(automaticInkHelpReason?.userMessage ?? "This writing has not been assigned a supported chord yet.")
                     .font(.headline)
                 Text(automaticInkHelpReason == .barlinePlacementUnavailable
-                    ? "Your draft ink is still on the page."
+                    ? barlineRecoveryMessage(for: chordPreviewState.draftBarlines)
                     : "Your writing is still on the page. Use the eraser to change the unread chord, then write it again in the highlighted lane. Leave space between chords.")
                     .fixedSize(horizontal: false, vertical: true)
                 Button("Use Eraser") {
@@ -2554,6 +2742,14 @@ struct EditorView: View {
             .navigationBarTitleDisplayMode(.inline)
         }
         .presentationDetents([.medium])
+    }
+
+    private func barlineRecoveryMessage(for barlines: [DraftBarline]) -> String {
+        let measureIDs = Set(barlines.filter { !$0.kind.isRepeat }.map(\.measureID))
+        if chart.hasFreeInkArticulations(in: measureIDs) {
+            return "Your draft ink is still on the page. Use Restore Ink in Free Ink before splitting a measure with a converted mark or its source."
+        }
+        return "Your draft ink is still on the page."
     }
 
     private func openAutomaticChordReview(focusedDraftID: UUID?) {
@@ -2764,6 +2960,10 @@ struct EditorView: View {
             onHeaderAuthoringRequested: handleHeaderAuthoringRequestedFromCanvas,
             chordDraftRenderCoordinator: chordDraftRenderCoordinator,
             chordDraftRenderInvalidationRequestID: chordDraftRenderInvalidationRequestID,
+            freeInkArticulationCoordinator: freeInkArticulationCoordinator,
+            selectsFreeInkArticulation: selectsFreeInkArticulation,
+            freeInkArticulationPreview: freeInkArticulationBeatIsOccupied ? nil : freeInkArticulationReview,
+            onFreeInkArticulationSelection: handleFreeInkArticulationSelection,
             rhythmicNotationPreviewConfirmationRequestID: isDedicatedRhythmToolAvailable
                 ? rhythmPreviewConfirmationRequestID
                 : nil,
@@ -2797,7 +2997,7 @@ struct EditorView: View {
             || pendingChordDraftRepeatConfirmation != nil
             || pendingChordDraftEndingReview != nil
             || pendingChordCorrection != nil || pendingTimeSignaturePlacement != nil
-            || showingAutomaticInkHelp
+            || showingAutomaticInkHelp || freeInkArticulationReview != nil
     }
 
     private var appAppearance: IChartAppAppearance {
@@ -4821,7 +5021,13 @@ struct EditorView: View {
         pendingTimeSignaturePlacement = nil
 
         if appliedMeasureID == nil {
-            canvasMode = .browse
+            if chart.canApplyMeterToFreeInkArticulations(meter, startingAt: sourceMeasureID, scope: scope) {
+                canvasMode = .browse
+            } else {
+                presentFreeInkArticulationMessage(
+                    "The new time signature would remove a beat with a converted mark. Use Restore Ink in Free Ink first."
+                )
+            }
         }
     }
 
@@ -5341,7 +5547,7 @@ struct EditorView: View {
                     ?? state.draftChords.compactMap { attempt.feedback.reasonsByDraftID[$0.id] }.first
                     ?? .placementUnavailable
                 let recovery = reason == .barlinePlacementUnavailable
-                    ? " Your draft ink is still on the page."
+                    ? " " + barlineRecoveryMessage(for: state.draftBarlines)
                     : " Your ink is still on the page. Use Rewrite This Chord, or return to writing and move it with more room."
                 presentChordRenderError(reason.userMessage + recovery)
                 return false
@@ -5370,7 +5576,8 @@ struct EditorView: View {
                 : hasUnresolvedRepeat
                 ? "These repeat signs could not be placed. Check their measure boundaries and whether that repeat is already on the chart. Nothing was rendered or erased."
                 : renderResult.hasUnplacedPlainBarline(in: state)
-                ? ChordInkAutomaticRenderReason.barlinePlacementUnavailable.userMessage + " Your draft ink is still on the page."
+                ? ChordInkAutomaticRenderReason.barlinePlacementUnavailable.userMessage + " "
+                    + barlineRecoveryMessage(for: state.draftBarlines.filter { renderResult.unresolvedDraftIDs.contains($0.id) })
                 : "One or more reviewed chords could not be rendered. The draft ink is still available."
             presentChordRenderError(message)
             return false

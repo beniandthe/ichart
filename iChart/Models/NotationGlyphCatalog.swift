@@ -34,6 +34,10 @@ enum NotationGlyphCatalog {
         case accidentalSharp
         case coda
         case segno
+        case fermataAbove
+        case fermataBelow
+        case accentAbove
+        case accentBelow
         case timeSignatureDigit(Int)
     }
 
@@ -142,6 +146,14 @@ enum NotationGlyphCatalog {
             return coda
         case .segno:
             return segno
+        case .fermataAbove:
+            return "\u{E4C0}"
+        case .fermataBelow:
+            return "\u{E4C1}"
+        case .accentAbove:
+            return "\u{E4A0}"
+        case .accentBelow:
+            return "\u{E4A1}"
         case let .timeSignatureDigit(value):
             return timeSignatureDigit(value)
         }
@@ -187,6 +199,8 @@ enum NotationGlyphCatalog {
             return 3.35
         case .segno:
             return 2.7
+        case .fermataAbove, .fermataBelow, .accentAbove, .accentBelow:
+            return 4
         }
     }
 }
@@ -256,6 +270,14 @@ extension NotationGlyphCatalog.Symbol {
             return "coda"
         case .segno:
             return "segno"
+        case .fermataAbove:
+            return "fermataAbove"
+        case .fermataBelow:
+            return "fermataBelow"
+        case .accentAbove:
+            return "articAccentAbove"
+        case .accentBelow:
+            return "articAccentBelow"
         case let .timeSignatureDigit(value):
             guard (0...9).contains(value) else {
                 return nil

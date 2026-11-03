@@ -598,6 +598,10 @@ final class ChartLibraryStore: ObservableObject {
         ChartLibraryStore(snapshot: .preview)
     }
 
+    func retrySavingCurrentSnapshot() {
+        persistIfNeeded()
+    }
+
     @discardableResult
     private func persistIfNeeded() -> Bool {
         guard persistenceEnabled else {

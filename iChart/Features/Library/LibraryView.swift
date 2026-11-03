@@ -356,6 +356,7 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Turn on Manual Render with Preview in app Settings to check the small preview text before tapping Render Chords or Review & Render.",
                 "On a Simple Chord Sheet or Rhythm Section Sheet, draw a tall, nearly vertical barline in the highlighted lane with space on either side.",
                 "On a Rhythm Section Sheet, a handwritten barline can split an open measure. Use Measures for committed measures. If a barline cannot be placed, the draft stays on the page so you can erase or redraw the mark.",
+                "If a converted fermata or accent blocks a split, use Restore Ink in Free Ink first.",
                 "Draw repeat bars with two dots on the right to start a repeat, on the left to end one, or on both sides to end one repeat and start another.",
                 "Complete each start repeat with an end repeat. If an end repeat has no matching start, Render asks whether to repeat from the beginning.",
                 "When review opens, correct the chord text or choose a suggestion before rendering. Erasing just that writing and rewriting it is another option."
@@ -417,7 +418,8 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Free Ink keeps your notes and marks exactly as you draw them.",
             bullets: [
                 "Use it for rhythm notes, reminders, and marks iChart should not turn into chords.",
-                "iChart never reads or interprets Free Ink; it remains persistent handwriting.",
+                "On a Rhythm Section Sheet, tap Select Ink and drag one finger around a handwritten fermata or accent.",
+                "Review the mark and its measure and beat, then tap Convert Mark. Use Restore Ink to bring the handwriting back, including before splitting, joining, or deleting a measure that holds the mark or its original writing.",
                 "Switch directly to another tool, or tap Done to return to Select."
             ]
         ),

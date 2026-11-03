@@ -750,9 +750,7 @@ enum LeadSheetPageLayoutEngine {
         // Old archives can describe paper outside today's responsive minimum
         // or lead-sheet cap. At their canonical document width, retain that
         // original paper rather than clipping or silently enlarging its ink.
-        if chart.pageHandwrittenNotationData?.isEmpty == false,
-           let source = chart.pageHandwrittenNotationCoordinateSpace,
-           source.height.isFinite, source.height > 0,
+        if let source = LeadSheetFreeInkDocumentLayoutPolicy.savedPageCoordinateSpace(for: chart),
            let canonicalWidth = canvasWidth(
                forPageWritingWidth: CGFloat(source.width), layoutStyle: chart.layoutStyle),
            abs(canonicalWidth - resolvedPageWidth) < 0.001 {

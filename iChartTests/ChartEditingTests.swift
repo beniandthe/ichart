@@ -2319,6 +2319,123 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertNil(chart.pageHandwrittenNotationCoordinateSpace)
     }
 
+    func testFreeInkArticulationRoundTripsWithItsSourceAndRemainingInk() throws {
+        var chart = Chart.blank(title: "Articulation", measureCount: 2, layoutStyle: .rhythmSectionSheet)
+        let sourceMeasureID = chart.measures[0].id
+        let targetMeasureID = chart.measures[1].id
+        let sourceAnchor = try XCTUnwrap(PersistentInkMeasureAnchor(
+            measureID: sourceMeasureID, frame: CGRect(x: 20, y: 100, width: 200, height: 60)
+        ))
+        let sourceSpace = PersistentInkCoordinateSpace(
+            width: 720,
+            height: 1024,
+            measureAnchors: [sourceAnchor]
+        )
+        let mark = FreeInkArticulation(
+            kind: .fermata,
+            measureID: targetMeasureID,
+            beatIndex: 2,
+            sourceInkData: Data([4, 3, 2, 1]),
+            sourceCoordinateSpace: sourceSpace
+        )
+        let remainingInk = Data([8, 7, 6, 5])
+        chart.freeInkArticulations = [mark]
+        chart.setPageHandwrittenNotationDrawing(remainingInk, coordinateSpace: sourceSpace)
+
+        let encoded = try JSONEncoder().encode(chart)
+        let reopened = try JSONDecoder().decode(Chart.self, from: encoded)
+        XCTAssertEqual(reopened.freeInkArticulations, [mark])
+        XCTAssertEqual(reopened.pageHandwrittenNotationData, remainingInk)
+        XCTAssertEqual(reopened.pageHandwrittenNotationCoordinateSpace, sourceSpace)
+
+        var oldPayload = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        oldPayload.removeValue(forKey: "freeInkArticulations")
+        let legacy = try JSONDecoder().decode(Chart.self, from: JSONSerialization.data(withJSONObject: oldPayload))
+        XCTAssertTrue(legacy.freeInkArticulations.isEmpty)
+        XCTAssertEqual(legacy.pageHandwrittenNotationData, remainingInk)
+        XCTAssertEqual(legacy.pageHandwrittenNotationCoordinateSpace, sourceSpace)
+    }
+
+    func testFreeInkArticulationProtectsBothAnchorsAndFollowsSystemReflow() throws {
+        var chart = Chart.draft(title: "Articulation Anchors", layoutStyle: .rhythmSectionSheet)
+        chart.completeInitialSetup(
+            title: "Articulation Anchors", key: .cMajor, meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine, startingMeasureCount: 4
+        )
+        let measureIDs = chart.measures.map(\.id)
+        let sourceID = measureIDs[1]
+        let targetID = measureIDs[3]
+        let sourceAnchor = try XCTUnwrap(PersistentInkMeasureAnchor(
+            measureID: sourceID, frame: CGRect(x: 20, y: 100, width: 200, height: 60)
+        ))
+        let mark = FreeInkArticulation(
+            kind: .accent,
+            measureID: targetID,
+            beatIndex: 1,
+            sourceInkData: Data([4, 3, 2, 1]),
+            sourceCoordinateSpace: PersistentInkCoordinateSpace(
+                width: 720, height: 1024,
+                measureAnchors: [sourceAnchor]
+            )
+        )
+        XCTAssertTrue(chart.canJoinMeasure(after: measureIDs[0]))
+        XCTAssertEqual(chart.measure(id: targetID)?.authoringState, .open)
+        chart.freeInkArticulations = [mark]
+
+        XCTAssertFalse(chart.deleteMeasure(id: sourceID))
+        XCTAssertFalse(chart.deleteMeasure(id: targetID))
+        XCTAssertFalse(chart.deleteMeasures(from: sourceID, through: measureIDs[2]))
+        XCTAssertFalse(chart.joinMeasure(after: measureIDs[0]))
+        XCTAssertNil(chart.splitOpenRhythmSectionMeasure(targetID, atFraction: 0.5))
+        XCTAssertEqual(chart.positionOpenMeasure(after: measureIDs[0]), targetID)
+        XCTAssertEqual(chart.measures.map(\.id), measureIDs)
+
+        XCTAssertTrue(chart.insertSystemBreak(before: targetID))
+        XCTAssertEqual(chart.measures.map(\.id), measureIDs)
+        XCTAssertEqual(chart.freeInkArticulations, [mark])
+    }
+
+    func testFreeInkArticulationMeterEditsPreserveTargetBeatWithinScope() {
+        var chart = Chart.blank(title: "Articulation Meter", measureCount: 5, layoutStyle: .rhythmSectionSheet)
+        let measureIDs = chart.measures.map(\.id)
+        chart.freeInkArticulations = [measureIDs[0], measureIDs[3]].map { measureID in
+            FreeInkArticulation(
+                kind: .accent,
+                measureID: measureID,
+                beatIndex: 3,
+                sourceInkData: Data([4, 3, 2, 1]),
+                sourceCoordinateSpace: nil
+            )
+        }
+        let original = chart
+        let shorterMeter = Meter(numerator: 3, denominator: 4)
+        let longerMeter = Meter(numerator: 5, denominator: 4)
+
+        XCTAssertFalse(chart.canApplyMeterToFreeInkArticulations(
+            shorterMeter, startingAt: measureIDs[0], scope: .fixedMeasureCount(0)
+        ))
+        XCTAssertNil(chart.applyMeterChange(
+            shorterMeter, startingAt: measureIDs[0], scope: .fixedMeasureCount(0)
+        ))
+        XCTAssertNil(chart.applyMeterChange(
+            shorterMeter, after: measureIDs[1], scope: .toEndOfPiece
+        ))
+        XCTAssertEqual(chart, original)
+
+        XCTAssertEqual(chart.applyMeterChange(
+            longerMeter, startingAt: measureIDs[3], scope: .toEndOfPiece
+        ), measureIDs[3])
+        XCTAssertTrue(chart.canApplyMeterToFreeInkArticulations(
+            shorterMeter, startingAt: measureIDs[1], scope: .toNextTimeSignature
+        ))
+        XCTAssertEqual(chart.applyMeterChange(
+            shorterMeter, startingAt: measureIDs[1], scope: .toNextTimeSignature
+        ), measureIDs[1])
+        XCTAssertEqual(chart.measure(id: measureIDs[2])?.meterOverride, shorterMeter)
+        XCTAssertEqual(chart.measure(id: measureIDs[3])?.meterOverride, longerMeter)
+        XCTAssertEqual(chart.freeInkArticulations, original.freeInkArticulations)
+    }
+
     func testSetPageHandwrittenChordDrawingStoresSeparatelyFromFreeHandInk() {
         var chart = Chart.draft(title: "New Chart")
         let freeHandData = Data([4, 3, 2, 1])
