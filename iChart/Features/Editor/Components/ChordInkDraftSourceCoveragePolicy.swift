@@ -15,25 +15,27 @@ enum ChordInkDraftSourceCoveragePolicy {
         return expectedInk == currentInk
     }
 
+    /// Returns only the added fragments if the expanded drawing contains every
+    /// fragment of the prior draft. Match by exact identity and multiplicity.
+    static func addedVisibleStrokes(in expanded: PKDrawing, after prior: PKDrawing) -> [PKStroke]? {
+        guard let fragments = maskVisibleFragments(expanded),
+              var priorInk = visibleStrokeMultiset(prior), !priorInk.isEmpty else { return nil }
+        let added = fragments.filter { !claim($0, from: &priorInk) }
+        return priorInk.isEmpty && !added.isEmpty ? added : nil
+    }
+
     static func hasCompleteCoverage(chart: Chart, state: ChordPreviewState) -> Bool {
         guard let data = chart.pageHandwrittenChordData else { return true }
         guard let source = try? PKDrawing(data: data) else { return false }
         guard var unclaimed = visibleStrokeMultiset(source) else { return false }
-        func claim(_ stroke: PKStroke) -> Bool {
-            guard let identity = StrokeIdentity(stroke), let count = unclaimed[identity], count > 0 else {
-                return false
-            }
-            if count == 1 { unclaimed.removeValue(forKey: identity) }
-            else { unclaimed[identity] = count - 1 }
-            return true
-        }
+        func claimSource(_ stroke: PKStroke) -> Bool { claim(stroke, from: &unclaimed) }
 
         // Include unresolved represented drafts too. Commit decides whether
         // they can render; this policy only measures their source ownership.
         for draft in state.draftChords {
             guard let drawing = try? PKDrawing(data: draft.drawingData) else { return false }
             guard let fragments = maskVisibleFragments(drawing),
-                  !fragments.isEmpty, fragments.allSatisfy(claim) else { return false }
+                  !fragments.isEmpty, fragments.allSatisfy(claimSource) else { return false }
         }
 
         if !state.draftBarlines.isEmpty || !state.draftEndings.isEmpty {
@@ -82,7 +84,7 @@ enum ChordInkDraftSourceCoveragePolicy {
                 for index in ending.sourceStrokeIndices {
                     guard source.strokes.indices.contains(index),
                           let visible = visibleBySource[index], visible.count == 1,
-                          claim(context.drawing.strokes[visible[0]]) else { return false }
+                          claimSource(context.drawing.strokes[visible[0]]) else { return false }
                 }
             }
             for barline in state.draftBarlines {
@@ -98,11 +100,18 @@ enum ChordInkDraftSourceCoveragePolicy {
                 for ownedIndex in barline.ownedSourceStrokeIndices {
                     guard source.strokes.indices.contains(ownedIndex),
                           let visible = visibleBySource[ownedIndex], visible.count == 1,
-                          claim(context.drawing.strokes[visible[0]]) else { return false }
+                          claimSource(context.drawing.strokes[visible[0]]) else { return false }
                 }
             }
         }
         return unclaimed.isEmpty
+    }
+
+    private static func claim(_ stroke: PKStroke, from unclaimed: inout [StrokeIdentity: Int]) -> Bool {
+        guard let identity = StrokeIdentity(stroke), let count = unclaimed[identity] else { return false }
+        if count == 1 { unclaimed.removeValue(forKey: identity) }
+        else { unclaimed[identity] = count - 1 }
+        return true
     }
 
     private static func visibleStrokeMultiset(_ drawing: PKDrawing) -> [StrokeIdentity: Int]? {

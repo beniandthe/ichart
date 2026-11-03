@@ -269,6 +269,9 @@ struct PendingChordInkBatchConfirmation: Identifiable {
     }
 
     var instructionText: String {
+        if requiresSeparatedChordInk {
+            return "Separate the grouped chords before rendering."
+        }
         switch source {
         case .recognitionProposal:
             return "Review each chord, then render them together."
@@ -279,6 +282,14 @@ struct PendingChordInkBatchConfirmation: Identifiable {
 
     var actionTitle: String {
         confirmations.count == 1 ? "Render Chord" : "Render All"
+    }
+
+    var requiresSeparatedChordInk: Bool {
+        reviewedDraftState?.draftChords.contains(where: \.requiresSeparatedChordInk) == true
+    }
+
+    func requiresSeparatedChordInk(for id: UUID) -> Bool {
+        reviewedDraftState?.draftChords.contains { $0.id == id && $0.requiresSeparatedChordInk } == true
     }
 }
 
@@ -295,6 +306,7 @@ enum ChordInkDraftReviewRejection: String, Error {
     case entryIDsChanged
     case emptyEntry
     case unsupportedEntry
+    case requiresSeparatedChordInk
 
     /// Content-free explanations identify the failed safeguard without exposing
     /// handwriting, entered chord text or chart/target identifiers.
@@ -324,6 +336,8 @@ enum ChordInkDraftReviewRejection: String, Error {
             return "One reviewed entry is empty. Enter a chord in every review row, then render again."
         case .unsupportedEntry:
             return "One reviewed entry is unsupported. Correct that entry or choose a suggestion, then render again."
+        case .requiresSeparatedChordInk:
+            return "Tap Back to Writing, then rewrite the grouped chords with more space between them."
         }
     }
 }
@@ -439,6 +453,9 @@ enum ChordInkDraftReviewPolicy {
     ) -> Result<ChordPreviewState, ChordInkDraftReviewRejection> {
         let drafts = state.draftChords
         guard !drafts.isEmpty else { return .failure(.emptyDraft) }
+        guard !drafts.contains(where: \.requiresSeparatedChordInk) else {
+            return .failure(.requiresSeparatedChordInk)
+        }
         guard Set(candidateTextByDraftID.keys) == Set(drafts.map(\.id)) else {
             return .failure(.entryIDsChanged)
         }
@@ -601,7 +618,8 @@ struct ChordInkBatchConfirmationSheetView: View {
                         }
                         .padding(.vertical, 2)
 
-                        if let remainingMessage = ChordInkReviewEntryValidation.remainingMessage(for: remainingEntryCount) {
+                        if !batch.requiresSeparatedChordInk,
+                           let remainingMessage = ChordInkReviewEntryValidation.remainingMessage(for: remainingEntryCount) {
                             Text(remainingMessage)
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
@@ -684,6 +702,7 @@ struct ChordInkBatchConfirmationSheetView: View {
         .onAppear {
             onEntryTextsChanged?(candidateTextByID)
             if let initialFocusedConfirmationID,
+               !batch.requiresSeparatedChordInk(for: initialFocusedConfirmationID),
                batch.confirmations.contains(where: { $0.id == initialFocusedConfirmationID }) {
                 requestKeyboard(for: initialFocusedConfirmationID)
             }
@@ -716,7 +735,7 @@ struct ChordInkBatchConfirmationSheetView: View {
     }
 
     private var canRenderAll: Bool {
-        remainingEntryCount == 0
+        !batch.requiresSeparatedChordInk && remainingEntryCount == 0
     }
 
     private var remainingEntryCount: Int {
@@ -741,6 +760,20 @@ struct ChordInkBatchConfirmationSheetView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            if batch.requiresSeparatedChordInk(for: confirmation.id) {
+                Text(ChordInkDraftReviewRejection.requiresSeparatedChordInk.recoveryMessage)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                chordEntryControls(for: confirmation)
+            }
+        }
+        .padding(16)
+        .background(.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func chordEntryControls(for confirmation: PendingChordInkConfirmation) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Text("Chord")
                     .font(.caption.weight(.medium))
@@ -823,8 +856,6 @@ struct ChordInkBatchConfirmationSheetView: View {
                 }
             }
         }
-        .padding(16)
-        .background(.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private func chordNumber(for id: UUID) -> Int {
@@ -832,9 +863,9 @@ struct ChordInkBatchConfirmationSheetView: View {
     }
 
     private func nextConfirmationID(after id: UUID) -> UUID? {
-        guard let index = batch.confirmations.firstIndex(where: { $0.id == id }),
-              batch.confirmations.indices.contains(index + 1) else { return nil }
-        return batch.confirmations[index + 1].id
+        guard let index = batch.confirmations.firstIndex(where: { $0.id == id }) else { return nil }
+        return batch.confirmations.dropFirst(index + 1)
+            .first { !batch.requiresSeparatedChordInk(for: $0.id) }?.id
     }
 
     private func requestKeyboard(for id: UUID) {

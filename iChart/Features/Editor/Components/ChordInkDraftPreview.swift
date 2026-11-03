@@ -598,6 +598,7 @@ struct ChordInkDraft: Identifiable, Hashable {
     var recognitionDecision: ChordInkRecognitionDecision?
     var targetLifecycle: ChordInkRecognitionTargetLifecycle?
     var requiresManualReviewOnly: Bool
+    var requiresSeparatedChordInk = false
 
     init(id: UUID = UUID(), input: ChordInkDraftInput, selectedText: String? = nil, isStale: Bool = false) {
         self.id = id
@@ -637,6 +638,7 @@ struct ChordInkDraft: Identifiable, Hashable {
     }
 
     var previewText: String? {
+        guard !requiresSeparatedChordInk else { return nil }
         if let selectedText,
            !selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             // An invalid explicit edit must stay unresolved; falling back to
@@ -653,7 +655,7 @@ struct ChordInkDraft: Identifiable, Hashable {
     }
 
     var previewDisplayText: String {
-        previewText ?? "Add chord"
+        requiresSeparatedChordInk ? "Separate chords" : (previewText ?? "Add chord")
     }
 
     var isRenderable: Bool {
@@ -674,77 +676,6 @@ struct ChordInkDraft: Identifiable, Hashable {
 
     var sourceCandidateSignature: [String] {
         ChordInkUserCorrectionMemoryPolicy.candidateSignature(from: candidateTexts)
-    }
-}
-
-private struct ChordInkDraftStrokeFingerprint: Hashable {
-    var strokeBounds: [CGRect]
-    var quantizedStrokeBounds: Set<QuantizedChordInkDraftStrokeBounds>
-
-    init?(drawingData: Data) {
-        guard let drawing = try? PKDrawing(data: drawingData) else {
-            return nil
-        }
-
-        let visibleBounds = drawing.strokes
-            .map(\.renderBounds)
-            .filter(ChordInkDraftVisibleStrokePolicy.isVisible(renderBounds:))
-            .map(\.standardized)
-        guard !visibleBounds.isEmpty else {
-            return nil
-        }
-
-        strokeBounds = visibleBounds
-        quantizedStrokeBounds = Set(visibleBounds.map(QuantizedChordInkDraftStrokeBounds.init(bounds:)))
-    }
-
-    func absorbs(
-        _ previous: ChordInkDraftStrokeFingerprint,
-        requiredAddedStrokeGap: CGFloat
-    ) -> Bool {
-        guard extends(previous),
-              let addedStrokeGap = minimumAddedStrokeGap(after: previous) else {
-            return false
-        }
-
-        return addedStrokeGap >= requiredAddedStrokeGap
-    }
-
-    func extends(_ previous: ChordInkDraftStrokeFingerprint) -> Bool {
-        strokeBounds.count > previous.strokeBounds.count
-            && quantizedStrokeBounds.isSuperset(of: previous.quantizedStrokeBounds)
-    }
-
-    private func minimumAddedStrokeGap(after previous: ChordInkDraftStrokeFingerprint) -> CGFloat? {
-        let addedBounds = strokeBounds.filter { bounds in
-            !previous.quantizedStrokeBounds.contains(
-                QuantizedChordInkDraftStrokeBounds(bounds: bounds)
-            )
-        }
-        guard let previousMaxX = previous.strokeBounds.map(\.maxX).max(),
-              let addedMinX = addedBounds.map(\.minX).min() else {
-            return nil
-        }
-
-        return addedMinX - previousMaxX
-    }
-}
-
-private struct QuantizedChordInkDraftStrokeBounds: Hashable {
-    var minX: Int
-    var minY: Int
-    var width: Int
-    var height: Int
-
-    init(bounds: CGRect) {
-        minX = Self.quantize(bounds.minX)
-        minY = Self.quantize(bounds.minY)
-        width = Self.quantize(bounds.width)
-        height = Self.quantize(bounds.height)
-    }
-
-    private static func quantize(_ value: CGFloat) -> Int {
-        Int((value * 2).rounded())
     }
 }
 
@@ -950,6 +881,7 @@ struct ChordPreviewState: Equatable {
     mutating func replaceDraftChords(with inputs: [ChordInkDraftInput], updatedAt: Date = .now) {
         let deduplicatedInputs = ChordInkDraftPreviewDeduplicationPolicy.deduplicated(inputs)
         let previousRenderableDrafts = draftChords.filter(\.isRenderable)
+        let previousGroupedDrafts = draftChords.filter(\.requiresSeparatedChordInk)
         let previousFrozenDraftByIdentity = Dictionary(
             draftChords.compactMap { draft -> (ChordInkRecognitionFrozenTargetIdentity, ChordInkDraft)? in
                 guard let lifecycle = draft.targetLifecycle,
@@ -960,46 +892,44 @@ struct ChordPreviewState: Equatable {
             },
             uniquingKeysWith: { first, _ in first }
         )
-        let previousDraftByAnchor = Dictionary(
-            draftChords.map { ($0.anchor, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        var preservedDraftIDs = Set<UUID>()
+        let previousDraftsByAnchor = Dictionary(grouping: draftChords, by: \.anchor)
+        let inputsByAnchor = Dictionary(grouping: deduplicatedInputs, by: \.anchor)
+        var usedDraftIDs = Set<UUID>()
         var resolvedDrafts = [ChordInkDraft]()
 
+        func append(_ draft: ChordInkDraft) {
+            usedDraftIDs.insert(draft.id)
+            resolvedDrafts.append(draft)
+        }
+
         for input in deduplicatedInputs {
-            if input.requiresManualReviewOnly {
-                // This is a settled manual-recovery target, not a transient
-                // reader result. Retaining the former preview as another draft
-                // would claim the same source twice and block safe recovery.
-                let previous = previousDraftByAnchor[input.anchor]
-                let selectedText = previous?.drawingData == input.drawingData ? previous?.selectedText : nil
-                var manualDraft = ChordInkDraft(id: previous?.id ?? UUID(), input: input,
-                    selectedText: selectedText, isStale: false)
-                if let lifecycle = manualDraft.targetLifecycle, lifecycle.stage == .stable {
-                    manualDraft.targetLifecycle = lifecycle.advanced(to: .frozen)
-                }
-                resolvedDrafts.append(manualDraft)
-                continue
+            let priorAtAnchor = (previousDraftsByAnchor[input.anchor] ?? []).filter {
+                !usedDraftIDs.contains($0.id)
             }
-            if let incomingLifecycle = input.targetLifecycle,
+            // A placement bucket can contain more than one chord. Only an
+            // exact drawing may reuse a row ID when its anchor is shared.
+            let previousDraft = priorAtAnchor.first { $0.drawingData == input.drawingData }
+                ?? (inputsByAnchor[input.anchor]?.count == 1 ? priorAtAnchor.first : nil)
+            let selectedText = previousDraft?.drawingData == input.drawingData ? previousDraft?.selectedText : nil
+
+            if !input.requiresManualReviewOnly,
+               let incomingLifecycle = input.targetLifecycle,
                let frozenDraft = previousFrozenDraftByIdentity[incomingLifecycle.frozenTargetIdentity] {
                 // A later page-wide pass may assign the same target a slightly
                 // different interpretation after unrelated ink is added
                 // elsewhere. Exact target anchor plus prepared-stroke
                 // ownership is the authority once frozen, so keep both the
                 // ownership and interpretation until that target changes.
-                if preservedDraftIDs.insert(frozenDraft.id).inserted {
-                    resolvedDrafts.append(frozenDraft)
+                if !usedDraftIDs.contains(frozenDraft.id) {
+                    append(frozenDraft)
                 }
                 continue
             }
 
-            let previousDraft = previousDraftByAnchor[input.anchor]
             var incomingDraft = ChordInkDraft(
                 id: previousDraft?.id ?? UUID(),
                 input: input,
-                selectedText: previousDraft?.selectedText,
+                selectedText: selectedText,
                 isStale: false
             )
             if let stableLifecycle = incomingDraft.targetLifecycle,
@@ -1007,32 +937,25 @@ struct ChordPreviewState: Equatable {
                 incomingDraft.targetLifecycle = stableLifecycle.advanced(to: .frozen)
             }
 
-            if previousDraft?.previewText == incomingDraft.previewText,
-               previousDraft?.drawingData == incomingDraft.drawingData {
-                resolvedDrafts.append(incomingDraft)
-            } else if let previousDraft,
-                      Self.shouldHoldPreviousRenderableDraft(
-                        previousDraft,
-                        whileResolving: incomingDraft
-                      ) {
-                // Adding detail inside the same chord can briefly produce no
-                // supported read. Keep the last renderable preview visible but
-                // pair it with an unresolved draft so the stale text cannot be
-                // committed until recognition resolves the expanded ink.
-                resolvedDrafts.append(previousDraft)
-                preservedDraftIDs.insert(previousDraft.id)
-                resolvedDrafts.append(Self.unresolvedAbsorbedDraft(from: input))
-            } else if let absorbedDraft = Self.absorbedPreviousRenderableDraft(
-                by: incomingDraft,
-                from: previousRenderableDrafts,
-                excluding: preservedDraftIDs
+            if Self.requiresSeparatedInk(
+                for: incomingDraft,
+                comparedTo: previousGroupedDrafts + previousRenderableDrafts.filter {
+                    !usedDraftIDs.contains($0.id)
+                        && ($0.anchor == input.anchor || inputsByAnchor[$0.anchor] == nil)
+                }
             ) {
-                resolvedDrafts.append(absorbedDraft)
-                preservedDraftIDs.insert(absorbedDraft.id)
-                resolvedDrafts.append(Self.unresolvedAbsorbedDraft(from: input))
-            } else {
-                resolvedDrafts.append(incomingDraft)
+                // The combined read has no reliable placement for the detached
+                // strokes. Keep it intact and ask the writer to separate it.
+                incomingDraft.requiresSeparatedChordInk = true
+                incomingDraft.candidateTexts = []
+                incomingDraft.bestCandidateText = nil
+                incomingDraft.selectedText = nil
+                incomingDraft.targetLifecycle = nil
+                incomingDraft.isStale = true
             }
+            // The current target owns all its ink. The former preview would
+            // claim some of those strokes twice.
+            append(incomingDraft)
         }
 
         draftChords = resolvedDrafts
@@ -1052,76 +975,39 @@ struct ChordPreviewState: Equatable {
         self.updatedAt = updatedAt
     }
 
-    private static func shouldHoldPreviousRenderableDraft(
-        _ previousDraft: ChordInkDraft,
-        whileResolving incomingDraft: ChordInkDraft
+    private static func requiresSeparatedInk(
+        for incomingDraft: ChordInkDraft,
+        comparedTo previousDrafts: [ChordInkDraft]
     ) -> Bool {
-        guard previousDraft.isRenderable,
-              incomingDraft.previewText == nil,
-              previousDraft.anchor == incomingDraft.anchor,
-              let previousFingerprint = ChordInkDraftStrokeFingerprint(
-                drawingData: previousDraft.drawingData
-              ),
-              let incomingFingerprint = ChordInkDraftStrokeFingerprint(
-                drawingData: incomingDraft.drawingData
-              ) else {
+        let incomingPreviewText = incomingDraft.previewText
+        guard !previousDrafts.isEmpty, let expanded = try? PKDrawing(data: incomingDraft.drawingData) else {
             return false
         }
 
-        return incomingFingerprint.extends(previousFingerprint)
-    }
-
-    private static func absorbedPreviousRenderableDraft(
-        by incomingDraft: ChordInkDraft,
-        from previousDrafts: [ChordInkDraft],
-        excluding preservedDraftIDs: Set<UUID>
-    ) -> ChordInkDraft? {
-        let incomingPreviewText = incomingDraft.previewText
-        guard let incomingFingerprint = ChordInkDraftStrokeFingerprint(drawingData: incomingDraft.drawingData) else {
-            return nil
+        let minimumGap = incomingPreviewText == nil
+            ? minimumUnresolvedAddedStrokeGap : minimumDetachedAddedStrokeGap
+        return previousDrafts.contains { previousDraft in
+            if previousDraft.drawingData == incomingDraft.drawingData {
+                return previousDraft.requiresSeparatedChordInk
+            }
+            guard previousDraft.strokeCount <= incomingDraft.strokeCount,
+                  let prior = try? PKDrawing(data: previousDraft.drawingData) else { return false }
+            if previousDraft.requiresSeparatedChordInk {
+                // A repeated read of the same group cannot clear the request
+                // to separate it. A new, independently targeted subset can.
+                return ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: prior, current: expanded)
+                    || ChordInkDraftSourceCoveragePolicy.addedVisibleStrokes(in: expanded, after: prior) != nil
+            }
+            guard sharesDraftContinuityScope(previousDraft, incomingDraft),
+                  let previousPreviewText = previousDraft.previewText,
+                  previousPreviewText != incomingPreviewText,
+                  !ChordInkSameChordContinuationPolicy.allowsContinuation(
+                    from: previousPreviewText, to: incomingPreviewText
+                  ),
+                  let added = ChordInkDraftSourceCoveragePolicy.addedVisibleStrokes(in: expanded, after: prior),
+                  let addedMinX = added.lazy.map(\.renderBounds.minX).min() else { return false }
+            return addedMinX - prior.bounds.maxX >= minimumGap
         }
-
-        return previousDrafts
-            .filter { previousDraft in
-                guard !preservedDraftIDs.contains(previousDraft.id),
-                      let previousPreviewText = previousDraft.previewText,
-                      previousPreviewText != incomingPreviewText,
-                      sharesDraftContinuityScope(previousDraft, incomingDraft),
-                      let previousFingerprint = ChordInkDraftStrokeFingerprint(drawingData: previousDraft.drawingData) else {
-                    return false
-                }
-
-                if ChordInkSameChordContinuationPolicy.allowsContinuation(
-                    from: previousPreviewText,
-                    to: incomingPreviewText
-                ) {
-                    return false
-                }
-
-                let minimumAddedStrokeGap = incomingPreviewText == nil
-                    ? Self.minimumUnresolvedAddedStrokeGap
-                    : Self.minimumDetachedAddedStrokeGap
-                return incomingFingerprint.absorbs(
-                    previousFingerprint,
-                    requiredAddedStrokeGap: minimumAddedStrokeGap
-                )
-            }
-            .sorted { lhs, rhs in
-                if lhs.strokeCount != rhs.strokeCount {
-                    return lhs.strokeCount > rhs.strokeCount
-                }
-
-                return visualOrder(lhs) < visualOrder(rhs)
-            }
-            .first
-    }
-
-    private static func unresolvedAbsorbedDraft(from input: ChordInkDraftInput) -> ChordInkDraft {
-        var unresolvedInput = input
-        unresolvedInput.candidateTexts = []
-        unresolvedInput.bestCandidateText = nil
-        unresolvedInput.confidence = 0
-        return ChordInkDraft(input: unresolvedInput, selectedText: nil, isStale: true)
     }
 
     private static func sharesDraftContinuityScope(

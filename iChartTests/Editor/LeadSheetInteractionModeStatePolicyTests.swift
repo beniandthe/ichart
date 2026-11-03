@@ -4547,6 +4547,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
 
         XCTAssertTrue(automaticRhythm.contains("pause to render"))
         XCTAssertTrue(manualRhythm.contains("Render Chords or Review & Render"))
+        XCTAssertTrue(manualRhythm.contains("Type the chord for any Add chord preview"))
         XCTAssertTrue(manualRhythm.contains("open measure"))
         XCTAssertTrue(manualRhythm.contains("Use Measures for committed measures"))
         XCTAssertTrue(automaticSimpleSheet.contains("Draw tall barlines between chords"))

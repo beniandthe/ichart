@@ -3069,6 +3069,14 @@ struct EditorView: View {
         .background(tint.opacity(0.12))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .accessibilityLabel(chordPreviewAccessibilityLabel)
+        .accessibilityHint(chordPreviewAccessibilityHint)
+    }
+
+    private var chordPreviewAccessibilityHint: String {
+        if chordPreviewState.draftChords.contains(where: \.requiresSeparatedChordInk) {
+            return "Use Review & Render to see which writing needs more space between chords."
+        }
+        return chordPreviewState.unresolvedChordCount > 0 ? "Use Review & Render to type the intended chord." : ""
     }
 
     private var chordDiagnosticPreviewItems: [ChordDiagnosticPreviewItem] {

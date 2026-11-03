@@ -375,7 +375,8 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Turn on Manual Render with Preview in app Settings when you want to review your writing before it becomes notation.",
             bullets: [
                 "Tap Render Chords when the previews are ready. If the button says Review & Render, follow the prompt to review the chords, repeats, or endings.",
-                "Add chord means a chord needs an entry. You can still open review; type the chord or choose a suggestion.",
+                "If a preview says Add chord, tap Review & Render and type the intended chord.",
+                "If new strokes make a chord unreadable, Add chord marks the combined writing. If you see Separate chords, go back to writing and rewrite those chords with more space between them.",
                 "In Confirm Chords, correct the text or choose a suggestion, then tap Render Chord or Render All. Each entry needs a supported chord before the final render is available.",
                 "Turn the setting off to return to automatic chord rendering after a pause.",
                 "Clear Draft Ink removes all unrendered chord and barline writing after confirmation. Rendered notation and Free Ink stay unchanged."
@@ -1476,7 +1477,7 @@ struct LibraryView: View {
                             .tint(IChartHomeBrand.blue)
                             .foregroundStyle(homeTheme.panelTitle)
                             .accessibilityIdentifier("manual-render-with-preview-toggle")
-                            .accessibilityHint("Off uses automatic rendering. On shows previews and waits for you to tap Render.")
+                            .accessibilityHint("Off uses automatic rendering. On shows previews before you tap Render Chords or Review & Render.")
 
                         Text(manualRenderWithPreview
                             ? ChordInkWorkflowSettings.manualRenderingDescription
