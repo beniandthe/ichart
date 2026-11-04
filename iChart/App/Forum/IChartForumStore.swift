@@ -423,7 +423,8 @@ final class IChartForumStore: ObservableObject {
         await run {
             let requestService = activeService
             try await requestService.vote(postID: detail.post.id, vote: vote)
-            try await refreshSelectedDetail(postID: detail.post.id, song: detail.song)
+            try await refreshSelectedDetail(postID: detail.post.id, song: detail.song,
+                preservingCommentHistory: true)
             state = .loaded(try await requestService.loadHome(query: lastQuery))
         }
     }

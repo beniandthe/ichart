@@ -72,6 +72,51 @@ final class IChartForumParticipationTests: XCTestCase {
         }
     }
 
+    func testVotingKeepsExpandedCommentHistoryAndCursorWithUpdatedVoteCounts() async throws {
+        for style in chartStyles {
+            let fixture = try makeFixture(commentCount: 177, layoutStyle: style)
+            defer { fixture.clean() }
+            await fixture.store.openPost(fixture.detail.post, song: fixture.detail.song)
+            await fixture.store.loadEarlierComments()
+            let expanded = try XCTUnwrap(fixture.store.selectedDetail)
+            XCTAssertEqual(expanded.comments.map(\.body), (17..<177).map(String.init))
+            let cursor = try XCTUnwrap(expanded.earlierCommentCursor)
+
+            await fixture.store.vote(.up, on: expanded)
+
+            let upvoted = try XCTUnwrap(fixture.store.selectedDetail)
+            XCTAssertEqual(upvoted.currentUserVote, .up)
+            XCTAssertEqual(upvoted.post.voteUpCount, 1)
+            XCTAssertEqual(upvoted.post.voteDownCount, 0)
+            XCTAssertEqual(upvoted.comments, expanded.comments)
+            XCTAssertEqual(upvoted.earlierCommentCursor, cursor)
+            XCTAssertEqual(Set(upvoted.comments.map(\.id)).count, 160)
+            XCTAssertNil(fixture.store.errorMessage)
+
+            await fixture.store.vote(.down, on: upvoted)
+
+            let downvoted = try XCTUnwrap(fixture.store.selectedDetail)
+            XCTAssertEqual(downvoted.currentUserVote, .down)
+            XCTAssertEqual(downvoted.post.voteUpCount, 0)
+            XCTAssertEqual(downvoted.post.voteDownCount, 1)
+            XCTAssertEqual(downvoted.comments, expanded.comments)
+            XCTAssertEqual(downvoted.earlierCommentCursor, cursor)
+            XCTAssertEqual(Set(downvoted.comments.map(\.id)).count, 160)
+            XCTAssertNil(fixture.store.errorMessage)
+
+            await fixture.store.loadEarlierComments()
+
+            let complete = try XCTUnwrap(fixture.store.selectedDetail)
+            XCTAssertEqual(complete.comments.map(\.body), (0..<177).map(String.init))
+            XCTAssertEqual(Set(complete.comments.map(\.id)).count, 177)
+            XCTAssertNil(complete.earlierCommentCursor)
+            XCTAssertEqual(complete.currentUserVote, .down)
+            XCTAssertEqual(complete.post.voteUpCount, 0)
+            XCTAssertEqual(complete.post.voteDownCount, 1)
+            XCTAssertNil(fixture.store.errorMessage)
+        }
+    }
+
     func testEarlierCommentFailureKeepsTheSameCursorForRetry() async throws {
         for style in chartStyles {
             let fixture = try makeFixture(commentCount: 161, layoutStyle: style)
@@ -181,6 +226,8 @@ final class IChartForumParticipationTests: XCTestCase {
 private actor ForumParticipationService: IChartForumServicing {
     nonisolated let isConfigured = true
     private let detail: IChartForumPostDetail
+    private var post: ForumChartPost
+    private var currentUserVote: ForumVoteValue?
     private let commenterID = UUID()
     private var comments: [ForumComment] = []
     private var rejectsNextComment = false
@@ -192,6 +239,8 @@ private actor ForumParticipationService: IChartForumServicing {
 
     init(detail: IChartForumPostDetail, comments: [ForumComment] = []) {
         self.detail = detail
+        self.post = detail.post
+        self.currentUserVote = detail.currentUserVote
         self.comments = comments
     }
 
@@ -213,8 +262,8 @@ private actor ForumParticipationService: IChartForumServicing {
         }
         let page = commentPage()
         return IChartForumPostDetail(
-            song: song, post: detail.post, comments: page.comments,
-            authorBadges: detail.authorBadges, currentUserVote: detail.currentUserVote,
+            song: song, post: post, comments: page.comments,
+            authorBadges: detail.authorBadges, currentUserVote: currentUserVote,
             earlierCommentCursor: page.earlierCursor
         )
     }
@@ -258,7 +307,14 @@ private actor ForumParticipationService: IChartForumServicing {
                  progress: @escaping (ForumUploadStage) async -> Void) async throws { throw Failure.unused }
     func withdrawPost(postID: UUID) async throws { throw Failure.unused }
     func removePost(postID: UUID) async throws { throw Failure.unused }
-    func vote(postID: UUID, vote: ForumVoteValue) async throws { throw Failure.unused }
+    func vote(postID: UUID, vote: ForumVoteValue) async throws {
+        guard postID == post.id else { throw Failure.unused }
+        if currentUserVote == .up { post.voteUpCount -= 1 }
+        if currentUserVote == .down { post.voteDownCount -= 1 }
+        currentUserVote = vote
+        if vote == .up { post.voteUpCount += 1 }
+        if vote == .down { post.voteDownCount += 1 }
+    }
     func reportPost(postID: UUID, reason: ForumReportReason, detail: String?) async throws { throw Failure.unused }
     func reportComment(commentID: UUID, reason: ForumReportReason, detail: String?) async throws { throw Failure.unused }
     func blockUser(ownerID: UUID) async throws { throw Failure.unused }
