@@ -19,7 +19,14 @@ forum verification has 25 actual HTTP gateway cases, 170 database-policy
 assertions and 56 Edge unit tests passing. Integration adds a default build-number
 update and 34 passing project-configuration tests. See
 [Build 136 source consolidation](build-136-consolidation.md) for the distinct
-evidence lanes. Hosted CI and promotion to `main` are still pending.
+evidence lanes. Hosted backend contracts and Dependency Review passed at the
+Build 136 PR head; iOS, SwiftPM and CodeQL were cancelled before execution due
+to runner acquisition. The hosted gate and promotion to `main` remain pending.
+
+The actual local forum app walkthrough is complete. It reproduced browsing
+defects and verified the local [Build 137 forum follow-up](forum-browse-followup-137.md):
+50 focused native checks and all three real-app walkthrough methods pass.
+Build 136 remains installed; the follow-up awaits publication and device acceptance.
 
 ## Write & Render contract
 
@@ -40,8 +47,8 @@ save and reopen. Preview, user edit, rendered result and saved data remain disti
 | FIX-002 | Improve supported F roots; retain E, 7 and vertical controls. | Prior device acceptance retained; bounded reader/render/reopen controls pass. |
 | FIX-003 | Correct triangle/half-diminished ownership, candidate retention and same-root quality editing. | Native/portable controls pass; user reports improvement. Fresh-writing accuracy remains under observation. |
 | FIX-004 / FIX-014 | Render clear fermatas/accents with attachment/float, selection, smooth drag/guide, delete/undo and Restore Ink. | Both styles implemented; prior baseline accepted. Marcato remains parked. |
-| FIX-005 | Load author badges independently and show accurate profile statistics. | Local two-account reads/write denials pass. Awards/revokes remain operator actions; app visibility check pending. |
-| FIX-006 | Preserve comment drafts/history; support stable earlier-page chronology and retry. | Gateway/store regressions pass. Actual app discovery and two-account interaction remain under review. |
+| FIX-005 | Load author badges independently and show accurate profile statistics. | Local gateway and actual two-account app visibility checks pass. Awards/revokes remain operator actions; no production awards made. |
+| FIX-006 | Preserve comment drafts/history; support stable earlier-page chronology and retry. | Actual two-account publication/download, vote/comment, paging, badges and return checks pass. The local 137 follow-up repairs narrow cards, persistent search/focus and submitted-query return/retry state. |
 | FIX-007 | Bind delayed saves by chart ID; reject duplicate identities before backup. | Persistence regressions pass. Historical incident still requires affected-chart evidence. |
 | FIX-008 | Keep review input focus/scroll stable while retaining editing/render actions. | Regression-tested and previously accepted on device; software-keyboard evidence remains separate. |
 | FIX-009 | Preserve following meter-change anchors across Simple measure splits. | Both render settings and file-backed source/range checks pass. |
@@ -79,10 +86,10 @@ save and reopen. Preview, user edit, rendered result and saved data remain disti
 
 ## Remaining checks and parked work
 
-1. Complete the actual forum app walkthrough in an isolated local environment:
-   publication/download, vote/comment behavior, earlier-page loading, badge
-   visibility and return/discovery affordances. Backend HTTP success is already
-   verified separately.
+1. Review and publish the local Build 137 forum follow-up if approved. The actual
+   local app walkthrough is complete, including both-style publication/download,
+   two-account participation and saved-server readback. Its disposable fixture
+   was removed. No physical device update has been performed for that candidate.
 2. Confirm the latest eligible/protected Rhythm divider gestures, style previews
    and forum PDF labels on the physical iPad. Continue checking fresh major-
    seventh and genuine half-diminished writing during normal use.

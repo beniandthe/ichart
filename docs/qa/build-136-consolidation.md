@@ -53,7 +53,17 @@ for current ticket status and remaining checks.
 
 ## Remaining closeout
 
-The actual forum app walkthrough in an isolated local environment is in progress.
+The actual forum app walkthrough in an isolated local environment is complete.
+It exposed browsing defects addressed by a separate local
+[Build 137 candidate](forum-browse-followup-137.md). That candidate passes 50
+focused native checks and three actual app walkthrough methods, with durable
+server readback and fixture cleanup. It has not changed the installed baseline
+or the approved Build 136 draft PR head.
+
+Hosted backend contracts and Dependency Review passed. Hosted iOS, SwiftPM and
+CodeQL jobs were cancelled before execution because macOS runners were not
+acquired; the hosted validation gate remains unmet.
+
 Fresh physical checks of the latest divider, engraving-preview and PDF-label
 changes remain open. The historical ink-integrity investigation still requires
 affected-chart evidence; successful installation preservation does not settle it.

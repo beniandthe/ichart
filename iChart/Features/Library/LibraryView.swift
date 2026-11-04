@@ -467,6 +467,7 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Forums are an account-based space for sharing useful chart PDFs with other musicians, included in free Pro access.",
             bullets: [
                 "A forum upload starts from a chart you made in iChart.",
+                "Use the search field at the top of Forums, then tap Search to find songs, artists, arrangers, or tags. Your search text stays available while results load or if you need to retry.",
                 "Forum PDFs keep the publisher's instrument view and transposition at submission. Change the view in the chart before Submit To Forum if needed.",
                 "Older downloads without reliable view metadata show Instrument view unknown. Downloading never changes the notes printed in the PDF.",
                 "iChart checks that the PDF and chart details belong to that upload before it appears publicly.",
@@ -782,6 +783,7 @@ struct LibraryView: View {
     @State private var addChartsRequest: ChartProjectAddChartsRequest?
     @State private var duplicateVariantRequest: ChartProjectDuplicateVariantRequest?
     @State private var forumSearchText = ""
+    @State private var forumSubmittedSearchText = ""
     @State private var forumPublishRequest: IChartForumPublishRequest?
     @State private var selectedPDFLibraryItem: IChartPDFLibraryItem?
     @State private var activeLibraryOperation: IChartLibraryOperation?
@@ -1399,6 +1401,7 @@ struct LibraryView: View {
                     IChartForumHomeView(
                         state: forumStore.state,
                         searchText: $forumSearchText,
+                        submittedSearchText: $forumSubmittedSearchText,
                         charts: store.charts,
                         currentUserID: authStore.state.signedInSession?.id,
                         currentUserBadges: forumStore.currentUserBadges,
@@ -1414,22 +1417,10 @@ struct LibraryView: View {
                         errorMessage: forumStore.errorMessage,
                         theme: homeTheme,
                         onSearch: { query in
-                            Task {
-                                await forumStore.refresh(
-                                    authState: authStore.state,
-                                    entitlements: store.entitlements,
-                                    query: query
-                                )
-                            }
+                            refreshForumHome(query: query)
                         },
                         onRefresh: {
-                            Task {
-                                await forumStore.refresh(
-                                    authState: authStore.state,
-                                    entitlements: store.entitlements,
-                                    query: forumSearchText
-                                )
-                            }
+                            refreshForumHome(query: forumSearchText)
                         },
                         onPublishChart: { chart in
                             forumPublishRequest = IChartForumPublishRequest(chart: chart)
@@ -1884,11 +1875,23 @@ struct LibraryView: View {
             return
         }
 
+        refreshForumHome(query: forumSearchText, authState: authState, entitlements: entitlements)
+    }
+
+    private func refreshForumHome(
+        query: String,
+        authState: IChartAuthState? = nil,
+        entitlements: AppEntitlements? = nil
+    ) {
+        // This belongs to the library, which survives tab changes. Track the
+        // actual requested query rather than reseeding from an unsubmitted
+        // field draft when the forum view appears or a refresh completes.
+        forumSubmittedSearchText = query.trimmingCharacters(in: .whitespacesAndNewlines)
         Task {
             await forumStore.refresh(
                 authState: authState ?? authStore.state,
                 entitlements: entitlements ?? store.entitlements,
-                query: forumSearchText
+                query: query
             )
         }
     }
@@ -2884,9 +2887,11 @@ private struct IChartPDFLibraryRow: View {
     }
 }
 
-private struct IChartForumHomeView: View {
+struct IChartForumHomeView: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let state: IChartForumState
     @Binding var searchText: String
+    @Binding var submittedSearchText: String
     let charts: [Chart]
     let currentUserID: UUID?
     let currentUserBadges: [ForumAuthorBadgeType]?
@@ -2902,10 +2907,19 @@ private struct IChartForumHomeView: View {
     let onDismissUpload: (ForumUploadQueueItem) -> Void
     let onOpenPost: (ForumSong, ForumChartPost) -> Void
 
-    @State private var submittedSearchText = ""
-
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
+            if showsSearchControls {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Search for a song, artist, arranger, or tag, then tap Search. Open a chart to preview its PDF or join the discussion.")
+                        .font(.subheadline)
+                        .foregroundStyle(theme.panelSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("forum.search.instructions")
+                    searchAndPublishRow
+                }
+            }
+
             if let summaries = loadedSummaries {
                 IChartForumCommunityHero(
                     featuredPosts: featuredPosts(from: summaries),
@@ -2946,6 +2960,15 @@ private struct IChartForumHomeView: View {
         return summaries
     }
 
+    private var showsSearchControls: Bool {
+        switch state {
+        case .loading, .loaded, .failed:
+            true
+        case .unconfigured, .signedOut, .requiresPro:
+            false
+        }
+    }
+
     private var trimmedSearchText: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -2955,7 +2978,10 @@ private struct IChartForumHomeView: View {
     }
 
     private var searchAndPublishRow: some View {
-        HStack(alignment: .center, spacing: 12) {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 12))
+        return layout {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(theme.panelSecondary)
@@ -2969,6 +2995,9 @@ private struct IChartForumHomeView: View {
                     .submitLabel(.search)
                     .foregroundStyle(theme.panelTitle)
                     .tint(IChartHomeBrand.logoBlue)
+                    .accessibilityLabel("Forum search")
+                    .accessibilityIdentifier("forum.search")
+                    .accessibilityHint("Search song titles, artists, arrangers, or tags, then tap Search.")
                     .onSubmit {
                         submitSearch()
                     }
@@ -2993,6 +3022,8 @@ private struct IChartForumHomeView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
             .tint(IChartHomeBrand.blue)
+            .accessibilityIdentifier("forum.search.submit")
+            .accessibilityHint("Show charts matching the search text.")
         }
     }
 
@@ -3058,8 +3089,6 @@ private struct IChartForumHomeView: View {
                     theme: theme,
                     onPublishChart: onPublishChart
                 )
-
-                searchAndPublishRow
 
                 if isShowingSearchResults {
                     if summaries.isEmpty {
@@ -3155,6 +3184,7 @@ private enum IChartForumPalette {
 }
 
 private struct IChartForumCommunityHero: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let featuredPosts: [IChartForumFeaturedPost]
     let currentUserID: UUID?
     let currentUserBadges: [ForumAuthorBadgeType]?
@@ -3179,8 +3209,11 @@ private struct IChartForumCommunityHero: View {
     }
 
     var body: some View {
+        let headerLayout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: 16))
         VStack(alignment: .leading, spacing: 15) {
-            HStack(alignment: .top, spacing: 16) {
+            headerLayout {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Community Bandstand")
                         .font(.title2.weight(.bold))
@@ -3192,7 +3225,9 @@ private struct IChartForumCommunityHero: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                Spacer(minLength: 12)
+                if !dynamicTypeSize.isAccessibilitySize {
+                    Spacer(minLength: 12)
+                }
 
                 Label("iChart Pro", systemImage: "checkmark.seal.fill")
                     .font(.caption.weight(.semibold))
@@ -3210,9 +3245,12 @@ private struct IChartForumCommunityHero: View {
                         )
                     )
                     .clipShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
+                    .fixedSize(horizontal: true, vertical: false)
             }
 
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 118), spacing: 10)], spacing: 10) {
+            LazyVGrid(columns: dynamicTypeSize.isAccessibilitySize
+                ? [GridItem(.flexible(minimum: 0))]
+                : [GridItem(.adaptive(minimum: 118), spacing: 10)], spacing: 10) {
                 statPill(value: "\(userPosts.count)", label: "Your Charts in View", systemImageName: "square.and.arrow.up")
                 statPill(value: "\(userUpvoteCount)", label: "Upvotes in View", systemImageName: "hand.thumbsup")
                 if let currentUserBadges {
@@ -3264,7 +3302,7 @@ private struct IChartForumCommunityHero: View {
                 Text(label)
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(theme.panelSecondary)
-                    .lineLimit(1)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -3290,20 +3328,31 @@ private struct IChartForumCommunityHero: View {
 }
 
 private struct IChartForumTopChartsBoard: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let featuredPosts: [IChartForumFeaturedPost]
     let isSearching: Bool
     let theme: IChartHomeTheme
     let onOpenPost: (ForumSong, ForumChartPost) -> Void
 
     @State private var expandedPeriod: IChartForumTopChartPeriod?
+    @State private var gridWidth: CGFloat = 0
 
     private var columns: [GridItem] {
-        Array(repeating: GridItem(.flexible(minimum: 132), spacing: 10, alignment: .top), count: 4)
+        // A forum card needs room for its title, contributor and badge names.
+        // Measure the grid itself so sidebar and panel padding count toward
+        // the available width. Flexible columns can still shrink on a narrow
+        // window; their minimum must not force the board past its bounds.
+        let count = dynamicTypeSize.isAccessibilitySize
+            ? 1 : min(4, max(1, Int((gridWidth + 10) / 230)))
+        return Array(repeating: GridItem(.flexible(minimum: 0), spacing: 10, alignment: .top), count: count)
     }
 
     var body: some View {
+        let headerLayout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+            : AnyLayout(HStackLayout(alignment: .lastTextBaseline, spacing: 12))
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .lastTextBaseline, spacing: 12) {
+            headerLayout {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Top Charts")
                         .font(.title2.weight(.black))
@@ -3314,7 +3363,9 @@ private struct IChartForumTopChartsBoard: View {
                         .foregroundStyle(theme.panelSecondary)
                 }
 
-                Spacer(minLength: 12)
+                if !dynamicTypeSize.isAccessibilitySize {
+                    Spacer(minLength: 12)
+                }
 
                 Text("Top 10")
                     .font(.caption.weight(.black))
@@ -3323,6 +3374,7 @@ private struct IChartForumTopChartsBoard: View {
                     .padding(.vertical, 6)
                     .background(IChartHomeBrand.blue)
                     .clipShape(Capsule())
+                    .fixedSize(horizontal: true, vertical: false)
             }
 
             LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
@@ -3339,6 +3391,13 @@ private struct IChartForumTopChartsBoard: View {
                         },
                         onOpenPost: onOpenPost
                     )
+                }
+            }
+            .background {
+                GeometryReader { geometry in
+                    Color.clear
+                        .onAppear { updateGridWidth(geometry.size.width) }
+                        .onChange(of: geometry.size.width) { _, width in updateGridWidth(width) }
                 }
             }
         }
@@ -3369,6 +3428,11 @@ private struct IChartForumTopChartsBoard: View {
             RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous)
                 .stroke(theme.panelBorder.opacity(0.72), lineWidth: 1)
         }
+    }
+
+    private func updateGridWidth(_ width: CGFloat) {
+        guard width.isFinite, width >= 0, abs(gridWidth - width) > 0.5 else { return }
+        gridWidth = width
     }
 }
 
@@ -3965,7 +4029,7 @@ private struct IChartForumPostRow: View {
     }
 }
 
-private struct IChartForumBadgeLabels: View {
+struct IChartForumBadgeLabels: View {
     let badges: [ForumAuthorBadgeType]
     var showsExplanations = false
 
