@@ -4546,17 +4546,33 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
 
         XCTAssertTrue(automaticRhythm.contains("pause to render"))
-        XCTAssertTrue(manualRhythm.contains("Render Chords or Review & Render"))
+        XCTAssertTrue(automaticRhythm.contains("Use Fix Writing for unclear ink."))
+        XCTAssertTrue(automaticRhythm.contains("The first chord in each measure renders on beat 1."))
+        XCTAssertTrue(manualRhythm.contains("The first chord in each measure renders on beat 1."))
+        XCTAssertTrue(manualRhythm.contains("Render Chords for ready ink."))
+        XCTAssertTrue(manualRhythm.contains("Use Review & Render to check chord guesses or enter missing chords."))
         XCTAssertTrue(manualRhythm.contains("Keep suffixes close to their roots"))
-        XCTAssertTrue(manualRhythm.contains("Type the chord for any Add chord preview"))
-        XCTAssertTrue(manualRhythm.contains("open measure"))
-        XCTAssertTrue(manualRhythm.contains("Use Measures for committed measures"))
+        XCTAssertTrue(manualRhythm.contains("Unplaced ink stays on the page."))
+        XCTAssertTrue(manualRhythm.contains("split at a rhythmic boundary"))
+        XCTAssertTrue(manualRhythm.contains("If a note crosses the cut, the line stays as ink."))
+        XCTAssertTrue(manualRhythm.contains("Use Measures for other form edits."))
         XCTAssertTrue(automaticSimpleSheet.contains("Draw tall barlines between chords"))
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            for manualRenderWithPreview in [false, true] {
+                let instruction = EditorCanvasMode.chordEntry.activeToolInstruction(
+                    layoutStyle: style, manualRenderWithPreview: manualRenderWithPreview
+                )
+                XCTAssertTrue(instruction.contains("A lone rendered chord moves to beat 1 when barlines form its measure."))
+            }
+        }
         XCTAssertFalse(manualLeadSheet.contains("split"))
         XCTAssertTrue(freeInk.contains("Draw a fermata or accent anywhere, or a marcato (^) near a chord, note, or staff ink."))
-        XCTAssertTrue(simpleFreeInk.contains("stay as handwriting"))
-        XCTAssertFalse(simpleFreeInk.contains("pause to convert"))
-        XCTAssertFalse(rhythmSelect.contains("red X"))
+        XCTAssertTrue(simpleFreeInk.contains("Draw a fermata or accent anywhere"))
+        XCTAssertTrue(simpleFreeInk.contains("pause to convert"))
+        XCTAssertTrue(simpleFreeInk.contains("Marks near a rendered chord attach; others float."))
+        XCTAssertFalse(simpleFreeInk.contains("marcato"))
+        XCTAssertTrue(rhythmSelect.contains("Tap an eligible divider, then its red X to merge the measures."))
+        XCTAssertFalse(rhythmSelect.contains("Tap a converted mark"))
         XCTAssertTrue(rhythmSelectWithMarks.contains("Tap a converted mark, then drag to move it."))
         XCTAssertTrue(rhythmSelectWithMarks.contains("Release to attach when the line is visible."))
         XCTAssertTrue(rhythmSelectWithMarks.contains("Tap its red X to delete."))
@@ -6224,6 +6240,24 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
                 activeInkScopeIdentity: .rhythmicMeasure(rhythmicInkUpdate.measures[0].id)
             )
         )
+    }
+
+    func testCanvasChartUpdatePolicyKeepsLayoutWhenCloudBackupFinishes() {
+        let original = Chart.blank(title: "Pending review", measureCount: 8, layoutStyle: .rhythmSectionSheet)
+        var acknowledged = original
+        acknowledged.markBackedUpToCloud(ownerID: UUID(), at: Date(timeIntervalSinceReferenceDate: 800_000_000))
+        XCTAssertNotEqual(original.cloudBackupStatus, acknowledged.cloudBackupStatus)
+        XCTAssertFalse(LeadSheetCanvasChartUpdatePolicy.requiresLayoutRefresh(
+            previousChart: original, nextChart: acknowledged
+        ))
+        XCTAssertFalse(LeadSheetCanvasChartUpdatePolicy.requiresBackingDisplayRefresh(
+            previousChart: original, nextChart: acknowledged, activeInkScopeIdentity: .chords
+        ))
+
+        _ = acknowledged.setMeasureManualLayoutWidth(180, for: original.measures[0].id)
+        XCTAssertTrue(LeadSheetCanvasChartUpdatePolicy.requiresLayoutRefresh(
+            previousChart: original, nextChart: acknowledged
+        ))
     }
 
     func testCanvasChartUpdateReasonsSkipLiveInkPersistenceRedrawsOnly() {

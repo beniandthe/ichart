@@ -1154,8 +1154,13 @@ enum LeadSheetChordInkRecognitionTargeting {
         allowsSingleRoot: Bool = false
     ) -> [ChordInkBatchCluster] {
         let groups = ChordInkSequentialGrouper().groups(for: orderedStrokes)
-        guard !groups.isEmpty, (allowsSingleRoot || groups.count > 1),
-              groups.first?.rootConfidence != nil else {
+        guard let leading = groups.first, allowsSingleRoot || groups.count > 1 else {
+            return []
+        }
+        let hasSupportedLeadingFallback = groups.dropFirst().first.map {
+            ChordInkSequentialGrouper.supportsLeadingFallbackBoundary(leading, $0, in: orderedStrokes)
+        } ?? false
+        guard leading.rootConfidence != nil || hasSupportedLeadingFallback else {
             return []
         }
 

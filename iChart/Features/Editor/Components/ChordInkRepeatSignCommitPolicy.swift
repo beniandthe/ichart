@@ -8,11 +8,11 @@ enum ChordInkRepeatSignPairingPolicy {
     struct Review: Equatable {
         var unmatchedStartIDs: [UUID] = []
         var nestedStartIDs: [UUID] = []
-        var unconfirmedEndIDs: [UUID] = []
+        var conflictingEndIDs: [UUID] = []
 
         var unresolvedDraftIDs: [UUID] {
             var seen = Set<UUID>()
-            return (unmatchedStartIDs + nestedStartIDs + unconfirmedEndIDs).filter { seen.insert($0).inserted }
+            return (unmatchedStartIDs + nestedStartIDs + conflictingEndIDs).filter { seen.insert($0).inserted }
         }
 
         var canRender: Bool { unresolvedDraftIDs.isEmpty }
@@ -46,20 +46,31 @@ enum ChordInkRepeatSignPairingPolicy {
         var review = Review()
         var pairings: [Pairing] = []
         var pendingStart: DraftBarline?
+        var pendingStartIsConflicted = false
+        var hasUnresolvedEarlierStart = false
         for sign in signs where sign.kind.isRepeat {
             if sign.kind.endsRepeat {
                 if let start = pendingStart {
-                    pairings.append(Pairing(start: start, end: sign))
+                    if pendingStartIsConflicted {
+                        review.conflictingEndIDs.append(sign.id)
+                    } else {
+                        pairings.append(Pairing(start: start, end: sign))
+                    }
                     pendingStart = nil
-                } else if sign.repeatFromBeginningConfirmed {
-                    pairings.append(Pairing(start: nil, end: sign))
+                    pendingStartIsConflicted = false
+                } else if hasUnresolvedEarlierStart {
+                    review.conflictingEndIDs.append(sign.id)
                 } else {
-                    review.unconfirmedEndIDs.append(sign.id)
+                    // A closing repeat without a start repeats from the chart
+                    // beginning. Source and final boundary validation still apply.
+                    pairings.append(Pairing(start: nil, end: sign))
                 }
             }
             if sign.kind.startsRepeat {
                 if let start = pendingStart {
                     review.nestedStartIDs.append(contentsOf: [start.id, sign.id])
+                    pendingStartIsConflicted = true
+                    hasUnresolvedEarlierStart = true
                 } else {
                     pendingStart = sign
                 }
@@ -68,7 +79,7 @@ enum ChordInkRepeatSignPairingPolicy {
         if let start = pendingStart { review.unmatchedStartIDs.append(start.id) }
         review.unmatchedStartIDs = unique(review.unmatchedStartIDs)
         review.nestedStartIDs = unique(review.nestedStartIDs)
-        review.unconfirmedEndIDs = unique(review.unconfirmedEndIDs)
+        review.conflictingEndIDs = unique(review.conflictingEndIDs)
         return Analysis(review: review, pairings: pairings)
     }
 
@@ -146,6 +157,10 @@ enum ChordInkRepeatSignCommitPolicy {
         }
         let byID = Dictionary(grouping: ordered, by: { $0.draft.id })
         for (id, matches) in byID where matches.count != 1 { invalidIDs.insert(id) }
+        for group in Dictionary(grouping: ordered, by: { boundaryPosition($0) }).values {
+            let closing = group.filter { $0.draft.kind.endsRepeat }
+            if closing.count > 1 { invalidIDs.formUnion(closing.map { $0.draft.id }) }
+        }
         let analysis = ChordInkRepeatSignPairingPolicy.analyze(signs: ordered.map(\.draft))
         invalidIDs.formUnion(analysis.review.unresolvedDraftIDs)
         var spans: [Span] = []
@@ -161,7 +176,7 @@ enum ChordInkRepeatSignCommitPolicy {
             if let start = pairing.start {
                 startMeasureID = byID[start.id]?.first?.rightMeasureID
             } else {
-                startMeasureID = pairing.end.repeatFromBeginningConfirmed ? orderedMeasureIDs.first : nil
+                startMeasureID = orderedMeasureIDs.first
             }
             guard let startMeasureID, let startIndex = positions[startMeasureID], startIndex <= endIndex else {
                 invalidIDs.formUnion(ids)

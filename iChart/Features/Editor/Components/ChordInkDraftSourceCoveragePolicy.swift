@@ -25,6 +25,20 @@ enum ChordInkDraftSourceCoveragePolicy {
     }
 
     static func hasCompleteCoverage(chart: Chart, state: ChordPreviewState) -> Bool {
+        hasCoverage(chart: chart, state: state, requiresCompleteCoverage: true)
+    }
+
+    /// Validates every represented claim while allowing other live fragments
+    /// to remain unclaimed. A partial transaction must retain those fragments
+    /// and validate its selected source separately before consuming any ink.
+    static func hasValidRepresentedCoverage(chart: Chart, state: ChordPreviewState) -> Bool {
+        guard chart.pageHandwrittenChordData != nil else { return state.isEmpty }
+        return hasCoverage(chart: chart, state: state, requiresCompleteCoverage: false)
+    }
+
+    private static func hasCoverage(
+        chart: Chart, state: ChordPreviewState, requiresCompleteCoverage: Bool
+    ) -> Bool {
         guard let data = chart.pageHandwrittenChordData else { return true }
         guard let source = try? PKDrawing(data: data) else { return false }
         guard var unclaimed = visibleStrokeMultiset(source) else { return false }
@@ -44,7 +58,7 @@ enum ChordInkDraftSourceCoveragePolicy {
             guard let pageSize = state.layoutPageSize,
                   pageSize.width.isFinite, pageSize.height.isFinite,
                   pageSize.width > 0, pageSize.height > 0,
-                  state.draftBarlines.allSatisfy(\.isRenderable) else { return false }
+                  (!requiresCompleteCoverage || state.draftBarlines.allSatisfy(\.isRenderable)) else { return false }
             let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize,
                 includesChordInkContinuationLanes: true)
             let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
@@ -91,7 +105,9 @@ enum ChordInkDraftSourceCoveragePolicy {
                 guard let sourceIndex = barline.sourceStrokeIndex,
                       source.strokes.indices.contains(sourceIndex),
                       let matches = freshByIdentity[barline.identitySignature], matches.count == 1,
-                      let current = matches.first, current.isRenderable,
+                      let current = matches.first,
+                      (!requiresCompleteCoverage || current.isRenderable),
+                      current.ambiguity == barline.ambiguity,
                       current.metrics == barline.metrics,
                       current.measureIndex == barline.measureIndex,
                       current.laneLocation == barline.laneLocation,
@@ -104,7 +120,7 @@ enum ChordInkDraftSourceCoveragePolicy {
                 }
             }
         }
-        return unclaimed.isEmpty
+        return !requiresCompleteCoverage || unclaimed.isEmpty
     }
 
     private static func claim(_ stroke: PKStroke, from unclaimed: inout [StrokeIdentity: Int]) -> Bool {

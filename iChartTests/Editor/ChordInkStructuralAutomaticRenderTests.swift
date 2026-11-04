@@ -230,12 +230,16 @@ final class ChordInkStructuralAutomaticRenderTests: XCTestCase {
                 XCTAssertEqual(events[id]?.sourceInkData, originalEvents[id]?.sourceInkData)
                 XCTAssertEqual(events[id]?.rawInput, originalEvents[id]?.rawInput)
                 XCTAssertEqual(events[id]?.symbol, originalEvents[id]?.symbol)
-                XCTAssertEqual(events[id]?.startPosition, originalEvents[id]?.startPosition)
+                XCTAssertEqual(events[id]?.startPosition, BeatPosition(beat: 1, subdivision: 0, subdivisionsPerBeat: 1))
                 XCTAssertEqual(events[id]?.duration, originalEvents[id]?.duration)
                 XCTAssertEqual(events[id]?.rhythmPlacement, originalEvents[id]?.rhythmPlacement)
                 var expected = try XCTUnwrap(originalEvents[id])
-                expected.manualVisualLaneFraction = events[id]?.manualVisualLaneFraction
-                XCTAssertEqual(events[id], expected, "Only the visual fraction may change within the redistributed event")
+                expected.startPosition = BeatPosition(beat: 1, subdivision: 0, subdivisionsPerBeat: 1)
+                expected.anchorsToMeasureStart = true
+                expected.mappedRhythmSlotIndex = nil
+                expected.manualLaneFraction = nil
+                expected.manualVisualLaneFraction = nil
+                XCTAssertEqual(events[id], expected, "A resulting singleton moves to beat 1 with every other receipt intact")
             }
             XCTAssertEqual(rendered.chart.measures.count, 2)
             XCTAssertEqual(rendered.chart.measures[0].chordEvents.map(\.id), [cID])
@@ -246,7 +250,7 @@ final class ChordInkStructuralAutomaticRenderTests: XCTestCase {
             let afterFrames = Dictionary(uniqueKeysWithValues: afterLayout.systems.flatMap(\.measures)
                 .flatMap(\.chordLayouts).map { ($0.id, $0.naturalFrame) })
             for id in [cID, gID] {
-                XCTAssertEqual(try XCTUnwrap(afterFrames[id]).minX, try XCTUnwrap(beforeFrames[id]).minX, accuracy: 0.01)
+                XCTAssertLessThan(try XCTUnwrap(afterFrames[id]).minX, try XCTUnwrap(beforeFrames[id]).minX)
             }
             XCTAssertEqual(try ChartPersistenceCoders.decoder.decode(Chart.self,
                 from: ChartPersistenceCoders.encoder.encode(rendered.chart)), rendered.chart)
@@ -350,22 +354,37 @@ final class ChordInkStructuralAutomaticRenderTests: XCTestCase {
         XCTAssertEqual(chart, original)
     }
 
-    func testUnpairedRepeatSignsRemainExplicitChoicesAfterGrace() throws {
+    func testUnmatchedStartStaysInkWhileStandaloneEndUsesTheChartBeginningAfterGrace() throws {
         for kind in [DraftBarlineKind.repeatStart, .repeatEnd] {
             var chart = makeChart()
             let fixture = try fixture(chart)
             let source = try install(PKDrawing(strokes: strokes(kind, x: fixture.lane.midX, fixture: fixture)),
                 in: &chart, fixture: fixture)
             let original = chart
-            let outcome = attempt(chart, source, elapsed: 4)
-            XCTAssertNil(outcome.outcome)
-            XCTAssertEqual(outcome.feedback.globalReason, .repeatReview)
+            let result = attempt(chart, source, elapsed: 4)
+            if kind == .repeatStart {
+                XCTAssertNil(result.outcome)
+                XCTAssertEqual(result.feedback.globalReason, .repeatReview)
+            } else {
+                let outcome = try XCTUnwrap(result.outcome)
+                XCTAssertEqual(outcome.result.renderedBarlineCount, 1)
+                XCTAssertTrue(outcome.drawing.strokes.isEmpty)
+                XCTAssertTrue(outcome.remainingState.isEmpty)
+                let reopened = try ChartPersistenceCoders.decoder.decode(Chart.self,
+                    from: ChartPersistenceCoders.encoder.encode(outcome.chart))
+                let span = try XCTUnwrap(reopened.roadmapObjects.first { $0.type == .repeatSpan })
+                XCTAssertEqual(span.startMeasureID, chart.measures.first?.id)
+                let archive = try PKDrawing(data: XCTUnwrap(span.sourceInkData))
+                XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+                    expected: source.drawing, current: archive))
+                XCTAssertNil(reopened.pageHandwrittenChordData)
+            }
             XCTAssertEqual(chart, original)
             XCTAssertEqual(source.drawing.strokes.count, 3)
         }
     }
 
-    func testSplitBoundaryAssignsPinnedChordToRightWithoutDuplicatingSourceOrTiming() throws {
+    func testSplitBoundaryAssignsPinnedChordToRightAndAnchorsItWithoutDuplicatingSource() throws {
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
             var chart = makeChart(style)
             let measureID = chart.measures[0].id
@@ -384,7 +403,11 @@ final class ChordInkStructuralAutomaticRenderTests: XCTestCase {
             let right = try XCTUnwrap(chart.measure(id: rightID))
             XCTAssertEqual(right.chordEvents.count, 1)
             var expected = original
-            expected.manualVisualLaneFraction = 0
+            expected.startPosition = BeatPosition(beat: 1, subdivision: 0, subdivisionsPerBeat: 1)
+            expected.anchorsToMeasureStart = true
+            expected.mappedRhythmSlotIndex = nil
+            expected.manualLaneFraction = nil
+            expected.manualVisualLaneFraction = nil
             XCTAssertEqual(right.chordEvents.first, expected)
             XCTAssertEqual(chart.measure(id: measureID)?.manualLayoutWidth, 150)
             XCTAssertEqual(right.manualLayoutWidth, 150)

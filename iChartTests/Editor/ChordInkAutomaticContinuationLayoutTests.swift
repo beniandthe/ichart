@@ -46,7 +46,33 @@ final class ChordInkAutomaticContinuationLayoutTests: XCTestCase {
         XCTAssertEqual(chart.systems.count, 3)
         XCTAssertEqual(chart.measures.count, 3)
         assertUnchanged(first, in: chart)
-        assertUnchanged(secondSnapshot, in: chart)
+        let closedSecond = try snapshot(secondID, in: chart)
+        XCTAssertEqual(closedSecond.measureFrame, secondSnapshot.measureFrame)
+        XCTAssertEqual(closedSecond.staffFrame, secondSnapshot.staffFrame)
+        XCTAssertEqual(closedSecond.chordBandFrame, secondSnapshot.chordBandFrame)
+        XCTAssertEqual(closedSecond.writableFrame, secondSnapshot.writableFrame,
+            "Closing the second row must retain its authored full-width geometry")
+        XCTAssertEqual(secondSnapshot.events.count, 1)
+        var expectedSecondChord = try XCTUnwrap(secondSnapshot.events.first)
+        XCTAssertNotNil(expectedSecondChord.manualVisualLaneFraction,
+            "The open-row singleton must begin at its authored automatic position")
+        // FIX-015 moves an existing lone chord to beat one when its open
+        // measure closes. Only its placement may change at this boundary.
+        expectedSecondChord.startPosition = BeatPosition(beat: 1, subdivision: 0, subdivisionsPerBeat: 1)
+        expectedSecondChord.anchorsToMeasureStart = true
+        expectedSecondChord.manualLaneFraction = nil
+        expectedSecondChord.manualVisualLaneFraction = nil
+        XCTAssertEqual(closedSecond.events, [expectedSecondChord],
+            "Closure must preserve every chord receipt and change only the authorized singleton placement")
+        let placedSecond = try XCTUnwrap(pageLayout(chart).systems.flatMap(\.measures).first {
+            $0.sourceMeasureID == secondID
+        })
+        let secondGlyph = try XCTUnwrap(placedSecond.chordLayouts.first { $0.id == expectedSecondChord.id })
+        let downbeatGuide = LeadSheetChordPlacementGuidePolicy.guideFrame(
+            for: placedSecond, referenceFrame: placedSecond.chordBandFrame)
+        XCTAssertFalse(secondGlyph.usesManualVisualPlacement)
+        XCTAssertEqual(secondGlyph.snapGuideTarget.x, downbeatGuide.minX, accuracy: 0.01,
+            "The closed singleton must visibly use the first beat guide")
         try assertNewSource(thirdInput.drawing, result: third.result, in: chart)
         XCTAssertNil(chart.pageHandwrittenChordData)
 
@@ -54,7 +80,7 @@ final class ChordInkAutomaticContinuationLayoutTests: XCTestCase {
             from: ChartPersistenceCoders.encoder.encode(chart))
         XCTAssertEqual(reopened.measures.map(\.id), chart.measures.map(\.id))
         assertUnchanged(first, in: reopened)
-        assertUnchanged(secondSnapshot, in: reopened)
+        assertUnchanged(closedSecond, in: reopened)
         XCTAssertEqual(reopened.measures.map(\.chordEvents), chart.measures.map(\.chordEvents),
             "Event identity, order, musical placement, visual intent and original source bytes must survive reopen")
     }

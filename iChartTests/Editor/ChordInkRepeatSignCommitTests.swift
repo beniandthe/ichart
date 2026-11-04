@@ -7,16 +7,18 @@ import XCTest
 @testable import iChart
 
 final class ChordInkRepeatSignCommitTests: XCTestCase {
-    func testPairingReviewRequiresExplicitBeginningForAStandaloneClosingSign() {
+    func testStandaloneClosingSignDefaultsToTheChartBeginning() {
         let measureID = UUID()
-        var closing = sign(.repeatEnd, measureID: measureID, fraction: 0.6)
-        var state = preview([closing])
-        let unconfirmed = ChordInkRepeatSignPairingPolicy.review(state: state)
-        XCTAssertEqual(unconfirmed.unconfirmedEndIDs, [closing.id])
-        XCTAssertFalse(unconfirmed.canRender)
-        closing.repeatFromBeginningConfirmed = true
-        state.draftBarlines = [closing]
+        let closing = sign(.repeatEnd, measureID: measureID, fraction: 0.6)
+        let state = preview([closing])
         XCTAssertTrue(ChordInkRepeatSignPairingPolicy.review(state: state).canRender)
+        let ids = [measureID, UUID(), UUID()]
+        let plan = ChordInkRepeatSignCommitPolicy.plan(boundaries: [
+            .init(draft: closing, leftMeasureID: ids[1], rightMeasureID: ids[2])
+        ], orderedMeasureIDs: ids)
+        XCTAssertTrue(plan.unresolvedDraftIDs.isEmpty)
+        XCTAssertEqual(plan.spans.map(\.startMeasureID), [ids[0]])
+        XCTAssertEqual(plan.spans.map(\.endMeasureID), [ids[1]])
     }
 
     func testPairingReviewIdentifiesNestedAndUnmatchedStarts() {
@@ -29,6 +31,18 @@ final class ChordInkRepeatSignCommitTests: XCTestCase {
         XCTAssertFalse(review.canRender)
         let unmatched = ChordInkRepeatSignPairingPolicy.review(state: preview([first]))
         XCTAssertEqual(unmatched.unmatchedStartIDs, [first.id])
+    }
+
+    func testClosingSignsCannotDefaultToTheBeginningAcrossUnresolvedNestedStarts() {
+        let ids = (0..<4).map { _ in UUID() }
+        let first = sign(.repeatStart, measureID: ids[0], fraction: 0.1)
+        let nested = sign(.repeatStart, measureID: ids[0], fraction: 0.2)
+        let closing = sign(.repeatEnd, measureID: ids[0], fraction: 0.4)
+        let laterClosing = sign(.repeatEnd, measureID: ids[0], fraction: 0.6)
+        let analysis = ChordInkRepeatSignPairingPolicy.analyze(signs: [first, nested, closing, laterClosing])
+        XCTAssertTrue(analysis.pairings.isEmpty)
+        XCTAssertEqual(Set(analysis.review.conflictingEndIDs), [closing.id, laterClosing.id])
+        XCTAssertEqual(Set(analysis.review.unresolvedDraftIDs), [first.id, nested.id, closing.id, laterClosing.id])
     }
 
     func testSharedCloseAndOpenBoundaryUsesOppositeSidesAndSharesOnlyItsOwnInk() {
@@ -223,6 +237,9 @@ final class ChordInkRepeatSignCommitTests: XCTestCase {
 
     func testUnsplittableOrdinaryBarlineRejectsMixedRepeatBatchWithoutInkLoss() throws {
         var chart = Chart.blank(title: "Mixed repeat transaction", measureCount: 2, layoutStyle: .rhythmSectionSheet)
+        // Committed free-chord measures support an interior divider. A single
+        // sustained slot still cannot be cut without changing its notation.
+        chart.systems[0].measures[0].rhythmMap = MeasureRhythmMap(values: [.whole])
         let fixture = try fixture(chart)
         let first = try XCTUnwrap(fixture.system.measures.first)
         let last = try XCTUnwrap(fixture.system.measures.last)

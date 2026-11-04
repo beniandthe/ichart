@@ -318,20 +318,26 @@ final class ChordInkRepeatSignWorkflowTests: XCTestCase {
         XCTAssertEqual(chart, before)
     }
 
-    func testUnconfirmedEndRepeatRemainsUnresolvedWithoutChangingChartOrSource() throws {
+    func testCompleteEndRepeatRendersFromBeginningWithoutAConfirmation() throws {
         let fixture = try workflowFixture()
         let drawing = PKDrawing(strokes: repeatEndStrokes(in: fixture))
         let sign = try XCTUnwrap(prepare(drawing, fixture: fixture).barlines.first { $0.kind == .repeatEnd })
         var chart = fixture.chart
         _ = chart.setPageHandwrittenChordDrawing(drawing.dataRepresentation())
-        let before = chart
+        let firstMeasureID = try XCTUnwrap(chart.measures.first?.id)
         let state = previewState([sign], pageSize: fixture.layout.pageBounds.size)
 
         XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasCompleteCoverage(chart: chart, state: state))
         let result = chart.commitChordInkDraftBatch(state)
-        XCTAssertEqual(result.renderedBarlineCount, 0)
-        XCTAssertTrue(result.unresolvedDraftIDs.contains(sign.id))
-        XCTAssertEqual(chart, before)
+        XCTAssertEqual(result.renderedBarlineCount, 1)
+        XCTAssertTrue(result.unresolvedDraftIDs.isEmpty)
+        let span = try XCTUnwrap(chart.roadmapObjects.first { $0.type == .repeatSpan })
+        XCTAssertEqual(span.startMeasureID, firstMeasureID)
+        let archived = try PKDrawing(data: XCTUnwrap(span.sourceInkData))
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: drawing, current: archived))
+        XCTAssertNil(chart.pageHandwrittenChordData)
+        XCTAssertEqual(try ChartPersistenceCoders.decoder.decode(Chart.self,
+            from: ChartPersistenceCoders.encoder.encode(chart)), chart)
     }
 
     func testConfirmedRepeatOnlyCommitStoresSourceOnTheRepeatAndSurvivesSaveReopen() throws {
@@ -358,6 +364,63 @@ final class ChordInkRepeatSignWorkflowTests: XCTestCase {
         let reopened = try ChartPersistenceCoders.decoder.decode(Chart.self, from: ChartPersistenceCoders.encoder.encode(chart))
         XCTAssertEqual(reopened, chart)
         XCTAssertEqual(reopened.roadmapObjects.first { $0.id == repeatObject.id }?.sourceInkData, repeatSource)
+    }
+
+    @MainActor
+    func testCompleteLoneEndRepeatRendersInBothModesWithoutBeginningConfirmation() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            for manual in [true, false] {
+                let fixture = try workflowFixture(style: style, startingMeasureCount: 3)
+                var chart = fixture.chart
+                let ids = chart.measures.map(\.id)
+                let system = try XCTUnwrap(fixture.layout.systems.first {
+                    $0.measures.contains { $0.sourceMeasureID == ids.last }
+                })
+                let last = try XCTUnwrap(system.measures.first { $0.sourceMeasureID == ids.last })
+                // The visible Simple-chart terminal extends the last measure
+                // to the row's right edge. Use the same display projection as
+                // the commit resolver rather than its shorter source frame.
+                let displayed = LeadSheetSimpleChordTerminalBarlineGeometry.displayMeasure(last,
+                    in: system, paperFrame: fixture.layout.paperFrame(for: system), layoutStyle: style)
+                let boundaryX = style == .rhythmSectionSheet ? displayed.staffFrame.maxX : displayed.frame.maxX
+                // Keep both bars and their dots inside the writing lane while
+                // the complete sign remains within endpoint snap tolerance.
+                let drawing = LeadSheetPersistentInkColorPolicy.normalizedDrawing(PKDrawing(strokes:
+                    repeatStrokes(in: fixture, centerX: boundaryX - 6, startsRepeat: false, barSeparation: 4)))
+                _ = chart.setPageHandwrittenChordDrawing(drawing.dataRepresentation(),
+                    coordinateSpace: PersistentInkCoordinateSpace(size: fixture.chordFrame.size))
+                let signs = prepare(drawing, fixture: fixture).barlines
+                XCTAssertEqual(signs.map(\.kind), [.repeatEnd])
+                XCTAssertTrue(signs.allSatisfy { !$0.repeatFromBeginningConfirmed })
+                let state = previewState(signs, pageSize: fixture.layout.pageBounds.size)
+                let outcome: ChordInkDraftRenderCoordinator.Outcome
+                if manual {
+                    outcome = ChordInkDraftRenderCoordinator.prepareManual(chart: chart, state: state,
+                        currentDrawing: drawing, coordinateSpace: PersistentInkCoordinateSpace(size: fixture.chordFrame.size),
+                        sourcePageLayout: fixture.layout, sourceChordFrame: fixture.chordFrame)
+                } else {
+                    let inputAt = Date(timeIntervalSinceReferenceDate: 100)
+                    let attempt = ChordInkDraftRenderCoordinator.prepareAutomaticAttempt(chart: chart, state: state,
+                        currentDrawing: drawing, coordinateSpace: PersistentInkCoordinateSpace(size: fixture.chordFrame.size),
+                        now: inputAt.addingTimeInterval(10), lastInputAt: inputAt, isUsingTool: false,
+                        sourcePageLayout: fixture.layout, sourceChordFrame: fixture.chordFrame)
+                    outcome = ChordInkDraftRenderCoordinator.explicitOutcome(try XCTUnwrap(attempt.outcome))
+                }
+                XCTAssertTrue(outcome.canConsumeSource)
+                XCTAssertEqual(outcome.result.renderedBarlineCount, 1)
+                XCTAssertNil(outcome.retainedDraft)
+                let reopened = try ChartPersistenceCoders.decoder.decode(Chart.self,
+                    from: ChartPersistenceCoders.encoder.encode(outcome.chart))
+                let span = try XCTUnwrap(reopened.roadmapObjects.first { $0.type == .repeatSpan })
+                XCTAssertEqual(span.startMeasureID, ids.first)
+                XCTAssertEqual(span.endMeasureID, ids.last)
+                XCTAssertEqual(reopened.measures.map(\.id), ids,
+                    "An existing \(style) endpoint must not create a measure in \(manual ? "manual" : "automatic") mode")
+                XCTAssertNil(reopened.pageHandwrittenChordData)
+                let archived = try PKDrawing(data: XCTUnwrap(span.sourceInkData))
+                XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: drawing, current: archived))
+            }
+        }
     }
 
     func testLegacyRoadmapWithoutSourceInkDecodesAndNewSourceRoundTrips() throws {

@@ -84,6 +84,54 @@ final class LeadSheetInkTelemetryHostLifecycleTests: XCTestCase {
         }.count, 1)
     }
 
+    func testSameScopeModelReloadInvalidatesSettlingIntegrityButNextUnannouncedDeletionStillReports() async throws {
+        let fixture = try makeFixture(installsDrawingThroughDelegate: false)
+        defer { fixture.close() }
+        let baseline = fixture.canvas.drawing
+        XCTAssertEqual(baseline.strokes.count, 2)
+        let chartID = fixture.host.chart.id
+        let canvasFrame = fixture.canvas.frame
+
+        fixture.host.canvasViewDidBeginUsingTool(fixture.canvas)
+        fixture.host.canvasViewDidEndUsingTool(fixture.canvas)
+        // Replace the clean resident canvas through its real model sync while
+        // the pen observation is settling. The chart, scope and frame stay put.
+        let replacement = PKDrawing(strokes: Array(baseline.strokes.dropFirst()) + [stroke(150), stroke(220)])
+        var updatedChart = fixture.host.chart
+        XCTAssertTrue(updatedChart.setPageHandwrittenNotationDrawing(replacement.dataRepresentation(),
+            coordinateSpace: updatedChart.pageHandwrittenNotationCoordinateSpace))
+        fixture.host.chart = updatedChart
+        fixture.host.layoutIfNeeded()
+        let reloaded = fixture.canvas.drawing
+        XCTAssertEqual(fixture.host.chart.id, chartID)
+        XCTAssertEqual(fixture.canvas.frame, canvasFrame)
+        XCTAssertEqual(reloaded.strokes.count, 3, "The model reload must reach the resident canvas")
+
+        // Starting the next stroke closes any uncancelled prior observation.
+        // This time remove completed source without a model, undo or erase.
+        fixture.host.canvasViewDidBeginUsingTool(fixture.canvas)
+        fixture.canvas.drawing = PKDrawing(strokes: Array(reloaded.strokes.dropFirst()))
+        fixture.host.canvasViewDrawingDidChange(fixture.canvas)
+        fixture.host.canvasViewDidEndUsingTool(fixture.canvas)
+
+        let events = try await waitForEvents(fixture.queue) { events in
+            events.contains {
+                $0.properties["contract_id"] == .string("ink.authoring_integrity")
+                    && $0.properties["outcome"] == .string("violated")
+                    && $0.properties["expected_count"] == .int(2)
+                    && $0.properties["actual_count"] == .int(1)
+            }
+        }
+        let violations = events.filter {
+            $0.properties["contract_id"] == .string("ink.authoring_integrity")
+                && $0.properties["reason"] == .string("authoring_completed_source_missing")
+        }
+        XCTAssertEqual(violations.count, 1, "Only the unannounced deletion should emit a violation")
+        XCTAssertEqual(violations.last?.properties["scope"], .string("page"))
+        XCTAssertEqual(violations.last?.properties["expected_count"], .int(2))
+        XCTAssertEqual(violations.last?.properties["actual_count"], .int(1))
+    }
+
     func testConsentWithdrawalAndRegrantCannotPublishPendingOldPenOperation() async throws {
         let fixture = try makeFixture()
         defer { fixture.close() }
@@ -109,7 +157,7 @@ final class LeadSheetInkTelemetryHostLifecycleTests: XCTestCase {
         }.count, 1, "Only the new consent-bound pen operation may publish")
     }
 
-    private func makeFixture() throws -> Fixture {
+    private func makeFixture(installsDrawingThroughDelegate: Bool = true) throws -> Fixture {
         let suiteName = "iChart-authoring-host-lifecycle-\(UUID().uuidString)"
         let preferences = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -146,8 +194,10 @@ final class LeadSheetInkTelemetryHostLifecycleTests: XCTestCase {
         host.setNeedsLayout()
         host.layoutIfNeeded()
         let canvas = try XCTUnwrap(host.subviews.compactMap { $0 as? PKCanvasView }.last)
-        canvas.drawing = source
-        host.canvasViewDrawingDidChange(canvas)
+        if installsDrawingThroughDelegate {
+            canvas.drawing = source
+            host.canvasViewDrawingDidChange(canvas)
+        }
         XCTAssertFalse(canvas.isHidden)
         XCTAssertTrue(canvas.tool is PKInkingTool)
         XCTAssertGreaterThan(canvas.bounds.width, 0)

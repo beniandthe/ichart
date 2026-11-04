@@ -1,5 +1,9 @@
 import CoreGraphics
 import Foundation
+#if canImport(UIKit) && canImport(PencilKit)
+import PencilKit
+import UIKit
+#endif
 
 /// Free Ink belongs to fixed paper coordinates. Orientation changes the
 /// viewport around that paper, rather than changing the document's width.
@@ -8,6 +12,30 @@ enum LeadSheetFreeInkDocumentLayoutPolicy {
     // retains its original paper geometry instead of migrating handwritten data.
     static let portraitCanvasWidth: CGFloat = 932
     static let portraitPageHeight: CGFloat = 1_100
+
+    #if canImport(UIKit) && canImport(PencilKit)
+    private static let pageInkBoundsCache: NSCache<NSData, NSValue> = {
+        let cache = NSCache<NSData, NSValue>()
+        cache.countLimit = 16
+        cache.totalCostLimit = 16 * 1_024 * 1_024
+        return cache
+    }()
+    #endif
+
+    static func savedPageInkBounds(for chart: Chart) -> CGRect? {
+        #if canImport(UIKit) && canImport(PencilKit)
+        guard let data = chart.pageHandwrittenNotationData, !data.isEmpty else { return nil }
+        let key = data as NSData
+        if let cached = pageInkBoundsCache.object(forKey: key) {
+            return cached.cgRectValue.isNull ? nil : cached.cgRectValue
+        }
+        let bounds = (try? PKDrawing(data: data))?.bounds ?? .null
+        pageInkBoundsCache.setObject(NSValue(cgRect: bounds), forKey: key, cost: data.count)
+        return bounds.isNull ? nil : bounds
+        #else
+        return nil
+        #endif
+    }
 
     static func savedCanvasWidth(for chart: Chart) -> CGFloat? {
         guard let coordinateSpace = savedPageCoordinateSpace(for: chart) else { return nil }

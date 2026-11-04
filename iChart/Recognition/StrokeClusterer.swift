@@ -1254,6 +1254,12 @@ struct StrokeClusterer {
             return false
         }
 
+        // A joined top/stem can resemble a slash on its own. Keep its
+        // intersecting middle arm with the same F shape the glyph reader uses.
+        if GestureTemplateRecognizer.matchesJoinedFRoot(strokes: lhs.strokes + rhs.strokes) {
+            return true
+        }
+
         if shouldMergeAsRootAConstruction(lhs, rhs) {
             return true
         }

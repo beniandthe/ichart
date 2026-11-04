@@ -29,6 +29,11 @@ enum ChartAppearancePanel: String, Identifiable {
             return "Control spacing and stroke weight for the page."
         }
     }
+
+    func instruction(for layoutStyle: ChartLayoutStyle) -> String {
+        guard self == .engraving else { return subtitle }
+        return "Adjust spacing, notation weight and repeat wings. The preview uses this chart's \(layoutStyle.displayText) layout. Changes apply to this chart and its exported PDF."
+    }
 }
 
 struct ChartAppearanceSheetView: View {
@@ -42,7 +47,7 @@ struct ChartAppearanceSheetView: View {
         NavigationStack {
             List {
                 Section {
-                    Text(panel.subtitle)
+                    Text(panel.instruction(for: chart.layoutStyle))
                         .foregroundStyle(.secondary)
                 }
 
@@ -132,7 +137,7 @@ struct ChartAppearanceSheetView: View {
                 .frame(height: 118)
                 .background(Color.white)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Repeat and first ending preview. \(chart.notationReadability.displayText) readability. Angled repeat wings \(chart.repeatWings ? "on" : "off").")
+                .accessibilityLabel(ChartAppearancePreviewPolicy.accessibilityLabel(for: chart))
 
             ForEach(NotationReadabilityPreset.allCases) { preset in
                 AppearanceChoiceRow(
@@ -193,8 +198,10 @@ private struct NotationReadabilityPreview: UIViewRepresentable {
     }
 }
 
-private final class NotationReadabilityPreviewView: UIView {
-    private var chart = NotationReadabilityPreviewView.makeSampleChart()
+final class NotationReadabilityPreviewView: UIView {
+    private(set) var chart = ChartAppearancePreviewPolicy.sampleChart(
+        for: Chart.blank(title: "Notation Preview", layoutStyle: .simpleChordSheet)
+    )
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -211,12 +218,7 @@ private final class NotationReadabilityPreviewView: UIView {
     }
 
     func applyAppearance(from source: Chart) {
-        chart.notationReadability = source.notationReadability
-        chart.repeatWings = source.repeatWings
-        chart.notationFont = source.notationFont
-        chart.typography = source.typography
-        chart.engravingPreset = source.engravingPreset
-        chart.staffSystemDensity = source.staffSystemDensity
+        chart = ChartAppearancePreviewPolicy.sampleChart(for: source)
         setNeedsDisplay()
     }
 
@@ -234,9 +236,18 @@ private final class NotationReadabilityPreviewView: UIView {
         }
 
         let previewMeasures = system.measures.filter { $0.sourceMeasureID != nil }
-        let contentFrames = previewMeasures.flatMap { measure in
-            [measure.staffFrame] + measure.chordLayouts.map(\.frame) + measure.repeatMarkerLayouts.map(\.occupiedFrame)
-        } + system.endingLayouts.map(\.frame)
+        let markTargets = chart.freeInkArticulations.compactMap { mark in
+            FreeInkArticulationPlacement.target(for: mark, chart: chart, pageLayout: page)
+                .map { (kind: mark.kind, target: $0) }
+        }
+        var contentFrames = previewMeasures.flatMap { measure in
+            [measure.staffFrame] + measure.chordLayouts.map(\.naturalFrame)
+                + measure.noteLayouts.map(\.selectionFrame) + measure.repeatMarkerLayouts.map(\.occupiedFrame)
+        }
+        contentFrames += system.endingLayouts.map(\.frame)
+        contentFrames += markTargets.map { $0.target.markFrame }
+        contentFrames += [system.clefFrame, system.timeSignatureFrame].compactMap { $0 }
+        contentFrames += system.keySignatureLayouts.map(\.frame)
         guard let firstFrame = contentFrames.first else {
             return
         }
@@ -254,6 +265,11 @@ private final class NotationReadabilityPreviewView: UIView {
 
         let renderer = LeadSheetNotationRenderer(chart: chart)
         renderer.drawStaffLines(for: system)
+        if let clefFrame = system.clefFrame { renderer.drawClef(in: clefFrame) }
+        renderer.drawKeySignature(system.keySignatureLayouts)
+        if let timeSignatureFrame = system.timeSignatureFrame {
+            renderer.drawTimeSignature(chart.defaultMeter, in: timeSignatureFrame)
+        }
         for ending in system.endingLayouts {
             renderer.drawEnding(ending)
         }
@@ -264,6 +280,9 @@ private final class NotationReadabilityPreviewView: UIView {
             for chord in measure.chordLayouts {
                 renderer.drawChord(chord)
             }
+            for note in measure.noteLayouts {
+                renderer.drawNote(note)
+            }
             let nextMeasure = previewMeasures.indices.contains(index + 1) ? previewMeasures[index + 1] : nil
             let markers = LeadSheetRepeatBoundaryPolicy.repeatMarkers(after: measure, before: nextMeasure)
             if markers.isEmpty {
@@ -272,11 +291,30 @@ private final class NotationReadabilityPreviewView: UIView {
                 renderer.drawRepeatBoundary(markers)
             }
         }
+        for mark in markTargets { renderer.drawFreeInkArticulation(mark.kind, at: mark.target) }
+    }
+}
+
+enum ChartAppearancePreviewPolicy {
+    static func accessibilityLabel(for chart: Chart) -> String {
+        let content = chart.layoutStyle == .simpleChordSheet
+            ? "chords, a repeat, a first ending and a fermata"
+            : "chords, staff rhythms, a repeat and a first ending"
+                + (chart.layoutStyle == .rhythmSectionSheet ? " and a fermata" : "")
+        return "\(chart.layoutStyle.displayText) preview with \(content). \(chart.notationReadability.displayText) readability. Angled repeat wings \(chart.repeatWings ? "on" : "off")."
     }
 
-    private static func makeSampleChart() -> Chart {
-        var sample = Chart.blank(title: "Notation Preview", measureCount: 2, layoutStyle: .simpleChordSheet)
+    static func sampleChart(for source: Chart) -> Chart {
+        var sample = Chart.blank(title: "Notation Preview", measureCount: 2, layoutStyle: source.layoutStyle)
         sample.stylePreset = .plainWhite
+        sample.notationReadability = source.notationReadability
+        sample.repeatWings = source.repeatWings
+        sample.notationFont = source.notationFont
+        sample.typography = source.typography
+        sample.engravingPreset = source.engravingPreset
+        sample.staffSystemDensity = source.staffSystemDensity
+        sample.staffStyle = source.staffStyle
+        sample.defaultClef = source.defaultClef
         for (index, text) in ["Cmaj7", "G7"].enumerated() {
             guard let symbol = try? ChordSymbolParser.parse(text) else {
                 continue
@@ -286,15 +324,28 @@ private final class NotationReadabilityPreviewView: UIView {
                 symbol: symbol,
                 startPosition: BeatPosition(beat: 1, subdivision: 0, subdivisionsPerBeat: 2),
                 duration: .whole,
-                rhythmPlacement: .hidden,
+                rhythmPlacement: source.layoutStyle == .simpleChordSheet ? .hidden : .aboveChord,
                 tieOut: false,
                 hitStyle: .none,
                 rawInput: text
             )]
         }
+        if source.layoutStyle != .simpleChordSheet {
+            sample.systems[0].measures[0].rhythmMap = MeasureRhythmMap(
+                values: [.quarter, .quarterRest, .quarter, .quarter]
+            )
+            sample.systems[0].measures[1].rhythmMap = MeasureRhythmMap(values: [.half, .half])
+        }
         let measures = sample.measures
         sample.addRepeatSpan(startMeasureID: measures[0].id, endMeasureID: measures[1].id)
         sample.addEndingSpan(.ending1, startMeasureID: measures[1].id, endMeasureID: measures[1].id)
+        if let chordID = measures.first?.chordEvents.first?.id,
+           source.layoutStyle == .simpleChordSheet || source.layoutStyle == .rhythmSectionSheet {
+            // The preview is never saved. This rendered sample mark has no
+            // authored handwriting and cannot consume or replace chart ink.
+            sample.freeInkArticulations = [FreeInkArticulation(kind: .fermata,
+                measureID: measures[0].id, sourceInkData: Data(), attachment: .chord(id: chordID))]
+        }
         return sample
     }
 }

@@ -214,17 +214,24 @@ enum LeadSheetCommittedChordBarlineOverlayGeometry {
     static let deleteControlSize: CGFloat = 18
     static let deleteHitOutset: CGFloat = 12
 
-    static func lineFrame(for measure: LeadSheetMeasureLayout) -> CGRect {
-        CGRect(
+    static func lineFrame(
+        for measure: LeadSheetMeasureLayout,
+        layoutStyle: ChartLayoutStyle = .simpleChordSheet
+    ) -> CGRect {
+        let reference = layoutStyle == .rhythmSectionSheet ? measure.staffFrame : measure.chordBandFrame
+        return CGRect(
             x: measure.trailingBarlineFrame.midX - lineHitWidth / 2,
-            y: measure.chordBandFrame.minY,
+            y: reference.minY,
             width: lineHitWidth,
-            height: measure.chordBandFrame.height
+            height: reference.height
         )
     }
 
-    static func controlFrames(for measure: LeadSheetMeasureLayout) -> ChordDraftBarlineControlFrames {
-        let lineFrame = lineFrame(for: measure)
+    static func controlFrames(
+        for measure: LeadSheetMeasureLayout,
+        layoutStyle: ChartLayoutStyle = .simpleChordSheet
+    ) -> ChordDraftBarlineControlFrames {
+        let lineFrame = lineFrame(for: measure, layoutStyle: layoutStyle)
         return ChordDraftBarlineControlFrames(
             delete: CGRect(
                 x: lineFrame.midX - deleteControlSize / 2,
@@ -238,7 +245,8 @@ enum LeadSheetCommittedChordBarlineOverlayGeometry {
     static func hitTarget(
         at location: CGPoint,
         measures: [LeadSheetMeasureLayout],
-        selectedMeasureID: UUID?
+        selectedMeasureID: UUID?,
+        layoutStyle: ChartLayoutStyle = .simpleChordSheet
     ) -> CommittedChordBarlineHitTarget? {
         for measure in measures.reversed() {
             guard let measureID = measure.sourceMeasureID else {
@@ -246,13 +254,13 @@ enum LeadSheetCommittedChordBarlineOverlayGeometry {
             }
 
             if selectedMeasureID == measureID {
-                let controls = controlFrames(for: measure)
+                let controls = controlFrames(for: measure, layoutStyle: layoutStyle)
                 if controls.delete.insetBy(dx: -deleteHitOutset, dy: -deleteHitOutset).contains(location) {
                     return CommittedChordBarlineHitTarget(measureID: measureID, action: .delete)
                 }
             }
 
-            if lineFrame(for: measure).insetBy(dx: 3, dy: 8).contains(location) {
+            if lineFrame(for: measure, layoutStyle: layoutStyle).insetBy(dx: 3, dy: 8).contains(location) {
                 return CommittedChordBarlineHitTarget(
                     measureID: measureID,
                     action: .select

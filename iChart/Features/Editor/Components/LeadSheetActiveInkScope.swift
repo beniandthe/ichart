@@ -192,8 +192,20 @@ enum LeadSheetActiveInkScope {
     }
 
     static func chordWritingRegion(for pageLayout: LeadSheetPageLayout) -> LeadSheetActiveInkRegion {
-        let laneFrames = chordWritingSystemLaneFrames(for: pageLayout)
+        let lanes = pageLayout.systems.compactMap { system in
+            chordWritingSystemInputFrame(for: system, paperFrame: pageLayout.paperFrame(for: system))
+        }
+        return writingRegion(laneFrames: lanes, pageLayout: pageLayout)
+    }
 
+    static func legacyChordWritingRegion(for pageLayout: LeadSheetPageLayout) -> LeadSheetActiveInkRegion {
+        let lanes = pageLayout.systems.compactMap { system in
+            legacyChordWritingSystemLaneFrame(for: system, paperFrame: pageLayout.paperFrame(for: system))
+        }
+        return writingRegion(laneFrames: lanes, pageLayout: pageLayout)
+    }
+
+    private static func writingRegion(laneFrames: [CGRect], pageLayout: LeadSheetPageLayout) -> LeadSheetActiveInkRegion {
         guard let firstFrame = laneFrames.first else {
             let fallbackFrame = pageWritingFrame(for: pageLayout)
             return LeadSheetActiveInkRegion(frame: fallbackFrame, inputFrames: [fallbackFrame])
@@ -221,13 +233,36 @@ enum LeadSheetActiveInkScope {
         for system: LeadSheetSystemLayout,
         paperFrame: CGRect
     ) -> CGRect? {
+        chordWritingSystemLaneFrame(for: system, paperFrame: paperFrame, usesLegacyRhythmBand: false)
+    }
+
+    static func chordWritingSystemInputFrame(
+        for system: LeadSheetSystemLayout, paperFrame: CGRect
+    ) -> CGRect? {
+        chordWritingSystemLaneFrame(for: system, paperFrame: paperFrame,
+            usesLegacyRhythmBand: false, includesRhythmBandBottom: true)
+    }
+
+    static func legacyChordWritingSystemLaneFrame(
+        for system: LeadSheetSystemLayout, paperFrame: CGRect
+    ) -> CGRect? {
+        chordWritingSystemLaneFrame(for: system, paperFrame: paperFrame, usesLegacyRhythmBand: true)
+    }
+
+    private static func chordWritingSystemLaneFrame(
+        for system: LeadSheetSystemLayout,
+        paperFrame: CGRect,
+        usesLegacyRhythmBand: Bool,
+        includesRhythmBandBottom: Bool = false
+    ) -> CGRect? {
         let paperBounds = paperFrame.insetBy(dx: 14, dy: 0)
         let measureLanes = system.measures.compactMap { measure -> CGRect? in
             guard measure.chordInkTargetMeasureID != nil else {
                 return nil
             }
 
-            return chordWritingLaneFrame(for: measure, in: system)
+            return chordWritingLaneFrame(for: measure, in: system, usesLegacyRhythmBand: usesLegacyRhythmBand,
+                includesRhythmBandBottom: includesRhythmBandBottom)
         }
         guard let firstLane = measureLanes.first else {
             return nil
@@ -256,18 +291,35 @@ enum LeadSheetActiveInkScope {
 
     private static func chordWritingLaneFrame(
         for measure: LeadSheetMeasureLayout,
-        in system: LeadSheetSystemLayout
+        in system: LeadSheetSystemLayout,
+        usesLegacyRhythmBand: Bool,
+        includesRhythmBandBottom: Bool
     ) -> CGRect {
         guard system.layoutStyle == .rhythmSectionSheet else {
             return measure.chordWritingFrame
         }
 
-        let height = min(measure.chordBandFrame.height, rhythmSectionChordLaneHeight)
+        if usesLegacyRhythmBand {
+            let height = min(measure.chordBandFrame.height, rhythmSectionChordLaneHeight)
+            return CGRect(x: measure.chordWritingFrame.minX,
+                y: measure.chordBandFrame.midY - height / 2,
+                width: measure.chordWritingFrame.width, height: max(1, height))
+        }
+
+        // Printed roadmap marks reserve the top of the chord band. The
+        // handwriting canvas still uses the full original band envelope so
+        // converting an ending cannot move or resize nearby pending ink.
+        let bandBottom = min(measure.chordBandFrame.maxY, measure.staffFrame.minY - 8)
+        let envelopeHeight = max(1, bandBottom - measure.frame.minY)
+        let height = min(envelopeHeight, rhythmSectionChordLaneHeight)
+        let top = measure.frame.minY + (envelopeHeight - height) / 2
         return CGRect(
             x: measure.chordWritingFrame.minX,
-            y: measure.chordBandFrame.midY - height / 2,
+            y: top,
             width: measure.chordWritingFrame.width,
-            height: max(1, height)
+            // The canvas includes the old reserved lane's lower edge. The
+            // public per-system frame keeps the original thin detector band.
+            height: includesRhythmBandBottom ? max(height, bandBottom - top) : height
         )
     }
 

@@ -165,6 +165,25 @@ struct ChordInkSequentialGrouper {
         )
     }
 
+    static func supportsLeadingFallbackBoundary(
+        _ leading: ChordInkSequentialGroup, _ trailing: ChordInkSequentialGroup,
+        in indexedStrokes: [(index: Int, stroke: InkStroke)]
+    ) -> Bool {
+        // A complete single-stroke root can pass the chord reader even when
+        // its first glyph looks like an accidental. Require a hard pause
+        // and a distinct following root before using that split.
+        guard leading.anchorReason == .fallbackGap, leading.rootText != nil,
+              leading.strokeIndices.count == 1,
+              trailing.anchorReason == .rootStart, (trailing.rootConfidence ?? 0) >= 0.90,
+              ChordInkSequentialRootStartDetector.isDetachedRootSizedGlyph(trailing.rootBounds, from: leading.bounds),
+              let leadingEnd = indexedStrokes.first(where: { leading.strokeIndices.contains($0.index) })?.stroke.timelineEndTimeOffset,
+              let trailingStart = indexedStrokes.filter({ trailing.strokeIndices.contains($0.index) })
+                  .compactMap({ $0.stroke.timelineStartTimeOffset }).min() else {
+            return false
+        }
+        return ChordInkSequentialTimingPolicy.supportsHardChordBoundary(trailingStart - leadingEnd)
+    }
+
     /// Spatial glyph discovery is intentionally free to visit marks in layout
     /// order, but the recognizer's multi-stroke templates are defined in Pencil
     /// creation order. Restore that order at the ownership boundary so writing a

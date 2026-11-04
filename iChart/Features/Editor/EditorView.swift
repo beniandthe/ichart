@@ -32,7 +32,7 @@ enum ChordInkAutomaticFeedbackPresentationPolicy {
             ?? activity?.feedback.reasonsByDraftID[draft.id]
             ?? ChordInkAutomaticFeedbackPolicy.recognitionReason(for: draft)
         if reason == .needsSpace || reason == .adjacentWriting || reason == .needsSourceRefresh || reason == .placementUnavailable
-            || reason == .repeatReview {
+            || reason == .repeatReview || reason == .endingReview || reason == .barlinePlacementUnavailable {
             let currentText = reason == .needsSourceRefresh ? nil
                 : ChordInkAutomaticRenderPolicy.automaticCandidateText(for: draft) ?? draft.previewText
             let read = currentText.map { "\($0) · " } ?? ""
@@ -52,8 +52,10 @@ enum ChordInkAutomaticFeedbackPresentationPolicy {
                 accessibilityLabel: "Review Chord. \(reason.userMessage)", canReview: true, isReading: false)
         }
         if let text = ChordInkAutomaticRenderPolicy.automaticCandidateText(for: draft) {
-            return .init(title: "Rendering \(text)…", detail: "Double-tap a chord to edit.",
-                accessibilityLabel: "Rendering \(text)", canReview: false, isReading: true)
+            if activity?.phase == .reading { return reading("Reading…") }
+            return .init(title: "Recognized \(text)", detail: "Waiting for a safe placement.",
+                accessibilityLabel: "Recognized \(text). Waiting for a safe placement. Fix writing",
+                canReview: true, isReading: false)
         }
         if activity?.phase == .reading || restored || activity == nil {
             return reading("Reading…")
@@ -107,9 +109,78 @@ enum ChordInkAutomaticFeedbackPresentationPolicy {
     }
 }
 
+private enum ChordDraftToolbarAction: Equatable {
+    case render
+    case review
+}
+
+private enum ManualChordRenderAction {
+    case toolbar(ChordDraftToolbarAction)
+    case review(PendingChordInkBatchConfirmation, [UUID: String])
+}
+
+private struct PendingManualChordRender {
+    let chartID: UUID
+    let source: PKDrawing
+    let action: ManualChordRenderAction
+    var sourceChanged = false
+}
+
 private struct PendingChordRenderTimingEvidence {
     var event: ChordEntryDiagnosticEvent
     var committedAt: Date
+}
+
+/// Temporary user edits for an exact review source. A row ID may change on a
+/// new read, but a suggestion has no entry in this cache until the user edits it.
+struct ChordInkReviewEditCache {
+    private struct Source: Hashable {
+        var chartID: UUID
+        var measureID: UUID
+        var drawingData: Data
+
+        init(chartID: UUID, measureID: UUID, drawingData: Data) {
+            self.chartID = chartID
+            self.measureID = measureID
+            self.drawingData = drawingData
+        }
+
+        init(_ confirmation: PendingChordInkConfirmation, chartID: UUID) {
+            self.init(chartID: chartID, measureID: confirmation.measureID, drawingData: confirmation.drawingData)
+        }
+    }
+
+    private var textBySource: [Source: String] = [:]
+
+    func hasEdits(for drafts: [ChordInkDraft], chartID: UUID) -> Bool {
+        drafts.contains { draft in
+            textBySource[Source(chartID: chartID, measureID: draft.measureID, drawingData: draft.drawingData)] != nil
+        }
+    }
+
+    func initialEdits(for batch: PendingChordInkBatchConfirmation, chartID: UUID) -> [UUID: String] {
+        batch.confirmations.reduce(into: [:]) { edits, confirmation in
+            edits[confirmation.id] = textBySource[Source(confirmation, chartID: chartID)]
+        }
+    }
+
+    mutating func storeEdits(
+        _ edits: [UUID: String], for batch: PendingChordInkBatchConfirmation, chartID: UUID
+    ) {
+        for confirmation in batch.confirmations {
+            if let editedText = edits[confirmation.id] {
+                textBySource[Source(confirmation, chartID: chartID)] = editedText
+            }
+        }
+    }
+
+    mutating func removeEdit(for confirmation: PendingChordInkConfirmation, chartID: UUID) {
+        textBySource.removeValue(forKey: Source(confirmation, chartID: chartID))
+    }
+
+    mutating func removeAll() {
+        textBySource.removeAll()
+    }
 }
 
 private struct PendingMeasureStackInsertion: Identifiable {
@@ -205,7 +276,7 @@ enum IChartEditorGuidedTourStep: String, Identifiable {
         case .writeChords:
             "Tap Write & Render and write C, F, G, C in the first four measures. Leave space between chords; they render automatically after a pause."
         case .renderChords:
-            "Double-tap a rendered chord to edit it. Use Fix Writing if handwriting needs attention. If Manual Render with Preview is on in app Settings, check the previews and tap Render Chords or Review & Render."
+            "Double-tap a rendered chord to edit it. Use Fix Writing if handwriting needs attention. If Manual Render with Preview is on in app Settings, check the previews and tap Render Chords or Review & Render. In Review Chords, check each recognition guess."
         case .shapeForm:
             "Tap Measures. Select a measure, then use Add, Layout, or Delete. Try one change, or continue."
         case .addCue:
@@ -447,23 +518,20 @@ struct EditorView: View {
     @State private var automaticChordFeedbackClockID: UUID?
     @State private var automaticReviewFocusedDraftID: UUID?
     @State private var isReplayingAutomaticChordCensus = false
-    @State private var showingAutomaticInkHelp = false
-    @State private var automaticInkHelpReason: ChordInkAutomaticRenderReason?
     @State private var chordWritingBatchID = UUID()
     @State private var chordReviewStartedAt: Date?
-    // Temporary review input only. It is never training, telemetry or a
-    // committed chord until the user explicitly renders the reviewed batch.
-    @State private var chordReviewEntriesByInk: [Data: String] = [:]
+    @State private var chordReviewEditCache = ChordInkReviewEditCache()
     @State private var chordDraftRenderInvalidationRequestID: UUID?
     @State private var pendingChordRenderTimingEvidence: [UUID: PendingChordRenderTimingEvidence] = [:]
     @State private var chordInkUserCorrectionMemory: ChordInkUserCorrectionMemory
     @State private var chordInkAutomaticRewriteFailures = ChordInkAutomaticRewriteFailureTracker()
-    @State private var chordInkErrorMessage = ""
-    @State private var showingChordInkError = false
-    @State private var chordBatchReviewError: String?
+    @State private var chordRenderStatus: String?
+    @State private var chordRenderStatusSourceData: Data?
+    @State private var pendingManualChordRender: PendingManualChordRender?
     @State private var pendingChordDraftClearChartID: UUID?
     @State private var pendingChordDraftRepeatConfirmation: PendingChordDraftRepeatConfirmation?
     @State private var pendingChordDraftEndingReview: PendingChordDraftEndingReview?
+    @State private var draftEndingBlockerFocus: ChordDraftEndingBlockerFocus?
     @State private var resumeRenderAfterEndingReview = false
     @State private var pendingTimeSignatureSourceMeasureID: UUID?
     @State private var pendingTimeSignaturePlacement: PendingTimeSignaturePlacement?
@@ -483,8 +551,7 @@ struct EditorView: View {
     @State private var canUndoFreeInkArticulationDeletion = false
     @State private var freeInkArticulationMessage = ""
     @State private var showsFreeInkArticulationMessage = false
-    @State private var freeInkArticulationSavePending = false
-    @State private var freeInkArticulationSaveFailed = false
+    @State private var isRetryingChartSave = false
     @State private var editorGuidedTourStep: IChartEditorGuidedTourStep?
     @State private var latestEditorContentSize = CGSize(width: 900, height: 1400)
     @State private var freeInkDocumentCanvasWidth: CGFloat?
@@ -532,12 +599,6 @@ struct EditorView: View {
     var body: some View {
         editorContent
             .alert("Free Ink", isPresented: $showsFreeInkArticulationMessage) {
-                if freeInkArticulationSaveFailed {
-                    Button("Retry Save") {
-                        freeInkArticulationSavePending = true
-                        store.retrySavingCurrentSnapshot()
-                    }
-                }
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(freeInkArticulationMessage)
@@ -575,6 +636,9 @@ struct EditorView: View {
             .onChange(of: chart.id) { _, _ in
                 cancelAutomaticChordRendering()
                 resetAutomaticChordFeedback()
+                chordReviewEditCache.removeAll()
+                pendingManualChordRender = nil
+                chordRenderStatus = nil
                 chordDraftRenderCoordinator.lastInputAt = nil
                 chordDraftRenderCoordinator.renderSessionReadyAt = nil
                 freeInkDocumentCanvasWidth = LeadSheetFreeInkDocumentLayoutPolicy.savedCanvasWidth(for: chart)
@@ -582,6 +646,7 @@ struct EditorView: View {
                 pendingChordDraftClearChartID = nil
                 pendingChordDraftRepeatConfirmation = nil
                 pendingChordDraftEndingReview = nil
+                draftEndingBlockerFocus = nil
                 resumeRenderAfterEndingReview = false
                 selectedEndingSpanID = nil
             }
@@ -696,7 +761,11 @@ struct EditorView: View {
                 onApply: { label, endStyle, measureRange in
                     handleChordDraftEndingReviewed(request, label: label, endStyle: endStyle, measureRange: measureRange)
                 },
-                onCancel: {
+                onBackToWriting: { blocker in
+                    draftEndingBlockerFocus = blocker.map {
+                        ChordDraftEndingBlockerFocus(chartID: request.chartID,
+                            sourceDrawingData: request.sourceDrawingData, barline: $0)
+                    }
                     resumeRenderAfterEndingReview = false
                     pendingChordDraftEndingReview = nil
                 }
@@ -741,10 +810,12 @@ struct EditorView: View {
                     handleChordInkRewriteRequested()
                 },
                 onBackToInk: handleBackToChordInk,
-                onRewriteChord: nil
+                onRewriteChord: nil,
+                renderStatus: chordRenderStatus
             )
         }
         .sheet(item: $pendingChordInkBatchConfirmation, onDismiss: handleChordBatchReviewDismissed) { batch in
+            let reviewChartID = chart.id
             ChordInkBatchConfirmationSheetView(
                 batch: batch,
                 highlightsForwardActions: editorGuidedTourStep == .renderChords,
@@ -756,23 +827,16 @@ struct EditorView: View {
                 },
                 onBackToInk: handleBackToChordInk,
                 onRewriteChord: batch.source == .draftPreview ? handleChordDraftRewriteRequested : nil,
-                initialEntryTextsByID: Dictionary(uniqueKeysWithValues: batch.confirmations.compactMap { confirmation in
-                    chordReviewEntriesByInk[confirmation.drawingData].map { (confirmation.id, $0) }
-                }),
+                initialEditedTextsByID: chordReviewEditCache.initialEdits(for: batch, chartID: reviewChartID),
                 initialFocusedConfirmationID: automaticReviewFocusedDraftID,
-                onEntryTextsChanged: { entries in
-                    for confirmation in batch.confirmations {
-                        if let text = entries[confirmation.id] {
-                            chordReviewEntriesByInk[confirmation.drawingData] = text
-                        }
-                    }
+                onEditedTextsChanged: { edits in
+                    guard chart.id == reviewChartID, pendingChordInkBatchConfirmation?.id == batch.id else { return }
+                    chordReviewEditCache.storeEdits(edits, for: batch, chartID: reviewChartID)
+                    cancelQueuedManualReviewIfEntriesChanged(edits, batch: batch)
                 },
-                renderError: $chordBatchReviewError
+                renderError: $chordRenderStatus
             )
             .id(batch.id)
-        }
-        .sheet(isPresented: $showingAutomaticInkHelp) {
-            automaticInkRecoverySheet
         }
         .sheet(item: $pendingChordCorrection) { correction in
             ChordCorrectionSheetView(
@@ -785,7 +849,9 @@ struct EditorView: View {
                 },
                 onCancel: {
                     pendingChordCorrection = nil
-                }
+                    chordRenderStatus = nil
+                },
+                renderStatus: chordRenderStatus
             )
         }
         .confirmationDialog(
@@ -855,11 +921,6 @@ struct EditorView: View {
         } message: {
             Text(noteEditErrorMessage)
         }
-        .alert("Write & Render", isPresented: $showingChordInkError) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(chordInkErrorMessage)
-        }
         .onChange(of: selectedNoteSelection) { _, selection in
             if selection == nil {
                 isNoteEditMenuPresented = false
@@ -871,8 +932,13 @@ struct EditorView: View {
             }
         }
         .onChange(of: canvasMode) { previousMode, mode in
+            if mode != .chordEntry { draftEndingBlockerFocus = nil }
             cancelAutomaticChordRendering()
-            if previousMode != mode { resetAutomaticChordFeedback() }
+            if previousMode != mode {
+                resetAutomaticChordFeedback()
+                pendingManualChordRender = nil
+                chordRenderStatus = nil
+            }
             if mode == .freeHand {
                 retainFreeInkDocumentWidth()
             }
@@ -936,23 +1002,25 @@ struct EditorView: View {
             recordPendingChordRenderHandoff()
             #endif
         }
-        .onReceive(store.$persistenceStatus) { status in
-            guard freeInkArticulationSavePending else { return }
-            switch status {
-            case .ready:
-                break
-            case .saved, .notTracking:
-                freeInkArticulationSavePending = false
-                freeInkArticulationSaveFailed = false
-            case .failed:
-                freeInkArticulationSavePending = false
-                presentFreeInkArticulationMessage(
-                    "The chart couldn’t save. Tap Retry Save before closing the chart.",
-                    saveFailed: true
-                )
+        .onReceive(store.$persistenceStatus) { _ in
+            isRetryingChartSave = false
+        }
+        .onChange(of: inkToolMode) { _, _ in
+            pendingManualChordRender = nil
+            chordRenderStatus = nil
+        }
+        .onChange(of: chart.pageHandwrittenChordData) { _, data in
+            if pendingManualChordRender == nil, chordRenderStatusSourceData != data {
+                chordRenderStatus = nil
             }
+            guard let queued = pendingManualChordRender,
+                  let drawing = chordDraftRenderCoordinator.currentManualPreviewDrawing(),
+                  !ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: queued.source, current: drawing)
+            else { return }
+            pendingManualChordRender?.sourceChanged = true
         }
         .onDisappear {
+            pendingManualChordRender = nil
             cancelAutomaticChordRendering()
             resetAutomaticChordFeedback()
             chordDraftRenderCoordinator.lastInputAt = nil
@@ -1100,16 +1168,22 @@ struct EditorView: View {
             )
 
             HStack(spacing: 0) {
-                Button {
-                    exitEditor()
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.headline)
-                        .frame(width: 44, height: 44)
+                HStack(spacing: 6) {
+                    Button {
+                        exitEditor()
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.headline)
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
+                    .accessibilityLabel("Exit Chart")
+
+                    if store.retryableSaveFailureMessage != nil {
+                        chartSaveRetryButton
+                    }
                 }
-                .buttonStyle(.plain)
-                .contentShape(Rectangle())
-                .accessibilityLabel("Exit Chart")
                 .frame(width: columnWidth, alignment: .leading)
 
                 Menu {
@@ -1186,6 +1260,32 @@ struct EditorView: View {
         }
     }
 
+    private var chartSaveRetryButton: some View {
+        Button {
+            guard store.retryableSaveFailureMessage != nil, !isRetryingChartSave else { return }
+            isRetryingChartSave = true
+            store.retrySavingCurrentSnapshot()
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Label("Chart not saved", systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+                Text(isRetryingChartSave ? "Saving…" : "Retry Save")
+                    .foregroundStyle(Color.accentColor)
+            }
+            .font(.caption.weight(.semibold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            .frame(minHeight: EditorCommandLayoutPolicy.minimumTapTarget)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isRetryingChartSave)
+        .accessibilityLabel(isRetryingChartSave ? "Saving chart" : "Retry Save")
+        .accessibilityValue("Chart not saved")
+        .accessibilityHint("Save your latest edits before closing the chart.")
+        .accessibilityIdentifier("editor-retry-chart-save")
+    }
+
     @ViewBuilder
     private func editorSurface(availableSize: CGSize) -> some View {
         let horizontalPadding = editorHorizontalPadding(for: availableSize.width)
@@ -1241,13 +1341,33 @@ struct EditorView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
 
             if chart.hasCompletedInitialSetup {
-                Text(activeToolInstructionText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 10)
-                    .frame(maxWidth: minWidth, alignment: .leading)
-                    .accessibilityIdentifier("editor-active-tool-instruction")
+                ZStack(alignment: .leading) {
+                    if canvasMode == .chordEntry {
+                        // Keep the canvas steady when fixing the mark clears the recovery hint.
+                        Text(defaultActiveToolInstruction)
+                            .hidden()
+                            .accessibilityHidden(true)
+                    }
+                    Text(activeToolInstructionText)
+                        .accessibilityIdentifier("editor-active-tool-instruction")
+                        .opacity(chordRenderStatus == nil ? 1 : 0)
+                        .accessibilityHidden(chordRenderStatus != nil)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 10)
+                .frame(maxWidth: minWidth, alignment: .leading)
+                .overlay(alignment: .topLeading) {
+                    if let chordRenderStatus {
+                        // The usual instruction reserves the space while feedback changes.
+                        ScrollView {
+                            ChordRenderInlineStatus(message: chordRenderStatus)
+                        }
+                        .scrollBounceBehavior(.basedOnSize)
+                        .padding(.horizontal, 10)
+                    }
+                }
             }
 
             Group {
@@ -1871,7 +1991,9 @@ struct EditorView: View {
             InkToolModeTab(mode: $inkToolMode)
         }
 
-        if canvasMode == .freeHand && chart.layoutStyle == .rhythmSectionSheet && !chart.freeInkArticulations.isEmpty {
+        if canvasMode == .freeHand
+            && (chart.layoutStyle == .simpleChordSheet || chart.layoutStyle == .rhythmSectionSheet)
+            && !chart.freeInkArticulations.isEmpty {
             restoreFreeInkMenu
         }
 
@@ -1911,17 +2033,36 @@ struct EditorView: View {
         }
     }
 
-    private var activeToolInstructionText: String {
-        let instruction = canvasMode.activeToolInstruction(
+    private var defaultActiveToolInstruction: String {
+        canvasMode.activeToolInstruction(
             layoutStyle: chart.layoutStyle,
             manualRenderWithPreview: manualRenderWithPreview,
             hasFreeInkArticulations: !chart.freeInkArticulations.isEmpty
         )
+    }
+
+    private var activeToolInstructionText: String {
+        let instruction = defaultActiveToolInstruction
         switch canvasMode {
+        case .chordEntry:
+            if let focus = draftEndingBlockerFocus, focus.matches(chart: chart, state: chordPreviewState) {
+                let pairing = ChordInkRepeatSignPairingPolicy.review(state: chordPreviewState)
+                let barline = focus.barline
+                if barline.isRenderable, pairing.nestedStartIDs.contains(barline.id) {
+                    return "Close the first repeat before starting another. Then review the ending bracket again."
+                }
+                if barline.isRenderable, pairing.unmatchedStartIDs.contains(barline.id) {
+                    return "Add an end repeat for the highlighted start repeat, then review the ending bracket again."
+                }
+                return "Use Erase on the highlighted \(barline.kind.isRepeat ? "repeat sign" : "barline"). Switch to Write to redraw it or review the ending bracket."
+            }
         case .freeHand:
             return instruction + " " + LeadSheetFreeInkNavigationPolicy.hintText
         case .measureEdit where freeInkArticulationBlocksMeasureEdit:
-            return "Use Restore Ink in Free Ink before splitting, joining, or deleting measures that hold the mark or its original writing."
+            if pendingDeleteStartMeasureID != nil {
+                return "Tap the last measure, then choose Delete To. If a converted mark prevents deleting measures, use Restore Ink in Free Ink first."
+            }
+            return instruction + " If a converted mark prevents merging or deleting measures, use Restore Ink in Free Ink first."
         case .repeatEdit:
             if pendingRepeatStartMeasureID != nil {
                 return "Tap the last measure, then choose End Repeat."
@@ -1955,7 +2096,13 @@ struct EditorView: View {
     }
 
     private func restoreFreeInkLabel(for mark: FreeInkArticulation) -> String {
-        guard let measureID = mark.measureID, let measure = chart.measure(id: measureID) else {
+        let targetMeasureID: UUID?
+        if chart.layoutStyle == .simpleChordSheet, case .chord(let chordID) = mark.attachment {
+            targetMeasureID = chart.measureContainingChordEvent(id: chordID)?.id
+        } else {
+            targetMeasureID = mark.measureID
+        }
+        guard let measureID = targetMeasureID, let measure = chart.measure(id: measureID) else {
             let label = "\(mark.kind.title), floating"
             if let pageIndex = mark.pagePoint?.pageIndex, (0..<Int.max).contains(pageIndex) {
                 return "\(label), page \(pageIndex + 1)"
@@ -1973,7 +2120,8 @@ struct EditorView: View {
     }
 
     private var freeInkArticulationBlocksMeasureEdit: Bool {
-        guard !chart.freeInkArticulations.isEmpty,
+        guard chart.layoutStyle != .simpleChordSheet,
+              !chart.freeInkArticulations.isEmpty,
               let target = resolvedMeasureActionTargetID(),
               let targetIndex = chart.measures.firstIndex(where: { $0.id == target }) else { return false }
         let measures = chart.measures
@@ -1986,16 +2134,13 @@ struct EditorView: View {
     }
 
     private func restoreFreeInkArticulation(_ id: UUID) {
-        freeInkArticulationSavePending = true
         if !freeInkArticulationCoordinator.restore(articulationID: id) {
-            freeInkArticulationSavePending = false
             presentFreeInkArticulationMessage("Couldn’t restore this mark at its original position. The source ink is still saved with the mark.")
         }
     }
 
-    private func presentFreeInkArticulationMessage(_ message: String, saveFailed: Bool = false) {
+    private func presentFreeInkArticulationMessage(_ message: String) {
         freeInkArticulationMessage = message
-        freeInkArticulationSaveFailed = saveFailed
         showsFreeInkArticulationMessage = true
     }
 
@@ -2461,19 +2606,36 @@ struct EditorView: View {
 
     private var chordDraftActiveToolActions: some View {
         HStack(spacing: 5) {
-            if manualRenderWithPreview || shouldOfferAutomaticInkReview {
-                activeToolButton(
-                    title: manualRenderWithPreview
-                        ? (chordDraftNeedsReview ? "Review & Render" : "Render Chords")
-                        : (ChordDraftEndingReviewPolicy.firstEndingNeedingReview(chart: chart, state: chordPreviewState) != nil ? "Review Ending" : "Fix Writing"),
-                    systemImage: chordDraftNeedsReview ? "checkmark.message" : "checkmark.circle",
-                    isTourHighlighted: editorGuidedTourStep == .renderChords,
-                    isDisabled: manualRenderWithPreview ? !canRenderChordDrafts : !hasAutomaticSourceInk,
-                    action: {
-                        if manualRenderWithPreview { handleRenderChordDrafts() }
-                        else { openAutomaticChordReview(focusedDraftID: nil) }
+            if manualRenderWithPreview {
+                if hasIndependentlyRenderableNotation || !chordDraftNeedsReview {
+                    activeToolButton(
+                        title: "Render Chords",
+                        systemImage: "checkmark.circle",
+                        isTourHighlighted: editorGuidedTourStep == .renderChords && !chordDraftNeedsReview,
+                        isDisabled: !hasPendingChordDraftInk
+                    ) {
+                        handleRenderChordDrafts(action: .render)
                     }
-                )
+                }
+                if chordDraftNeedsReview {
+                    activeToolButton(
+                        title: "Review & Render",
+                        systemImage: "checkmark.message",
+                        isTourHighlighted: editorGuidedTourStep == .renderChords,
+                        isDisabled: !canRenderChordDrafts
+                    ) {
+                        handleRenderChordDrafts()
+                    }
+                }
+            } else if shouldOfferAutomaticInkReview {
+                activeToolButton(
+                    title: primaryAutomaticChordFeedback?.globalReason == .endingReview ? "Review Ending" : "Fix Writing",
+                    systemImage: "checkmark.message",
+                    isTourHighlighted: editorGuidedTourStep == .renderChords,
+                    isDisabled: !hasAutomaticSourceInk
+                ) {
+                    openAutomaticChordReview(focusedDraftID: nil)
+                }
             }
 
             activeToolButton(
@@ -2553,8 +2715,32 @@ struct EditorView: View {
         chordPreviewState.canReviewChordDrafts || chordPreviewState.canRenderAny
     }
 
-    private var chordDraftNeedsReview: Bool {
+    private var chordIDsWithPendingReviewEdits: Set<UUID> {
+        Set(chordPreviewState.draftChords.filter {
+            $0.selectedText == nil && chordReviewEditCache.hasEdits(for: [$0], chartID: chart.id)
+        }.map(\.id))
+    }
+
+    private var hasIndependentlyRenderableChords: Bool {
+        let editedIDs = chordIDsWithPendingReviewEdits
+        return chordPreviewState.draftChords.contains {
+            !editedIDs.contains($0.id) && !$0.isStale && $0.isRenderable
+                && (!$0.requiresConfirmation || $0.selectedText != nil)
+        }
+    }
+
+    private var hasIndependentlyRenderableNotation: Bool {
+        hasIndependentlyRenderableChords
+            || !ChordInkDraftRenderCoordinator.independentlyRenderableStructuralIDs(in: chordPreviewState).isEmpty
+    }
+
+    private var requiresChordDraftReview: Bool {
         chordPreviewState.requiresChordConfirmation
+            || (manualRenderWithPreview && chordReviewEditCache.hasEdits(for: chordPreviewState.draftChords, chartID: chart.id))
+    }
+
+    private var chordDraftNeedsReview: Bool {
+        requiresChordDraftReview
             || ChordDraftEndingReviewPolicy.firstEndingNeedingReview(chart: chart, state: chordPreviewState) != nil
             || !ChordInkRepeatSignPairingPolicy.review(state: chordPreviewState).canRender
     }
@@ -2572,12 +2758,7 @@ struct EditorView: View {
         if let primary = primaryAutomaticChordFeedback {
             automaticFeedbackButton(primary.status,
                 identifier: primary.draftID.map { "Chord automatic feedback \($0.uuidString)" } ?? "Chord automatic ink feedback") {
-                if primary.globalReason == .unrepresentedInk || primary.globalReason == .needsSourceRefresh
-                    || primary.globalReason == .barlinePlacementUnavailable {
-                    openAutomaticInkHelp(reason: primary.globalReason)
-                } else {
-                    openAutomaticChordReview(focusedDraftID: primary.draftID)
-                }
+                openAutomaticChordReview(focusedDraftID: primary.draftID)
             }
         } else {
             VStack(alignment: .leading, spacing: 2) {
@@ -2651,65 +2832,37 @@ struct EditorView: View {
         .accessibilityIdentifier(identifier)
     }
 
-    private var automaticInkRecoverySheet: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 18) {
-                Text(automaticInkHelpReason?.userMessage ?? "This writing has not been assigned a supported chord yet.")
-                    .font(.headline)
-                Text(automaticInkHelpReason == .barlinePlacementUnavailable
-                    ? barlineRecoveryMessage(for: chordPreviewState.draftBarlines)
-                    : "Your writing is still on the page. Erase or rewrite the unclear mark in the highlighted lane. Leave space between chords and other marks.")
-                    .fixedSize(horizontal: false, vertical: true)
-                Button("Use Eraser") {
-                    showingAutomaticInkHelp = false
-                    canvasMode = .chordEntry
-                    inkToolMode = .erase
-                }
-                .buttonStyle(.borderedProminent)
-                .accessibilityIdentifier("Chord automatic recovery eraser")
-                Button("Keep Writing") {
-                    showingAutomaticInkHelp = false
-                    canvasMode = .chordEntry
-                    inkToolMode = .write
-                }
-                .buttonStyle(.bordered)
-                Spacer()
-            }
-            .padding(24)
-            .navigationTitle("Review This Ink")
-            .navigationBarTitleDisplayMode(.inline)
-        }
-        .presentationDetents([.medium])
-    }
-
-    private func barlineRecoveryMessage(for barlines: [DraftBarline]) -> String {
-        let measureIDs = Set(barlines.filter { !$0.kind.isRepeat }.map(\.measureID))
-        if chart.hasFreeInkArticulations(in: measureIDs) {
-            return "Your draft ink is still on the page. Use Restore Ink in Free Ink before splitting a measure with a converted mark or its source."
-        }
+    private var barlineRecoveryMessage: String {
+        // The presence of a converted mark does not identify the failed guard.
+        // Committed Rhythm splits preserve marks and their source anchors.
         if chart.layoutStyle == .rhythmSectionSheet {
-            return "Your draft ink is still on the page. Draw barlines on their own in the empty end of a row, or draw one inside an open measure. Use Measures to change a committed measure."
+            return "Draw barlines on their own at the empty end of a row, or at a rhythmic boundary inside a measure. A note cannot sustain across the split. Use Measures for other form edits."
         }
         return "Your draft ink is still on the page."
     }
 
     private func openAutomaticChordReview(focusedDraftID: UUID?) {
         cancelAutomaticChordRendering()
+        chordRenderStatus = nil
         automaticReviewFocusedDraftID = focusedDraftID
         let globalReason = automaticChordFeedback.globalReason ?? automaticChordActivity?.feedback.globalReason
-        if focusedDraftID == nil, globalReason == .unrepresentedInk || globalReason == .needsSourceRefresh
-            || globalReason == .barlinePlacementUnavailable {
-            openAutomaticInkHelp(reason: globalReason)
+        if let focusedDraftID, let reason = automaticChordFeedback.reasonsByDraftID[focusedDraftID]
+            ?? automaticChordActivity?.feedback.reasonsByDraftID[focusedDraftID],
+           [.endingReview, .repeatReview, .barlinePlacementUnavailable].contains(reason) {
+            showAutomaticInkRecovery(reason: reason)
             return
         }
-        if ChordDraftRepeatReviewPolicy.blockingMessage(for: chordPreviewState) != nil
-            || ChordDraftRepeatReviewPolicy.confirmation(for: chart, state: chordPreviewState) != nil {
-            handleRenderChordDrafts()
-            return
-        }
-        if ChordDraftEndingReviewPolicy.firstEndingNeedingReview(chart: chart, state: chordPreviewState) != nil {
-            handleRenderChordDrafts()
-            return
+        if focusedDraftID == nil {
+            if globalReason == .endingReview,
+               let ending = ChordDraftEndingReviewPolicy.firstEndingNeedingReview(chart: chart, state: chordPreviewState) {
+                handleChordInkDraftEndingSelected(ending.id)
+                return
+            }
+            if globalReason == .unrepresentedInk || globalReason == .needsSourceRefresh
+                || globalReason == .barlinePlacementUnavailable || globalReason == .repeatReview {
+                showAutomaticInkRecovery(reason: globalReason)
+                return
+            }
         }
         if let batch = ChordInkDraftReviewPolicy.batch(for: chordPreviewState) {
             pendingChordInkBatchConfirmation = batch
@@ -2723,17 +2876,38 @@ struct EditorView: View {
             ].merging(ChordWritingWorkflowTelemetry.batchProperties(batchID: chordWritingBatchID)) { _, value in value })
             return
         }
-        if (!chordPreviewState.draftBarlines.isEmpty || !chordPreviewState.draftEndings.isEmpty), canRenderChordDrafts {
-            handleRenderChordDrafts()
-            return
+        if let ending = ChordDraftEndingReviewPolicy.firstEndingNeedingReview(chart: chart, state: chordPreviewState) {
+            handleChordInkDraftEndingSelected(ending.id)
+        } else {
+            showAutomaticInkRecovery(reason: globalReason)
         }
-        openAutomaticInkHelp(reason: automaticChordFeedback.globalReason ?? automaticChordActivity?.feedback.globalReason)
     }
 
-    private func openAutomaticInkHelp(reason: ChordInkAutomaticRenderReason?) {
-        cancelAutomaticChordRendering()
-        automaticInkHelpReason = reason
-        showingAutomaticInkHelp = true
+    private func showAutomaticInkRecovery(reason: ChordInkAutomaticRenderReason?) {
+        if reason == .barlinePlacementUnavailable {
+            let plainBarlines = chordPreviewState.draftBarlines.filter { !$0.kind.isRepeat }
+            if plainBarlines.count == 1, let barline = plainBarlines.first {
+                draftEndingBlockerFocus = ChordDraftEndingBlockerFocus(chartID: chart.id,
+                    sourceDrawingData: chart.pageHandwrittenChordData, barline: barline)
+                presentChordRenderError("Use Erase on the highlighted barline, or keep writing.")
+            } else {
+                presentChordRenderError(barlineRecoveryMessage)
+            }
+        } else if reason == .endingReview {
+            presentChordRenderError("Tap the ending preview to choose its label and measures, or keep writing.")
+        } else if reason == .repeatReview {
+            if let confirmation = ChordDraftRepeatReviewPolicy.confirmation(for: chart, state: chordPreviewState) {
+                pendingChordDraftRepeatConfirmation = confirmation
+            } else {
+                presentChordRenderError(ChordDraftRepeatReviewPolicy.blockingMessage(for: chordPreviewState)
+                    ?? "Check the repeat signs, or keep writing.")
+            }
+        } else if reason == .needsSourceRefresh,
+                  chordDraftRenderCoordinator.replayCurrentAutomaticChordCensus() {
+            scheduleAutomaticChordRendering()
+        } else {
+            presentChordRenderError("Use Erase on the unclear writing, or keep writing.")
+        }
     }
 
     private func handleActiveToolDoneTapped() {
@@ -2879,6 +3053,7 @@ struct EditorView: View {
             recognizesChordInk: true,
             manualRenderWithPreview: manualRenderWithPreview,
             chordPreviewState: chordPreviewState,
+            draftEndingBlockerFocus: draftEndingBlockerFocus,
             onTimeSignatureTargetRequested: handleTimeSignatureTargetRequested,
             onChordInkRecognitionProposal: handleChordInkRecognitionProposal,
             onChordInkBatchRecognitionProposal: handleChordInkBatchRecognitionProposal,
@@ -2887,6 +3062,7 @@ struct EditorView: View {
             onChordInkDraftBarlinesChanged: handleChordInkDraftBarlinesChanged,
             onChordInkDraftEndingsChanged: handleChordInkDraftEndingsChanged,
             onChordInkDraftEndingSelected: handleChordInkDraftEndingSelected,
+            onManualChordPreviewReady: resumePendingManualChordRender,
             onChordCorrectionRequested: handleChordCorrectionRequested,
             onNoteSelectionChanged: handleNoteSelectionChanged,
             onMeasureSelectedFromCanvas: handleMeasureSelectedFromCanvas,
@@ -2902,7 +3078,6 @@ struct EditorView: View {
             chordDraftRenderCoordinator: chordDraftRenderCoordinator,
             chordDraftRenderInvalidationRequestID: chordDraftRenderInvalidationRequestID,
             freeInkArticulationCoordinator: freeInkArticulationCoordinator,
-            onFreeInkArticulationWillSave: { freeInkArticulationSavePending = true },
             onFreeInkArticulationDeletionAvailabilityChanged: { canUndoFreeInkArticulationDeletion = $0 },
             rhythmicNotationPreviewConfirmationRequestID: isDedicatedRhythmToolAvailable
                 ? rhythmPreviewConfirmationRequestID
@@ -2937,7 +3112,6 @@ struct EditorView: View {
             || pendingChordDraftRepeatConfirmation != nil
             || pendingChordDraftEndingReview != nil
             || pendingChordCorrection != nil || pendingTimeSignaturePlacement != nil
-            || showingAutomaticInkHelp
     }
 
     private var appAppearance: IChartAppAppearance {
@@ -3073,10 +3247,17 @@ struct EditorView: View {
     }
 
     private var chordPreviewAccessibilityHint: String {
+        if manualRenderWithPreview, chordDraftNeedsReview, hasIndependentlyRenderableNotation {
+            return "Render Chords renders the ready notation. Review & Render checks the other entries."
+        }
         if chordPreviewState.draftChords.contains(where: \.requiresSeparatedChordInk) {
             return "Use Review & Render to see which writing needs more space between chords."
         }
-        return chordPreviewState.unresolvedChordCount > 0 ? "Use Review & Render to type the intended chord." : ""
+        if chordPreviewState.unresolvedChordCount > 0 {
+            return "Use Review & Render to check guesses and enter missing chords."
+        }
+        return manualRenderWithPreview && requiresChordDraftReview
+            ? "Use Review & Render to check the chord entries." : ""
     }
 
     private var chordDiagnosticPreviewItems: [ChordDiagnosticPreviewItem] {
@@ -3095,10 +3276,12 @@ struct EditorView: View {
             )
         }
         let endingItems = chordPreviewState.draftEndings.map { ending in
-            ChordDiagnosticPreviewItem(
+            let needsReview = !ending.isRenderable
+                || chart.draftEndingMeasureRange(for: ending, state: chordPreviewState) == nil
+            return ChordDiagnosticPreviewItem(
                 id: "ending-\(ending.id.uuidString)",
                 visualOrder: ending.visualOrder,
-                kind: .ending(ending.isRenderable ? ending.normalizedLabel : "Ending?")
+                kind: .ending(needsReview ? "Ending?" : ending.normalizedLabel)
             )
         }
         let implicitBarlineItems = ChordDraftPreviewImplicitBarlinePolicy
@@ -3127,8 +3310,8 @@ struct EditorView: View {
 
         if canRenderChordDrafts {
             return chordDraftNeedsReview
-                ? "Review before render"
-                : "Ready to render"
+                ? "Needs review"
+                : "Preview ready"
         }
 
         return "Previewing"
@@ -3143,7 +3326,10 @@ struct EditorView: View {
             .map(\.previewDisplayText)
             .joined(separator: ", ")
         let barlineText = ChordDraftBarlinePresentationPolicy.accessibilitySummary(for: chordPreviewState.draftBarlines)
-        let endingText = chordPreviewState.draftEndings.map { $0.isRenderable ? "Ending \($0.normalizedLabel)" : "Ending needs a label" }.joined(separator: ", ")
+        let endingText = chordPreviewState.draftEndings.map { ending in
+            ending.isRenderable && chart.draftEndingMeasureRange(for: ending, state: chordPreviewState) != nil
+                ? "Ending \(ending.normalizedLabel)" : "Ending needs review"
+        }.joined(separator: ", ")
         return "Chord preview, \(chordText), \(barlineText), \(endingText), \(chordPreviewStatusText)"
     }
 
@@ -3559,7 +3745,16 @@ struct EditorView: View {
             return false
         }
 
-        return chart.canDeleteCommittedSimpleChordBarline(after: selectedCommittedBarlineMeasureID)
+        return chart.canDeleteCommittedChordBarline(after: selectedCommittedBarlineMeasureID)
+    }
+
+    private var sourceMeasureWidthsForStructuralEdit: [UUID: Double] {
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: latestEditorContentSize)
+        return layout.systems.flatMap(\.measures).reduce(into: [:]) { widths, measure in
+            guard let id = measure.sourceMeasureID else { return }
+            let width = chart.layoutStyle == .simpleChordSheet ? measure.frame.width : measure.staffFrame.width
+            if width.isFinite, width > 0 { widths[id] = Double(width) }
+        }
     }
 
     private var canShrinkSelectedCueText: Bool {
@@ -3707,12 +3902,15 @@ struct EditorView: View {
 
     private func handleJoinSelectedMeasure() {
         let targetMeasureID = resolvedMeasureActionTargetID()
+        var updatedChart = chartPreservingVisibleSimpleArticulations()
         guard enterMeasureEditMode(),
               let targetMeasureID,
               canJoinSelectedMeasure,
-              chart.joinMeasure(after: targetMeasureID) else {
+              updatedChart.joinMeasure(after: targetMeasureID,
+                sourceMeasureWidths: sourceMeasureWidthsForStructuralEdit) else {
             return
         }
+        chart = updatedChart
 
         clearPendingMeasureStackState()
         selectedMeasureID = targetMeasureID
@@ -3924,11 +4122,13 @@ struct EditorView: View {
     private func handleDeleteSelectedMeasure() {
         let targetMeasureID = resolvedMeasureActionTargetID()
         let nextSelectionID = targetMeasureID.flatMap(neighboringSelectionAfterDeletingMeasure)
+        var updatedChart = chartPreservingVisibleSimpleArticulations()
         guard enterMeasureEditMode(),
               let targetMeasureID,
-              chart.deleteMeasure(id: targetMeasureID) else {
+              updatedChart.deleteMeasure(id: targetMeasureID) else {
             return
         }
+        chart = updatedChart
 
         clearPendingMeasureStackState()
         selectedMeasureID = nextSelectionID.flatMap { chart.measure(id: $0)?.id }
@@ -3957,12 +4157,14 @@ struct EditorView: View {
                 neighboringSelectionAfterDeletingMeasureRange(startMeasureID: startID, endMeasureID: endID)
             }
         }
+        var updatedChart = chartPreservingVisibleSimpleArticulations()
         guard enterMeasureEditMode(),
               let pendingDeleteStartMeasureID,
               let targetMeasureID,
-              chart.deleteMeasures(from: pendingDeleteStartMeasureID, through: targetMeasureID) else {
+              updatedChart.deleteMeasures(from: pendingDeleteStartMeasureID, through: targetMeasureID) else {
             return
         }
+        chart = updatedChart
 
         clearPendingMeasureStackState()
         selectedMeasureID = nextSelectionID.flatMap { chart.measure(id: $0)?.id }
@@ -4431,9 +4633,11 @@ struct EditorView: View {
         }
 
         let sourceMeasureID = chart.measureContainingChordEvent(id: selectedChordID)?.id
-        guard chart.deleteChordEvent(selectedChordID) else {
+        var updatedChart = chartPreservingVisibleSimpleArticulations()
+        guard updatedChart.deleteChordEvent(selectedChordID) else {
             return
         }
+        chart = updatedChart
 
         self.selectedChordID = nil
         selectedCommittedBarlineMeasureID = nil
@@ -4442,11 +4646,14 @@ struct EditorView: View {
     }
 
     private func deleteSelectedCommittedChordBarline() {
+        var updatedChart = chartPreservingVisibleSimpleArticulations()
         guard let selectedCommittedBarlineMeasureID,
-              chart.deleteCommittedSimpleChordBarline(after: selectedCommittedBarlineMeasureID) else {
+              updatedChart.deleteCommittedChordBarline(after: selectedCommittedBarlineMeasureID,
+                sourceMeasureWidths: sourceMeasureWidthsForStructuralEdit) else {
             self.selectedCommittedBarlineMeasureID = nil
             return
         }
+        chart = updatedChart
 
         selectedMeasureID = selectedCommittedBarlineMeasureID
         self.selectedCommittedBarlineMeasureID = nil
@@ -4455,6 +4662,12 @@ struct EditorView: View {
         selectedRoadmapMarkerID = nil
         selectedEndingSpanID = nil
         canvasMode = .browse
+    }
+
+    private func chartPreservingVisibleSimpleArticulations() -> Chart {
+        guard chart.layoutStyle == .simpleChordSheet, !chart.freeInkArticulations.isEmpty else { return chart }
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: latestEditorContentSize)
+        return FreeInkArticulationPlacement.preservingVisiblePagePoints(in: chart, pageLayout: layout)
     }
 
     private func clearPendingCueTextEntry() {
@@ -5020,17 +5233,22 @@ struct EditorView: View {
             || PersonalInkEvaluationStore.shared.context(chartID: chart.id) == nil)
     }
 
-    private func handleChordInkDraftPreviewChanged(_ payloads: [ChordInkRecognitionProposalPayload]) {
-        let replacementStartedAt = ProcessInfo.processInfo.systemUptime
-        guard EditorChordDraftPreviewUpdatePolicy.allowsUpdate(
+    private var allowsChordDraftPreviewUpdates: Bool {
+        // Manual chord review owns its opening snapshot. Keep the writing
+        // preview current behind it without changing the rows being edited.
+        EditorChordDraftPreviewUpdatePolicy.allowsUpdate(
             mode: canvasMode,
             hasSingleReview: pendingChordInkConfirmation != nil,
             hasBatchReview: pendingChordInkBatchConfirmation != nil
                 || (!manualRenderWithPreview && pendingChordDraftEndingReview != nil),
-            hasCorrection: pendingChordCorrection != nil
-        ) else {
-            return
-        }
+            hasCorrection: pendingChordCorrection != nil,
+            isManualDraftReview: manualRenderWithPreview && pendingChordInkBatchConfirmation?.source == .draftPreview
+        )
+    }
+
+    private func handleChordInkDraftPreviewChanged(_ payloads: [ChordInkRecognitionProposalPayload]) {
+        let replacementStartedAt = ProcessInfo.processInfo.systemUptime
+        guard allowsChordDraftPreviewUpdates else { return }
         guard payloads.isEmpty || chart.pageHandwrittenChordData != nil else {
             return
         }
@@ -5155,15 +5373,7 @@ struct EditorView: View {
     }
 
     private func handleChordInkDraftBarlinesChanged(_ barlines: [DraftBarline]) {
-        guard EditorChordDraftPreviewUpdatePolicy.allowsUpdate(
-            mode: canvasMode,
-            hasSingleReview: pendingChordInkConfirmation != nil,
-            hasBatchReview: pendingChordInkBatchConfirmation != nil
-                || (!manualRenderWithPreview && pendingChordDraftEndingReview != nil),
-            hasCorrection: pendingChordCorrection != nil
-        ) else {
-            return
-        }
+        guard allowsChordDraftPreviewUpdates else { return }
 
         let previousCount = chordPreviewState.draftBarlines.count
         var updatedPreviewState = chordPreviewState
@@ -5189,7 +5399,7 @@ struct EditorView: View {
         !manualRenderWithPreview && canvasMode == .chordEntry
             && !isPresentingEditorPanel && !isExporting
             && activeEditorOperationMessage == nil
-            && !showingChordInkError && !showingNoteEditError && !showingExportAlert
+            && !showingNoteEditError && !showingExportAlert
             && pendingChordDraftClearChartID == nil
     }
 
@@ -5200,6 +5410,7 @@ struct EditorView: View {
             || previous?.inputAt != activity.inputAt || previous?.renderReadyAt != activity.renderReadyAt
         let becameReady = previous?.phase != activity.phase && activity.phase != .waiting
         if inputChanged {
+            chordRenderStatus = nil
             automaticChordFeedback = .init()
             cancelAutomaticChordRendering()
         }
@@ -5291,6 +5502,7 @@ struct EditorView: View {
         automaticChordFeedback = attempt.feedback
         automaticChordFeedbackNow = now
         if let outcome = attempt.outcome {
+            chordRenderStatus = nil
             chart = outcome.chart
             chordPreviewState = outcome.remainingState
             selectedMeasureID = nil
@@ -5317,7 +5529,7 @@ struct EditorView: View {
                 chordDraftRenderCoordinator.renderSessionReadyAt = nil
                 chordWritingBatchID = UUID()
                 chordReviewStartedAt = nil
-                chordReviewEntriesByInk.removeAll()
+                chordReviewEditCache.removeAll()
                 cancelAutomaticChordRendering()
                 resetAutomaticChordFeedback()
                 return
@@ -5339,13 +5551,7 @@ struct EditorView: View {
     }
 
     private func handleChordInkDraftEndingsChanged(_ endings: [DraftEnding]) {
-        guard EditorChordDraftPreviewUpdatePolicy.allowsUpdate(
-            mode: canvasMode,
-            hasSingleReview: pendingChordInkConfirmation != nil,
-            hasBatchReview: pendingChordInkBatchConfirmation != nil
-                || (!manualRenderWithPreview && pendingChordDraftEndingReview != nil),
-            hasCorrection: pendingChordCorrection != nil
-        ) else { return }
+        guard allowsChordDraftPreviewUpdates else { return }
         var updated = chordPreviewState
         updated.replaceDraftEndings(with: endings)
         chordPreviewState = updated
@@ -5354,6 +5560,9 @@ struct EditorView: View {
 
     private func handleChordInkDraftEndingSelected(_ endingID: UUID) {
         guard canvasMode == .chordEntry, !isPresentingEditorPanel else { return }
+        pendingManualChordRender = nil
+        draftEndingBlockerFocus = nil
+        chordRenderStatus = nil
         resumeRenderAfterEndingReview = false
         pendingChordDraftEndingReview = ChordDraftEndingReviewPolicy.request(
             for: chart, state: chordPreviewState, endingID: endingID, continuesRendering: false
@@ -5370,8 +5579,7 @@ struct EditorView: View {
         ) else {
             resumeRenderAfterEndingReview = false
             pendingChordDraftEndingReview = nil
-            chordInkErrorMessage = "The ending preview or chart changed during review. Review the current bracket again. Your ink has not been erased."
-            showingChordInkError = true
+            presentChordRenderError("The ending preview or chart changed during review. Review the current bracket again. Your ink has not been erased.")
             return
         }
         chordPreviewState = reviewed
@@ -5401,43 +5609,45 @@ struct EditorView: View {
                 return
             }
         }
-        if shouldRender { handleRenderChordDrafts() }
+        guard shouldRender else { return }
+        if manualRenderWithPreview, chordPreviewState.draftChords.isEmpty,
+           chordPreviewState.draftBarlines.isEmpty, !chordPreviewState.draftEndings.isEmpty,
+           ChordDraftEndingReviewPolicy.firstEndingNeedingReview(chart: chart, state: chordPreviewState) == nil {
+            // An ending-only review already approved its exact ink and range.
+            // The live render still checks both before consuming any strokes.
+            _ = renderChordPreviewState(chordPreviewState, reviewResult: "trusted")
+        } else {
+            handleRenderChordDrafts()
+        }
     }
 
-    private func handleRenderChordDrafts() {
+    private func handleRenderChordDrafts(action: ChordDraftToolbarAction = .review) {
         cancelAutomaticChordRendering()
+        guard prepareCurrentManualChordPreview(for: .toolbar(action)) else { return }
+        renderCurrentChordDrafts(action: action)
+    }
+
+    private func renderCurrentChordDrafts(action: ChordDraftToolbarAction) {
+        chordRenderStatus = nil
         guard canRenderChordDrafts else {
             if chordPreviewState.unresolvedChordCount > 0 {
-                chordInkErrorMessage = "One or more draft chords need a supported read before rendering."
-                showingChordInkError = true
+                presentChordRenderError("One or more draft chords need a supported read before rendering.")
             }
             return
         }
 
-        if let message = ChordDraftRepeatReviewPolicy.blockingMessage(for: chordPreviewState) {
-            chordInkErrorMessage = message
-            showingChordInkError = true
-            return
-        }
-        if let request = ChordDraftRepeatReviewPolicy.confirmation(for: chart, state: chordPreviewState) {
-            pendingChordDraftRepeatConfirmation = request
-            return
-        }
-
-        if ChordDraftEndingReviewPolicy.firstEndingNeedingReview(chart: chart, state: chordPreviewState) != nil {
-            guard let request = ChordDraftEndingReviewPolicy.request(for: chart, state: chordPreviewState) else {
-                chordInkErrorMessage = "The ending could not be prepared for review. Finish the current stroke and try again. Your ink has not been erased."
-                showingChordInkError = true
-                return
+        if action == .render, chordDraftNeedsReview {
+            if hasIndependentlyRenderableNotation {
+                _ = renderChordPreviewState(chordPreviewState, reviewResult: "trusted", independentOnly: true)
+            } else {
+                presentChordRenderError("Use Review & Render to check the current writing.")
             }
-            pendingChordDraftEndingReview = request
             return
         }
 
-        if chordPreviewState.requiresChordConfirmation {
+        if requiresChordDraftReview {
             guard let batch = ChordInkDraftReviewPolicy.batch(for: chordPreviewState) else {
-                chordInkErrorMessage = "One or more draft chords could not be prepared for review. Keep the ink and try again."
-                showingChordInkError = true
+                presentChordRenderError("One or more draft chords could not be prepared for review. Keep the ink and try again.")
                 return
             }
 
@@ -5458,6 +5668,24 @@ struct EditorView: View {
             return
         }
 
+        if let message = ChordDraftRepeatReviewPolicy.blockingMessage(for: chordPreviewState) {
+            if let endingReview = ChordDraftEndingReviewPolicy.request(for: chart, state: chordPreviewState),
+               !endingReview.blockingBarlines.isEmpty {
+                pendingChordDraftEndingReview = endingReview
+                return
+            }
+            presentChordRenderError(message)
+            return
+        }
+        if ChordDraftEndingReviewPolicy.firstEndingNeedingReview(chart: chart, state: chordPreviewState) != nil {
+            guard let request = ChordDraftEndingReviewPolicy.request(for: chart, state: chordPreviewState) else {
+                presentChordRenderError("The ending could not be prepared for review. Finish the current stroke and try again. Your ink has not been erased.")
+                return
+            }
+            pendingChordDraftEndingReview = request
+            return
+        }
+
         _ = renderChordPreviewState(chordPreviewState, reviewResult: "trusted")
     }
 
@@ -5465,17 +5693,22 @@ struct EditorView: View {
     private func renderChordPreviewState(
         _ state: ChordPreviewState,
         reviewResult: String,
-        workflowProperties: IChartTelemetryProperties = [:]
+        workflowProperties: IChartTelemetryProperties = [:],
+        independentOnly: Bool = false
     ) -> Bool {
-        guard ChordDraftEndingReviewPolicy.firstEndingNeedingReview(chart: chart, state: state) == nil else {
-            presentChordRenderError("An ending label or measure range needs review. Review the bracket to choose its measures. Your ink has not been erased.")
-            return false
-        }
-        guard ChordInkRepeatSignPairingPolicy.review(state: state).canRender else {
-            LeadSheetInkFeatureContract.recordRenderGuard(chart: chart, reason: "render_repeat_review_required")
-            presentChordRenderError(ChordDraftRepeatReviewPolicy.blockingMessage(for: state)
-                ?? "An end repeat still needs confirmation. Keep the ink and tap Render again to review it. Nothing was rendered or erased.")
-            return false
+        let hasEndingToReview = ChordDraftEndingReviewPolicy.firstEndingNeedingReview(chart: chart, state: state) != nil
+        let hasRepeatToReview = !ChordInkRepeatSignPairingPolicy.review(state: state).canRender
+        if state.renderableDraftChords.isEmpty {
+            if hasEndingToReview {
+                presentChordRenderError("Review the ending bracket to choose its label and measures.")
+                return false
+            }
+            if hasRepeatToReview {
+                LeadSheetInkFeatureContract.recordRenderGuard(chart: chart, reason: "render_repeat_review_required")
+                presentChordRenderError(ChordDraftRepeatReviewPolicy.blockingMessage(for: state)
+                    ?? "Review the end repeat to confirm where it starts.")
+                return false
+            }
         }
 
         var committedState = state
@@ -5485,7 +5718,14 @@ struct EditorView: View {
         // a delayed SwiftUI update must never clear ink added after review.
         let preparedOutcome: ChordInkDraftRenderCoordinator.Outcome?
         if manualRenderWithPreview {
-            preparedOutcome = chordDraftRenderCoordinator.render(chart: chart, state: committedState)
+            if independentOnly || hasEndingToReview || hasRepeatToReview {
+                preparedOutcome = chordDraftRenderCoordinator.renderIndependentChords(
+                    chart: chart, state: committedState,
+                    excludingChordIDs: independentOnly ? chordIDsWithPendingReviewEdits : []
+                )
+            } else {
+                preparedOutcome = chordDraftRenderCoordinator.render(chart: chart, state: committedState)
+            }
         } else {
             let attempt = chordDraftRenderCoordinator.attemptReviewedAutomatically(chart: chart, state: committedState)
             automaticChordFeedback = attempt.feedback
@@ -5495,12 +5735,12 @@ struct EditorView: View {
                     ?? state.draftChords.compactMap { attempt.feedback.reasonsByDraftID[$0.id] }.first
                     ?? .placementUnavailable
                 let recovery = reason == .barlinePlacementUnavailable
-                    ? " " + barlineRecoveryMessage(for: state.draftBarlines)
+                    ? " " + barlineRecoveryMessage
                     : " Your ink is still on the page. Use Rewrite This Chord, or return to writing and move it with more room."
                 presentChordRenderError(reason.userMessage + recovery)
                 return false
             }
-            preparedOutcome = .init(chart: automaticOutcome.chart, result: automaticOutcome.result)
+            preparedOutcome = ChordInkDraftRenderCoordinator.explicitOutcome(automaticOutcome)
         }
         guard let outcome = preparedOutcome else {
             LeadSheetInkFeatureContract.recordRenderGuard(
@@ -5525,23 +5765,38 @@ struct EditorView: View {
                 ? "These repeat signs could not be placed. Check their measure boundaries and whether that repeat is already on the chart. Nothing was rendered or erased."
                 : renderResult.hasUnplacedPlainBarline(in: state)
                 ? ChordInkAutomaticRenderReason.barlinePlacementUnavailable.userMessage + " "
-                    + barlineRecoveryMessage(for: state.draftBarlines.filter { renderResult.unresolvedDraftIDs.contains($0.id) })
+                    + barlineRecoveryMessage
                 : "One or more reviewed chords could not be rendered. The draft ink is still available."
             presentChordRenderError(message)
             return false
         }
         guard renderResult.renderedChordCount > 0 || renderResult.renderedBarlineCount > 0 || renderResult.renderedEndingCount > 0 else {
-            presentChordRenderError("No draft notation was ready to render yet.")
+            presentChordRenderError(independentOnly
+                ? "No chord could render on its own. Use Review & Render to check the draft."
+                : "No draft notation was ready to render yet.")
             return false
         }
 
         chart = updatedChart
+        chordRenderStatus = nil
         selectedMeasureID = updatedChart.measures.last(where: { !$0.chordEvents.isEmpty })?.id ?? selectedMeasureID
         selectedNoteSelection = nil
         pendingChordInkConfirmation = nil
         pendingChordInkBatchConfirmation = nil
         pendingChordCorrection = nil
-        chordPreviewState.discard()
+        if let retained = outcome.retainedDraft {
+            chordPreviewState = retained.state
+            let chords = renderResult.renderedChordCount
+            let marks = renderResult.renderedBarlineCount + renderResult.renderedEndingCount
+            var rendered = [String]()
+            if chords > 0 { rendered.append(chords == 1 ? "1 chord" : "\(chords) chords") }
+            if marks > 0 { rendered.append(marks == 1 ? "1 mark" : "\(marks) marks") }
+            presentChordRenderError("Rendered " + rendered.joined(separator: " and ")
+                + ". Keep writing or review the remaining ink.")
+        } else {
+            chordPreviewState.discard()
+            chordReviewEditCache.removeAll()
+        }
         chordInkAutomaticRewriteFailures.reset()
         completeEditorGuidedTourStep(.writeChords)
         completeEditorGuidedTourStep(.renderChords)
@@ -5553,30 +5808,89 @@ struct EditorView: View {
                 "draft_count": .int(renderResult.renderedChordCount + renderResult.renderedBarlineCount + renderResult.renderedEndingCount),
                 "rendered_count": .int(renderResult.renderedChordCount),
                 "barline_count": .int(renderResult.renderedBarlineCount),
-                "unresolved_count": .int(renderResult.unresolvedDraftIDs.count),
+                "unresolved_count": .int(outcome.retainedDraft.map {
+                    $0.state.unresolvedChordCount + $0.state.unresolvedBarlineCount + $0.state.unresolvedEndingCount
+                } ?? renderResult.unresolvedDraftIDs.count),
                 "decision": .string(reviewResult),
                 "layout_style": .string(updatedChart.layoutStyle.rawValue)
             ].merging(ChordWritingWorkflowTelemetry.batchProperties(batchID: chordWritingBatchID)) { _, value in value }
                 .merging(workflowProperties) { _, value in value }
         )
-        chordWritingBatchID = UUID()
+        if outcome.retainedDraft == nil { chordWritingBatchID = UUID() }
         chordReviewStartedAt = nil
-        chordReviewEntriesByInk.removeAll()
         chordDraftRenderCoordinator.lastInputAt = nil
         chordDraftRenderCoordinator.renderSessionReadyAt = nil
         resetAutomaticChordFeedback()
         return true
     }
 
-    private func presentChordRenderError(_ message: String) {
-        // Present over the active review so the user can read the error and
-        // keep their current entries in place.
-        if pendingChordInkBatchConfirmation != nil {
-            chordBatchReviewError = message
-        } else {
-            chordInkErrorMessage = message
-            showingChordInkError = true
+    private func prepareCurrentManualChordPreview(for action: ManualChordRenderAction) -> Bool {
+        guard manualRenderWithPreview else { return true }
+        guard pendingManualChordRender == nil else { return false }
+        if chordDraftRenderCoordinator.prepareManualPreviewForReview() { return true }
+        guard let source = chordDraftRenderCoordinator.currentManualPreviewDrawing() else {
+            presentChordRenderError("The writing canvas is still getting ready.")
+            return false
         }
+        pendingManualChordRender = PendingManualChordRender(chartID: chart.id, source: source, action: action)
+        presentChordRenderError("Checking the latest ink…")
+        return false
+    }
+
+    private func resumePendingManualChordRender() {
+        guard let queued = pendingManualChordRender else { return }
+        guard manualRenderWithPreview, canvasMode == .chordEntry, queued.chartID == chart.id else {
+            pendingManualChordRender = nil
+            return
+        }
+        guard let current = chordDraftRenderCoordinator.currentManualPreviewDrawing() else { return }
+        pendingManualChordRender = nil
+        chordRenderStatus = nil
+        guard !queued.sourceChanged,
+              ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: queued.source, current: current)
+        else {
+            if case .review(let batch, _) = queued.action,
+               pendingChordInkBatchConfirmation?.id == batch.id {
+                refreshPresentedChordReview()
+            }
+            return
+        }
+        switch queued.action {
+        case .toolbar(let action):
+            guard !isPresentingEditorPanel else { return }
+            renderCurrentChordDrafts(action: action)
+        case .review(let batch, let entries):
+            guard pendingChordInkBatchConfirmation?.id == batch.id else { return }
+            finishChordInkBatchAccepted(entries, batch: batch)
+        }
+    }
+
+    private func cancelQueuedManualReviewIfEntriesChanged(
+        _ edits: [UUID: String], batch: PendingChordInkBatchConfirmation
+    ) {
+        guard case .review(let queuedBatch, let queuedEntries)? = pendingManualChordRender?.action,
+              queuedBatch.id == batch.id else { return }
+        let visibleEntries = Dictionary(uniqueKeysWithValues: batch.confirmations.map { confirmation in
+            (confirmation.id, edits[confirmation.id] ?? confirmation.bestCandidateText ?? "")
+        })
+        guard ChordInkDraftReviewPolicy.submissionTexts(for: batch, candidateTextByDraftID: visibleEntries)
+            != queuedEntries else { return }
+        pendingManualChordRender = nil
+        chordRenderStatus = nil
+    }
+
+    private func refreshPresentedChordReview() {
+        if let currentBatch = ChordInkDraftReviewPolicy.batch(for: chordPreviewState) {
+            pendingChordInkBatchConfirmation = currentBatch
+            presentChordRenderError("The preview updated. Check the current rows, then tap Render All.")
+        } else {
+            presentChordRenderError("The preview has no chord rows yet. Your ink stays on the page.")
+        }
+    }
+
+    private func presentChordRenderError(_ message: String) {
+        chordRenderStatusSourceData = chart.pageHandwrittenChordData
+        chordRenderStatus = message
     }
 
     private var isChordDraftRepeatConfirmationPresented: Binding<Bool> {
@@ -5592,8 +5906,7 @@ struct EditorView: View {
             for: request, chart: chart, currentState: chordPreviewState
         ) else {
             LeadSheetInkFeatureContract.recordRenderGuard(chart: chart, reason: "render_repeat_review_required")
-            chordInkErrorMessage = "The repeat preview or source ink changed during review. Tap Render again to review the current signs. Your ink has not been erased."
-            showingChordInkError = true
+            presentChordRenderError("The repeat preview or source ink changed during review. Tap Render again to review the current signs. Your ink has not been erased.")
             return
         }
         chordPreviewState = confirmed
@@ -5622,6 +5935,8 @@ struct EditorView: View {
     }
 
     private func handleDiscardChordDrafts() {
+        pendingManualChordRender = nil
+        chordRenderStatus = nil
         cancelAutomaticChordRendering()
         guard hasPendingChordDraftInk else {
             return
@@ -5651,7 +5966,7 @@ struct EditorView: View {
         )
         chordWritingBatchID = UUID()
         chordReviewStartedAt = nil
-        chordReviewEntriesByInk.removeAll()
+        chordReviewEditCache.removeAll()
         chordDraftRenderCoordinator.lastInputAt = nil
         chordDraftRenderCoordinator.renderSessionReadyAt = nil
         resetAutomaticChordFeedback()
@@ -5832,6 +6147,15 @@ struct EditorView: View {
             result[element.key] = element.value.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
+        if batch.source == .draftPreview,
+           !prepareCurrentManualChordPreview(for: .review(batch, trimmedCandidateTextByID)) { return }
+        chordRenderStatus = nil
+        finishChordInkBatchAccepted(trimmedCandidateTextByID, batch: batch)
+    }
+
+    private func finishChordInkBatchAccepted(
+        _ trimmedCandidateTextByID: [UUID: String], batch: PendingChordInkBatchConfirmation
+    ) {
         let didCommit: Bool
         switch batch.source {
         case .recognitionProposal:
@@ -5852,7 +6176,8 @@ struct EditorView: View {
         }
 
         var didUpdateMemory = false
-        for confirmation in batch.confirmations {
+        let retainedDraftIDs = Set(chordPreviewState.draftChords.map(\.id))
+        for confirmation in batch.confirmations where !retainedDraftIDs.contains(confirmation.id) {
             guard let acceptedText = trimmedCandidateTextByID[confirmation.id] else {
                 continue
             }
@@ -5895,8 +6220,12 @@ struct EditorView: View {
             reviewedState = state
         case .failure(let reason):
             recordChordReviewRejection(reason, batch: batch, entryTexts: candidateTextByID)
-            presentChordRenderError(reason.recoveryMessage
-                + " Nothing was rendered or erased. Diagnostic: \(reason.rawValue).")
+            if manualRenderWithPreview,
+               [.draftCountChanged, .draftsChanged, .barlinesChanged, .endingsChanged, .layoutChanged].contains(reason) {
+                refreshPresentedChordReview()
+            } else {
+                presentChordRenderError(reason.recoveryMessage + " Nothing was rendered or erased.")
+            }
             return false
         }
 
@@ -6058,8 +6387,7 @@ struct EditorView: View {
         let commitStartedAt = Date()
         #endif
         guard let match = ChordRecognitionCompendium.match(candidateText) else {
-            chordInkErrorMessage = "That chord candidate is not supported yet. Try another candidate or edit the text."
-            showingChordInkError = true
+            presentChordRenderError("That chord candidate is not supported yet. Try another candidate or edit the text.")
             IChartTelemetry.record(
                 "chord.recognition_failed",
                 properties: Self.chordTelemetryProperties(
@@ -6082,8 +6410,7 @@ struct EditorView: View {
                 from: confirmation.candidateTexts
             )
         ) else {
-            chordInkErrorMessage = "That measure is no longer available. Keep the ink and try again."
-            showingChordInkError = true
+            presentChordRenderError("That measure is no longer available. Keep the ink and try again.")
             IChartTelemetry.record(
                 "chord.recognition_failed",
                 properties: Self.chordTelemetryProperties(
@@ -6295,14 +6622,12 @@ struct EditorView: View {
         let shouldReturnToBrowse = canvasMode == .browse
         let trimmedCandidateText = candidateText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let match = ChordRecognitionCompendium.match(trimmedCandidateText) else {
-            chordInkErrorMessage = "That chord candidate is not supported yet. Try another candidate or edit the text."
-            showingChordInkError = true
+            presentChordRenderError("That chord candidate is not supported yet. Try another candidate or edit the text.")
             return
         }
 
         guard let originalChordEvent = chart.chordEvent(id: correction.chordEventID) else {
-            chordInkErrorMessage = "That chord is no longer available. Try writing it again."
-            showingChordInkError = true
+            presentChordRenderError("That chord is no longer available. Try writing it again.")
             return
         }
 
@@ -6312,8 +6637,7 @@ struct EditorView: View {
             with: match.symbol,
             rawInput: trimmedCandidateText
         ) else {
-            chordInkErrorMessage = "That chord is no longer available. Try writing it again."
-            showingChordInkError = true
+            presentChordRenderError("That chord is no longer available. Try writing it again.")
             return
         }
 
@@ -6586,8 +6910,7 @@ struct EditorView: View {
 
     private func handlePersonalLearningError(_ error: String?) {
         if let error {
-            chordInkErrorMessage = "The chord was saved, but its handwriting example was not: \(error)"
-            showingChordInkError = true
+            presentChordRenderError("The chord was saved, but its handwriting example was not: \(error)")
         }
     }
 
@@ -6655,6 +6978,8 @@ struct EditorView: View {
     }
 
     private func handleBackToChordInk() {
+        pendingManualChordRender = nil
+        chordRenderStatus = nil
         pendingChordInkConfirmation = nil
         pendingChordInkBatchConfirmation = nil
         chordReviewStartedAt = nil
@@ -6663,10 +6988,13 @@ struct EditorView: View {
     }
 
     private func handleChordBatchReviewDismissed() {
-        chordBatchReviewError = nil
+        guard canvasMode == .chordEntry, pendingChordInkBatchConfirmation == nil else { return }
         automaticReviewFocusedDraftID = nil
-        guard !manualRenderWithPreview, canvasMode == .chordEntry,
-              pendingChordInkBatchConfirmation == nil, hasAutomaticSourceInk else { return }
+        if manualRenderWithPreview {
+            _ = chordDraftRenderCoordinator.prepareManualPreviewForReview()
+            return
+        }
+        guard hasAutomaticSourceInk else { return }
         // A completed reader may have updated its current census while the
         // review panel held the visible snapshot. Replay only that verified
         // state; dismissing review never starts a reader or arms a render.
@@ -6691,7 +7019,7 @@ struct EditorView: View {
         }
         chart = outcome.chart
         handleBackToChordInk()
-        chordReviewEntriesByInk.removeValue(forKey: draft.drawingData)
+        chordReviewEditCache.removeEdit(for: confirmation, chartID: chart.id)
         chordPreviewState.discard()
         resetAutomaticChordFeedback()
         IChartTelemetry.record("chord.preview_rewritten", properties:
@@ -6709,7 +7037,7 @@ struct EditorView: View {
         canvasMode = .chordEntry
         chordWritingBatchID = UUID()
         chordReviewStartedAt = nil
-        chordReviewEntriesByInk.removeAll()
+        chordReviewEditCache.removeAll()
         chordDraftRenderCoordinator.lastInputAt = nil
         chordDraftRenderCoordinator.renderSessionReadyAt = nil
         resetAutomaticChordFeedback()

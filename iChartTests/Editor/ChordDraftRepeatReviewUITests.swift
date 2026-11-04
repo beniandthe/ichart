@@ -16,13 +16,14 @@ final class ChordDraftRepeatReviewUITests: XCTestCase {
         XCTAssertTrue(confirmed.draftBarlines[0].repeatFromBeginningConfirmed)
         XCTAssertFalse(confirmed.draftBarlines[1].repeatFromBeginningConfirmed)
         XCTAssertEqual(confirmed.draftBarlines.map(\.id), state.draftBarlines.map(\.id))
-        XCTAssertEqual(ChordInkRepeatSignPairingPolicy.review(state: confirmed).unconfirmedEndIDs, [second.id])
+        XCTAssertTrue(ChordInkRepeatSignPairingPolicy.review(state: state).canRender)
+        XCTAssertTrue(ChordInkRepeatSignPairingPolicy.review(state: confirmed).canRender)
         XCTAssertEqual(ChordDraftRepeatReviewPolicy.confirmation(for: chart, state: confirmed)?.draftID, second.id)
         XCTAssertFalse(state.draftBarlines[0].repeatFromBeginningConfirmed)
         XCTAssertEqual(chart.pageHandwrittenChordData, request.sourceDrawingData)
     }
 
-    func testDecliningReviewLeavesCurrentInkAndDraftsUnchangedAndUnrenderable() throws {
+    func testDecliningOptionalReviewLeavesInkAndConventionalRepeatAvailable() throws {
         let chart = chartWithInk()
         let state = preview([sign(in: chart)])
         let originalChart = chart
@@ -32,7 +33,7 @@ final class ChordDraftRepeatReviewUITests: XCTestCase {
         XCTAssertEqual(request.state, originalState)
         XCTAssertEqual(chart, originalChart)
         XCTAssertEqual(state, originalState)
-        XCTAssertFalse(ChordInkRepeatSignPairingPolicy.review(state: state).canRender)
+        XCTAssertTrue(ChordInkRepeatSignPairingPolicy.review(state: state).canRender)
         XCTAssertNotNil(chart.pageHandwrittenChordData)
         XCTAssertEqual(try PKDrawing(data: XCTUnwrap(chart.pageHandwrittenChordData)).strokes.count, 2)
     }

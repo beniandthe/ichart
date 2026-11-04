@@ -69,6 +69,76 @@ final class ChordInkDraftSourceCoverageTests: XCTestCase {
         XCTAssertFalse(ChordInkDraftSourceCoveragePolicy.hasCompleteCoverage(chart: chart, state: missing))
     }
 
+    func testPartialCoverageAllowsUnclaimedInkWithoutAuthorizingWholeSourceClearing() throws {
+        for style in styles {
+            var chart = makeChart(style)
+            _ = chart.setPageHandwrittenChordDrawing(PKDrawing(strokes: [stroke(10), stroke(170)]).dataRepresentation())
+            let original = chart
+            let source = try PKDrawing(data: XCTUnwrap(chart.pageHandwrittenChordData))
+            let represented = makeState(chart, drawings: [PKDrawing(strokes: [source.strokes[0]])])
+
+            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasValidRepresentedCoverage(chart: chart, state: represented))
+            XCTAssertFalse(ChordInkDraftSourceCoveragePolicy.hasCompleteCoverage(chart: chart, state: represented))
+            let result = chart.commitChordInkDraftBatch(represented)
+            XCTAssertTrue(result.didRejectIncompleteSourceCoverage)
+            XCTAssertEqual(chart, original, "Only the explicit partial transaction may retain and partition the extra ink")
+        }
+    }
+
+    func testPartialCoverageRejectsChangedSourceDuplicateAndExtraneousRepresentedClaims() throws {
+        var chart = makeChart(.rhythmSectionSheet)
+        _ = chart.setPageHandwrittenChordDrawing(PKDrawing(strokes: [stroke(10), stroke(170)]).dataRepresentation())
+        let source = try PKDrawing(data: XCTUnwrap(chart.pageHandwrittenChordData))
+        let drawing = PKDrawing(strokes: [source.strokes[0]])
+        let represented = makeState(chart, drawings: [drawing])
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasValidRepresentedCoverage(chart: chart, state: represented))
+        XCTAssertFalse(ChordInkDraftSourceCoveragePolicy.hasValidRepresentedCoverage(chart: chart,
+            state: makeState(chart, drawings: [drawing, drawing])))
+        XCTAssertFalse(ChordInkDraftSourceCoveragePolicy.hasValidRepresentedCoverage(chart: chart,
+            state: makeState(chart, drawings: [PKDrawing(strokes: [stroke(50)])])))
+        _ = chart.setPageHandwrittenChordDrawing(PKDrawing(strokes: [stroke(10.25), source.strokes[1]]).dataRepresentation())
+        XCTAssertFalse(ChordInkDraftSourceCoveragePolicy.hasValidRepresentedCoverage(chart: chart, state: represented))
+        _ = chart.setPageHandwrittenChordDrawing(nil)
+        XCTAssertFalse(ChordInkDraftSourceCoveragePolicy.hasValidRepresentedCoverage(chart: chart, state: represented))
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasCompleteCoverage(chart: chart, state: represented),
+            "The existing full-coverage nil-source contract is preserved")
+    }
+
+    func testPartialBarlineCoverageRetainsFreshDetectionAndUniqueSourceRequirements() throws {
+        for style in styles {
+            var chart = makeChart(style)
+            let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize,
+                includesChordInkContinuationLanes: true)
+            let region = LeadSheetActiveInkScope.chordWritingRegion(for: layout)
+            let lane = try XCTUnwrap(region.inputFrames.first)
+            let x = lane.midX - region.frame.minX
+            let y = lane.midY - region.frame.minY
+            let line = stroke(points: [CGPoint(x: x, y: y - lane.height * 0.4),
+                CGPoint(x: x, y: y + lane.height * 0.4)])
+            let unrelated = stroke(points: [CGPoint(x: x + 95, y: y - 5),
+                CGPoint(x: x + 110, y: y + 5)])
+            _ = chart.setPageHandwrittenChordDrawing(PKDrawing(strokes: [line, unrelated]).dataRepresentation())
+            let state = try barlineState(chart)
+            XCTAssertEqual(state.draftBarlines.count, 1)
+            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasValidRepresentedCoverage(chart: chart, state: state))
+            XCTAssertFalse(ChordInkDraftSourceCoveragePolicy.hasCompleteCoverage(chart: chart, state: state))
+            var invalid = state
+            invalid.draftBarlines[0].metrics.height += 1
+            XCTAssertFalse(ChordInkDraftSourceCoveragePolicy.hasValidRepresentedCoverage(chart: chart, state: invalid))
+            invalid = state
+            invalid.draftBarlines.append(state.draftBarlines[0])
+            XCTAssertFalse(ChordInkDraftSourceCoveragePolicy.hasValidRepresentedCoverage(chart: chart, state: invalid))
+            invalid = state
+            invalid.draftBarlines[0].sourceStrokeIndex = 1
+            XCTAssertFalse(ChordInkDraftSourceCoveragePolicy.hasValidRepresentedCoverage(chart: chart, state: invalid))
+            invalid = state
+            invalid.draftBarlines[0].ambiguity = .tooClose
+            XCTAssertFalse(ChordInkDraftSourceCoveragePolicy.hasValidRepresentedCoverage(chart: chart, state: invalid),
+                "Unresolved metadata must agree with the fresh detector before its source ownership is accepted")
+            XCTAssertFalse(ChordInkDraftSourceCoveragePolicy.hasCompleteCoverage(chart: chart, state: invalid))
+        }
+    }
+
     func testExactMultisetCountsIdenticalSourceStrokes() throws {
         var chart = makeChart(.simpleChordSheet)
         let repeated = stroke(10)

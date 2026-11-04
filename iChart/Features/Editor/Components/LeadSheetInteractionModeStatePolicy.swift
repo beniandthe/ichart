@@ -165,6 +165,28 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
         }
     }
 
+    /// Older Rhythm drafts stored local coordinates in the smaller lane
+    /// below an already-rendered ending. Recognize only that exact saved size
+    /// and translate into the stable lane without stretching the handwriting.
+    static func migratingLegacyChordScopeDrawing(
+        from drawingData: Data?, sourceCoordinateSpace: PersistentInkCoordinateSpace?,
+        activeInkScope: LeadSheetActiveInkScope, pageLayout: LeadSheetPageLayout?
+    ) -> PKDrawing? {
+        guard case .chords(let frame, _) = activeInkScope,
+              let pageLayout, pageLayout.systems.first?.layoutStyle == .rhythmSectionSheet,
+              let sourceCoordinateSpace,
+              sourceCoordinateSpace.measureAnchors?.isEmpty != false,
+              sourceCoordinateSpace.chordAnchors?.isEmpty != false,
+              let drawingData, let drawing = try? PKDrawing(data: drawingData), !drawing.strokes.isEmpty else { return nil }
+        let legacy = LeadSheetActiveInkScope.legacyChordWritingRegion(for: pageLayout).frame
+        let current = LeadSheetActiveInkScope.chordWritingRegion(for: pageLayout).frame
+        guard frame == current, legacy != current,
+              sourceCoordinateSpace.size == legacy.size,
+              sourceCoordinateSpace.size != current.size else { return nil }
+        return drawing.transformed(using: CGAffineTransform(
+            translationX: legacy.minX - current.minX, y: legacy.minY - current.minY))
+    }
+
     static func measureAnchors(
         in pageLayout: LeadSheetPageLayout,
         relativeTo frame: CGRect

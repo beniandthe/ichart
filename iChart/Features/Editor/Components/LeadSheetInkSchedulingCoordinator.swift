@@ -9,6 +9,8 @@ struct LeadSheetInkSchedulingCoordinator {
     private var inputCoalescingWorkItem: DispatchWorkItem?
     private var persistenceWorkItem: DispatchWorkItem?
 
+    var hasScheduledWork: Bool { inputCoalescingWorkItem != nil || persistenceWorkItem != nil }
+
     mutating func scheduleInputCoalescing(_ workItem: DispatchWorkItem, after delay: TimeInterval) {
         cancelInputCoalescing()
         inputCoalescingWorkItem = workItem

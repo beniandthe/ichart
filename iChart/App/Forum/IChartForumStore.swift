@@ -4,9 +4,17 @@ import Foundation
 import PDFKit
 import Supabase
 
-private enum IChartForumPDFMetadata {
+enum IChartForumPDFMetadata {
     static func pageCount(in data: Data) -> Int {
         max(PDFDocument(data: data)?.pageCount ?? 1, 1)
+    }
+
+    static func downloadedPDF(data: Data, url: URL, post: ForumChartPost, downloadedAt: Date = Date()) -> ExportedPDF {
+        let snapshot = ForumPDFInstrumentSnapshot.validated(in: data, postID: post.id, layoutStyle: post.layoutStyle)
+        return ExportedPDF(url: url, chartTitle: post.chartTitle, layoutStyle: post.layoutStyle,
+            transpositionView: snapshot?.transpositionView,
+            chordTranspositionSemitones: snapshot?.chordTranspositionSemitones,
+            pageCount: pageCount(in: data), fileSizeBytes: data.count, exportedAt: downloadedAt)
     }
 }
 
@@ -27,9 +35,10 @@ struct IChartForumPostDetail: Equatable {
 
     let song: ForumSong
     let post: ForumChartPost
-    let comments: [ForumComment]
+    var comments: [ForumComment]
     let authorBadges: [ForumAuthorBadge]
     let currentUserVote: ForumVoteValue?
+    var earlierCommentCursor: ForumCommentCursor? = nil
 }
 
 enum IChartForumState: Equatable {
@@ -59,6 +68,8 @@ final class IChartForumStore: ObservableObject {
     @Published private(set) var downloadedPDF: ExportedPDF?
     @Published private(set) var isQASampleDataEnabled: Bool
     @Published private(set) var uploadQueue: [ForumUploadQueueItem]
+    @Published private(set) var currentUserBadges: [ForumAuthorBadgeType]?
+    @Published private(set) var isLoadingEarlierComments = false
 
     private let service: IChartForumServicing
     private let defaults: UserDefaults
@@ -66,6 +77,9 @@ final class IChartForumStore: ObservableObject {
     private let qaSampleService = IChartForumQASampleService()
     #endif
     private var lastQuery = ""
+    private var homeRequestID = UUID()
+    private var detailSessionID = UUID()
+    private var earlierCommentsRequestID: UUID?
     private var activeUploadIDs: Set<ForumUploadQueueItem.ID> = []
     private var uploadTasks: [ForumUploadQueueItem.ID: Task<Void, Never>] = [:]
     private var uploadCleanupIDs: Set<ForumUploadQueueItem.ID> = []
@@ -117,6 +131,7 @@ final class IChartForumStore: ObservableObject {
         defaults.set(isEnabled, forKey: Self.qaSampleDataStorageKey)
         selectedDetail = nil
         downloadedPDF = nil
+        currentUserBadges = nil
         statusMessage = isEnabled ? "Sample forum charts loaded." : nil
         errorMessage = nil
         #else
@@ -129,15 +144,21 @@ final class IChartForumStore: ObservableObject {
         entitlements: AppEntitlements,
         query: String? = nil
     ) async {
+        let requestID = UUID()
+        homeRequestID = requestID
         guard let signedInSession = authState.signedInSession else {
             state = .signedOut
             selectedDetail = nil
+            currentUserBadges = nil
+            isWorking = false
             return
         }
 
         guard entitlements.includes(.forums) else {
             state = .requiresPro
             selectedDetail = nil
+            currentUserBadges = nil
+            isWorking = false
             return
         }
 
@@ -151,19 +172,37 @@ final class IChartForumStore: ObservableObject {
         guard requestService.isConfigured else {
             state = .unconfigured
             selectedDetail = nil
+            currentUserBadges = nil
+            isWorking = false
             return
         }
 
         let nextQuery = query ?? lastQuery
         lastQuery = nextQuery
         state = .loading
-        await run {
+        currentUserBadges = nil
+        isWorking = true
+        statusMessage = nil
+        errorMessage = nil
+        defer { if homeRequestID == requestID { isWorking = false } }
+        do {
             let summaries = try await requestService.loadHome(query: nextQuery)
+            let badges = try? await requestService.loadCurrentUserBadges()
+            guard homeRequestID == requestID else { return }
+            currentUserBadges = badges
             state = .loaded(summaries)
+        } catch {
+            guard homeRequestID == requestID else { return }
+            let text = Self.displayText(for: error)
+            errorMessage = text
+            state = .failed(text)
         }
     }
 
     func openPost(_ post: ForumChartPost, song: ForumSong) async {
+        detailSessionID = UUID()
+        earlierCommentsRequestID = nil
+        isLoadingEarlierComments = false
         selectedDetail = nil
         await run {
             try await refreshSelectedDetail(postID: post.id, song: song)
@@ -398,12 +437,40 @@ final class IChartForumStore: ObservableObject {
             try await activeService.addComment(postID: detail.post.id, body: submittedBody)
             posted = true
             guard selectedDetail?.post.id == detail.post.id else { return }
-            try await refreshSelectedDetail(postID: detail.post.id, song: detail.song, onlyIfSelected: true)
+            try await refreshSelectedDetail(postID: detail.post.id, song: detail.song, onlyIfSelected: true,
+                preservingCommentHistory: true)
         }
         if posted, errorMessage != nil, selectedDetail?.post.id == detail.post.id {
             errorMessage = "Comment posted, but the discussion couldn’t refresh. Reopen it to load the latest comments."
         }
         return posted
+    }
+
+    func loadEarlierComments() async {
+        guard !isWorking, !isLoadingEarlierComments,
+              let detail = selectedDetail, let cursor = detail.earlierCommentCursor else { return }
+        let sessionID = detailSessionID
+        let requestID = UUID()
+        earlierCommentsRequestID = requestID
+        isLoadingEarlierComments = true
+        errorMessage = nil
+        defer {
+            if earlierCommentsRequestID == requestID {
+                earlierCommentsRequestID = nil
+                isLoadingEarlierComments = false
+            }
+        }
+        do {
+            let page = try await activeService.loadEarlierComments(postID: detail.post.id, before: cursor)
+            guard detailSessionID == sessionID, var current = selectedDetail,
+                  current.post.id == detail.post.id, current.earlierCommentCursor == cursor else { return }
+            current.comments = ForumCommentPage.merging(current.comments, with: page.comments)
+            current.earlierCommentCursor = page.earlierCursor
+            selectedDetail = current
+        } catch {
+            guard detailSessionID == sessionID, selectedDetail?.post.id == detail.post.id else { return }
+            errorMessage = "Couldn’t load earlier comments. Tap Load Earlier Comments to try again."
+        }
     }
 
     func reportPost(_ reason: ForumReportReason, detailText: String?, detail: IChartForumPostDetail) async {
@@ -473,6 +540,9 @@ final class IChartForumStore: ObservableObject {
     }
 
     func clearSelectedDetail() {
+        detailSessionID = UUID()
+        earlierCommentsRequestID = nil
+        isLoadingEarlierComments = false
         selectedDetail = nil
     }
 
@@ -620,13 +690,19 @@ final class IChartForumStore: ObservableObject {
         isWorking = false
     }
 
-    private func refreshSelectedDetail(postID: UUID, song: ForumSong, onlyIfSelected: Bool = false) async throws {
+    private func refreshSelectedDetail(postID: UUID, song: ForumSong, onlyIfSelected: Bool = false,
+        preservingCommentHistory: Bool = false) async throws {
+        let sessionID = detailSessionID
         do {
-            let detail = try await activeService.loadPostDetail(postID: postID, song: song)
-            guard !onlyIfSelected || selectedDetail?.post.id == postID else { return }
+            var detail = try await activeService.loadPostDetail(postID: postID, song: song)
+            guard detailSessionID == sessionID, !onlyIfSelected || selectedDetail?.post.id == postID else { return }
+            if preservingCommentHistory, let previous = selectedDetail, previous.post.id == postID {
+                detail.comments = ForumCommentPage.merging(previous.comments, with: detail.comments)
+                detail.earlierCommentCursor = previous.earlierCommentCursor
+            }
             selectedDetail = detail
         } catch IChartForumServiceError.missingForumPost {
-            guard !onlyIfSelected || selectedDetail?.post.id == postID else { return }
+            guard detailSessionID == sessionID, !onlyIfSelected || selectedDetail?.post.id == postID else { return }
             selectedDetail = nil
             downloadedPDF = nil
             if let summaries = try? await activeService.loadHome(query: lastQuery) {
@@ -682,6 +758,8 @@ protocol IChartForumServicing: Sendable {
     var isConfigured: Bool { get }
     func loadHome(query: String) async throws -> [IChartForumSongSummary]
     func loadPostDetail(postID: UUID, song: ForumSong) async throws -> IChartForumPostDetail
+    func loadEarlierComments(postID: UUID, before cursor: ForumCommentCursor) async throws -> ForumCommentPage
+    func loadCurrentUserBadges() async throws -> [ForumAuthorBadgeType]
     func publish(
         chart: Chart,
         draft: ForumPublishDraft,
@@ -698,6 +776,14 @@ protocol IChartForumServicing: Sendable {
     func reportComment(commentID: UUID, reason: ForumReportReason, detail: String?) async throws
     func blockUser(ownerID: UUID) async throws
     func downloadPDF(for post: ForumChartPost) async throws -> ExportedPDF
+}
+
+extension IChartForumServicing {
+    func loadEarlierComments(postID: UUID, before cursor: ForumCommentCursor) async throws -> ForumCommentPage {
+        ForumCommentPage(descendingComments: [])
+    }
+
+    func loadCurrentUserBadges() async throws -> [ForumAuthorBadgeType] { [] }
 }
 
 private struct IChartUnconfiguredForumService: IChartForumServicing {
@@ -752,6 +838,7 @@ private actor IChartForumQASampleService: IChartForumServicing {
     private var currentUserID = UUID(uuidString: "90000000-0000-0000-0000-000000000001")!
     private var submittedSongs: [ForumSong] = []
     private var submittedPosts: [UUID: ForumChartPost] = [:]
+    private var submittedInstrumentSnapshots: [UUID: ForumPDFInstrumentSnapshot] = [:]
     private var addedCommentsByPostID: [UUID: [ForumComment]] = [:]
     private var voteOverridesByPostID: [UUID: ForumVoteValue] = [:]
     private var reportAdjustmentsByPostID: [UUID: Int] = [:]
@@ -811,13 +898,32 @@ private actor IChartForumQASampleService: IChartForumServicing {
         }
 
         let resolvedSong = allSongs().first(where: { $0.id == post.songID }) ?? song
+        let page = commentPage(postID: postID)
         return IChartForumPostDetail(
             song: resolvedSong,
             post: post,
-            comments: comments(for: postID).filter { !blockedOwnerIDs.contains($0.ownerID) },
+            comments: page.comments,
             authorBadges: badges(for: post.ownerID),
-            currentUserVote: voteOverridesByPostID[postID]
+            currentUserVote: voteOverridesByPostID[postID], earlierCommentCursor: page.earlierCursor
         )
+    }
+
+    func loadEarlierComments(postID: UUID, before cursor: ForumCommentCursor) async throws -> ForumCommentPage {
+        guard allPosts().contains(where: { $0.id == postID && !blockedOwnerIDs.contains($0.ownerID) }) else {
+            throw IChartForumServiceError.missingForumPost
+        }
+        return commentPage(postID: postID, before: cursor)
+    }
+
+    func loadCurrentUserBadges() async throws -> [ForumAuthorBadgeType] {
+        badges(for: currentUserID).map(\.badgeType)
+    }
+
+    private func commentPage(postID: UUID, before cursor: ForumCommentCursor? = nil) -> ForumCommentPage {
+        let visible = comments(for: postID).filter {
+            !blockedOwnerIDs.contains($0.ownerID) && (cursor?.includesEarlier($0) ?? true)
+        }.sorted { $0.createdAt == $1.createdAt ? $0.id.uuidString > $1.id.uuidString : $0.createdAt > $1.createdAt }
+        return ForumCommentPage(descendingComments: visible, limit: IChartForumPostDetail.recentCommentLimit)
     }
 
     func publish(
@@ -870,6 +976,7 @@ private actor IChartForumQASampleService: IChartForumServicing {
             publishedAt: Date()
         )
         submittedPosts[post.id] = post
+        submittedInstrumentSnapshots[post.id] = ForumPDFInstrumentSnapshot(chart: chart, forumPostID: post.id)
     }
 
     func withdrawPost(postID: UUID) async throws {
@@ -956,19 +1063,11 @@ private actor IChartForumQASampleService: IChartForumServicing {
         let url = directory.appendingPathComponent(
             "\(PDFChartExporter.sanitizedFileNameStem(from: post.chartTitle)) - Forum Sample.pdf"
         )
-        let data = Self.samplePDFData(title: post.chartTitle, creator: post.creatorDisplayName)
+        let data = Self.samplePDFData(title: post.chartTitle, creator: post.creatorDisplayName,
+            subject: submittedInstrumentSnapshots[post.id]?.subjectText)
         try data.write(to: url, options: .atomic)
 
-        return ExportedPDF(
-            url: url,
-            chartTitle: post.chartTitle,
-            layoutStyle: post.layoutStyle,
-            transpositionView: .concert,
-            chordTranspositionSemitones: 0,
-            pageCount: IChartForumPDFMetadata.pageCount(in: data),
-            fileSizeBytes: data.count,
-            exportedAt: Date()
-        )
+        return IChartForumPDFMetadata.downloadedPDF(data: data, url: url, post: post)
     }
 
     private func resolvedSong(for draft: ForumPublishDraft) -> ForumSong {
@@ -1424,15 +1523,16 @@ private actor IChartForumQASampleService: IChartForumServicing {
         return searchable.contains(query)
     }
 
-    private static func samplePDFData(title: String, creator: String) -> Data {
+    private static func samplePDFData(title: String, creator: String, subject: String? = nil) -> Data {
         let stream = "BT /F1 18 Tf 36 156 Td (\(escapedPDFText(title))) Tj 0 -28 Td /F1 12 Tf (iChart Forum Sample - \(escapedPDFText(creator))) Tj ET"
-        let objects = [
+        var objects = [
             "<< /Type /Catalog /Pages 2 0 R >>",
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 420 240] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
             "<< /Length \(stream.utf8.count) >>\nstream\n\(stream)\nendstream",
             "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
         ]
+        if let subject { objects.append("<< /Subject (\(escapedPDFText(subject))) >>") }
         var pdf = "%PDF-1.4\n"
         var offsets: [Int] = []
         for (index, object) in objects.enumerated() {
@@ -1444,7 +1544,8 @@ private actor IChartForumQASampleService: IChartForumServicing {
         for offset in offsets {
             pdf += String(format: "%010d 00000 n \n", offset)
         }
-        pdf += "trailer\n<< /Size \(objects.count + 1) /Root 1 0 R >>\nstartxref\n\(xrefOffset)\n%%EOF\n"
+        let info = subject == nil ? "" : " /Info 6 0 R"
+        pdf += "trailer\n<< /Size \(objects.count + 1) /Root 1 0 R\(info) >>\nstartxref\n\(xrefOffset)\n%%EOF\n"
         return Data(pdf.utf8)
     }
 
@@ -1620,15 +1721,7 @@ private actor IChartSupabaseForumService: IChartForumServicing {
             throw IChartForumServiceError.missingForumPost
         }
 
-        let comments: [ForumCommentRow] = try await client
-            .from("forum_comments")
-            .select()
-            .eq("post_id", value: postID)
-            .order("created_at", ascending: false)
-            .order("id", ascending: false)
-            .limit(IChartForumPostDetail.recentCommentLimit)
-            .execute()
-            .value
+        let commentPage = try await loadCommentPage(postID: postID)
         let badges = try await loadAuthorBadges(ownerIDs: [post.ownerID])
         let votes: [ForumVoteRow] = try await client
             .from("forum_votes")
@@ -1642,10 +1735,32 @@ private actor IChartSupabaseForumService: IChartForumServicing {
         return IChartForumPostDetail(
             song: song,
             post: post,
-            comments: comments.reversed().map(\.forumComment),
+            comments: commentPage.comments,
             authorBadges: badges,
-            currentUserVote: votes.first?.forumVoteValue
+            currentUserVote: votes.first?.forumVoteValue,
+            earlierCommentCursor: commentPage.earlierCursor
         )
+    }
+
+    func loadCurrentUserBadges() async throws -> [ForumAuthorBadgeType] {
+        let ownerID = try await currentUserIDForRequest()
+        return try await loadAuthorBadges(ownerIDs: [ownerID]).map(\.badgeType)
+    }
+
+    func loadEarlierComments(postID: UUID, before cursor: ForumCommentCursor) async throws -> ForumCommentPage {
+        _ = try await refreshedSessionForRequest()
+        return try await loadCommentPage(postID: postID, before: cursor)
+    }
+
+    private func loadCommentPage(postID: UUID, before cursor: ForumCommentCursor? = nil) async throws -> ForumCommentPage {
+        var query = client.from("forum_comments").select().eq("post_id", value: postID)
+        if let cursor { query = query.or(cursor.postgrestFilter) }
+        let rows: [ForumCommentRow] = try await query
+            .order("created_at", ascending: false)
+            .order("id", ascending: false)
+            .limit(IChartForumPostDetail.recentCommentLimit + 1)
+            .execute().value
+        return ForumCommentPage(descendingComments: rows.map(\.forumComment), limit: IChartForumPostDetail.recentCommentLimit)
     }
 
     private func loadAuthorBadges(ownerIDs: Set<UUID>) async throws -> [ForumAuthorBadge] {
@@ -1881,16 +1996,7 @@ private actor IChartSupabaseForumService: IChartForumServicing {
         )
         try data.write(to: outputURL, options: .atomic)
 
-        return ExportedPDF(
-            url: outputURL,
-            chartTitle: post.chartTitle,
-            layoutStyle: post.layoutStyle,
-            transpositionView: .concert,
-            chordTranspositionSemitones: 0,
-            pageCount: IChartForumPDFMetadata.pageCount(in: data),
-            fileSizeBytes: data.count,
-            exportedAt: Date()
-        )
+        return IChartForumPDFMetadata.downloadedPDF(data: data, url: outputURL, post: post)
     }
 
     @discardableResult
@@ -2059,15 +2165,18 @@ private extension String {
     }
 }
 
-private enum IChartForumDateParser {
+enum IChartForumDateParser {
     static func date(from value: String?) -> Date {
         guard let value,
-              let date = fractionalFormatter.date(from: value) ?? wholeSecondFormatter.date(from: value) else {
+              let date = (try? preciseFractionalStyle.parse(value))
+                ?? fractionalFormatter.date(from: value) ?? wholeSecondFormatter.date(from: value) else {
             return Date(timeIntervalSince1970: 0)
         }
 
         return date
     }
+
+    private static let preciseFractionalStyle = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
 
     private static let fractionalFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
@@ -2238,7 +2347,7 @@ private struct ForumCommentRow: Decodable {
             ownerID: ownerID,
             creatorDisplayName: creatorDisplayName,
             body: body,
-            createdAt: IChartForumDateParser.date(from: createdAt)
+            createdAt: IChartForumDateParser.date(from: createdAt), paginationTimestamp: createdAt
         )
     }
 

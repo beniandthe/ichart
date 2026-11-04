@@ -3157,6 +3157,26 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertNil(movedChord.mappedRhythmSlotIndex)
     }
 
+    func testRhythmSectionDownbeatChordKeepsItsPositionWhenRhythmIsAddedLater() throws {
+        var chart = Chart.blank(title: "Rhythm Chords", measureCount: 1, layoutStyle: .rhythmSectionSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        XCTAssertTrue(chart.appendRecognizedChord(try ChordSymbolParser.parse("C"),
+            rawInput: "C", to: measureID, atFraction: 0.8))
+
+        let rhythm: [RhythmValue] = [.eighthRest, .eighth, .quarter, .quarter, .quarter]
+        XCTAssertTrue(chart.setMeasureRhythmMap(rhythm, for: measureID))
+        XCTAssertTrue(chart.appendRecognizedChord(try ChordSymbolParser.parse("G"),
+            rawInput: "G", to: measureID, atFraction: 0.125))
+
+        let measure = try XCTUnwrap(chart.measure(id: measureID))
+        let placements = measure.renderedChordPlacements(defaultMeter: chart.defaultMeter)
+        XCTAssertEqual(placements.map(\.startPosition.displayText), ["1", "1&"])
+        XCTAssertEqual(placements.map(\.duration), [.eighth, .eighth])
+        XCTAssertEqual(measure.chordEvents.map(\.duration), [.eighth, .eighth])
+        XCTAssertEqual(placements.map(\.resolvedRhythmSlotIndex), [nil, 1])
+        XCTAssertEqual(measure.rhythmMap?.values, rhythm)
+    }
+
     func testSimpleChordSheetSecondChordAutomaticallyStartsAtBeatThree() throws {
         var chart = Chart.blank(title: "Simple Chords", measureCount: 1, layoutStyle: .simpleChordSheet)
         let measureID = try XCTUnwrap(chart.measures.first?.id)
@@ -3737,9 +3757,152 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(rightMeasure.manualLayoutWidth, 120)
         XCTAssertEqual(leftMeasure.chordEvents.map { $0.symbol.displayText }, ["C"])
         XCTAssertEqual(rightMeasure.chordEvents.map { $0.symbol.displayText }, ["G7"])
-        XCTAssertEqual(try XCTUnwrap(leftMeasure.chordEvents.first?.manualLaneFraction), 0.4, accuracy: 0.0001)
-        XCTAssertEqual(try XCTUnwrap(rightMeasure.chordEvents.first?.manualLaneFraction), 0.6, accuracy: 0.0001)
+        for measure in [leftMeasure, rightMeasure] {
+            let chord = try XCTUnwrap(measure.chordEvents.first)
+            XCTAssertEqual(chord.startPosition, BeatPosition(beat: 1, subdivision: 0, subdivisionsPerBeat: 1))
+            XCTAssertTrue(chord.anchorsToMeasureStart)
+            XCTAssertNil(chord.manualLaneFraction)
+            XCTAssertNil(chord.manualVisualLaneFraction)
+        }
     }
+
+    #if canImport(UIKit)
+    func testSplitCommittedRhythmMeasurePreservesChordReceiptsRangesAndPageInkOnReopen() throws {
+        var chart = Chart.blank(title: "Committed divider", measureCount: 2, layoutStyle: .rhythmSectionSheet)
+        let measureID = chart.measures[0].id
+        let laterID = chart.measures[1].id
+        let cID = try XCTUnwrap(chart.appendRecognizedChordEvent(try ChordSymbolParser.parse("C"),
+            rawInput: "C", to: measureID, atFraction: 0.2))
+        let gID = try XCTUnwrap(chart.appendRecognizedChordEvent(try ChordSymbolParser.parse("G7"),
+            rawInput: "G7", to: measureID, atFraction: 0.7))
+        chart.systems[0].measures[0].chordEvents[0].duration = .half
+        chart.systems[0].measures[0].chordEvents[0].tieOut = true
+        chart.systems[0].measures[0].chordEvents[1].hitStyle = .accent
+        chart.systems[0].measures[0].chordEvents[1].manualDisplayWidth = 53
+        let archivedInk = PKDrawing(strokes: [testStroke(color: UIColor(white: 0.06, alpha: 1))]).dataRepresentation()
+        chart.systems[0].measures[0].chordEvents[0].sourceInkData = archivedInk
+        chart.systems[0].measures[0].chordEvents[1].sourceInkData = archivedInk
+        chart.systems[0].measures[0].barlineAfter = .double
+        _ = chart.setMeasureManualLayoutWidth(320, for: measureID)
+        let repeatID = try XCTUnwrap(chart.addRepeatSpan(startMeasureID: measureID, endMeasureID: measureID))
+        let endingID = try XCTUnwrap(chart.addEndingSpan(.ending1,
+            startMeasureID: measureID, endMeasureID: measureID))
+        let originalChords = chart.measures[0].chordEvents
+        let anchor = try XCTUnwrap(PersistentInkMeasureAnchor(measureID: measureID,
+            frame: CGRect(x: 40, y: 80, width: 320, height: 100),
+            staffFrame: CGRect(x: 40, y: 120, width: 320, height: 40)))
+        chart.pageHandwrittenNotationCoordinateSpace = PersistentInkCoordinateSpace(width: 700, height: 1000,
+            measureAnchors: [anchor])
+        // These bytes are deliberately opaque to the structural operation.
+        // No split path may decode, normalize, or replace the page archive.
+        chart.pageHandwrittenNotationData = archivedInk
+
+        let rightID = try XCTUnwrap(chart.splitCommittedRhythmSectionMeasure(measureID, atFraction: 0.5,
+            visualChordFractions: [cID: 0.2, gID: 0.7]))
+        let reopened = try JSONDecoder().decode(Chart.self, from: JSONEncoder().encode(chart))
+        XCTAssertEqual(reopened.measures.map(\.id), [measureID, rightID, laterID])
+        XCTAssertEqual(reopened.measures.map(\.authoringState), [.committed, .committed, .committed])
+        XCTAssertEqual(reopened.measures[0].chordEvents.map(\.id), [cID])
+        XCTAssertEqual(reopened.measures[1].chordEvents.map(\.id), [gID])
+        XCTAssertEqual(reopened.measures[1].barlineAfter, .double)
+        XCTAssertEqual(reopened.measures[0].rhythmSectionSplitLayoutSource,
+            reopened.measures[1].rhythmSectionSplitLayoutSource)
+        XCTAssertEqual(reopened.measures[0].rhythmSectionSplitLayoutSource?.groupID, measureID)
+        for original in originalChords {
+            let preserved = try XCTUnwrap(reopened.measures.flatMap(\.chordEvents).first { $0.id == original.id })
+            XCTAssertEqual(preserved.symbol, original.symbol)
+            XCTAssertEqual(preserved.sourceInkData, original.sourceInkData)
+            XCTAssertEqual(preserved.rawInput, original.rawInput)
+            XCTAssertEqual(preserved.duration, original.duration)
+            XCTAssertEqual(preserved.tieOut, original.tieOut)
+            XCTAssertEqual(preserved.hitStyle, original.hitStyle)
+            XCTAssertEqual(preserved.manualDisplayWidth, original.manualDisplayWidth)
+        }
+        XCTAssertEqual(reopened.measures[1].chordEvents[0].startPosition.beat, 1)
+        XCTAssertEqual(reopened.roadmapObjects.first { $0.id == repeatID }?.endMeasureID, rightID)
+        XCTAssertEqual(reopened.roadmapObjects.first { $0.id == endingID }?.endMeasureID, rightID)
+        // The model split leaves the live archive untouched. Its stored source
+        // anchors partition the same authored rectangle for future reflow.
+        XCTAssertEqual(chart.pageHandwrittenNotationData, archivedInk)
+        XCTAssertEqual(reopened.pageHandwrittenNotationData, archivedInk)
+        let anchors = try XCTUnwrap(chart.pageHandwrittenNotationCoordinateSpace?.measureAnchors)
+        XCTAssertEqual(anchors.map(\.measureID), [measureID, rightID])
+        XCTAssertEqual(anchors[0].staffFrame?.rect.maxX, anchors[1].staffFrame?.rect.minX)
+        XCTAssertEqual(anchors[0].frame.rect.minX, anchor.frame.rect.minX)
+        XCTAssertEqual(anchors[1].frame.rect.maxX, anchor.frame.rect.maxX)
+    }
+    #endif
+
+    func testSplitCommittedRhythmMapAtExistingSlotPreservesNotesAndPadsSilence() throws {
+        var chart = Chart.blank(title: "Timed divider", measureCount: 1, layoutStyle: .rhythmSectionSheet)
+        let id = chart.measures[0].id
+        chart.systems[0].measures[0].rhythmMap = MeasureRhythmMap(values: [.quarter, .quarter, .quarter, .quarter])
+        let notes = (0..<4).map { LeadSheetPitchedNoteEvent(rhythmSlotIndex: $0,
+            staffPosition: LeadSheetStaffPosition(staffStep: $0)) }
+        chart.systems[0].measures[0].pitchedNoteEvents = notes
+        let rightID = try XCTUnwrap(chart.splitCommittedRhythmSectionMeasure(id, atFraction: 0.5))
+        let left = try XCTUnwrap(chart.measure(id: id))
+        let right = try XCTUnwrap(chart.measure(id: rightID))
+        XCTAssertEqual(left.rhythmMap?.values, [.quarter, .quarter, .halfRest])
+        XCTAssertEqual(right.rhythmMap?.values, [.quarter, .quarter, .halfRest])
+        XCTAssertEqual(left.rhythmMap?.status(for: chart.defaultMeter), .exact)
+        XCTAssertEqual(right.rhythmMap?.status(for: chart.defaultMeter), .exact)
+        XCTAssertEqual(left.pitchedNoteEvents.map(\.id), Array(notes.prefix(2)).map(\.id))
+        XCTAssertEqual(right.pitchedNoteEvents.map(\.id), Array(notes.suffix(2)).map(\.id))
+        XCTAssertEqual(right.pitchedNoteEvents.map(\.rhythmSlotIndex), [0, 1])
+        XCTAssertEqual(right.pitchedNoteEvents.map(\.staffPosition), Array(notes.suffix(2)).map(\.staffPosition))
+    }
+
+    func testSplitCommittedRhythmMeasureRefusesCrossSlotAndCrossBoundaryTieAtomically() throws {
+        for map in [MeasureRhythmMap(values: [.whole]),
+                    MeasureRhythmMap(values: [.half, .half], tieOutSlotIndices: [0])] {
+            var chart = Chart.blank(title: "Unsupported divider", measureCount: 1, layoutStyle: .rhythmSectionSheet)
+            chart.systems[0].measures[0].rhythmMap = map
+            let original = chart
+            XCTAssertNil(chart.splitCommittedRhythmSectionMeasure(chart.measures[0].id, atFraction: 0.5))
+            XCTAssertEqual(chart, original)
+        }
+    }
+
+    func testCommittedRhythmSplitUsesPhysicalSlotToleranceAndCompoundMeterLengths() throws {
+        var chart = Chart.blank(title: "Compound divider", measureCount: 1, layoutStyle: .rhythmSectionSheet)
+        chart.defaultMeter = Meter(numerator: 6, denominator: 8)
+        let id = chart.measures[0].id
+        chart.systems[0].measures[0].rhythmMap = MeasureRhythmMap(values: Array(repeating: .slash, count: 6))
+        let original = chart
+        XCTAssertNil(chart.splitCommittedRhythmSectionMeasure(id, atFraction: 0.44, sourceWidth: 200))
+        XCTAssertEqual(chart, original)
+        let rightID = try XCTUnwrap(chart.splitCommittedRhythmSectionMeasure(id, atFraction: 0.47, sourceWidth: 200))
+        for measureID in [id, rightID] {
+            let measure = try XCTUnwrap(chart.measure(id: measureID))
+            XCTAssertEqual(measure.rhythmMap?.values, [.slash, .slash, .slash, .dottedQuarterRest])
+            XCTAssertEqual(measure.rhythmMap?.status(for: chart.defaultMeter), .exact)
+        }
+    }
+
+    #if canImport(UIKit)
+    func testCommittedRhythmSplitKeepsArticulationRestoreSourceSingleAndSixteenthAttachmentExact() throws {
+        var chart = Chart.blank(title: "Articulated divider", measureCount: 1, layoutStyle: .rhythmSectionSheet)
+        let id = chart.measures[0].id
+        chart.systems[0].measures[0].rhythmMap = MeasureRhythmMap(values: Array(repeating: .sixteenth, count: 16))
+        let archive = PKDrawing(strokes: [testStroke(color: UIColor(white: 0.06, alpha: 1))]).dataRepresentation()
+        let anchor = try XCTUnwrap(PersistentInkMeasureAnchor(measureID: id,
+            frame: CGRect(x: 0, y: 0, width: 320, height: 120),
+            staffFrame: CGRect(x: 0, y: 60, width: 320, height: 40)))
+        chart.freeInkArticulations = [FreeInkArticulation(kind: .accent, measureID: id,
+            sourceInkData: archive, sourceCoordinateSpace: PersistentInkCoordinateSpace(width: 700, height: 1000,
+                measureAnchors: [anchor]), attachment: .note(beat: 3, subdivision: 3))]
+        let rightID = try XCTUnwrap(chart.splitCommittedRhythmSectionMeasure(id, atFraction: 0.5))
+        let mark = try XCTUnwrap(chart.freeInkArticulations.first)
+        XCTAssertEqual(mark.measureID, rightID)
+        XCTAssertEqual(mark.attachment, .note(beat: 1, subdivision: 3))
+        XCTAssertEqual(mark.sourceInkData, archive)
+        XCTAssertEqual(mark.sourceCoordinateSpace?.measureAnchors?.count, 1)
+        // The archived handwriting is physically on the left, independently
+        // of the rendered mark's right-hand note attachment.
+        XCTAssertEqual(mark.sourceCoordinateSpace?.measureAnchors?.first?.measureID, id)
+    }
+    #endif
 
     func testSplitOpenRhythmSectionMeasureCreatesCommittedBoundaryAndOpenRightMeasure() throws {
         var chart = Chart.draft(title: "Split Rhythm Lane", layoutStyle: .rhythmSectionSheet)

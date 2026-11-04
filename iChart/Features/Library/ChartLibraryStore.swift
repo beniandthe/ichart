@@ -29,6 +29,9 @@ final class ChartLibraryStore: ObservableObject {
         didSet { persistIfNeeded() }
     }
     @Published private(set) var persistenceStatus: ChartLibraryPersistenceStatus = .notTracking
+    // Updated before persistenceStatus publishes so observers can tell a
+    // failed write from a failed startup load, even for a repeated error.
+    private(set) var retryableSaveFailureMessage: String?
 
     var onSnapshotSaved: ((ChartLibrarySnapshot) -> Void)?
 
@@ -625,6 +628,7 @@ final class ChartLibraryStore: ObservableObject {
     }
 
     func retrySavingCurrentSnapshot() {
+        guard retryableSaveFailureMessage != nil else { return }
         persistIfNeeded()
     }
 
@@ -634,6 +638,7 @@ final class ChartLibraryStore: ObservableObject {
             return true
         }
         guard let repository else {
+            retryableSaveFailureMessage = nil
             persistenceStatus = .notTracking
             return true
         }
@@ -687,14 +692,14 @@ final class ChartLibraryStore: ObservableObject {
                 switch result {
                 case .success:
                     if pendingPersistence.generation == self.persistenceGeneration {
-                        self.persistenceStatus = .saved(at: .now)
+                        self.markSaveSucceeded()
                         if pendingPersistence.notifyCloudSync {
                             self.onSnapshotSaved?(pendingPersistence.snapshot)
                         }
                     }
                 case let .failure(error):
                     if pendingPersistence.generation == self.persistenceGeneration {
-                        self.persistenceStatus = .failed(message: error.localizedDescription)
+                        self.markSaveFailed(error)
                     }
                 }
 
@@ -720,7 +725,7 @@ final class ChartLibraryStore: ObservableObject {
         let saveStartedAt = ProcessInfo.processInfo.systemUptime
         do {
             try repository.saveSnapshot(snapshot)
-            persistenceStatus = .saved(at: .now)
+            markSaveSucceeded()
             if notifyCloudSync {
                 onSnapshotSaved?(snapshot)
             }
@@ -730,13 +735,24 @@ final class ChartLibraryStore: ObservableObject {
             )
             return true
         } catch {
-            persistenceStatus = .failed(message: error.localizedDescription)
+            markSaveFailed(error)
             persistenceDiagnostics?.didSave(
                 snapshot, repository: repository, error: error,
                 durationMilliseconds: (ProcessInfo.processInfo.systemUptime - saveStartedAt) * 1_000
             )
             return false
         }
+    }
+
+    private func markSaveSucceeded() {
+        retryableSaveFailureMessage = nil
+        persistenceStatus = .saved(at: .now)
+    }
+
+    private func markSaveFailed(_ error: Error) {
+        let message = error.localizedDescription
+        retryableSaveFailureMessage = message
+        persistenceStatus = .failed(message: message)
     }
 
     @discardableResult

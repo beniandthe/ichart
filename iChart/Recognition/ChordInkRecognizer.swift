@@ -3,7 +3,7 @@ import Foundation
 enum ChordInkRecognitionPipelineIdentity {
     /// Bump whenever a device trace or committed ink chord must be
     /// distinguishable from a materially different recognition pipeline.
-    static let version = "maximum-trust-v42-paused-suffix-compact-glyphs-2026-11-03"
+    static let version = "maximum-trust-v44-triangle-quality-ownership-2026-11-04"
 }
 
 protocol ChordInkRecognizing {

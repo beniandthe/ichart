@@ -208,7 +208,7 @@ final class IChartTypedUITextField: UITextField, UIScribbleInteractionDelegate, 
         IChartNativeKeyboardFocus.request(self)
         onKeyboardRequested?()
     }
-    @objc private func directTap() { IChartNativeKeyboardFocus.request(self, restarting: false) }
+    @objc private func directTap() { IChartNativeKeyboardFocus.request(self) }
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         !keyboardButton.frame.contains(touch.location(in: self))
     }
@@ -268,7 +268,7 @@ final class IChartTypedUITextView: UITextView, UIScribbleInteractionDelegate, UI
         guard isEditable, isUserInteractionEnabled else { return }
         IChartNativeKeyboardFocus.request(self)
     }
-    @objc private func directTap() { IChartNativeKeyboardFocus.request(self, restarting: false) }
+    @objc private func directTap() { IChartNativeKeyboardFocus.request(self) }
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         !keyboardButton.frame.contains(touch.location(in: self))
     }
@@ -287,9 +287,11 @@ enum IChartKeyboardInputContext {
     private static var originalPencilInputExpected: Bool?
     private static var context: UITextInputContext?
 
-    static func begin(for input: UIView) {
-        guard input is IChartTypedUITextField || input is IChartTypedUITextView else { return }
-        guard let current = UITextInputContext.current() else { return }
+    @discardableResult
+    static func begin(for input: UIView) -> Bool {
+        guard input is IChartTypedUITextField || input is IChartTypedUITextView else { return false }
+        guard let current = UITextInputContext.current() else { return false }
+        let changesInputMode = current.isPencilInputExpected
         if owner == nil {
             restore()
             originalPencilInputExpected = current.isPencilInputExpected
@@ -297,6 +299,7 @@ enum IChartKeyboardInputContext {
         }
         owner = input
         current.isPencilInputExpected = false
+        return changesInputMode
     }
 
     static func finish(for input: UIView) {
@@ -324,11 +327,14 @@ enum IChartKeyboardInputContext {
 
 @MainActor
 private enum IChartNativeKeyboardFocus {
-    static func request(_ input: UIView & UITextInput, restarting: Bool = true) {
+    static func request(_ input: UIView & UITextInput) {
         let selection = input.selectedTextRange
-        if restarting, input.isFirstResponder { input.resignFirstResponder() }
-        IChartKeyboardInputContext.begin(for: input)
-        if input.isFirstResponder { input.reloadInputViews() }
+        let changesInputMode = IChartKeyboardInputContext.begin(for: input)
+        // Keep an active editing session intact. Reload only when an existing
+        // Scribble responder actually needs to switch to keyboard input.
+        if input.isFirstResponder {
+            if changesInputMode { input.reloadInputViews() }
+        }
         else if !input.becomeFirstResponder() { IChartKeyboardInputContext.finish(for: input) }
         if let selection { input.selectedTextRange = selection }
     }

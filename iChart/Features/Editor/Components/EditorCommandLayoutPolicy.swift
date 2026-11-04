@@ -5,9 +5,10 @@ enum EditorChordDraftPreviewUpdatePolicy {
         mode: EditorCanvasMode,
         hasSingleReview: Bool,
         hasBatchReview: Bool,
-        hasCorrection: Bool
+        hasCorrection: Bool,
+        isManualDraftReview: Bool = false
     ) -> Bool {
-        mode == .chordEntry && !hasSingleReview && !hasBatchReview && !hasCorrection
+        mode == .chordEntry && !hasSingleReview && !hasCorrection && (!hasBatchReview || isManualDraftReview)
     }
 }
 

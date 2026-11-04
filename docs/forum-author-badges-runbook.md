@@ -43,6 +43,16 @@ One returned row confirms the revoke. If the result is empty, read the owner and
 
 ## Verify in a test environment
 
+The automated gateway check in [`scripts/test_forum_local_gateway.mjs`](../scripts/test_forum_local_gateway.mjs) uses two real local Auth sessions, PostgREST and Storage. Run it only against a separate Supabase project whose ID matches `ichart-forum-docket<number>` and whose loopback API/database ports are in the `55000`–`55999` test range. The script rejects hosted URLs, the ordinary development ports and linked projects. It creates synthetic accounts/posts for both chart styles, exercises badge visibility and denied member writes, votes, comments and earlier-comment pages, then removes its fixture records and files.
+
+```bash
+ICHART_FORUM_LOCAL_PROJECT=/absolute/path/to/isolated-test-project \
+ICHART_FORUM_GATEWAY_RECEIPT=/absolute/path/to/local-receipt.json \
+node scripts/test_forum_local_gateway.mjs
+```
+
+The stack must already have the current migrations applied. The fixture uses an operator SQL connection for awards/revokes, matching this runbook; it does not broaden badge grants. By default, published synthetic posts use the service-only atomic publication RPC. To include the real Edge HTTP admission path, serve the current `forum-post-actions` source in that isolated stack with JWT verification enabled, then add `ICHART_FORUM_EDGE_HTTP=1` to the command. That mode verifies bearer/owner/access/metadata admission, idempotent publication, and exact PDF bytes/provenance through the actual handler and gateway. The handler validates publication metadata; it does not parse PDF page content. The receipt distinguishes local backend verification from a walkthrough of the actual app screens. No live community account or public post is needed.
+
 1. Use a published test chart and two signed-in accounts with forum access. Award one badge to the author. Confirm that the author and a second viewer see the badge on the published chart after refreshing or reopening it. Check the badge description in post detail.
 2. Confirm that a different unbadged author still appears normally and that the two members have no badge write access. The badge cases in `supabase/tests/rls_smoke.sql` exercise grants and row visibility.
 3. Revoke the test badge and repeat the refresh and detail check for both accounts. Confirm that any other badges on the same author remain visible.

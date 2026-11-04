@@ -1,5 +1,8 @@
 import CoreGraphics
 import Foundation
+#if canImport(UIKit) && canImport(PencilKit)
+import PencilKit
+#endif
 
 /// Resolves an articulation into document coordinates for the canvas and PDF.
 enum FreeInkArticulationPlacement {
@@ -61,8 +64,13 @@ enum FreeInkArticulationPlacement {
         staffInkVerticalAllowance: CGFloat = 0,
         retaining previous: AttachmentMatch? = nil
     ) -> AttachmentMatch? {
-        guard chart.layoutStyle == .rhythmSectionSheet, point.x.isFinite, point.y.isFinite,
+        guard point.x.isFinite, point.y.isFinite,
               let page = pageLayout.pages.first(where: { $0.frame.contains(point) }) else { return nil }
+        if chart.layoutStyle == .simpleChordSheet {
+            return simpleChordAttachment(near: point, chart: chart, page: page,
+                pageLayout: pageLayout, retaining: previous)
+        }
+        guard chart.layoutStyle == .rhythmSectionSheet else { return nil }
 
         // Test actual engraving geometry before considering the bare staff.
         // A broad measure or chord band alone does not claim a mark.
@@ -148,7 +156,23 @@ enum FreeInkArticulationPlacement {
     }
 
     static func target(for mark: FreeInkArticulation, chart: Chart, pageLayout: LeadSheetPageLayout) -> Target? {
-        if let attachment = mark.attachment, let measure = attachmentMeasure(for: mark, chart: chart) {
+        if chart.layoutStyle == .simpleChordSheet,
+           mark.kind == .fermata || mark.kind == .accent,
+           case .chord(let chordID)? = mark.attachment,
+           let measure = chart.measureContainingChordEvent(id: chordID) {
+            for system in pageLayout.systems {
+                guard let layout = system.measures.first(where: { $0.sourceMeasureID == measure.id }),
+                      let chord = layout.chordLayouts.first(where: { $0.id == chordID }),
+                      let spacing = simpleChordSpacing(for: chord) else { continue }
+                let offset = attachmentStackOffset(for: mark, chart: chart, spacing: spacing)
+                return Target(measureID: measure.id, beatIndex: nil,
+                    center: CGPoint(x: chord.frame.midX, y: chord.frame.minY - 0.6 * spacing - offset),
+                    staffSpace: spacing, isBelowStaff: false)
+            }
+        }
+
+        if chart.layoutStyle != .simpleChordSheet,
+           let attachment = mark.attachment, let measure = attachmentMeasure(for: mark, chart: chart) {
             let measureID = measure.id
             for system in pageLayout.systems {
                 guard let layout = system.measures.first(where: { $0.sourceMeasureID == measureID }),
@@ -184,11 +208,129 @@ enum FreeInkArticulationPlacement {
         if let pagePoint = mark.pagePoint, let point = center(for: pagePoint, pageLayout: pageLayout) {
             let page = page(containing: pagePoint, in: pageLayout)
             let system = pageLayout.systems.first { page?.systemIDs.contains($0.id) == true }
-            let spacing = system.flatMap(staffSpace(in:)) ?? 10.5
+            let spacing = chart.layoutStyle == .simpleChordSheet
+                ? simpleFloatingSpacing(near: point, page: page, pageLayout: pageLayout)
+                : system.flatMap(staffSpace(in:)) ?? 10.5
             return Target(measureID: nil, beatIndex: nil, center: point, staffSpace: spacing, isBelowStaff: false)
         }
         guard let measureID = mark.measureID, let beatIndex = mark.legacyBeatIndex else { return nil }
         return target(measureID: measureID, beatIndex: beatIndex, chart: chart, pageLayout: pageLayout)
+    }
+
+    /// Record the current display position before an edit can remove its chord
+    /// or measure. The model can then detach the mark without jumping back to
+    /// where its handwriting was first drawn. Source archives stay untouched.
+    static func preservingVisiblePagePoints(in chart: Chart, pageLayout: LeadSheetPageLayout) -> Chart {
+        guard chart.layoutStyle == .simpleChordSheet else { return chart }
+        var updated = chart
+        for (index, mark) in chart.freeInkArticulations.enumerated() {
+            guard mark.kind == .fermata || mark.kind == .accent else { continue }
+            #if canImport(UIKit) && canImport(PencilKit)
+            if mark.sourcePagePoint == nil,
+               let sourcePoint = sourcePagePoint(for: mark, pageLayout: pageLayout) {
+                updated.freeInkArticulations[index].sourcePagePoint = sourcePoint
+            }
+            #endif
+            guard case .chord? = mark.attachment,
+                  let target = target(for: mark, chart: chart, pageLayout: pageLayout),
+                  target.measureID != nil,
+                  let point = pagePoint(at: target.center, pageLayout: pageLayout) else { continue }
+            updated.freeInkArticulations[index].pagePoint = point
+        }
+        return updated
+    }
+
+    #if canImport(UIKit) && canImport(PencilKit)
+    private static func sourcePagePoint(
+        for mark: FreeInkArticulation, pageLayout: LeadSheetPageLayout
+    ) -> FreeInkArticulationPagePoint? {
+        guard let archive = try? PKDrawing(data: mark.sourceInkData), !archive.strokes.isEmpty,
+              var source = mark.sourceCoordinateSpace else { return nil }
+        let frame = LeadSheetActiveInkScope.pageWritingFrame(for: pageLayout)
+        guard var destination = LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(
+            for: pageLayout, relativeTo: frame) else { return nil }
+        // Simple Chart archives belong to paper/measure geometry even when a
+        // decorative staff-paper background happens to contain five lines.
+        source.measureAnchors = source.measureAnchors?.map { anchor in
+            var anchor = anchor
+            anchor.staffFrame = nil
+            return anchor
+        }
+        destination.measureAnchors = destination.measureAnchors?.map { anchor in
+            var anchor = anchor
+            anchor.staffFrame = nil
+            return anchor
+        }
+        let restored: PKDrawing
+        if let aligned = FreeInkArticulationSourceInk.restore(archive, source: source, destination: destination) {
+            restored = aligned
+        } else if source.measureAnchors?.isEmpty != false,
+                  source.width == destination.width, source.height == destination.height {
+            restored = archive
+        } else {
+            return nil
+        }
+        let bounds = restored.bounds
+        guard bounds.midX.isFinite, bounds.midY.isFinite else { return nil }
+        return pagePoint(at: CGPoint(x: bounds.midX + frame.minX, y: bounds.midY + frame.minY),
+            pageLayout: pageLayout)
+    }
+    #endif
+
+    private static func simpleChordAttachment(
+        near point: CGPoint, chart: Chart, page: LeadSheetPaperPageLayout,
+        pageLayout: LeadSheetPageLayout, retaining previous: AttachmentMatch?
+    ) -> AttachmentMatch? {
+        var retained: AttachmentMatch?
+        var nearest: (match: AttachmentMatch, distance: CGFloat)?
+        for system in pageLayout.systems where page.systemIDs.contains(system.id) {
+            for layout in system.measures {
+                guard let measureID = layout.sourceMeasureID, chart.measure(id: measureID) != nil else { continue }
+                for chord in layout.chordLayouts {
+                    guard let spacing = simpleChordSpacing(for: chord) else { continue }
+                    // Use the visible selected-font bounds. The uncompressed
+                    // natural width and an empty measure must not claim a mark.
+                    let hitFrame = chord.frame.insetBy(dx: -spacing, dy: -1.5 * spacing)
+                        .intersection(page.frame)
+                    guard hitFrame.contains(point) else { continue }
+                    let attachment = FreeInkArticulationAttachment.chord(id: chord.id)
+                    let match = AttachmentMatch(measureID: measureID, attachment: attachment,
+                        guidePoint: CGPoint(x: chord.frame.midX, y: chord.frame.minY), retentionFrame: hitFrame)
+                    if previous?.measureID == measureID, previous?.attachment == attachment {
+                        retained = match
+                    }
+                    let distance = hypot(point.x - chord.frame.midX, point.y - chord.frame.midY)
+                    if nearest.map({ distance < $0.distance }) ?? true {
+                        nearest = (match, distance)
+                    }
+                }
+            }
+        }
+        return retained ?? nearest?.match
+    }
+
+    private static func simpleChordSpacing(for chord: LeadSheetChordLayout) -> CGFloat? {
+        let frame = chord.frame
+        guard frame.minX.isFinite, frame.minY.isFinite, frame.width.isFinite, frame.height.isFinite,
+              frame.width > 0, frame.height > 0 else { return nil }
+        let configured = chord.renderFontSize ?? chord.baseFontSize
+        guard configured.isFinite, configured > 0 else { return nil }
+        // Layout has already measured the chosen font and horizontal squeeze.
+        // Scale the glyph and attachment reach with its actual vertical size;
+        // a longer suffix or a wider measure does not enlarge either one.
+        return min(max(frame.height * 0.28, configured * 0.24), configured * 0.45)
+    }
+
+    private static func simpleFloatingSpacing(
+        near point: CGPoint, page: LeadSheetPaperPageLayout?, pageLayout: LeadSheetPageLayout
+    ) -> CGFloat {
+        let chords = pageLayout.systems.filter { page?.systemIDs.contains($0.id) == true }
+            .flatMap(\.measures).flatMap(\.chordLayouts)
+        let nearest = chords.filter { simpleChordSpacing(for: $0) != nil }.min {
+            hypot($0.frame.midX - point.x, $0.frame.midY - point.y)
+                < hypot($1.frame.midX - point.x, $1.frame.midY - point.y)
+        }
+        return nearest.flatMap(simpleChordSpacing(for:)) ?? ChartTypographyResolver.simpleChordPrimaryFontSize * 0.35
     }
 
     private static func page(

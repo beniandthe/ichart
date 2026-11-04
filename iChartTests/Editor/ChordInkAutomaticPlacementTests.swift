@@ -57,6 +57,39 @@ final class ChordInkAutomaticPlacementTests: XCTestCase {
             "The fixture must exercise source placement which differs from the committed beat guide")
     }
 
+    func testAutomaticFirstRhythmChordUsesBeatOneGuideInsteadOfSourceLeftEdge() throws {
+        var chart = Chart.blank(title: "Automatic downbeat", measureCount: 1, layoutStyle: .rhythmSectionSheet)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        XCTAssertTrue(chart.setMeasureRhythmMap([.quarterRest, .quarter, .quarter, .quarter], for: measureID))
+        let sourceLayout = layout(chart)
+        let measureLayout = try XCTUnwrap(sourceLayout.systems.first?.measures.first)
+        let sourceFrame = LeadSheetActiveInkScope.chordWritingFrame(for: sourceLayout)
+        let x = measureLayout.chordBandFrame.minX + measureLayout.chordBandFrame.width * 0.7 - sourceFrame.minX
+        let y = measureLayout.chordBandFrame.midY - sourceFrame.minY
+        let source = PKDrawing(strokes: [stroke([
+            CGPoint(x: x + 14, y: y - 8),
+            CGPoint(x: x, y: y),
+            CGPoint(x: x + 14, y: y + 8)
+        ], seed: 2)])
+        let state = try makeState(chart, drawings: [source], texts: ["C"])
+        XCTAssertGreaterThan(try XCTUnwrap(state.draftChords.first?.targetFraction), 0.6)
+
+        let result = try XCTUnwrap(prepare(chart, state: state, drawing: source, elapsed: 2))
+        let measure = try XCTUnwrap(result.chart.measure(id: measureID))
+        let event = try XCTUnwrap(measure.chordEvents.first)
+        let renderedMeasure = try XCTUnwrap(layout(result.chart).systems.first?.measures.first)
+        let glyph = try chordLayout(event.id, in: layout(result.chart))
+        let openingRest = try XCTUnwrap(renderedMeasure.noteLayouts.first)
+
+        XCTAssertEqual(event.startPosition.displayText, "1")
+        XCTAssertNil(event.manualVisualLaneFraction)
+        XCTAssertEqual(glyph.snapGuideTarget.x, openingRest.noteheadFrame.midX, accuracy: 0.01)
+        XCTAssertLessThan(glyph.naturalFrame.maxX, source.bounds.minX + sourceFrame.minX)
+        XCTAssertTrue(result.drawing.strokes.isEmpty)
+        let archive = try PKDrawing(data: XCTUnwrap(event.sourceInkData))
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: source, current: archive))
+    }
+
     func testIdleCompletionAlsoPreservesEachWrittenLeftEdge() throws {
         let chart = try chartWithF()
         let drawings = [PKDrawing(strokes: [gStroke()]), PKDrawing(strokes: [aFirstStroke()])]

@@ -144,12 +144,15 @@ enum EditorCanvasMode: Hashable {
     ) -> String {
         switch self {
         case .browse:
-            if layoutStyle == .rhythmSectionSheet && hasFreeInkArticulations {
-                return "Tap an item for actions. Double-tap a chord to correct it. Tap a converted mark, then drag to move it. Release to attach when the line is visible. Tap its red X to delete."
+            let dividerGuidance = layoutStyle == .simpleChordSheet || layoutStyle == .rhythmSectionSheet
+                ? " Tap an eligible divider, then its red X to merge the measures."
+                : ""
+            if (layoutStyle == .simpleChordSheet || layoutStyle == .rhythmSectionSheet) && hasFreeInkArticulations {
+                return "Tap an item for actions. Double-tap a chord to correct it. Tap a converted mark, then drag to move it. Release to attach when the line is visible. Tap its red X to delete." + dividerGuidance
             }
-            return "Tap a measure, chord, or cue to see its actions. Double-tap a chord to correct it."
+            return "Tap a measure, chord, or cue to see its actions. Double-tap a chord to correct it." + dividerGuidance
         case .measureEdit:
-            return "Tap a measure, then use Add, Layout, or Delete to change the chart."
+            return "Tap a measure, then use Add, Layout, or Delete to change the chart. Layout includes Merge with Next Measure when the boundary can be removed safely."
         case .repeatEdit:
             return "Select a measure, then choose a repeat or ending. Use One Bar for a single measure or Manage for existing marks."
         case .timeSignatureEdit:
@@ -161,19 +164,22 @@ enum EditorCanvasMode: Hashable {
         case .chordEntry:
             let writing = switch layoutStyle {
             case .simpleChordSheet:
-                "Write chords, repeat signs, and ending brackets in the blue lanes. Draw tall barlines between chords."
+                "Write chords, repeat signs, and ending brackets in the blue lanes. Draw tall barlines between chords. A lone rendered chord moves to beat 1 when barlines form its measure."
             case .rhythmSectionSheet:
-                "Write chords, repeats, and endings in the blue lanes. Keep each chord together. Tall barlines can split an open measure. Draw them on their own at the empty end of a row to add measures. Use Measures for committed measures."
+                "Write chords, repeats, and endings in the blue lanes. The first chord in each measure renders on beat 1. Draw a tall barline to split at a rhythmic boundary. A lone rendered chord moves to beat 1 when barlines form its measure. If a note crosses the cut, the line stays as ink. Draw barlines on their own at the empty row end to add measures. Use Measures for other form edits."
             case .leadSheet:
                 "Write chords, repeat signs, and ending brackets in the blue lanes."
             }
             let rendering = manualRenderWithPreview
-                ? "Keep suffixes close to their roots. Check previews, then tap Render Chords or Review & Render. Type the chord for any Add chord preview."
-                : "Leave space between chords and pause to render. Tap Review Chord for an unclear triangle."
+                ? "Keep suffixes close to their roots. Tap Render Chords for ready ink. Use Review & Render to check chord guesses or enter missing chords. Unplaced ink stays on the page."
+                : "Leave space between chords and pause to render. Unplaced ink stays on the page. Use Fix Writing for unclear ink."
             return writing + " " + rendering
         case .noteEdit:
             return "Tap a rendered rhythm note to see its editing actions."
         case .freeHand:
+            if layoutStyle == .simpleChordSheet {
+                return "Draw a fermata or accent anywhere. Lift the Pencil and pause to convert. Marks near a rendered chord attach; others float. Use Select to move or delete them."
+            }
             if layoutStyle == .rhythmSectionSheet {
                 return "Draw a fermata or accent anywhere, or a marcato (^) near a chord, note, or staff ink. Lift the Pencil and pause to convert."
             }

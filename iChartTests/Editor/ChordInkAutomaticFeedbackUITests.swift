@@ -9,6 +9,155 @@ import XCTest
 /// actual canvas callback. These are status/recovery tests, not accuracy tests.
 @MainActor
 final class ChordInkAutomaticFeedbackUITests: XCTestCase {
+    func testSimpleAutomaticBarlineDownbeatHelperKeepsControlsReachableAndCanvasSteady() async throws {
+        try await assertBarlineDownbeatHelper(layoutStyle: .simpleChordSheet, manual: false)
+    }
+
+    func testSimpleManualBarlineDownbeatHelperKeepsControlsReachableAndCanvasSteady() async throws {
+        try await assertBarlineDownbeatHelper(layoutStyle: .simpleChordSheet, manual: true)
+    }
+
+    func testRhythmAutomaticBarlineDownbeatHelperKeepsControlsReachableAndCanvasSteady() async throws {
+        try await assertBarlineDownbeatHelper(layoutStyle: .rhythmSectionSheet, manual: false)
+    }
+
+    func testRhythmManualBarlineDownbeatHelperKeepsControlsReachableAndCanvasSteady() async throws {
+        try await assertBarlineDownbeatHelper(layoutStyle: .rhythmSectionSheet, manual: true)
+    }
+
+    private func assertBarlineDownbeatHelper(layoutStyle: ChartLayoutStyle, manual: Bool) async throws {
+        var chart = Chart.blank(title: "Barline downbeat guidance", measureCount: 1, layoutStyle: layoutStyle)
+        _ = chart.setPageHandwrittenChordDrawing(drawing().dataRepresentation())
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive })
+        let sceneSize = scene.coordinateSpace.bounds.size
+        let portraitViewport = CGSize(width: min(sceneSize.width, sceneSize.height),
+            height: max(sceneSize.width, sceneSize.height))
+        let mounted = try await mount(manual: manual, viewport: portraitViewport, initialChart: chart)
+        let helperSentence = "A lone rendered chord moves to beat 1 when barlines form its measure."
+        let helper = try await waitForNode(in: mounted.window) {
+            $0.element.accessibilityLabel?.contains(helperSentence) == true
+        }
+        let control = try await waitForNode(in: mounted.window) {
+            $0.isButton && $0.element.accessibilityLabel == (manual ? "Render Chords" : "Write")
+        }
+        let viewport = mounted.window.bounds.insetBy(dx: -1, dy: -1)
+        let helperFrame = helper.frame(in: mounted.window)
+        let controlFrame = control.frame(in: mounted.window)
+        XCTAssertFalse(helperFrame.isEmpty)
+        XCTAssertFalse(controlFrame.isEmpty)
+        XCTAssertTrue(viewport.contains(helperFrame), "The wrapped helper must remain fully visible")
+        XCTAssertTrue(viewport.contains(controlFrame), "The writing/render control must remain reachable")
+        XCTAssertTrue(control.isEnabled)
+        XCTAssertLessThan(helperFrame.maxY, controlFrame.minY, "The helper belongs above the writing controls")
+        let before = await settledCanvasFrame(in: mounted)
+
+        try await injectUncertainPair(into: mounted)
+        let currentHelper = try await waitForNode(in: mounted.window) {
+            $0.element.accessibilityLabel?.contains(helperSentence) == true
+        }
+        let feedbackControl = try await waitForNode(in: mounted.window) {
+            $0.isButton && $0.element.accessibilityLabel == (manual ? "Review & Render" : placementRefusalLabel)
+        }
+        let currentHelperFrame = currentHelper.frame(in: mounted.window)
+        let feedbackFrame = feedbackControl.frame(in: mounted.window)
+        XCTAssertTrue(viewport.contains(currentHelperFrame))
+        XCTAssertTrue(viewport.contains(feedbackFrame), "Inline feedback must not push its action out of reach")
+        XCTAssertTrue(feedbackControl.isEnabled)
+        XCTAssertLessThan(currentHelperFrame.maxY, feedbackFrame.minY)
+        let after = await settledCanvasFrame(in: mounted)
+        XCTAssertEqual(after.minX, before.minX, accuracy: 0.1)
+        XCTAssertEqual(after.minY, before.minY, accuracy: 0.1)
+        XCTAssertEqual(after.width, before.width, accuracy: 0.1)
+        XCTAssertEqual(after.height, before.height, accuracy: 0.1,
+            "Wrapped guidance and inline recognition feedback must leave the writing canvas steady")
+        XCTAssertNil(mounted.window.rootViewController?.presentedViewController)
+        let styleName = layoutStyle == .simpleChordSheet ? "Simple" : "Rhythm"
+        attach(mounted.window, name: "\(styleName) \(manual ? "Manual" : "Automatic") barline downbeat helper")
+    }
+
+    func testSimpleFirstConvertedMarkKeepsTheEditorWritingCanvasSteady() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let repository = FileChartRepository(url: directory.appendingPathComponent("library-state.json"))
+        let chart = Chart.blank(title: "Simple first mark layout", measureCount: 4, layoutStyle: .simpleChordSheet)
+        let mounted = try await mount(manual: true, repository: repository, initialChart: chart, freezesRecognition: false)
+        try activate(await waitForNode(in: mounted.window) {
+            $0.isButton && $0.element.accessibilityLabel == "Free Ink"
+        })
+        _ = try await waitForNode(in: mounted.window) {
+            $0.element.accessibilityLabel?.contains("Marks near a rendered chord attach; others float.") == true
+        }
+        let canvas = mounted.canvas
+        XCTAssertEqual(canvas.interactionMode, .freeHand)
+        let live = try XCTUnwrap(canvas.subviews.compactMap { $0 as? LeadSheetScopedInkCanvasView }.last)
+        mounted.window.layoutIfNeeded()
+        XCTAssertTrue(canvas.window === mounted.window)
+        XCTAssertFalse(live.isHidden)
+        XCTAssertTrue(live.isUserInteractionEnabled)
+        XCTAssertGreaterThan(live.bounds.height, 500, "The page canvas must own Free Ink before injecting a stroke")
+        let before = canvas.convert(canvas.bounds, to: mounted.window)
+        let beforeInkFrame = live.frame
+        let path = PKStrokePath(controlPoints: [CGPoint(x: 100, y: 400), CGPoint(x: 125, y: 410),
+            CGPoint(x: 100, y: 420)].enumerated().map { index, point in
+                PKStrokePoint(location: point, timeOffset: Double(index) * 0.1,
+                    size: CGSize(width: 3, height: 3), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+            }, creationDate: Date(timeIntervalSinceReferenceDate: 800_000_000))
+        let drawing = PKDrawing(strokes: [PKStroke(ink: PKInk(.pen, color: .black), path: path)])
+        canvas.canvasViewDidBeginUsingTool(live)
+        live.drawing = drawing
+        canvas.canvasViewDrawingDidChange(live)
+        canvas.canvasViewDidEndUsingTool(live)
+        _ = try await waitForNode(in: mounted.window) {
+            $0.isButton && $0.element.accessibilityLabel == "Restore Ink"
+        }
+        for _ in 0..<10 {
+            mounted.window.layoutIfNeeded()
+            let after = canvas.convert(canvas.bounds, to: mounted.window)
+            XCTAssertEqual(after.minX, before.minX, accuracy: 0.1)
+            XCTAssertEqual(after.minY, before.minY, accuracy: 0.1)
+            XCTAssertEqual(after.size.width, before.size.width, accuracy: 0.1)
+            XCTAssertEqual(after.size.height, before.size.height, accuracy: 0.1)
+            XCTAssertEqual(live.frame, beforeInkFrame)
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertEqual(canvas.chart.freeInkArticulations.count, 1)
+        XCTAssertEqual(canvas.chart.freeInkArticulations.first?.kind, .accent)
+        XCTAssertTrue(live.drawing.strokes.isEmpty)
+        XCTAssertNil(mounted.window.rootViewController?.presentedViewController)
+        attach(mounted.window, name: "Simple first automatic mark keeps the writing canvas steady")
+    }
+
+    func testSimpleFreeInkExplainerAndRestoreMenuAreVisibleAtTheNormalEntryPoint() async throws {
+        var chart = Chart.blank(title: "Simple articulation guidance", measureCount: 4, layoutStyle: .simpleChordSheet)
+        let path = PKStrokePath(controlPoints: [CGPoint(x: 190, y: 190), CGPoint(x: 210, y: 200),
+            CGPoint(x: 190, y: 210)].enumerated().map { index, point in
+                PKStrokePoint(location: point, timeOffset: Double(index) * 0.1,
+                    size: CGSize(width: 3, height: 3), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+            }, creationDate: Date(timeIntervalSinceReferenceDate: 800_000_000))
+        let source = PKDrawing(strokes: [PKStroke(ink: PKInk(.pen, color: .black), path: path)])
+        let point = FreeInkArticulationPagePoint(pageIndex: 0, x: 200, y: 200)
+        chart.freeInkArticulations = [FreeInkArticulation(kind: .accent,
+            sourceInkData: source.dataRepresentation(), pagePoint: point, sourcePagePoint: point)]
+        let mounted = try await mount(manual: true, initialChart: chart)
+        try activate(await waitForNode(in: mounted.window) {
+            $0.isButton && $0.element.accessibilityLabel == "Free Ink"
+        })
+        let helper = try await waitForNode(in: mounted.window) {
+            $0.element.accessibilityLabel?.contains("Marks near a rendered chord attach; others float.") == true
+        }
+        let restore = try await waitForNode(in: mounted.window) {
+            $0.isButton && $0.element.accessibilityLabel == "Restore Ink"
+        }
+        XCTAssertTrue(restore.isEnabled)
+        XCTAssertTrue(mounted.window.bounds.insetBy(dx: -1, dy: -1).contains(helper.frame(in: mounted.window)))
+        XCTAssertTrue(mounted.window.bounds.insetBy(dx: -1, dy: -1).contains(restore.frame(in: mounted.window)))
+        XCTAssertLessThan(helper.frame(in: mounted.window).maxY, restore.frame(in: mounted.window).minY)
+        attach(mounted.window, name: "Simple Free Ink helper and Restore Ink at normal entry")
+        XCTAssertEqual(mounted.model.chart.freeInkArticulations, chart.freeInkArticulations)
+        XCTAssertNil(mounted.window.rootViewController?.presentedViewController)
+    }
+
     func testPlacementRefusalIsVisibleAndOpensFocusedFullReviewWithoutReorderingOrConsumingInk() async throws {
         let mounted = try await mount(manual: false)
         let sourceBefore = try XCTUnwrap(mounted.model.chart.pageHandwrittenChordData)
@@ -81,11 +230,15 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
 
     func testManualWorkflowKeepsItsReviewControlsAndHidesAutomaticStatusButtons() async throws {
         let mounted = try await mount(manual: true)
+        let canvasTop = mounted.canvas.convert(mounted.canvas.bounds, to: mounted.window).minY
+
         try await injectUncertainPair(into: mounted)
         let review = try await waitForNode(in: mounted.window) { node in
             node.isButton && node.element.accessibilityLabel == "Review & Render"
         }
         XCTAssertTrue(review.isEnabled)
+        XCTAssertEqual(mounted.canvas.convert(mounted.canvas.bounds, to: mounted.window).minY, canvasTop, accuracy: 1)
+        attach(mounted.window, name: "RHY-003 manual Write and Render helper")
         let nodes = try NativeAccessibilityLookup.nodes(in: mounted.window)
         XCTAssertFalse(nodes.contains {
             guard $0.isButton, let label = $0.element.accessibilityLabel else { return false }
@@ -95,6 +248,793 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
         })
         XCTAssertNotNil(mounted.model.chart.pageHandwrittenChordData)
         XCTAssertTrue(mounted.model.chart.measures.allSatisfy(\.chordEvents.isEmpty))
+    }
+
+    func testManualRenderSaveFailureKeepsChordInkAndRetrySavesTheRenderedBatchOnce() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("library-state.json")
+        let disk = FileChartRepository(url: file)
+        let repository = FailingFeedbackChartRepository(disk: disk)
+        let mounted = try await mount(manual: true, repository: repository)
+        let original = try XCTUnwrap(disk.loadSnapshot())
+        let chartID = try XCTUnwrap(original.selectedChartID)
+        let originalChart = try XCTUnwrap(original.charts.first { $0.id == chartID })
+        let source = try PKDrawing(data: XCTUnwrap(originalChart.pageHandwrittenChordData))
+        let originalDiskBytes = try Data(contentsOf: file)
+        try await injectUncertainPair(into: mounted)
+        let canvasFrameBefore = await settledCanvasFrame(in: mounted)
+
+        func retryControl() async throws -> NativeAccessibilityLookup.Node {
+            try await waitForNode(in: mounted.window) {
+                $0.isButton && $0.element.accessibilityLabel == "Retry Save"
+            }
+        }
+
+        let review = try await waitForNode(in: mounted.window) {
+            $0.isButton && $0.element.accessibilityLabel == "Review & Render"
+        }
+        try activate(review)
+        let fields = try await waitForReviewFields(in: mounted.window, count: 2, requiresFocus: false)
+        XCTAssertEqual(fields.map(\.text), ["C", "Bb"])
+        let render = try await waitForNode(in: mounted.window) {
+            $0.isButton && $0.element.accessibilityLabel == "Render All"
+        }
+        repository.setWriteFailure(true)
+        try activate(render)
+
+        try await waitForReviewDismissal(in: mounted)
+        let retry = try await retryControl()
+        XCTAssertEqual(retry.element.accessibilityValue, "Chart not saved")
+        let retryFrame = retry.frame(in: mounted.window)
+        XCTAssertFalse(retryFrame.isEmpty)
+        XCTAssertTrue(mounted.window.bounds.insetBy(dx: -1, dy: -1).contains(retryFrame))
+        let canvasFrameAfter = await settledCanvasFrame(in: mounted)
+        XCTAssertEqual(canvasFrameAfter.minY, canvasFrameBefore.minY, accuracy: 1,
+            "A save warning must not move the writing canvas")
+        attach(mounted.window, name: "RHY-005 rendered chart with a visible save retry")
+        guard case .failed = mounted.store.persistenceStatus else {
+            return XCTFail("The rendered chart must surface the repository's failed write")
+        }
+        XCTAssertEqual(try Data(contentsOf: file), originalDiskBytes, "Failed save must retain the previous durable draft")
+        let inMemory = try XCTUnwrap(mounted.store.charts.first { $0.id == chartID })
+        let rendered = inMemory.measures.flatMap(\.chordEvents)
+        XCTAssertEqual(rendered.map(\.rawInput), ["C", "Bb"])
+        XCTAssertEqual(rendered.count, source.strokes.count)
+        XCTAssertNil(inMemory.pageHandwrittenChordData, "Rendered ink should move to event archives exactly once")
+        for (stroke, chord) in zip(source.strokes, rendered) {
+            let savedInk = try PKDrawing(data: XCTUnwrap(chord.sourceInkData))
+            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+                expected: PKDrawing(strokes: [stroke]), current: savedInk))
+        }
+
+        let failedWriteCount = repository.failedWriteCount
+        XCTAssertGreaterThan(failedWriteCount, 0)
+        try activate(await retryControl())
+        for _ in 0..<60 {
+            if repository.failedWriteCount > failedWriteCount, case .failed = mounted.store.persistenceStatus { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertGreaterThan(repository.failedWriteCount, failedWriteCount, "A failed Retry Save must allow another attempt")
+        XCTAssertEqual(try Data(contentsOf: file), originalDiskBytes)
+        XCTAssertEqual(mounted.store.charts.first { $0.id == chartID }, inMemory)
+
+        repository.setWriteFailure(false)
+        try activate(await retryControl())
+        for _ in 0..<60 {
+            if case .saved = mounted.store.persistenceStatus { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        guard case .saved = mounted.store.persistenceStatus else {
+            return XCTFail("Retry Save did not complete the real disk write")
+        }
+        let reopened = try XCTUnwrap(FileChartRepository(url: file).loadSnapshot())
+        XCTAssertEqual(reopened.selectedChartID, chartID)
+        let saved = try XCTUnwrap(reopened.charts.first { $0.id == chartID })
+        XCTAssertEqual(saved.measures.map(\.id), originalChart.measures.map(\.id))
+        XCTAssertEqual(saved.measures.flatMap(\.chordEvents), rendered, "Retry must save the same events and source without rendering again")
+        XCTAssertNil(saved.pageHandwrittenChordData)
+        XCTAssertNil(saved.pageHandwrittenChordCoordinateSpace)
+        for _ in 0..<40 {
+            mounted.window.layoutIfNeeded()
+            if try NativeAccessibilityLookup.matching("Retry Save", in: mounted.window, buttonsOnly: true).isEmpty { return }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTFail("A successful retry should dismiss the save warning")
+    }
+
+    func testManualReviewReopensLatestDelayedReadAndKeepsOnlySameInkEdits() async throws {
+        let earlierInk = landscapeSourceDrawing()
+        let detailPoints = [CGPoint(x: 310, y: 56), CGPoint(x: 311, y: 70)]
+            .enumerated().map { index, point in
+                PKStrokePoint(location: point, timeOffset: Double(index) * 0.02,
+                    size: CGSize(width: 3, height: 3), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+            }
+        let detail = PKStroke(ink: PKInk(.pen, color: LeadSheetPersistentInkColorPolicy.inkColor),
+            path: PKStrokePath(controlPoints: detailPoints, creationDate: Date(timeIntervalSinceReferenceDate: 3)))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("library-state.json")
+        let mounted = try await mount(manual: true,
+            sourceDrawing: PKDrawing(strokes: earlierInk.strokes + [detail]),
+            repository: FileChartRepository(url: file))
+        let chart = mounted.model.chart
+        let sourceData = try XCTUnwrap(chart.pageHandwrittenChordData)
+        let source = try PKDrawing(data: sourceData)
+        XCTAssertEqual(source.strokes.count, 3)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let firstInk = PKDrawing(strokes: Array(source.strokes.prefix(1)))
+        let secondInk = PKDrawing(strokes: Array(source.strokes.dropFirst().prefix(1)))
+        let expandedSecondInk = PKDrawing(strokes: Array(source.strokes.dropFirst()))
+        let first = uncertainPayload(text: "C", drawing: firstInk, measureID: measureID, index: 0, confidence: 4.5)
+        let second = uncertainPayload(text: "Bb", drawing: secondInk, measureID: measureID, index: 1)
+        var latest = uncertainPayload(text: "D7", drawing: expandedSecondInk, measureID: measureID, index: 1, confidence: 4.5)
+
+        func activateAction(_ title: String) async throws {
+            let action = try await waitForNode(in: mounted.window) {
+                $0.isButton && $0.element.accessibilityLabel == title
+            }
+            try activate(action)
+        }
+
+        try XCTUnwrap(mounted.canvas.onChordInkDraftPreviewChanged)([first, second])
+        try await activateAction("Review & Render")
+        let fields = try await waitForReviewFields(in: mounted.window, count: 2, requiresFocus: false)
+        XCTAssertEqual(fields.map(\.text), ["C", "Bb"])
+        for (field, edit) in zip(fields, ["Cmaj7", "Bbmaj7"]) {
+            field.text = edit
+            field.sendActions(for: .editingChanged)
+        }
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        // The completed result updates the writing view underneath review.
+        // The open sheet keeps its own rows and typed entries.
+        latest.timing.recognitionFinishedAt = .now
+        try XCTUnwrap(mounted.canvas.onChordInkDraftPreviewChanged)([first, latest])
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let activeFields = try await waitForReviewFields(in: mounted.window, count: 2, requiresFocus: false)
+        XCTAssertEqual(activeFields.map(\.text), ["Cmaj7", "Bbmaj7"])
+        XCTAssertEqual(mounted.canvas.chordPreviewState.draftChords.map(\.previewText), ["C", "D7"])
+        XCTAssertEqual(mounted.store.charts.first?.pageHandwrittenChordData, sourceData)
+        XCTAssertTrue(mounted.store.charts.allSatisfy { $0.measures.flatMap(\.chordEvents).isEmpty })
+
+        try await activateAction("Back to Writing")
+        try await waitForReviewDismissal(in: mounted)
+        for _ in 0..<50 {
+            mounted.window.layoutIfNeeded()
+            if mounted.canvas.chordPreviewState.draftChords.map(\.previewText) == ["C", "D7"] { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        let refreshed = mounted.canvas.chordPreviewState.draftChords
+        XCTAssertEqual(refreshed.map(\.previewText), ["C", "D7"])
+        XCTAssertEqual(refreshed.map(\.strokeCount), [1, 2])
+        XCTAssertFalse(mounted.canvas.chordPreviewState.requiresChordConfirmation,
+            "The retained correction must still open review after every read becomes trusted")
+        XCTAssertEqual(mounted.store.charts.first?.pageHandwrittenChordData, sourceData)
+
+        try await activateAction("Review & Render")
+        let reopenedFields = try await waitForReviewFields(in: mounted.window, count: 2, requiresFocus: false)
+        XCTAssertEqual(reopenedFields.map(\.text), ["Cmaj7", "D7"],
+            "Reopening must keep the first row's edit and use the latest read for the changed second source")
+        attach(mounted.window, name: "RHY-006 reopened review with retained edit and latest guess")
+        try await activateAction("Render All")
+        try await waitForReviewDismissal(in: mounted)
+
+        let repository = FileChartRepository(url: file)
+        var reopened: ChartLibrarySnapshot?
+        for _ in 0..<60 {
+            let candidate = try repository.loadSnapshot()
+            if candidate?.charts.first?.measures.flatMap(\.chordEvents).count == 2 {
+                reopened = candidate
+                break
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        let snapshot = try XCTUnwrap(reopened)
+        XCTAssertEqual(snapshot.selectedChartID, chart.id)
+        let saved = try XCTUnwrap(snapshot.charts.first)
+        XCTAssertEqual(saved.measures.map(\.id), chart.measures.map(\.id))
+        XCTAssertNil(saved.pageHandwrittenChordData)
+        let events = saved.measures.flatMap(\.chordEvents)
+        XCTAssertEqual(events.map(\.rawInput), ["Cmaj7", "D7"])
+        for (expected, event) in zip([firstInk, expandedSecondInk], events) {
+            let archive = try PKDrawing(data: XCTUnwrap(event.sourceInkData))
+            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: expected, current: archive))
+        }
+    }
+
+    func testManualReviewRendersAfterBackupAcknowledgementWithoutLeavingReview() async throws {
+        try await assertManualReviewRendersAfterBackupAcknowledgement(delayPreview: false)
+    }
+
+    func testManualRenderAllResumesAfterPreviewBecomesReadyWithoutAnotherTap() async throws {
+        try await assertManualReviewRendersAfterBackupAcknowledgement(delayPreview: true)
+    }
+
+    private func assertManualReviewRendersAfterBackupAcknowledgement(delayPreview: Bool) async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let repository = FileChartRepository(url: directory.appendingPathComponent("library-state.json"))
+        var chart = Chart.draft(title: "Disposable same-ink review", layoutStyle: .rhythmSectionSheet)
+        chart.completeInitialSetup(title: chart.title, key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine, startingMeasureCount: 8)
+        XCTAssertEqual(chart.systems.count, 1)
+        let mounted = try await mount(manual: true, repository: repository, initialChart: chart,
+            freezesRecognition: false)
+        let canvas = mounted.canvas
+        let live = try XCTUnwrap(canvas.subviews.compactMap { $0 as? LeadSheetScopedInkCanvasView }.last)
+        let coordinator = try XCTUnwrap(canvas.chordDraftRenderCoordinator)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: canvas.bounds.size,
+            includesChordInkContinuationLanes: true)
+        XCTAssertGreaterThan(layout.systems.count, 1, "The fixture must generate wrapped rows from one source system")
+        let system = try XCTUnwrap(layout.systems.first)
+        let sourceFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let lane = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
+            for: system, paperFrame: layout.paperFrame(for: system)))
+        let first = try XCTUnwrap(system.measures.first { $0.sourceMeasureID == chart.measures[0].id })
+        let second = try XCTUnwrap(system.measures.first { $0.sourceMeasureID == chart.measures[1].id })
+        let y = lane.midY - sourceFrame.minY
+        func stroke(_ offsets: [CGPoint], x: CGFloat, seed: UInt32) -> PKStroke {
+            let path = PKStrokePath(controlPoints: offsets.enumerated().map { index, point in
+                PKStrokePoint(location: CGPoint(x: x - sourceFrame.minX + point.x, y: y + point.y),
+                    timeOffset: Double(index) * 0.05, size: CGSize(width: 3, height: 3),
+                    opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+            }, creationDate: Date(timeIntervalSinceReferenceDate: Double(seed)))
+            return PKStroke(ink: PKInk(.pen, color: LeadSheetPersistentInkColorPolicy.inkColor),
+                path: path, transform: .identity, mask: nil, randomSeed: seed)
+        }
+        let originalFirst = stroke([.init(x: 7, y: -8), .init(x: -7, y: -4), .init(x: -8, y: 5),
+            .init(x: 7, y: 8)], x: first.staffFrame.midX, seed: 1)
+        let originalSecond = stroke([.init(x: -5, y: -3), .init(x: 4, y: 4), .init(x: -5, y: 5)],
+            x: second.staffFrame.midX, seed: 4)
+        let replacedSecond = stroke([.init(x: -6, y: -9), .init(x: -6, y: 9), .init(x: 8, y: 3),
+            .init(x: 8, y: -3), .init(x: -6, y: -9)], x: second.staffFrame.midX, seed: 7)
+        let firstInk = PKDrawing(strokes: [originalFirst])
+        let secondInk = PKDrawing(strokes: [replacedSecond])
+        let latestSource = PKDrawing(strokes: [originalFirst, replacedSecond])
+
+        func replaceDrawing(_ drawing: PKDrawing) async throws {
+            canvas.canvasViewDidBeginUsingTool(live)
+            live.drawing = drawing
+            canvas.canvasViewDrawingDidChange(live)
+            canvas.canvasViewDidEndUsingTool(live)
+            for _ in 0..<80 {
+                mounted.window.layoutIfNeeded()
+                if coordinator.prepareManualPreviewForReview(),
+                   let savedData = mounted.store.charts.first?.pageHandwrittenChordData,
+                   let savedInk = try? PKDrawing(data: savedData),
+                   ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: drawing, current: savedInk) { return }
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            XCTFail("The real Manual preview did not settle on the current saved ink")
+            throw Failure.missingReview
+        }
+        func button(_ title: String) async throws -> NativeAccessibilityLookup.Node {
+            try await waitForNode(in: mounted.window) { $0.isButton && $0.element.accessibilityLabel == title }
+        }
+
+        XCTAssertTrue(canvas.recognizesChordInk)
+        try await replaceDrawing(PKDrawing(strokes: [originalFirst, originalSecond]))
+        let firstRead = uncertainPayload(text: "C", drawing: firstInk, measureID: chart.measures[0].id, index: 0)
+        var noRead = uncertainPayload(text: "", drawing: PKDrawing(strokes: [originalSecond]),
+            measureID: chart.measures[1].id, index: 1)
+        noRead.result = ChordInkRecognitionResult(rawCandidates: [], glyphCandidates: [], match: nil, confidence: 0)
+        try XCTUnwrap(canvas.onChordInkDraftPreviewChanged)([firstRead, noRead])
+        try activate(await button("Review & Render"))
+        let initialFields = try await waitForReviewFields(in: mounted.window, count: 2, requiresFocus: false)
+        XCTAssertEqual(initialFields.map { $0.text ?? "" }, ["C", ""])
+        initialFields[0].text = "Cmaj7"
+        initialFields[0].sendActions(for: .editingChanged)
+        try activate(await button("Back to Writing"))
+        try await waitForReviewDismissal(in: mounted)
+
+        try await replaceDrawing(latestSource)
+        let nextRead = uncertainPayload(text: "D7", drawing: secondInk, measureID: chart.measures[1].id, index: 1)
+        try XCTUnwrap(canvas.onChordInkDraftPreviewChanged)([firstRead, nextRead])
+        try activate(await button("Review & Render"))
+        let reopenedFields = try await waitForReviewFields(in: mounted.window, count: 2, requiresFocus: false)
+        XCTAssertEqual(reopenedFields.map(\.text), ["Cmaj7", "D7"])
+
+        XCTAssertTrue(coordinator.prepareManualPreviewForReview())
+        let beforeBackup = mounted.store.snapshot
+        let backedUpAt = Date(timeIntervalSinceReferenceDate: 10_000)
+        mounted.store.markChartsBackedUpToCloud(chartIDs: [chart.id], ownerID: UUID(),
+            backedUpAt: backedUpAt, from: beforeBackup)
+        for _ in 0..<40 {
+            mounted.window.layoutIfNeeded()
+            if canvas.chart.cloudBackupStatus.lastBackedUpAt == backedUpAt { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertEqual(canvas.chart.cloudBackupStatus.lastBackedUpAt, backedUpAt)
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: latestSource, current: live.drawing))
+        let preparePreview = coordinator.manualPreviewPreparer
+        var pendingChecks = 0
+        if delayPreview {
+            coordinator.manualPreviewPreparer = {
+                pendingChecks += 1
+                return false
+            }
+        }
+        try activate(await button("Render All"))
+        if delayPreview {
+            for _ in 0..<30 where pendingChecks == 0 {
+                mounted.window.layoutIfNeeded()
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            XCTAssertGreaterThan(pendingChecks, 0)
+            let stillOpen = try await waitForReviewFields(in: mounted.window, count: 2, requiresFocus: false)
+            XCTAssertEqual(stillOpen.map(\.text), ["Cmaj7", "D7"])
+            let labels = try NativeAccessibilityLookup.nodes(in: mounted.window).compactMap {
+                $0.element.accessibilityLabel
+            }
+            XCTAssertFalse(labels.contains("OK"), "Transient readiness must not open an alert")
+            XCTAssertTrue(mounted.store.charts.first?.measures.flatMap(\.chordEvents).isEmpty == true)
+            coordinator.manualPreviewPreparer = preparePreview
+            try XCTUnwrap(canvas.onManualChordPreviewReady)()
+        }
+        try await waitForReviewDismissal(in: mounted)
+
+        let snapshot = try XCTUnwrap(try repository.loadSnapshot())
+        XCTAssertEqual(snapshot.selectedChartID, chart.id)
+        let saved = try XCTUnwrap(snapshot.charts.first)
+        XCTAssertEqual(saved.measures.map(\.id), chart.measures.map(\.id))
+        XCTAssertEqual(saved.cloudBackupStatus.lastBackedUpAt, backedUpAt)
+        XCTAssertNil(saved.pageHandwrittenChordData)
+        let events = saved.measures.flatMap(\.chordEvents)
+        XCTAssertEqual(events.map(\.rawInput), ["Cmaj7", "D7"])
+        for (expected, event) in zip([firstInk, secondInk], events) {
+            let archive = try PKDrawing(data: XCTUnwrap(event.sourceInkData))
+            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: expected, current: archive))
+        }
+    }
+
+    func testSustainedRhythmBarlineWithConvertedMarkReportsBoundaryWithoutRestorationPrompt() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let repository = FileChartRepository(url: directory.appendingPathComponent("library-state.json"))
+        var chart = Chart.draft(title: "Sustained boundary with converted mark", layoutStyle: .rhythmSectionSheet)
+        chart.completeInitialSetup(title: chart.title, key: .cMajor, meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine, startingMeasureCount: 3)
+        let measureIDs = chart.measures.map(\.id)
+        let measureID = try XCTUnwrap(measureIDs.first)
+        XCTAssertTrue(chart.setMeasureRhythmMap([.whole], for: measureID))
+        let mark = FreeInkArticulation(kind: .accent, measureID: measureID,
+            sourceInkData: landscapeSourceDrawing().dataRepresentation(), attachment: .note(beat: 1, subdivision: 0))
+        chart.freeInkArticulations = [mark]
+        let originalRhythm = try XCTUnwrap(chart.measure(id: measureID)?.rhythmMap)
+        let mounted = try await mount(manual: true, repository: repository, initialChart: chart,
+            freezesRecognition: false)
+        let canvas = mounted.canvas
+        let live = try XCTUnwrap(canvas.subviews.compactMap { $0 as? LeadSheetScopedInkCanvasView }.last)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: canvas.bounds.size,
+            includesChordInkContinuationLanes: true)
+        let system = try XCTUnwrap(layout.systems.first)
+        let measure = try XCTUnwrap(system.measures.first { $0.sourceMeasureID == measureID })
+        let frame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let lane = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
+            for: system, paperFrame: layout.paperFrame(for: system)))
+        let x = measure.staffFrame.midX - frame.minX
+        let points = [CGPoint(x: x, y: lane.minY + lane.height * 0.08 - frame.minY),
+                      CGPoint(x: x, y: lane.maxY - lane.height * 0.08 - frame.minY)]
+        let path = PKStrokePath(controlPoints: points.enumerated().map { index, point in
+            PKStrokePoint(location: point, timeOffset: Double(index) * 0.05,
+                size: CGSize(width: 3, height: 3), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+        }, creationDate: Date(timeIntervalSinceReferenceDate: 300))
+        let source = PKDrawing(strokes: [PKStroke(
+            ink: PKInk(.pen, color: LeadSheetPersistentInkColorPolicy.inkColor), path: path,
+            transform: .identity, mask: nil, randomSeed: 300)])
+        canvas.canvasViewDidBeginUsingTool(live)
+        live.drawing = source
+        canvas.canvasViewDrawingDidChange(live)
+        canvas.canvasViewDidEndUsingTool(live)
+
+        let render = try await waitForNode(in: mounted.window) {
+            $0.isButton && $0.isEnabled && $0.element.accessibilityLabel == "Render Chords"
+        }
+        XCTAssertEqual(canvas.chordPreviewState.draftBarlines.count, 1)
+        XCTAssertTrue(canvas.chordPreviewState.draftChords.isEmpty)
+        try activate(render)
+        let status = try await waitForNode(in: mounted.window) {
+            $0.element.accessibilityLabel?.contains("rhythmic boundary") == true
+        }
+        let message = try XCTUnwrap(status.element.accessibilityLabel)
+        XCTAssertTrue(message.contains("A note cannot sustain across the split"))
+        XCTAssertFalse(message.contains("Restore Ink"), "Restoring this mark cannot make the sustained note divisible")
+        XCTAssertLessThanOrEqual(status.frame(in: mounted.window).maxY,
+            render.frame(in: mounted.window).minY, "Recovery remains inline above the writing controls")
+        XCTAssertNil(mounted.window.rootViewController?.presentedViewController)
+        let labels = try NativeAccessibilityLookup.nodes(in: mounted.window).compactMap { $0.element.accessibilityLabel }
+        XCTAssertFalse(labels.contains("OK"))
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: source, current: live.drawing))
+
+        var reopened: Chart?
+        for _ in 0..<80 {
+            if let saved = try repository.loadSnapshot()?.charts.first,
+               let data = saved.pageHandwrittenChordData,
+               let drawing = try? PKDrawing(data: data),
+               ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: source, current: drawing) {
+                reopened = saved
+                break
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        let saved = try XCTUnwrap(reopened)
+        XCTAssertEqual(saved.measures.map(\.id), measureIDs)
+        XCTAssertEqual(saved.measure(id: measureID)?.rhythmMap, originalRhythm)
+        XCTAssertTrue(saved.measures.flatMap(\.chordEvents).isEmpty)
+        XCTAssertEqual(saved.freeInkArticulations, [mark])
+    }
+
+    func testManualRendersBarlineBetweenCommittedChordsAndNextChordWithoutDialog() async throws {
+        try await assertCommittedBarlineAndIndependentChordRender(manual: true)
+    }
+
+    func testAutomaticRendersBarlineBetweenCommittedChordsAndNextChordWithoutDialog() async throws {
+        try await assertCommittedBarlineAndIndependentChordRender(manual: false)
+    }
+
+    private func assertCommittedBarlineAndIndependentChordRender(manual: Bool) async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let repository = FileChartRepository(url: directory.appendingPathComponent("library-state.json"))
+        var chart = Chart.draft(title: "Committed barline and independent chord", layoutStyle: .rhythmSectionSheet)
+        chart.completeInitialSetup(title: chart.title, key: .cMajor, meter: Meter(numerator: 4, denominator: 4),
+            staffStyle: .fiveLine, startingMeasureCount: 3)
+        let measureIDs = chart.measures.map(\.id)
+        let firstID = try XCTUnwrap(measureIDs.first)
+        XCTAssertEqual(chart.measure(id: firstID)?.authoringState, .committed)
+        let c = try XCTUnwrap(ChordRecognitionCompendium.match("C"))
+        let g7 = try XCTUnwrap(ChordRecognitionCompendium.match("G7"))
+        let firstEvent = try XCTUnwrap(chart.appendRecognizedChordEvent(
+            c.symbol, rawInput: "C", to: firstID, atFraction: 0.05))
+        let secondEvent = try XCTUnwrap(chart.appendRecognizedChordEvent(
+            g7.symbol, rawInput: "G7", to: firstID, atFraction: 0.88))
+        XCTAssertTrue(chart.moveChordEventInCommittedChordLane(firstEvent, to: firstID, atFraction: nil,
+            visualFraction: 0.16, preserveMusicalPlacement: true))
+        XCTAssertTrue(chart.moveChordEventInCommittedChordLane(secondEvent, to: firstID, atFraction: nil,
+            visualFraction: 0.78, preserveMusicalPlacement: true))
+
+        let mounted = try await mount(manual: manual, repository: repository, initialChart: chart,
+            freezesRecognition: false)
+        let canvas = mounted.canvas
+        let live = try XCTUnwrap(canvas.subviews.compactMap { $0 as? LeadSheetScopedInkCanvasView }.last)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: canvas.bounds.size,
+            includesChordInkContinuationLanes: true)
+        let system = try XCTUnwrap(layout.systems.first)
+        let sourceFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let lane = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
+            for: system, paperFrame: layout.paperFrame(for: system)))
+        let first = try XCTUnwrap(system.measures.first { $0.sourceMeasureID == firstID })
+        let second = try XCTUnwrap(system.measures.first { $0.sourceMeasureID == measureIDs[1] })
+        let y = lane.midY - sourceFrame.minY
+        func stroke(at pageX: CGFloat, offsets: [CGPoint], seed: UInt32) -> PKStroke {
+            let path = PKStrokePath(controlPoints: offsets.enumerated().map { index, point in
+                PKStrokePoint(location: CGPoint(x: pageX - sourceFrame.minX + point.x, y: y + point.y),
+                    timeOffset: Double(index) * 0.05, size: CGSize(width: 3, height: 3),
+                    opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+            }, creationDate: Date(timeIntervalSinceReferenceDate: Double(seed)))
+            return PKStroke(ink: PKInk(.pen, color: LeadSheetPersistentInkColorPolicy.inkColor),
+                path: path, transform: .identity, mask: nil, randomSeed: seed)
+        }
+        let barline = stroke(at: first.staffFrame.midX, offsets: [
+            CGPoint(x: -3, y: -lane.height * 0.42), CGPoint(x: 3, y: lane.height * 0.42)
+        ], seed: 1)
+        let chord = stroke(at: second.staffFrame.midX, offsets: [
+            CGPoint(x: 7, y: -9), CGPoint(x: -5, y: -5), CGPoint(x: -8, y: 0),
+            CGPoint(x: -5, y: 5), CGPoint(x: 7, y: 9)
+        ], seed: 2)
+        let source = PKDrawing(strokes: [barline, chord])
+        canvas.canvasViewDidBeginUsingTool(live)
+        live.drawing = source
+        canvas.canvasViewDrawingDidChange(live)
+        canvas.canvasViewDidEndUsingTool(live)
+
+        if manual {
+            let render = try await waitForNode(in: mounted.window) {
+                $0.isButton && $0.isEnabled && $0.element.accessibilityLabel == "Render Chords"
+            }
+            try activate(render)
+        }
+
+        var saved: Chart?
+        for _ in 0..<160 {
+            mounted.window.layoutIfNeeded()
+            let candidate = try repository.loadSnapshot()?.charts.first
+            if candidate?.measure(id: measureIDs[1])?.chordEvents.count == 1,
+               candidate?.measures.count == chart.measures.count + 1,
+               candidate?.pageHandwrittenChordData == nil {
+                saved = candidate
+                break
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertNil(mounted.window.rootViewController?.presentedViewController,
+            "Rendering a recognized barline must not open a dialog")
+        if saved == nil {
+            let state = canvas.chordPreviewState
+            let labels = try NativeAccessibilityLookup.nodes(in: mounted.window).compactMap {
+                $0.element.accessibilityLabel
+            }
+            let currentChart = try XCTUnwrap(mounted.store.charts.first)
+            let staged = ChordInkDraftRenderCoordinator.prepareAutomaticAttempt(chart: currentChart,
+                state: state, currentDrawing: live.drawing, coordinateSpace: .init(size: sourceFrame.size),
+                now: Date(timeIntervalSinceReferenceDate: 5), lastInputAt: Date(timeIntervalSinceReferenceDate: 0),
+                isUsingTool: false, sourcePageLayout: layout, sourceChordFrame: sourceFrame)
+            XCTFail("The committed barline and independent chord did not save. Preview: \(state.draftChords.map { ($0.previewText, $0.measureID, $0.targetLifecycle?.stage) }); barlines: \(state.draftBarlines); staged feedback: \(staged.feedback); staged outcome: \(staged.outcome != nil); labels: \(labels)")
+        }
+        let reopened = try XCTUnwrap(saved)
+        XCTAssertEqual(reopened.measures.count, chart.measures.count + 1)
+        XCTAssertEqual(reopened.measures.filter { measureIDs.contains($0.id) }.map(\.id), measureIDs)
+        XCTAssertEqual(reopened.measures[0].chordEvents.map(\.id), [firstEvent])
+        XCTAssertEqual(reopened.measures[1].chordEvents.map(\.id), [secondEvent])
+        for id in [firstEvent, secondEvent] {
+            let before = try XCTUnwrap(chart.chordEvent(id: id))
+            let after = try XCTUnwrap(reopened.chordEvent(id: id))
+            XCTAssertEqual(after.rawInput, before.rawInput)
+            XCTAssertEqual(after.symbol, before.symbol)
+            XCTAssertEqual(after.sourceInkData, before.sourceInkData)
+            XCTAssertEqual(after.duration, before.duration)
+            XCTAssertEqual(after.tieOut, before.tieOut)
+        }
+        let event = try XCTUnwrap(reopened.measure(id: measureIDs[1])?.chordEvents.first)
+        XCTAssertEqual(event.rawInput, "C")
+        let archive = try PKDrawing(data: XCTUnwrap(event.sourceInkData))
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+            expected: PKDrawing(strokes: [chord]), current: archive))
+        XCTAssertNil(reopened.pageHandwrittenChordData)
+        XCTAssertNil(reopened.pageHandwrittenChordCoordinateSpace)
+        XCTAssertTrue(live.drawing.strokes.isEmpty)
+        let labels = try NativeAccessibilityLookup.nodes(in: mounted.window).compactMap {
+            $0.element.accessibilityLabel
+        }
+        XCTAssertFalse(labels.contains("OK"))
+    }
+
+    func testBlockedEndingBackToWritingFocusesOnlyTheDividerAndPreservesInk() async throws {
+        try await assertBlockedEndingRecovery(manual: true)
+    }
+
+    func testAutomaticBarlineFeedbackFocusesInkWithoutOpeningReview() async throws {
+        try await assertBlockedEndingRecovery(manual: false)
+    }
+
+    func testManualEndingRecoverySavesOriginalInkAfterBackupAcknowledgement() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("library-state.json")
+        let repository = FileChartRepository(url: file)
+        var chart = Chart.draft(title: "Disposable ending recovery", layoutStyle: .rhythmSectionSheet)
+        chart.completeInitialSetup(title: chart.title, key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine, startingMeasureCount: 3)
+        let measureIDs = chart.measures.map(\.id)
+        XCTAssertTrue(chart.setMeasureRhythmMap([.whole], for: measureIDs[0]),
+            "This fixture cuts a sustained note, so it remains a real unresolved boundary")
+        let mounted = try await mount(manual: true, repository: repository, initialChart: chart,
+            freezesRecognition: false)
+        let canvas = mounted.canvas
+        let live = try XCTUnwrap(canvas.subviews.compactMap { $0 as? LeadSheetScopedInkCanvasView }.last)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: canvas.bounds.size,
+            includesChordInkContinuationLanes: true)
+        let system = try XCTUnwrap(layout.systems.first)
+        let lane = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
+            for: system, paperFrame: layout.paperFrame(for: system)))
+        let sourceFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let first = try XCTUnwrap(system.measures.first { $0.sourceMeasureID == measureIDs[0] })
+        let second = try XCTUnwrap(system.measures.first { $0.sourceMeasureID == measureIDs[1] })
+        let left = second.staffFrame.minX + 2 - sourceFrame.minX
+        let right = second.staffFrame.maxX - 2 - sourceFrame.minX
+        let top = lane.minY + lane.height * 0.12 - sourceFrame.minY
+        let hook = max(6, lane.height * 0.20)
+        let barX = first.staffFrame.midX - sourceFrame.minX
+        let barTop = lane.minY + lane.height * 0.08 - sourceFrame.minY
+        let barBottom = lane.maxY - lane.height * 0.08 - sourceFrame.minY
+        func stroke(_ points: [CGPoint], seed: UInt32) -> PKStroke {
+            let path = PKStrokePath(controlPoints: points.enumerated().map { index, point in
+                PKStrokePoint(location: point, timeOffset: Double(index) * 0.03,
+                    size: CGSize(width: 3, height: 3), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+            }, creationDate: Date(timeIntervalSinceReferenceDate: Double(seed)))
+            return PKStroke(ink: PKInk(.pen, color: LeadSheetPersistentInkColorPolicy.inkColor),
+                path: path, transform: .identity, mask: nil, randomSeed: seed)
+        }
+        let divider = stroke([CGPoint(x: barX, y: barTop), CGPoint(x: barX, y: barBottom)], seed: 1)
+        let endingInk = PKDrawing(strokes: [
+            stroke([CGPoint(x: left, y: top + hook), CGPoint(x: left, y: top)], seed: 2),
+            stroke([CGPoint(x: left, y: top), CGPoint(x: right, y: top)], seed: 3)
+        ])
+        let source = PKDrawing(strokes: [divider] + endingInk.strokes)
+        canvas.canvasViewDidBeginUsingTool(live)
+        live.drawing = source
+        canvas.canvasViewDrawingDidChange(live)
+        canvas.canvasViewDidEndUsingTool(live)
+
+        func button(_ label: String) async throws -> NativeAccessibilityLookup.Node {
+            try await waitForNode(in: mounted.window) { $0.isButton && $0.element.accessibilityLabel == label }
+        }
+        func waitForPreview(barlineCount: Int) async throws {
+            for _ in 0..<80 {
+                mounted.window.layoutIfNeeded()
+                if canvas.chordPreviewState.draftBarlines.count == barlineCount,
+                   canvas.chordPreviewState.draftEndings.count == 1,
+                   canvas.chordDraftRenderCoordinator?.prepareManualPreviewForReview() == true { return }
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            XCTFail("The current barline and ending preview did not settle")
+            throw Failure.missingReview
+        }
+
+        try await waitForPreview(barlineCount: 1)
+        let blockerID = try XCTUnwrap(canvas.chordPreviewState.draftBarlines.first?.id)
+        try activate(await button("Review & Render"))
+        try activate(await button("Barline near measure 1"))
+        try await waitForReviewDismissal(in: mounted)
+        for _ in 0..<40 {
+            mounted.window.layoutIfNeeded()
+            if canvas.focusedDraftEndingBlocker?.id == blockerID { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertEqual(canvas.focusedDraftEndingBlocker?.id, blockerID)
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: source, current: live.drawing))
+
+        try activate(await button("Erase"))
+        for _ in 0..<30 {
+            mounted.window.layoutIfNeeded()
+            if live.manualEraseEnabled { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertTrue(live.manualEraseEnabled)
+        let erase = try XCTUnwrap(live.manualEraseHandler)
+        let midpointY = (barTop + barBottom) / 2
+        erase(CGPoint(x: barX - 2, y: midpointY), CGPoint(x: barX + 2, y: midpointY))
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: endingInk, current: live.drawing))
+        try activate(await button("Write"))
+        try await waitForPreview(barlineCount: 0)
+        try activate(await button("Review & Render"))
+        _ = try await waitForNode(in: mounted.window) {
+            $0.element.accessibilityLabel == "Measure 2"
+        }
+        let labelNode = try await waitForNode(in: mounted.window) {
+            $0.element is IChartTypedUITextField && $0.element.accessibilityLabel == "Ending label"
+        }
+        let label = try XCTUnwrap(labelNode.element as? IChartTypedUITextField)
+        label.text = "1."
+        label.sendActions(for: .editingChanged)
+        let beforeBackup = try XCTUnwrap(mounted.store.charts.first)
+        let backedUpAt = Date(timeIntervalSinceReferenceDate: 10_000)
+        mounted.store.markChartsBackedUpToCloud(chartIDs: [chart.id], ownerID: UUID(),
+            backedUpAt: backedUpAt, from: mounted.store.snapshot)
+        XCTAssertEqual(mounted.store.charts.first?.cloudBackupStatus.lastBackedUpAt, backedUpAt)
+        XCTAssertEqual(mounted.store.charts.first?.pageHandwrittenChordData, beforeBackup.pageHandwrittenChordData)
+        let apply = try await waitForNode(in: mounted.window) {
+            $0.element is PencilOnlyUIButton && $0.element.accessibilityLabel == "Use Ending" && $0.isEnabled
+        }
+        try activate(apply)
+
+        var reopened: Chart?
+        for _ in 0..<60 {
+            let candidate = try FileChartRepository(url: file).loadSnapshot()?.charts.first { $0.id == chart.id }
+            if candidate?.roadmapObjects.contains(where: { $0.type.isEnding }) == true {
+                reopened = candidate
+                break
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        if reopened == nil {
+            attach(mounted.window, name: "RHY-007 ending did not save")
+            let labels = try NativeAccessibilityLookup.nodes(in: mounted.window).compactMap { $0.element.accessibilityLabel }
+            XCTFail("Ending did not save. Visible controls: \(labels). Preview: \(canvas.chordPreviewState.draftEndings.map { ($0.label, $0.isReviewed) })")
+        }
+        let saved = try XCTUnwrap(reopened, "Use Ending must render and persist the recovered bracket")
+        let ending = try XCTUnwrap(saved.roadmapObjects.first { $0.type.isEnding })
+        XCTAssertEqual(saved.measures.map(\.id), measureIDs)
+        XCTAssertEqual(ending.startMeasureID, measureIDs[1])
+        XCTAssertEqual(ending.endMeasureID, measureIDs[1])
+        XCTAssertEqual(ending.resolvedEndingDisplayText, "1.")
+        XCTAssertEqual(saved.cloudBackupStatus.lastBackedUpAt, backedUpAt)
+        XCTAssertNil(saved.pageHandwrittenChordData)
+        let archive = try PKDrawing(data: XCTUnwrap(ending.sourceInkData))
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: endingInk, current: archive))
+    }
+
+    private func assertBlockedEndingRecovery(manual: Bool) async throws {
+        let pageSize = CGSize(width: 820, height: 1_180)
+        var chart = Chart.draft(title: "Disposable ending review", layoutStyle: .rhythmSectionSheet)
+        chart.completeInitialSetup(title: chart.title, key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine, startingMeasureCount: 2)
+        XCTAssertTrue(chart.setMeasureRhythmMap([.whole], for: chart.measures[0].id),
+            "A sustained note spanning the proposed boundary is the unresolved control")
+        let measure = try XCTUnwrap(chart.measures.first)
+        XCTAssertEqual(measure.authoringState, .committed)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize,
+            includesChordInkContinuationLanes: true)
+        let system = try XCTUnwrap(layout.systems.first)
+        let staff = try XCTUnwrap(system.measures.first { $0.sourceMeasureID == measure.id })
+        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let lane = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
+            for: system, paperFrame: layout.paperFrame(for: system)))
+        func laneLocation(_ x: CGFloat) -> ChordInkDraftLaneLocation {
+            .init(systemIndex: system.index, fraction: Double((x - lane.minX) / lane.width))
+        }
+        func mark(_ points: [CGPoint], seed: UInt32) -> PKStroke {
+            let path = PKStrokePath(controlPoints: points.enumerated().map { index, point in
+                PKStrokePoint(location: CGPoint(x: point.x - chordFrame.minX, y: point.y - chordFrame.minY),
+                    timeOffset: Double(index) * 0.03, size: CGSize(width: 3, height: 3),
+                    opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+            }, creationDate: Date(timeIntervalSinceReferenceDate: Double(seed)))
+            return PKStroke(ink: PKInk(.pen, color: LeadSheetPersistentInkColorPolicy.inkColor),
+                path: path, transform: .identity, mask: nil, randomSeed: seed)
+        }
+        let left = staff.staffFrame.minX + 2
+        let right = staff.staffFrame.maxX - 2
+        let top = lane.minY + lane.height * 0.15
+        let bottom = top + lane.height * 0.22
+        let dividerX = staff.staffFrame.midX
+        let barTop = lane.minY + lane.height * 0.35
+        let barBottom = lane.minY + lane.height * 0.9
+        let endingInk = mark([CGPoint(x: left, y: bottom), CGPoint(x: left, y: top),
+            CGPoint(x: right, y: top), CGPoint(x: right, y: bottom)], seed: 1)
+        let dividerInk = mark([CGPoint(x: dividerX, y: barTop), CGPoint(x: dividerX, y: barBottom)], seed: 2)
+        let drawing = PKDrawing(strokes: [endingInk, dividerInk])
+        let geometry = PencilKitInkAdapter.inkStrokes(from: drawing)
+        _ = chart.setPageHandwrittenChordDrawing(drawing.dataRepresentation(),
+            coordinateSpace: PersistentInkCoordinateSpace(size: chordFrame.size))
+        let ending = DraftEnding(
+            start: .init(measureID: measure.id, measureIndex: 0, fraction: 0, laneLocation: laneLocation(left)),
+            end: .init(measureID: measure.id, measureIndex: 0, fraction: 0.9999, laneLocation: laneLocation(right)),
+            layoutPageSize: pageSize, sourceStrokeIndices: [0], sourceStrokeGeometry: [geometry[0]], endStyle: .closed)
+        let blocker = DraftBarline(measureID: measure.id, measureIndex: 0, fraction: 0.5,
+            laneLocation: laneLocation(dividerX), layoutPageSize: pageSize, sourceStrokeIndex: 1,
+            metrics: .init(height: Double(barBottom - barTop), width: 1, angleDegreesFromVertical: 0,
+                straightness: 1, laneCoverage: 0.55), sourceStrokeGeometry: [geometry[1]])
+        let mounted = try await mount(manual: manual, initialChart: chart)
+        let live = try XCTUnwrap(mounted.canvas.subviews.compactMap { $0 as? PKCanvasView }.last)
+        let sourceBefore = live.drawing
+        try XCTUnwrap(mounted.canvas.onChordInkDraftBarlinesChanged)([blocker])
+        try XCTUnwrap(mounted.canvas.onChordInkDraftEndingsChanged)([ending])
+        if !manual {
+            mounted.canvas.onChordInkAutomaticActivityChanged?(.init(chartID: chart.id,
+                sourceRevision: mounted.canvas.automaticChordInputRevision, hasSourceInk: true,
+                phase: .settled, pendingTargetCount: 0, inputAt: nil,
+                feedback: .init(globalReason: .barlinePlacementUnavailable)))
+        }
+        let reviewLabel = manual ? "Review & Render" : ChordInkAutomaticRenderReason.barlinePlacementUnavailable.userMessage
+        let render = try await waitForNode(in: mounted.window) {
+            $0.isButton && $0.element.accessibilityLabel == reviewLabel
+        }
+        try activate(render)
+
+        if manual {
+            _ = try await waitForNode(in: mounted.window) {
+                $0.isButton && $0.element.accessibilityLabel == "Barline near measure 1"
+            }
+            XCTAssertFalse(try NativeAccessibilityLookup.nodes(in: mounted.window).contains {
+                let label = $0.element.accessibilityLabel ?? ""
+                return label.contains("Start measure") || label.contains("End measure")
+            })
+            let apply = try await waitForNode(in: mounted.window) {
+                $0.element is PencilOnlyUIButton && $0.element.accessibilityLabel == "Use Ending"
+            }
+            XCTAssertFalse(apply.isEnabled)
+            attach(mounted.window, name: "RHY-007 deliberate ending review names its blocking divider")
+            let back = try await waitForNode(in: mounted.window) {
+                $0.isButton && $0.element.accessibilityLabel == "Back to Writing"
+            }
+            try activate(back)
+            try await waitForReviewDismissal(in: mounted)
+        } else {
+            XCTAssertNil(mounted.window.rootViewController?.presentedViewController,
+                "Automatic barline recovery must leave the canvas available")
+        }
+        for _ in 0..<40 {
+            mounted.window.layoutIfNeeded()
+            if mounted.canvas.focusedDraftEndingBlocker?.id == blocker.id { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertEqual(mounted.canvas.focusedDraftEndingBlocker?.id, blocker.id)
+        XCTAssertEqual(mounted.canvas.chordPreviewState.draftEndings, [ending])
+        XCTAssertEqual(mounted.canvas.chordPreviewState.draftBarlines, [blocker])
+        XCTAssertEqual(mounted.model.chart, chart)
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: sourceBefore, current: live.drawing))
+        attach(mounted.window, name: "RHY-007 Back to Writing highlights the divider without editing ink")
     }
 
     func testLandscapeSoftwareKeyboardLeavesBothReviewEntriesReachableAndCancelPreservesSource() async throws {
@@ -432,22 +1372,8 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
         let callback = try XCTUnwrap(mounted.canvas.onChordInkDraftPreviewChanged)
         let measureID = mounted.model.chart.measures[0].id
         let payloads = source.strokes.enumerated().map { index, stroke in
-            let text = index == 0 ? "C" : "Bb"
-            let data = PKDrawing(strokes: [stroke]).dataRepresentation()
-            let ink = PencilKitInkAdapter.inkStrokes(from: PKDrawing(strokes: [stroke]))
-            let fraction = index == 0 ? 0.25 : 0.75
-            let anchor = ChordInkDraftAnchor(measureID: measureID, laneLocation: nil,
-                visualOrder: Double(index), fraction: fraction)
-            let result = ChordInkRecognitionResult(rawCandidates: [text], glyphCandidates: [],
-                match: ChordRecognitionCompendium.match(text), confidence: 0,
-                candidateScores: [ChordInkCandidateScore(text: text, displayText: text, confidence: 0)])
-            let time = Date().addingTimeInterval(-2)
-            return ChordInkRecognitionProposalPayload(requestID: UUID(), result: result,
-                strokes: ink, drawingData: data, target: (measureID, fraction), visualOrder: Double(index),
-                targetLifecycle: ChordInkRecognitionTargetLifecycle(generationID: UUID(), anchor: anchor,
-                    ownership: .init(preparedStrokes: ink), stage: .stable),
-                timing: .init(scheduledAt: time, requestedDelay: 0, recognitionStartedAt: time,
-                    recognitionFinishedAt: time, strokeCount: 1))
+            uncertainPayload(text: index == 0 ? "C" : "Bb", drawing: PKDrawing(strokes: [stroke]),
+                measureID: measureID, index: index)
         }
         callback(payloads)
         for _ in 0..<40 {
@@ -470,6 +1396,24 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
                 sourceRevision: mounted.canvas.automaticChordInputRevision, hasSourceInk: true,
                 phase: .settled, pendingTargetCount: 0, inputAt: inputAt, feedback: feedback))
         }
+    }
+
+    private func uncertainPayload(text: String, drawing: PKDrawing, measureID: UUID,
+        index: Int, confidence: Double = 0) -> ChordInkRecognitionProposalPayload {
+        let ink = PencilKitInkAdapter.inkStrokes(from: drawing)
+        let fraction = index == 0 ? 0.25 : 0.75
+        let anchor = ChordInkDraftAnchor(measureID: measureID, laneLocation: nil,
+            visualOrder: Double(index), fraction: fraction)
+        let result = ChordInkRecognitionResult(rawCandidates: [text], glyphCandidates: [],
+            match: ChordRecognitionCompendium.match(text), confidence: confidence,
+            candidateScores: [ChordInkCandidateScore(text: text, displayText: text, confidence: confidence)])
+        let time = Date().addingTimeInterval(-2)
+        return ChordInkRecognitionProposalPayload(requestID: UUID(), result: result,
+            strokes: ink, drawingData: drawing.dataRepresentation(), target: (measureID, fraction),
+            visualOrder: Double(index), targetLifecycle: ChordInkRecognitionTargetLifecycle(
+                generationID: UUID(), anchor: anchor, ownership: .init(preparedStrokes: ink), stage: .stable),
+            timing: .init(scheduledAt: time, requestedDelay: 0, recognitionStartedAt: time,
+                recognitionFinishedAt: time, strokeCount: drawing.strokes.count))
     }
 
     private var placementRefusalLabel: String {
@@ -604,28 +1548,45 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
     }
 
     private func mount(manual: Bool, viewport: CGSize = CGSize(width: 820, height: 1_180),
-        sourceDrawing: PKDrawing? = nil) async throws -> Mounted {
+        sourceDrawing: PKDrawing? = nil, repository: ChartRepository? = nil, initialChart: Chart? = nil,
+        freezesRecognition: Bool = true) async throws -> Mounted {
         let key = ChordInkWorkflowSettings.manualRenderWithPreviewKey
         let previous = UserDefaults.standard.object(forKey: key)
         UserDefaults.standard.set(manual, forKey: key)
-        var chart = Chart.draft(title: "Disposable automatic feedback", layoutStyle: .rhythmSectionSheet)
-        chart.completeInitialSetup(title: chart.title, key: .cMajor,
-            meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine, startingMeasureCount: 1)
-        _ = chart.setPageHandwrittenChordDrawing((sourceDrawing ?? drawing()).dataRepresentation())
+        let chart: Chart
+        if let initialChart {
+            chart = initialChart
+        } else {
+            var fixture = Chart.draft(title: "Disposable automatic feedback", layoutStyle: .rhythmSectionSheet)
+            fixture.completeInitialSetup(title: fixture.title, key: .cMajor,
+                meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine, startingMeasureCount: 1)
+            _ = fixture.setPageHandwrittenChordDrawing((sourceDrawing ?? drawing()).dataRepresentation())
+            chart = fixture
+        }
         let model = FeedbackEditorChartModel(chart)
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = ChartLibraryStore(charts: [chart], selectedChartID: chart.id, repository: repository)
+        let chartBinding: Binding<Chart>
+        if let repository {
+            try repository.saveSnapshot(store.snapshot)
+            chartBinding = try XCTUnwrap(store.editorBinding(for: chart.id))
+        } else {
+            chartBinding = Binding(get: { model.chart }, set: { model.chart = $0 })
+        }
         let root = NavigationStack {
-            EditorView(chart: Binding(get: { model.chart }, set: { model.chart = $0 }),
+            EditorView(chart: chartBinding,
                 chordInkUserCorrectionMemoryStore: .init(url: directory.appendingPathComponent("corrections.json")),
                 initialCanvasMode: .chordEntry)
         }
-        .environmentObject(ChartLibraryStore(charts: [chart], selectedChartID: chart.id))
+        .environmentObject(store)
         .environmentObject(IChartPDFLibraryStore(baseDirectory: directory.appendingPathComponent("PDF Library")))
         .environment(\.accessibilityEnabled, true)
         let wantsLandscape = viewport.width > viewport.height
         let requestedMask: UIInterfaceOrientationMask = wantsLandscape ? .landscapeRight : .portrait
         let host = FeedbackFixtureHostingController(rootView: root)
-        host.onFixtureLayout = { [weak self] view in self?.freezeFixtureRecognition(in: view) }
+        if freezesRecognition {
+            host.onFixtureLayout = { [weak self] view in self?.freezeFixtureRecognition(in: view) }
+        }
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive })
         let previousOrientation = scene.effectiveGeometry.interfaceOrientation
@@ -635,13 +1596,13 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
         window.rootViewController = host
         window.makeKeyAndVisible()
         window.layoutIfNeeded()
-        freezeFixtureRecognition(in: host.view)
+        if freezesRecognition { freezeFixtureRecognition(in: host.view) }
         // A new key window's orientation controller is installed during its
         // appearance transaction. Requesting geometry synchronously from
         // makeKeyAndVisible can still consult the previous portrait host,
         // even though this host already reports support for landscape.
         for _ in 0..<40 {
-            freezeFixtureRecognition(in: host.view)
+            if freezesRecognition { freezeFixtureRecognition(in: host.view) }
             if host.hasAppeared, window.isKeyWindow { break }
             try await Task.sleep(nanoseconds: 50_000_000)
         }
@@ -649,7 +1610,7 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
             "The fixture must own an appeared key-window host before requesting scene geometry")
         host.setNeedsUpdateOfSupportedInterfaceOrientations()
         try await Task.sleep(nanoseconds: 50_000_000)
-        freezeFixtureRecognition(in: host.view)
+        if freezesRecognition { freezeFixtureRecognition(in: host.view) }
         let beforeGeometry = geometryDiagnostics(scene: scene, window: window, host: host,
             requestedMask: requestedMask)
         var geometryError: String?
@@ -666,7 +1627,7 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
             window.layoutIfNeeded()
             // Rotation can rebuild the representable and restore its live
             // bridge. Freeze at first appearance, before every awaited delay.
-            freezeFixtureRecognition(in: host.view)
+            if freezesRecognition { freezeFixtureRecognition(in: host.view) }
             let matchesSceneBounds = abs(window.bounds.width - sceneBounds.width) < 0.5
                 && abs(window.bounds.height - sceneBounds.height) < 0.5
             stableGeometrySamples = matchesRequestedOrientation && matchesSceneBounds ? stableGeometrySamples + 1 : 0
@@ -696,10 +1657,12 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
         for _ in 0..<40 {
             window.layoutIfNeeded()
             if let canvas = descendants(host.view).compactMap({ $0 as? LeadSheetCanvasUIKitView }).first {
-                canvas.recognizesChordInk = false
-                XCTAssertTrue(model.chart.measures.flatMap(\.chordEvents).isEmpty,
-                    "A frozen review fixture must not automatically commit during its orientation setup")
-                let mounted = Mounted(model: model, window: window, canvas: canvas, previousWindow: previousWindow,
+                if freezesRecognition { canvas.recognizesChordInk = false }
+                if freezesRecognition {
+                    XCTAssertEqual(model.chart.measures.flatMap(\.chordEvents), chart.measures.flatMap(\.chordEvents),
+                        "A frozen review fixture must not automatically commit during its orientation setup")
+                }
+                let mounted = Mounted(model: model, store: store, window: window, canvas: canvas, previousWindow: previousWindow,
                     previousPreference: previous, directory: directory, previousOrientation: previousOrientation)
                 addTeardownBlock { await mounted.close() }
                 return mounted
@@ -783,6 +1746,7 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
     @MainActor
     private struct Mounted {
         let model: FeedbackEditorChartModel
+        let store: ChartLibraryStore
         let window: UIWindow
         let canvas: LeadSheetCanvasUIKitView
         let previousWindow: UIWindow?
@@ -918,5 +1882,33 @@ private extension NativeAccessibilityLookup.Node {
 private final class FeedbackEditorChartModel: ObservableObject {
     @Published var chart: Chart
     init(_ chart: Chart) { self.chart = chart }
+}
+
+private final class FailingFeedbackChartRepository: ChartRepository {
+    let savesSnapshotsOffMainThread = true
+    private let disk: FileChartRepository
+    private let lock = NSLock()
+    private var failsWrites = false
+    private var failureCount = 0
+
+    init(disk: FileChartRepository) { self.disk = disk }
+
+    func setWriteFailure(_ failsWrites: Bool) {
+        lock.withLock { self.failsWrites = failsWrites }
+    }
+
+    var failedWriteCount: Int { lock.withLock { failureCount } }
+
+    func loadSnapshot() throws -> ChartLibrarySnapshot? { try disk.loadSnapshot() }
+
+    func saveSnapshot(_ snapshot: ChartLibrarySnapshot) throws {
+        try lock.withLock {
+            if failsWrites {
+                failureCount += 1
+                throw CocoaError(.fileWriteNoPermission)
+            }
+        }
+        try disk.saveSnapshot(snapshot)
+    }
 }
 #endif

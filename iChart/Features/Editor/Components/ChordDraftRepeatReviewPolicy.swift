@@ -28,7 +28,10 @@ enum ChordDraftRepeatReviewPolicy {
 
     static func confirmation(for chart: Chart, state: ChordPreviewState) -> PendingChordDraftRepeatConfirmation? {
         guard blockingMessage(for: state) == nil,
-              let draftID = ChordInkRepeatSignPairingPolicy.review(state: state).unconfirmedEndIDs.first else { return nil }
+              let draftID = ChordInkRepeatSignPairingPolicy.analyze(
+                signs: ChordInkRepeatSignPairingPolicy.orderedSigns(state.draftBarlines)
+              ).pairings.first(where: { $0.start == nil && !$0.end.repeatFromBeginningConfirmed })?.end.id
+        else { return nil }
         return PendingChordDraftRepeatConfirmation(
             chartID: chart.id, draftID: draftID,
             sourceDrawingData: chart.pageHandwrittenChordData,
@@ -51,7 +54,7 @@ enum ChordDraftRepeatReviewPolicy {
               currentState.draftEndings == request.state.draftEndings,
               currentState.layoutPageSize == request.state.layoutPageSize,
               blockingMessage(for: currentState) == nil,
-              ChordInkRepeatSignPairingPolicy.review(state: currentState).unconfirmedEndIDs.first == request.draftID,
+              confirmation(for: chart, state: currentState)?.draftID == request.draftID,
               let index = currentState.draftBarlines.firstIndex(where: { $0.id == request.draftID }) else { return nil }
         var confirmed = currentState
         confirmed.draftBarlines[index].repeatFromBeginningConfirmed = true

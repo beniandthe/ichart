@@ -70,6 +70,7 @@ private struct ChordInkReviewButton: View {
             action: action
         )
         .frame(height: buttonHeight)
+        .disabled(!isEnabled)
         .background(ChartKeyboardActionTelemetryMarker(isRequired: isRequiredForKeyboardTelemetry,
             isEnabled: isEnabled))
     }
@@ -272,12 +273,7 @@ struct PendingChordInkBatchConfirmation: Identifiable {
         if requiresSeparatedChordInk {
             return "Separate the grouped chords before rendering."
         }
-        switch source {
-        case .recognitionProposal:
-            return "Review each chord, then render them together."
-        case .draftPreview:
-            return "Check the reads and enter any missing chords, then render the draft."
-        }
+        return "Check each recognition guess and enter any missing chords. \(actionTitle) uses the chord text shown in each row."
     }
 
     var actionTitle: String {
@@ -417,7 +413,10 @@ enum ChordInkDraftReviewPolicy {
               batch.confirmations.count == state.draftChords.count else {
             return .failure(.draftCountChanged)
         }
-        guard state.draftChords == expected.draftChords else { return .failure(.draftsChanged) }
+        guard zip(state.draftChords, expected.draftChords).allSatisfy({ current, reviewed in
+            matchesReviewedSource(current, reviewed: reviewed, submittedText: candidateTextByDraftID[current.id])
+        })
+        else { return .failure(.draftsChanged) }
         guard state.draftBarlines == expected.draftBarlines else { return .failure(.barlinesChanged) }
         guard state.draftEndings == expected.draftEndings else { return .failure(.endingsChanged) }
         guard state.layoutPageSize == expected.layoutPageSize else { return .failure(.layoutChanged) }
@@ -425,6 +424,28 @@ enum ChordInkDraftReviewPolicy {
             return .failure(.confirmationIDsChanged)
         }
         return validation(from: state, candidateTextByDraftID: candidateTextByDraftID)
+    }
+
+    private static func matchesReviewedSource(
+        _ current: ChordInkDraft, reviewed: ChordInkDraft, submittedText: String?
+    ) -> Bool {
+        guard let submittedText, ChordRecognitionCompendium.match(submittedText) != nil else {
+            return current == reviewed
+        }
+        // Render All accepts the supported text displayed in this row. A new
+        // reader suggestion cannot change that choice for the same owned ink.
+        var comparable = current
+        comparable.candidateTexts = reviewed.candidateTexts
+        comparable.bestCandidateText = reviewed.bestCandidateText
+        comparable.confidence = reviewed.confidence
+        comparable.recognitionResult = reviewed.recognitionResult
+        comparable.primaryDecision = reviewed.primaryDecision
+        comparable.recognitionDecision = reviewed.recognitionDecision
+        if var lifecycle = comparable.targetLifecycle, let reviewedLifecycle = reviewed.targetLifecycle {
+            lifecycle.generationID = reviewedLifecycle.generationID
+            comparable.targetLifecycle = lifecycle
+        }
+        return comparable == reviewed
     }
 
     static func reviewedState(
@@ -529,6 +550,19 @@ struct PendingChordCorrection: Identifiable {
         return texts
     }
 
+    /// Keep correction shortcuts separate from persisted recognition evidence.
+    /// A legacy signature can contain only the original three wrong guesses.
+    var qualityChoiceTexts: [String] {
+        ChordInkCorrectionQualityPolicy.choiceTexts(for: currentDisplayText,
+            excluding: Set(visibleAlternativeTexts))
+    }
+
+    var visibleAlternativeTexts: [String] {
+        // Ordinary signatures contain at most three candidates. Bound imported
+        // legacy evidence without silently hiding the fourth valid alternative.
+        Array(quickChoiceTexts.filter { $0 != ChordInkManualEntryShortcut.chordRepeatText }.prefix(16))
+    }
+
     private static func normalizedDisplayText(for text: String?) -> String? {
         guard let text else {
             return nil
@@ -546,6 +580,31 @@ struct PendingChordCorrection: Identifiable {
     }
 }
 
+struct ChordRenderInlineStatus: View {
+    let message: String
+
+    var body: some View {
+        Label(message, systemImage: "info.circle")
+            .font(.caption.weight(.semibold))
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("chord-render-inline-status")
+    }
+}
+
+private extension View {
+    func chordRenderStatusInset(_ message: String?) -> some View {
+        safeAreaInset(edge: .top, spacing: 0) {
+            if let message {
+                ChordRenderInlineStatus(message: message)
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 8)
+                    .background(.bar)
+            }
+        }
+    }
+}
+
 struct ChordInkBatchConfirmationSheetView: View {
     let batch: PendingChordInkBatchConfirmation
     let highlightsForwardActions: Bool
@@ -553,14 +612,12 @@ struct ChordInkBatchConfirmationSheetView: View {
     let onClearAndRewrite: () -> Void
     let onBackToInk: (() -> Void)?
     let onRewriteChord: ((PendingChordInkConfirmation) -> Void)?
-    let onEntryTextsChanged: (([UUID: String]) -> Void)?
+    let onEditedTextsChanged: (([UUID: String]) -> Void)?
     let initialFocusedConfirmationID: UUID?
     @Binding private var renderError: String?
-    @State private var candidateTextByID: [UUID: String]
+    @State private var editedTextByID: [UUID: String]
     // UIKit reports focus through its delegate, not a SwiftUI .focused modifier.
     @State private var focusedConfirmationID: UUID?
-    @State private var keyboardScrollConfirmationID: UUID?
-    @State private var keyboardScrollRequestID = 0
     @State private var confirmsRewriteAll = false
 
     init(
@@ -570,9 +627,9 @@ struct ChordInkBatchConfirmationSheetView: View {
         onClearAndRewrite: @escaping () -> Void,
         onBackToInk: (() -> Void)? = nil,
         onRewriteChord: ((PendingChordInkConfirmation) -> Void)? = nil,
-        initialEntryTextsByID: [UUID: String] = [:],
+        initialEditedTextsByID: [UUID: String] = [:],
         initialFocusedConfirmationID: UUID? = nil,
-        onEntryTextsChanged: (([UUID: String]) -> Void)? = nil,
+        onEditedTextsChanged: (([UUID: String]) -> Void)? = nil,
         renderError: Binding<String?> = .constant(nil)
     ) {
         self.batch = batch
@@ -581,23 +638,16 @@ struct ChordInkBatchConfirmationSheetView: View {
         self.onClearAndRewrite = onClearAndRewrite
         self.onBackToInk = onBackToInk
         self.onRewriteChord = onRewriteChord
-        self.onEntryTextsChanged = onEntryTextsChanged
+        self.onEditedTextsChanged = onEditedTextsChanged
         self.initialFocusedConfirmationID = initialFocusedConfirmationID
         _renderError = renderError
         _focusedConfirmationID = State(initialValue: initialFocusedConfirmationID)
-        _keyboardScrollConfirmationID = State(initialValue: initialFocusedConfirmationID)
-        _candidateTextByID = State(
-            initialValue: Dictionary(
-                uniqueKeysWithValues: batch.confirmations.map { confirmation in
-                    (confirmation.id, initialEntryTextsByID[confirmation.id] ?? confirmation.bestCandidateText ?? "")
-                }
-            )
-        )
+        let confirmationIDs = Set(batch.confirmations.map(\.id))
+        _editedTextByID = State(initialValue: initialEditedTextsByID.filter { confirmationIDs.contains($0.key) })
     }
 
     var body: some View {
         NavigationStack {
-            ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: 14) {
                         VStack(spacing: 5) {
@@ -629,7 +679,7 @@ struct ChordInkBatchConfirmationSheetView: View {
                         HStack(spacing: 10) {
                             if let onBackToInk {
                                 ChordInkReviewButton(title: "Back to Writing", isRequiredForKeyboardTelemetry: true) {
-                                    onEntryTextsChanged?(candidateTextByID)
+                                    onEditedTextsChanged?(editedTextByID)
                                     focusedConfirmationID = nil
                                     onBackToInk()
                                 }
@@ -642,7 +692,8 @@ struct ChordInkBatchConfirmationSheetView: View {
                                 isEnabled: canRenderAll,
                                 isRequiredForKeyboardTelemetry: true
                             ) {
-                                onEntryTextsChanged?(candidateTextByID)
+                                guard canRenderAll else { return }
+                                onEditedTextsChanged?(editedTextByID)
                                 focusedConfirmationID = nil
                                 onAcceptAll(trimmedCandidateTextByID)
                             }
@@ -667,25 +718,7 @@ struct ChordInkBatchConfirmationSheetView: View {
                     .background(IChartTypedSheetScrollSupport(monitorsKeyboardReachability: true))
                 }
                 .scrollDismissesKeyboard(.interactively)
-                .onChange(of: keyboardScrollRequestID) { _, _ in
-                    if let id = keyboardScrollConfirmationID {
-                        withAnimation { proxy.scrollTo(id, anchor: .top) }
-                    }
-                }
-                .task(id: batch.id) {
-                    // Wait until the complete scrolling content has a layout
-                    // before locating the selected source-bound review row.
-                    await Task.yield()
-                    if let initialFocusedConfirmationID {
-                        proxy.scrollTo(initialFocusedConfirmationID, anchor: .top)
-                    }
-                }
-                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
-                    // The keyboard changes the available scroll viewport.
-                    // Reuse the focus scroll hook after that change settles.
-                    if let id = focusedConfirmationID { requestKeyboard(for: id) }
-                }
-            }
+                .chordRenderStatusInset(renderError)
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("Review Chords")
             .navigationBarTitleDisplayMode(.inline)
@@ -700,20 +733,15 @@ struct ChordInkBatchConfirmationSheetView: View {
         .presentationDetents([.large])
         .interactiveDismissDisabled(true)
         .onAppear {
-            onEntryTextsChanged?(candidateTextByID)
+            onEditedTextsChanged?(editedTextByID)
             if let initialFocusedConfirmationID,
                !batch.requiresSeparatedChordInk(for: initialFocusedConfirmationID),
                batch.confirmations.contains(where: { $0.id == initialFocusedConfirmationID }) {
                 requestKeyboard(for: initialFocusedConfirmationID)
             }
         }
-        .onChange(of: candidateTextByID) { _, entries in
-            onEntryTextsChanged?(entries)
-        }
-        .alert("Write & Render", isPresented: isRenderErrorPresented, presenting: renderError) { _ in
-            Button("OK", role: .cancel) {}
-        } message: { error in
-            Text(error)
+        .onChange(of: editedTextByID) { _, entries in
+            onEditedTextsChanged?(entries)
         }
         .confirmationDialog("Rewrite all chord ink?", isPresented: $confirmsRewriteAll, titleVisibility: .visible) {
             Button("Rewrite All Ink", role: .destructive) { onClearAndRewrite() }
@@ -723,15 +751,13 @@ struct ChordInkBatchConfirmationSheetView: View {
         }
     }
 
-    private var isRenderErrorPresented: Binding<Bool> {
-        Binding(
-            get: { renderError != nil },
-            set: { if !$0 { renderError = nil } }
-        )
-    }
-
     private var trimmedCandidateTextByID: [UUID: String] {
-        ChordInkDraftReviewPolicy.submissionTexts(for: batch, candidateTextByDraftID: candidateTextByID)
+        ChordInkDraftReviewPolicy.submissionTexts(
+            for: batch,
+            candidateTextByDraftID: Dictionary(uniqueKeysWithValues: batch.confirmations.map {
+                ($0.id, entryText(for: $0))
+            })
+        )
     }
 
     private var canRenderAll: Bool {
@@ -740,8 +766,19 @@ struct ChordInkBatchConfirmationSheetView: View {
 
     private var remainingEntryCount: Int {
         ChordInkReviewEntryValidation.remainingCount(
-            for: batch.confirmations.map { candidateTextByID[$0.id] }
+            for: batch.confirmations.map { entryText(for: $0) }
         )
+    }
+
+    private func entryText(for confirmation: PendingChordInkConfirmation) -> String {
+        editedTextByID[confirmation.id] ?? confirmation.bestCandidateText ?? ""
+    }
+
+    private func entryOrigin(for confirmation: PendingChordInkConfirmation) -> String {
+        if editedTextByID[confirmation.id] != nil {
+            return "Your edit"
+        }
+        return confirmation.bestCandidateText == nil ? "Needs a chord" : "Recognition guess"
     }
 
     private func chordRow(for confirmation: PendingChordInkConfirmation) -> some View {
@@ -774,15 +811,16 @@ struct ChordInkBatchConfirmationSheetView: View {
 
     private func chordEntryControls(for confirmation: PendingChordInkConfirmation) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Text("Chord")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
+            Text(entryOrigin(for: confirmation))
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("Chord review origin \(confirmation.id.uuidString)")
+
             IChartTypedTextField(
                 placeholder: "Chord",
                 text: Binding(
-                    get: { candidateTextByID[confirmation.id] ?? "" },
-                    set: { candidateTextByID[confirmation.id] = $0 }
+                    get: { entryText(for: confirmation) },
+                    set: { editedTextByID[confirmation.id] = $0 }
                 ),
                 isFocused: Binding(
                     get: { focusedConfirmationID == confirmation.id },
@@ -803,9 +841,8 @@ struct ChordInkBatchConfirmationSheetView: View {
             .frame(height: 52)
             .accessibilityLabel("Chord entry for measure \(confirmation.displayMeasureNumber)")
             .accessibilityIdentifier("Chord review entry \(confirmation.id.uuidString)")
-            }
 
-            if let feedback = ChordInkReviewEntryValidation(text: candidateTextByID[confirmation.id])
+            if let feedback = ChordInkReviewEntryValidation(text: entryText(for: confirmation))
                 .feedbackText(hasMissingChordGuidance: confirmation.requiresDirectEntry && confirmation.reviewMessage != nil) {
                 Text(feedback)
                     .font(.caption.weight(.semibold))
@@ -814,7 +851,7 @@ struct ChordInkBatchConfirmationSheetView: View {
                     .accessibilityIdentifier("Chord entry feedback for measure \(confirmation.displayMeasureNumber)")
             }
 
-            if confirmation.requiresDirectEntry {
+            if confirmation.requiresDirectEntry && entryText(for: confirmation).isEmpty {
                 Text("Type the chord shown in your handwriting.")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -823,7 +860,7 @@ struct ChordInkBatchConfirmationSheetView: View {
                 HStack(spacing: 8) {
                     ForEach(confirmation.visibleCandidateTexts, id: \.self) { candidate in
                         ChordInkReviewButton(title: candidate) {
-                            candidateTextByID[confirmation.id] = candidate
+                            editedTextByID[confirmation.id] = candidate
                             focusedConfirmationID = nil
                         }
                         .frame(maxWidth: .infinity)
@@ -841,7 +878,7 @@ struct ChordInkBatchConfirmationSheetView: View {
                     style: .plain,
                     accessibilityLabel: "Use chord repeat symbol"
                 ) {
-                    candidateTextByID[confirmation.id] = ChordInkManualEntryShortcut.chordRepeatText
+                    editedTextByID[confirmation.id] = ChordInkManualEntryShortcut.chordRepeatText
                     focusedConfirmationID = nil
                 }
                 .frame(maxWidth: .infinity)
@@ -869,9 +906,9 @@ struct ChordInkBatchConfirmationSheetView: View {
     }
 
     private func requestKeyboard(for id: UUID) {
+        // UIKit owns focused-field keyboard avoidance. Scrolling a whole row
+        // here and again after keyboardDidShow starts competing animations.
         focusedConfirmationID = id
-        keyboardScrollConfirmationID = id
-        keyboardScrollRequestID += 1
     }
 }
 
@@ -921,6 +958,7 @@ struct ChordInkConfirmationSheetView: View {
     let onClearAndRewrite: () -> Void
     let onBackToInk: (() -> Void)?
     let onRewriteChord: ((PendingChordInkConfirmation) -> Void)?
+    let renderStatus: String?
     @State private var manualCandidateText: String
     @State private var fixtureCopyStatus: ChordInkFixtureCopyResult?
     @State private var confirmsRewriteAll = false
@@ -934,7 +972,8 @@ struct ChordInkConfirmationSheetView: View {
         onCopyFixtureJSON: @escaping (String) -> ChordInkFixtureCopyResult,
         onClearAndRewrite: @escaping () -> Void,
         onBackToInk: (() -> Void)? = nil,
-        onRewriteChord: ((PendingChordInkConfirmation) -> Void)? = nil
+        onRewriteChord: ((PendingChordInkConfirmation) -> Void)? = nil,
+        renderStatus: String? = nil
     ) {
         self.confirmation = confirmation
         self.showsFixtureCaptureTools = showsFixtureCaptureTools
@@ -944,6 +983,7 @@ struct ChordInkConfirmationSheetView: View {
         self.onClearAndRewrite = onClearAndRewrite
         self.onBackToInk = onBackToInk
         self.onRewriteChord = onRewriteChord
+        self.renderStatus = renderStatus
         _manualCandidateText = State(initialValue: confirmation.bestCandidateText ?? "")
     }
 
@@ -1028,6 +1068,7 @@ struct ChordInkConfirmationSheetView: View {
             .background(IChartTypedSheetScrollSupport(monitorsKeyboardReachability: true))
             }
             .scrollDismissesKeyboard(.interactively)
+            .chordRenderStatusInset(renderStatus)
             .background(Color(uiColor: .systemGroupedBackground))
             .toolbar(.hidden, for: .navigationBar)
         }
@@ -1153,6 +1194,7 @@ struct ChordCorrectionSheetView: View {
     let canTeachHandwriting: Bool
     let onAcceptCandidate: (String, Bool) -> Void
     let onCancel: () -> Void
+    let renderStatus: String?
     @State private var candidateText: String
     @State private var teachesHandwriting = false
     @State private var isManualEntryFocused = false
@@ -1161,12 +1203,14 @@ struct ChordCorrectionSheetView: View {
         correction: PendingChordCorrection,
         canTeachHandwriting: Bool = false,
         onAcceptCandidate: @escaping (String, Bool) -> Void,
-        onCancel: @escaping () -> Void
+        onCancel: @escaping () -> Void,
+        renderStatus: String? = nil
     ) {
         self.correction = correction
         self.canTeachHandwriting = canTeachHandwriting
         self.onAcceptCandidate = onAcceptCandidate
         self.onCancel = onCancel
+        self.renderStatus = renderStatus
         _candidateText = State(initialValue: correction.currentDisplayText)
     }
 
@@ -1178,6 +1222,11 @@ struct ChordCorrectionSheetView: View {
                     .font(.title2.weight(.bold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
+
+                Text("Choose an alternative, change the quality, or edit the text. Save applies the chord shown in Change to.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 HStack(spacing: 16) {
                     if correction.sourceInkData != nil {
@@ -1244,6 +1293,7 @@ struct ChordCorrectionSheetView: View {
             .background(IChartTypedSheetScrollSupport(monitorsKeyboardReachability: true))
             }
             .scrollDismissesKeyboard(.interactively)
+            .chordRenderStatusInset(renderStatus)
             .background(Color(uiColor: .systemGroupedBackground))
             .toolbar(.hidden, for: .navigationBar)
         }
@@ -1252,17 +1302,39 @@ struct ChordCorrectionSheetView: View {
     }
 
     private var shortcutButtons: some View {
-        let candidates = Array(quickShortcutTexts.prefix(3))
+        let candidates = correction.visibleAlternativeTexts
 
-        return VStack(spacing: 10) {
+        return VStack(alignment: .leading, spacing: 10) {
             if !candidates.isEmpty {
-                HStack(spacing: 8) {
+                Text("Other spellings and saved alternatives")
+                    .font(.subheadline.weight(.semibold))
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 8)], spacing: 8) {
                     ForEach(Array(candidates.enumerated()), id: \.element) { index, candidate in
                         compactButton(title: candidate) {
                             candidateText = candidate
                             isManualEntryFocused = false
                         }
                         .accessibilityLabel("Use suggestion \(index + 1), \(candidate)")
+                    }
+                }
+            }
+
+            if !correction.qualityChoiceTexts.isEmpty {
+                Text("Change quality")
+                    .font(.subheadline.weight(.semibold))
+                Text("These keep the root, extensions and bass. They are editing choices, not new recognition guesses.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 8)], spacing: 8) {
+                    ForEach(correction.qualityChoiceTexts, id: \.self) { candidate in
+                        compactButton(title: candidate) {
+                            candidateText = candidate
+                            teachesHandwriting = false
+                            isManualEntryFocused = false
+                        }
+                        .accessibilityLabel("Change quality to \(candidate)")
+                        .accessibilityHint("Sets Change to. Tap Save to apply this edit.")
                     }
                 }
             }
@@ -1298,10 +1370,6 @@ struct ChordCorrectionSheetView: View {
     private func compactButton(title: String, action: @escaping () -> Void) -> some View {
         ChordInkReviewButton(title: title, action: action)
             .frame(maxWidth: .infinity, minHeight: 42)
-    }
-
-    private var quickShortcutTexts: [String] {
-        correction.quickChoiceTexts.filter { $0 != ChordInkManualEntryShortcut.chordRepeatText }
     }
 
     private var trimmedCandidateText: String {

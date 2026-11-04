@@ -21,7 +21,7 @@ private enum IChartSupportLinks {
     static let supportEmail = "support@useichart.com"
 }
 
-private enum IChartHomeAppearanceMode: String, CaseIterable, Identifiable {
+enum IChartHomeAppearanceMode: String, CaseIterable, Identifiable {
     case light
     case dark
 
@@ -46,7 +46,7 @@ private enum IChartHomeAppearanceMode: String, CaseIterable, Identifiable {
     }
 }
 
-private struct IChartHomeTheme {
+struct IChartHomeTheme {
     let mode: IChartHomeAppearanceMode
 
     var isDark: Bool {
@@ -342,8 +342,9 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Tap Done to leave the current tool and return to Select.",
                 "You can switch directly between Write & Render, Free Ink, Measures, and Tools without returning to Select first.",
                 "Tap a chord, barline, text label, marker, or measure to show its buttons.",
-                "On a Rhythm Section Sheet, tap a converted mark to select it. Drag to move it or tap the red X to delete it.",
-                "While you drag, a line points to the nearby chord, rhythm note, or staff ink the mark can attach to. Release to attach when the line is visible.",
+                "In either chart style, tap an eligible divider, then its red X or Delete to merge the two measures. Rhythm divider deletion is limited to chord-only measures; notes, attached marks or a merge that could move staff handwriting keep the boundary protected.",
+                "On a Simple Chord Sheet or Rhythm Section Sheet, tap a converted mark to select it. Drag to move it or tap the red X to delete it.",
+                "While you drag, a line points to a nearby chord. On a Rhythm Section Sheet, it can also point to a rhythm note or staff ink. Release to attach when the line is visible.",
                 "Drag out of range and the line disappears. Release in open space to leave the mark floating.",
                 "Tap Undo Delete to bring back the last deleted converted mark.",
                 "Use the buttons to correct, move, resize, delete, or clean up what you selected."
@@ -356,16 +357,23 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Use Write & Render to turn handwritten chords, barlines, and repeat signs into chart notation.",
             bullets: [
                 "Write in the highlighted Corridor Lane above the staff.",
+                "On a Rhythm Section Sheet, the first chord in each measure renders on beat 1 wherever you write it in that measure.",
                 "Chords render automatically after a pause. Keep the symbols for each chord together, with space before the next chord.",
                 "If a triangle is unclear, the ink stays on the chart. Tap Review Chord in Automatic, or Review & Render in Manual, to enter the intended chord.",
                 "Turn on Manual Render with Preview in app Settings to check the small preview text before tapping Render Chords or Review & Render.",
                 "On a Simple Chord Sheet or Rhythm Section Sheet, draw a tall, nearly vertical barline in the highlighted lane with space on either side.",
-                "On a Rhythm Section Sheet, a handwritten barline can split an open measure. To add measures at the end of a short row, draw tall barlines on their own in the empty lane and leave space between them. Use Measures for committed measures.",
-                "If a barline cannot be placed, the draft stays on the page so you can erase or redraw the mark.",
-                "If a converted mark blocks a split, use Restore Ink in Free Ink first.",
+                "When barlines form measures around rendered chords in either style, each resulting measure with just one chord moves that chord to beat 1. Measures with multiple chords keep their relative placement.",
+                "On a Rhythm Section Sheet, a handwritten barline can split a measure at a rhythmic boundary in Automatic or Manual Render with Preview. If a note crosses that boundary, the line stays as draft ink and the tool shows feedback above the controls. Use Measures for other form edits.",
+                "Draw the line near an existing note onset when splitting a measure that already has rhythms. Both new measures use the current meter. Written notes keep their lengths, and rests fill the unused beats.",
+                "To add measures at the end of a short row, draw tall barlines on their own in the empty lane and leave space between them.",
+                "If a barline cannot be placed, it stays on the page while chords that can be placed independently render. Keep writing, or use Erase to remove the line and redraw it.",
+                "Splits in Simple measures and supported splits in committed Rhythm measures keep converted marks and their original handwriting. An open Rhythm measure may require Restore Ink in Free Ink before splitting when it holds a converted mark or its original writing.",
                 "Draw repeat bars with two dots on the right to start a repeat, on the left to end one, or on both sides to end one repeat and start another.",
-                "Complete each start repeat with an end repeat. If an end repeat has no matching start, Render asks whether to repeat from the beginning.",
-                "When review opens, correct the chord text or choose a suggestion before rendering. Erasing just that writing and rewriting it is another option."
+                "Complete each start repeat with an end repeat. A complete end repeat with no earlier start repeats from the beginning of the chart. Nested or conflicting starts stay as draft ink until corrected.",
+                "If a mark blocks Review Ending, tap its name or Back to Writing to highlight it. Correct the highlighted mark, then review the same ending bracket again.",
+                "When Review Chords opens, check each Recognition guess. Type a correction or choose a suggestion to mark the row Your edit. You can also rewrite just that chord.",
+                "In Edit Chord, choose a saved alternative or use Change quality for a supported chord quality on the same root. Quality choices are editing options, not new recognition guesses. Save applies the chord shown in Change to.",
+                "If you see Chart not saved, keep the chart open and tap Retry Save above the tools."
             ]
         ),
         IChartHelpArticleSection(
@@ -374,13 +382,15 @@ private struct IChartHelpArticleSection: Identifiable {
             systemImageName: "checkmark.circle",
             body: "Turn on Manual Render with Preview in app Settings when you want to review your writing before it becomes notation.",
             bullets: [
-                "Tap Render Chords when the previews are ready. If the button says Review & Render, follow the prompt to review the chords, repeats, or endings.",
+                "Tap Render Chords to render ready ink. Use Review & Render to check chord guesses or enter missing chords. You can keep writing while unplaced ink stays on the page.",
+                "Tap an ending preview to review its label and measures. When only an unreviewed repeat or ending remains, use Review & Render.",
                 "When adding △7 or −7 after a preview appears, write it close to its root and check the updated preview before rendering. Leave space between separate chords.",
                 "If a preview says Add chord, tap Review & Render and type the intended chord.",
+                "After Back to Writing, your corrections stay with the same handwriting. Check the updated rows if you return to review.",
                 "If new strokes make a chord unreadable, Add chord marks the combined writing. If you see Separate chords, go back to writing and rewrite those chords with more space between them.",
-                "In Confirm Chords, correct the text or choose a suggestion, then tap Render Chord or Render All. Each entry needs a supported chord before the final render is available.",
+                "In Review Chords, Recognition guess marks a prefilled read and Your edit marks text you typed or chose. Fill in any missing chords and check the guesses. Render All uses the text shown in every row. Ink that cannot be placed stays on the page.",
                 "Turn the setting off to return to automatic chord rendering after a pause.",
-                "Clear Draft Ink removes all unrendered chord and barline writing after confirmation. Rendered notation and Free Ink stay unchanged."
+                "Clear Draft Ink removes all unrendered chords, barlines, repeat signs, and endings after confirmation."
             ]
         ),
         IChartHelpArticleSection(
@@ -393,7 +403,7 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Drag a selected chord to move it. The right handle adjusts its width only.",
                 "If a selected chord has a custom width, Reset Width returns it to 100% width without changing its placement.",
                 "Tap text or roadmap markers in Select to move, resize, edit, or delete them.",
-                "Tap a chord barline in Select when you want to remove it."
+                "To remove an eligible chord-only divider, choose Select, tap the divider, then its red X or Delete. Protected Rhythm boundaries keep their content and remain in place."
             ]
         ),
         IChartHelpArticleSection(
@@ -403,7 +413,7 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Measures stays one tap away; less-frequent structure and annotation commands live under Tools.",
             bullets: [
                 "Measures groups Add, Layout, and Delete actions for the selected measure.",
-                "Open Layout for Start New Row, Join Row Above, Move to Row Below, or Even Row Widths.",
+                "Open Layout for Start New Row, Join Row Above, Move to Row Below, Even Row Widths, or an eligible Merge with Next Measure.",
                 "Tools > Repeats adds one-bar repeats, repeat starts and ends, endings, and removal actions.",
                 "Tools > Time Signature, Text, and Form Markers use the selected measure as their target."
             ]
@@ -426,10 +436,11 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Use Free Ink to write or erase notes and marks directly on the page.",
             bullets: [
                 "Use it for handwritten rhythm notes and reminders.",
-                "On a Rhythm Section Sheet, draw a fermata or accent anywhere on the page. Lift the Pencil and pause. iChart converts clear marks into notation and leaves unclear marks as handwriting.",
-                "Draw a marcato (^) near a chord, rhythm note, or staff ink, then lift the Pencil and pause. In open space, the caret stays handwritten.",
-                "A converted mark attaches above a nearby chord, rhythm note, or staff ink. Fermatas and accents drawn in open space stay where you drew them. Use Select to move or delete a converted mark.",
-                "Use Restore Ink to bring the handwriting back, including before splitting, joining, or deleting a measure that holds the mark or its original writing.",
+                "On a Simple Chord Sheet or Rhythm Section Sheet, draw a fermata or accent anywhere on the page. Lift the Pencil and pause. iChart converts clear marks into notation and leaves unclear marks as handwriting.",
+                "On a Simple Chord Sheet, a converted mark attaches above a nearby rendered chord. Other marks float where you drew them. Drag near a chord to attach; drag away to float. Deleting a chord keeps its mark floating.",
+                "On a Rhythm Section Sheet, draw a marcato (^) near a chord, rhythm note, or staff ink, then lift the Pencil and pause. In open space, the caret stays handwritten.",
+                "On a Rhythm Section Sheet, a converted mark attaches above a nearby chord, rhythm note, or staff ink. Fermatas and accents drawn in open space stay where you drew them. Use Select to move or delete a converted mark.",
+                "Use Restore Ink to bring the handwriting back. In Simple, measure splits, merges and deletions keep converted marks and their original handwriting. In Rhythm, a converted mark can require restoration before merging or deleting measures; supported splits of committed measures keep the marks.",
                 "Switch directly to another tool, or tap Done to return to Select."
             ]
         ),
@@ -440,7 +451,9 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Tap the chart title for document settings; Export PDF stays visible in the navigation bar.",
             bullets: [
                 "The chart-title menu has header, key, instrument view, transposition, style, fonts, and engraving.",
+                "Engraving previews use the chart's Simple Chord Sheet or Rhythm Section Sheet layout. Preset changes apply to the chart and its exported PDF.",
                 "Export PDF creates the finished file. Your editable chart stays in Charts.",
+                "Personal PDF exports include rendered notation and saved Free Ink. Unresolved Write & Render ink stays in the editable chart.",
                 "If Export PDF is unavailable, tap Done and finish setup first."
             ]
         )
@@ -454,6 +467,8 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Forums are an account-based space for sharing useful chart PDFs with other musicians, included in free Pro access.",
             bullets: [
                 "A forum upload starts from a chart you made in iChart.",
+                "Forum PDFs keep the publisher's instrument view and transposition at submission. Change the view in the chart before Submit To Forum if needed.",
+                "Older downloads without reliable view metadata show Instrument view unknown. Downloading never changes the notes printed in the PDF.",
                 "iChart checks that the PDF and chart details belong to that upload before it appears publicly.",
                 "Members can browse, download, vote, comment, report concerns, and block contributors they no longer want to see.",
                 "Author badges appear beside chart contributors. Open a chart to read what its author’s badges mean."
@@ -547,6 +562,7 @@ private struct IChartHelpArticleSection: Identifiable {
             bullets: [
                 "Use comments for helpful corrections, version notes, and respectful discussion.",
                 "If posting a comment fails, your draft stays in the discussion. Check the message and tap Post comment to try again.",
+                "Discussion opens with recent comments. Tap Load Earlier Comments to read more while keeping the comments already shown.",
                 "Use Safety to report charts or comments that look inaccurate, miscredited, abusive, or unsafe. You can also block a contributor to hide their forum posts and comments from your account.",
                 "Voting is for chart quality, not personal pile-ons. Repeated bad-faith behavior may limit forum access."
             ]
@@ -1039,7 +1055,8 @@ struct LibraryView: View {
                     detail: detail,
                     currentUserID: authStore.state.signedInSession?.id,
                     downloadedPDF: forumStore.downloadedPDF,
-                    isWorking: forumStore.isWorking,
+                    isWorking: forumStore.isWorking || forumStore.isLoadingEarlierComments,
+                    isLoadingEarlierComments: forumStore.isLoadingEarlierComments,
                     errorMessage: forumStore.errorMessage,
                     theme: homeTheme,
                     onVote: { vote in
@@ -1050,6 +1067,7 @@ struct LibraryView: View {
                     onComment: { body in
                         await forumStore.addComment(body, to: detail)
                     },
+                    onLoadEarlierComments: { await forumStore.loadEarlierComments() },
                     onReportPost: { reason in
                         Task {
                             await forumStore.reportPost(reason, detailText: nil, detail: detail)
@@ -1383,6 +1401,7 @@ struct LibraryView: View {
                         searchText: $forumSearchText,
                         charts: store.charts,
                         currentUserID: authStore.state.signedInSession?.id,
+                        currentUserBadges: forumStore.currentUserBadges,
                         uploadQueue: forumStore.uploadQueue.filter { item in
                             guard let currentUserID = authStore.state.signedInSession?.id,
                                   let ownerID = item.ownerID else {
@@ -2650,7 +2669,7 @@ private struct IChartLockedFeatureView: View {
     }
 }
 
-private struct IChartForumPublishRequest: Identifiable {
+struct IChartForumPublishRequest: Identifiable {
     let chart: Chart
 
     var id: Chart.ID { chart.id }
@@ -2870,6 +2889,7 @@ private struct IChartForumHomeView: View {
     @Binding var searchText: String
     let charts: [Chart]
     let currentUserID: UUID?
+    let currentUserBadges: [ForumAuthorBadgeType]?
     let uploadQueue: [ForumUploadQueueItem]
     let statusMessage: String?
     let errorMessage: String?
@@ -2890,6 +2910,7 @@ private struct IChartForumHomeView: View {
                 IChartForumCommunityHero(
                     featuredPosts: featuredPosts(from: summaries),
                     currentUserID: currentUserID,
+                    currentUserBadges: currentUserBadges,
                     theme: theme
                 )
             }
@@ -3136,6 +3157,7 @@ private enum IChartForumPalette {
 private struct IChartForumCommunityHero: View {
     let featuredPosts: [IChartForumFeaturedPost]
     let currentUserID: UUID?
+    let currentUserBadges: [ForumAuthorBadgeType]?
     let theme: IChartHomeTheme
 
     private var userPosts: [IChartForumFeaturedPost] {
@@ -3191,12 +3213,17 @@ private struct IChartForumCommunityHero: View {
             }
 
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 118), spacing: 10)], spacing: 10) {
-                statPill(value: "\(userPosts.count)", label: "Contributions", systemImageName: "square.and.arrow.up")
-                statPill(value: "0", label: "Downloads", systemImageName: "tray.and.arrow.down")
-                statPill(value: "\(userUpvoteCount)", label: "Upvotes", systemImageName: "hand.thumbsup")
-                statPill(value: "0", label: "Badges", systemImageName: "checkmark.seal")
-                statPill(value: "\(userTopRatedCount)", label: "Top Rated", systemImageName: "star.fill")
+                statPill(value: "\(userPosts.count)", label: "Your Charts in View", systemImageName: "square.and.arrow.up")
+                statPill(value: "\(userUpvoteCount)", label: "Upvotes in View", systemImageName: "hand.thumbsup")
+                if let currentUserBadges {
+                    statPill(value: "\(Set(currentUserBadges).count)", label: "Your Badges", systemImageName: "checkmark.seal")
+                }
+                statPill(value: "\(userTopRatedCount)", label: "Top Rated in View", systemImageName: "star.fill")
             }
+            Text("Chart counts reflect your charts shown below. Badges reflect your account.")
+                .font(.caption)
+                .foregroundStyle(theme.panelSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
         .background(
@@ -4125,7 +4152,7 @@ private struct IChartForumQualityPill: View {
     }
 }
 
-private struct IChartForumPublishSheet: View {
+struct IChartForumPublishSheet: View {
     @Environment(\.dismiss) private var dismiss
     let request: IChartForumPublishRequest
     let theme: IChartHomeTheme
@@ -4146,6 +4173,13 @@ private struct IChartForumPublishSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    Text("The PDF keeps this chart's current instrument view and transposition. To change them, return to the chart before submitting.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("Forum instrument view guidance")
+                }
                 Section("Metadata") {
                     forumTextField("Song Title", text: $draft.songTitle, field: .song)
                     forumTextField("Artist", text: $draft.artistName, field: .artist)
@@ -4257,10 +4291,12 @@ private struct IChartForumPostDetailView: View {
     let currentUserID: UUID?
     let downloadedPDF: ExportedPDF?
     let isWorking: Bool
+    let isLoadingEarlierComments: Bool
     let errorMessage: String?
     let theme: IChartHomeTheme
     let onVote: (ForumVoteValue) -> Void
     let onComment: (String) async -> Bool
+    let onLoadEarlierComments: () async -> Void
     let onReportPost: (ForumReportReason) -> Void
     let onReportComment: (ForumComment, ForumReportReason) -> Void
     let onBlockUser: (UUID, String) -> Void
@@ -4475,8 +4511,8 @@ private struct IChartForumPostDetailView: View {
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(theme.panelTitle)
 
-            if detail.comments.count == IChartForumPostDetail.recentCommentLimit {
-                Text("Showing the latest \(IChartForumPostDetail.recentCommentLimit) comments.")
+            if detail.earlierCommentCursor != nil {
+                Text("Showing \(detail.comments.count) recent comments. Load earlier comments to read more.")
                     .font(.subheadline)
                     .foregroundStyle(theme.panelSecondary)
             }
@@ -4516,6 +4552,21 @@ private struct IChartForumPostDetailView: View {
                     .font(.subheadline)
                     .foregroundStyle(theme.panelSecondary)
                     .padding(.vertical, 8)
+            }
+
+            if detail.earlierCommentCursor != nil {
+                Button {
+                    Task { await onLoadEarlierComments() }
+                } label: {
+                    if isLoadingEarlierComments {
+                        ProgressView("Loading earlier comments…")
+                    } else {
+                        Label("Load Earlier Comments", systemImage: "arrow.up.bubble")
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(isWorking || isLoadingEarlierComments)
+                .accessibilityHint("Adds earlier discussion above the comments already shown.")
             }
 
             if detail.comments.isEmpty {

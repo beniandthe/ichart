@@ -106,9 +106,12 @@ final class TypedTextInputTests: XCTestCase {
         field.sendActions(for: .editingChanged)
         let start = try XCTUnwrap(field.position(from: field.beginningOfDocument, offset: 2))
         field.selectedTextRange = field.textRange(from: start, to: start)
+        let session = TypedEditingSessionProbe(input: field)
         field.keyboardButton.sendActions(for: .touchUpInside)
         try await waitForFocus(field)
         XCTAssertTrue(field.isFirstResponder)
+        XCTAssertEqual(session.ended, 0, "Reusing the keyboard action cannot dismiss and reopen the active editor")
+        XCTAssertEqual(session.began, 0, "An active field must keep the same editing session")
         XCTAssertEqual(field.text, "Ebmaj7")
         let selection = try XCTUnwrap(field.selectedTextRange)
         XCTAssertEqual(field.offset(from: field.beginningOfDocument, to: selection.start), 2)
@@ -121,6 +124,8 @@ final class TypedTextInputTests: XCTestCase {
         field.keyboardButton.sendActions(for: .touchUpInside)
         try await waitForFocus(field)
         XCTAssertFalse(context.isPencilInputExpected)
+        XCTAssertEqual(session.ended, 0, "Switching an active Scribble field to typing must not restart its focus")
+        XCTAssertEqual(session.began, 0)
         let toolbar = try XCTUnwrap(field.inputAccessoryView as? UIToolbar)
         let done = try XCTUnwrap(toolbar.items?.first { $0.accessibilityLabel == "Done typing" })
         XCTAssertTrue(UIApplication.shared.sendAction(try XCTUnwrap(done.action), to: done.target, from: done, for: nil))
@@ -309,9 +314,12 @@ final class TypedTextInputTests: XCTestCase {
         XCTAssertEqual(model.text, "Verse\nKeep this exact text")
         let cursor = try XCTUnwrap(view.position(from: view.beginningOfDocument, offset: 3))
         view.selectedTextRange = view.textRange(from: cursor, to: cursor)
+        let session = TypedEditingSessionProbe(input: view)
         view.keyboardButton.sendActions(for: .touchUpInside)
         try await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertTrue(view.isFirstResponder)
+        XCTAssertEqual(session.ended, 0, "The shared text-view action must also keep its editing session")
+        XCTAssertEqual(session.began, 0)
         XCTAssertEqual(view.text, "Verse\nKeep this exact text")
         XCTAssertEqual(view.offset(from: view.beginningOfDocument,
             to: try XCTUnwrap(view.selectedTextRange).start), 3)
@@ -350,6 +358,26 @@ final class TypedTextInputTests: XCTestCase {
         return ([details] + view.subviews.map { viewHierarchy($0, depth: depth + 1) }).joined(separator: "\n")
     }
     private func descendants(_ view: UIView) -> [UIView] { view.subviews.flatMap { [$0] + descendants($0) } }
+}
+
+@MainActor
+private final class TypedEditingSessionProbe: NSObject {
+    private(set) var began = 0
+    private(set) var ended = 0
+
+    init(input: UIView) {
+        super.init()
+        for name in [UITextField.textDidBeginEditingNotification, UITextView.textDidBeginEditingNotification] {
+            NotificationCenter.default.addObserver(self, selector: #selector(didBegin), name: name, object: input)
+        }
+        for name in [UITextField.textDidEndEditingNotification, UITextView.textDidEndEditingNotification] {
+            NotificationCenter.default.addObserver(self, selector: #selector(didEnd), name: name, object: input)
+        }
+    }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
+    @objc private func didBegin() { began += 1 }
+    @objc private func didEnd() { ended += 1 }
 }
 
 private struct HeaderPresentationHarness: View {

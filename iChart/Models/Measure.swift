@@ -6,6 +6,16 @@ enum MeasureAuthoringState: String, Codable, Hashable {
     case committed
 }
 
+/// A drawn subdivision keeps the original measure's width intent when the
+/// layout chooses a default width for other, automatically sized measures.
+/// Older readers can ignore this optional metadata and retain the physical
+/// segment widths stored in manualLayoutWidth.
+struct RhythmSectionSplitLayoutSource: Codable, Hashable {
+    var groupID: UUID
+    var manualLayoutWidth: Double?
+    var authoringState: MeasureAuthoringState
+}
+
 struct LeadSheetStaffPosition: Codable, Hashable {
     static let topLineStep = 0
     static let bottomLineStep = 8
@@ -85,6 +95,7 @@ struct Measure: Identifiable, Codable, Hashable {
     var pitchedNoteEvents: [LeadSheetPitchedNoteEvent]
     var manualLayoutWidth: Double? = nil
     var usesDrawnRhythmTailWidth = false
+    var rhythmSectionSplitLayoutSource: RhythmSectionSplitLayoutSource? = nil
     var handwrittenRhythmicNotationData: Data? = nil
     var handwrittenRhythmicNotationCoordinateSpace: PersistentInkCoordinateSpace? = nil
     var barlineAfter: BarlineType
@@ -137,6 +148,7 @@ struct Measure: Identifiable, Codable, Hashable {
         case pitchedNoteEvents
         case manualLayoutWidth
         case usesDrawnRhythmTailWidth
+        case rhythmSectionSplitLayoutSource
         case handwrittenRhythmicNotationData
         case handwrittenRhythmicNotationCoordinateSpace
         case barlineAfter
@@ -156,6 +168,8 @@ struct Measure: Identifiable, Codable, Hashable {
         pitchedNoteEvents = try container.decodeIfPresent([LeadSheetPitchedNoteEvent].self, forKey: .pitchedNoteEvents) ?? []
         manualLayoutWidth = try container.decodeIfPresent(Double.self, forKey: .manualLayoutWidth)
         usesDrawnRhythmTailWidth = try container.decodeIfPresent(Bool.self, forKey: .usesDrawnRhythmTailWidth) ?? false
+        rhythmSectionSplitLayoutSource = try container.decodeIfPresent(RhythmSectionSplitLayoutSource.self,
+            forKey: .rhythmSectionSplitLayoutSource)
         handwrittenRhythmicNotationData = normalizedPersistentInkDrawingData(
             try container.decodeIfPresent(Data.self, forKey: .handwrittenRhythmicNotationData)
         )
@@ -187,6 +201,7 @@ struct Measure: Identifiable, Codable, Hashable {
         if usesDrawnRhythmTailWidth {
             try container.encode(true, forKey: .usesDrawnRhythmTailWidth)
         }
+        try container.encodeIfPresent(rhythmSectionSplitLayoutSource, forKey: .rhythmSectionSplitLayoutSource)
         try container.encodeIfPresent(handwrittenRhythmicNotationData, forKey: .handwrittenRhythmicNotationData)
         try container.encodeIfPresent(
             handwrittenRhythmicNotationCoordinateSpace,

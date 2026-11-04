@@ -1179,6 +1179,102 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         ))
     }
 
+    @MainActor
+    func testLateFirstHandwrittenChordInRhythmMappedMeasureRendersAtBeatOneAndReopens() async throws {
+        try assertLateFirstHandwrittenChordRendersAtBeatOne(firstRhythmValue: .quarter)
+    }
+
+    @MainActor
+    func testLateFirstHandwrittenChordOverLeadingRestRendersAtBeatOneAndReopens() async throws {
+        try assertLateFirstHandwrittenChordRendersAtBeatOne(firstRhythmValue: .quarterRest)
+    }
+
+    @MainActor
+    private func assertLateFirstHandwrittenChordRendersAtBeatOne(firstRhythmValue: RhythmValue) throws {
+        var chart = Chart.draft(title: "Late first chord", layoutStyle: .rhythmSectionSheet)
+        chart.completeInitialSetup(title: chart.title, key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        let rhythm: [RhythmValue] = [firstRhythmValue, .quarter, .quarter, .quarter]
+        let expectedSlots: [Int?] = [firstRhythmValue.isRest ? nil : 0, 3]
+        XCTAssertTrue(chart.setMeasureRhythmMap(rhythm, for: measureID))
+        let pageSize = CGSize(width: 900, height: 1_400)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize,
+            includesChordInkContinuationLanes: true)
+        let system = try XCTUnwrap(layout.systems.first { system in
+            system.measures.contains { $0.sourceMeasureID == measureID }
+        })
+        let measure = try XCTUnwrap(system.measures.first { $0.sourceMeasureID == measureID })
+        let lane = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
+            for: system, paperFrame: layout.paperFrame(for: system)
+        ))
+        let beatFractions = [0.52, 0.77]
+        let inputXs = beatFractions.map { measure.chordBandFrame.minX + measure.chordBandFrame.width * $0 }
+        let y = measure.chordBandFrame.midY
+        let sourceDrawings = inputXs.map { x in
+            PKDrawing(strokes: [Self.pkStroke(points: [CGPoint(x: x + 6, y: y - 7),
+                CGPoint(x: x - 6, y: y), CGPoint(x: x + 6, y: y + 7)])])
+        }
+        let liveDrawing = PKDrawing(strokes: sourceDrawings.flatMap(\.strokes))
+        let coordinateSpace = PersistentInkCoordinateSpace(size: pageSize)
+        _ = chart.setPageHandwrittenChordDrawing(liveDrawing.dataRepresentation(), coordinateSpace: coordinateSpace)
+
+        var state = ChordPreviewState()
+        state.replaceDraftChords(with: ["C", "G7"].enumerated().map { index, text in
+            let laneFraction = Double((inputXs[index] - lane.minX) / lane.width)
+            return draftInput(measureID: measureID, measureIndex: 0, fraction: beatFractions[index],
+                bestCandidateText: text,
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: system.index, fraction: laneFraction),
+                layoutPageSize: pageSize, drawingData: sourceDrawings[index].dataRepresentation(), strokeCount: 1)
+        })
+
+        let outcome = ChordInkDraftRenderCoordinator.prepare(chart: chart, state: state,
+            currentDrawing: liveDrawing, coordinateSpace: coordinateSpace)
+        XCTAssertTrue(outcome.canConsumeSource)
+        XCTAssertEqual(outcome.result.renderedChordCount, 2)
+        let renderedMeasure = try XCTUnwrap(outcome.chart.measure(id: measureID))
+        XCTAssertEqual(renderedMeasure.chordEvents.map(\.startPosition.displayText), ["1", "4"])
+        XCTAssertEqual(renderedMeasure.chordEvents.map(\.mappedRhythmSlotIndex), expectedSlots)
+        let placements = renderedMeasure.renderedChordPlacements(defaultMeter: chart.defaultMeter)
+        XCTAssertEqual(placements.map(\.startPosition.displayText), ["1", "4"])
+        XCTAssertEqual(placements.map(\.resolvedRhythmSlotIndex), expectedSlots)
+
+        let renderedLayout = LeadSheetPageLayoutEngine.pageLayout(for: outcome.chart, pageSize: pageSize,
+            includesChordInkContinuationLanes: true)
+        let renderedStaff = try XCTUnwrap(renderedLayout.systems.flatMap(\.measures).first { $0.sourceMeasureID == measureID })
+        let firstChordID = try XCTUnwrap(outcome.result.renderedChordIDs.first)
+        let firstChordLayout = try XCTUnwrap(renderedStaff.chordLayouts.first { $0.id == firstChordID })
+        let downbeatNote = try XCTUnwrap(renderedStaff.noteLayouts.first)
+        XCTAssertEqual(downbeatNote.symbolStyle, firstRhythmValue.isRest ? .quarterRest : .slash)
+        XCTAssertEqual(firstChordLayout.snapGuideTarget.x, downbeatNote.noteheadFrame.midX, accuracy: 0.001)
+        XCTAssertLessThan(firstChordLayout.snapGuideTarget.x, inputXs[0])
+
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("library-state.json")
+        try FileChartRepository(url: file).saveSnapshot(ChartLibrarySnapshot(charts: [outcome.chart],
+            selectedChartID: chart.id, entitlements: .free))
+        let reopenedSnapshot = try XCTUnwrap(try FileChartRepository(url: file).loadSnapshot())
+        XCTAssertEqual(reopenedSnapshot.selectedChartID, chart.id)
+        let reopened = try XCTUnwrap(reopenedSnapshot.charts.first)
+        XCTAssertNil(reopened.pageHandwrittenChordData)
+        XCTAssertNil(reopened.pageHandwrittenChordCoordinateSpace)
+        let savedMeasure = try XCTUnwrap(reopened.measure(id: measureID))
+        XCTAssertEqual(savedMeasure.rhythmMap?.values, rhythm)
+        XCTAssertEqual(savedMeasure.chordEvents.map(\.id), outcome.result.renderedChordIDs)
+        XCTAssertEqual(savedMeasure.chordEvents.map(\.rawInput), ["C", "G7"])
+        XCTAssertEqual(savedMeasure.chordEvents.map(\.startPosition.displayText), ["1", "4"])
+        XCTAssertEqual(savedMeasure.chordEvents.map(\.mappedRhythmSlotIndex), expectedSlots)
+        let reopenedPlacements = savedMeasure.renderedChordPlacements(defaultMeter: reopened.defaultMeter)
+        XCTAssertEqual(reopenedPlacements.map(\.startPosition.displayText), ["1", "4"])
+        XCTAssertEqual(reopenedPlacements.map(\.resolvedRhythmSlotIndex), expectedSlots)
+        for (source, event) in zip(sourceDrawings, savedMeasure.chordEvents) {
+            let savedDrawing = try PKDrawing(data: XCTUnwrap(event.sourceInkData))
+            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: source, current: savedDrawing))
+        }
+    }
+
     func testDraftStateAllowsAttachedAccidentalToReplaceRootRead() {
         let measureID = UUID()
         let rootStroke = Self.pkStroke(points: [
@@ -2940,7 +3036,7 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertNotNil(chart.pageHandwrittenChordData)
     }
 
-    func testRhythmDraftBarlineDoesNotSplitCommittedMeasure() throws {
+    func testRhythmDraftBarlineSplitsCommittedMeasureAtPreviewPosition() throws {
         var chart = Chart.draft(title: "Committed Rhythm Boundary", layoutStyle: .rhythmSectionSheet)
         chart.completeInitialSetup(
             title: "Committed Rhythm Boundary",
@@ -2952,15 +3048,35 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         )
         let committedMeasureID = try XCTUnwrap(chart.measures.first?.id)
         let originalIDs = chart.measures.map(\.id)
+        chart.systems[0].measures[1].authoringState = .committed
         let pageSize = CGSize(width: 900, height: 1400)
+        let cID = try XCTUnwrap(chart.appendRecognizedChordEvent(try ChordSymbolParser.parse("C"),
+            rawInput: "C", to: committedMeasureID, atFraction: 0.1))
+        let gID = try XCTUnwrap(chart.appendRecognizedChordEvent(try ChordSymbolParser.parse("G7"),
+            rawInput: "G7", to: committedMeasureID, atFraction: 0.7))
+        let laterID = chart.measures[1].id
+        let dID = try XCTUnwrap(appendRecognizedChord("D", to: laterID, in: &chart))
+        let sourceLayout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize,
+            includesChordInkContinuationLanes: true)
+        let sourceSystem = try XCTUnwrap(sourceLayout.systems.first)
+        let source = try XCTUnwrap(sourceSystem.measures.first)
+        let laterSource = try XCTUnwrap(sourceSystem.measures.first { $0.sourceMeasureID == laterID })
+        let originalFrames = Dictionary(uniqueKeysWithValues: source.chordLayouts.map { ($0.id, $0.frame) })
+        let c = try XCTUnwrap(source.chordLayouts.first { $0.id == cID })
+        let g = try XCTUnwrap(source.chordLayouts.first { $0.id == gID })
+        let splitX = (c.frame.maxX + g.frame.minX) / 2
+        let lane = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingSystemLaneFrame(for: sourceSystem,
+            paperFrame: sourceLayout.paperFrame(for: sourceSystem)))
+        let fraction = Double((splitX - source.staffFrame.minX) / source.staffFrame.width)
         var state = ChordPreviewState()
         state.layoutPageSize = pageSize
         state.replaceDraftBarlines(with: [
             draftBarline(
                 measureID: committedMeasureID,
                 measureIndex: 1,
-                fraction: 0.52,
-                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.26),
+                fraction: fraction,
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0,
+                    fraction: Double((splitX - lane.minX) / lane.width)),
                 layoutPageSize: pageSize
             )
         ])
@@ -2968,10 +3084,46 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         let result = chart.commitChordInkDraftBatch(state)
 
         XCTAssertEqual(result.renderedChordCount, 0)
-        XCTAssertEqual(result.renderedBarlineCount, 0)
-        XCTAssertEqual(result.unresolvedDraftIDs, state.draftBarlines.map(\.id))
-        XCTAssertEqual(chart.measures.map(\.id), originalIDs)
+        XCTAssertEqual(result.renderedBarlineCount, 1)
+        XCTAssertTrue(result.unresolvedDraftIDs.isEmpty)
+        XCTAssertEqual(chart.measures.count, 3)
+        XCTAssertEqual(chart.measures.first?.id, originalIDs.first)
+        XCTAssertEqual(chart.measures.last?.id, originalIDs.last)
+        XCTAssertEqual(chart.measures[0].chordEvents.map(\.id), [cID])
+        XCTAssertEqual(chart.measures[1].chordEvents.map(\.id), [gID])
+        XCTAssertEqual(chart.measures[1].chordEvents.first?.startPosition.beat, 1)
         XCTAssertEqual(chart.measure(id: committedMeasureID)?.authoringState, .committed)
+        let output = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize,
+            includesChordInkContinuationLanes: true)
+        let outputMeasures = output.systems.flatMap(\.measures)
+        let left = try XCTUnwrap(outputMeasures.first { $0.sourceMeasureID == committedMeasureID })
+        XCTAssertEqual(left.trailingBarlineFrame.midX, splitX, accuracy: 0.01)
+        let outputFrames = Dictionary(uniqueKeysWithValues: outputMeasures.flatMap(\.chordLayouts).map { ($0.id, $0.frame) })
+        for id in [cID, gID] {
+            XCTAssertLessThan(try XCTUnwrap(outputFrames[id]).minX,
+                try XCTUnwrap(originalFrames[id]).minX)
+            let chord = try XCTUnwrap(chart.chordEvent(id: id))
+            XCTAssertTrue(chord.anchorsToMeasureStart)
+            XCTAssertNil(chord.manualVisualLaneFraction)
+            XCTAssertEqual(chord.startPosition.beat, 1)
+            XCTAssertEqual(chord.startPosition.subdivision, 0)
+        }
+        let laterOutput = try XCTUnwrap(outputMeasures.first { $0.sourceMeasureID == laterID })
+        XCTAssertEqual(laterOutput.frame, laterSource.frame)
+        XCTAssertEqual(laterOutput.staffFrame, laterSource.staffFrame)
+        XCTAssertEqual(laterOutput.chordWritingFrame, laterSource.chordWritingFrame)
+        XCTAssertEqual(laterOutput.chordLayouts.first { $0.id == dID }?.frame,
+            laterSource.chordLayouts.first { $0.id == dID }?.frame)
+
+        let currentIDs = chart.measures.map(\.id)
+        var repeated = ChordPreviewState(layoutPageSize: pageSize)
+        repeated.replaceDraftBarlines(with: [draftBarline(measureID: committedMeasureID,
+            measureIndex: 1, fraction: 1,
+            laneLocation: ChordInkDraftLaneLocation(systemIndex: 0,
+                fraction: Double((splitX - lane.minX) / lane.width)), layoutPageSize: pageSize)])
+        XCTAssertEqual(chart.commitChordInkDraftBatch(repeated).renderedBarlineCount, 1)
+        XCTAssertEqual(chart.measures.map(\.id), currentIDs,
+            "Drawing over the divider must not produce another narrow measure")
     }
 
     @MainActor
@@ -2983,6 +3135,10 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         let committedMeasureID = try XCTUnwrap(chart.measures.first?.id)
         XCTAssertEqual(chart.measure(id: committedMeasureID)?.authoringState, .committed)
         let existingChordID = try XCTUnwrap(appendRecognizedChord("E7", to: committedMeasureID, in: &chart))
+        // A sustained whole-measure rhythm has no legal interior slot boundary.
+        // This remains a real atomic-refusal case after committed free-chord
+        // measures gain divider support.
+        chart.systems[0].measures[0].rhythmMap = MeasureRhythmMap(values: [.whole])
         let pageSize = CGSize(width: 900, height: 1400)
         let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize,
             includesChordInkContinuationLanes: true)

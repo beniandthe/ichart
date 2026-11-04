@@ -14,7 +14,7 @@ final class ChordInkReviewSnapshotDiagnosticTests: XCTestCase {
         try await exerciseReplacement(dismissBeforeReplacement: false)
     }
 
-    func testRejectedRenderShowsErrorInReviewAndKeepsTypedEntry() async throws {
+    func testRejectedRenderKeepsInlineStatusInReviewAndTypedEntry() async throws {
         let state = ReviewPresentationState()
         let rejected = "The repeat signs could not be placed. Your ink is still on the page."
         state.submissionError = rejected
@@ -32,30 +32,33 @@ final class ChordInkReviewSnapshotDiagnosticTests: XCTestCase {
         let currentBatch = batch(texts: ["C", ""])
         state.batch = currentBatch
         let original = try await waitForMountedReview(in: host, window: window, expectedTexts: ["C", ""])
+        XCTAssertTrue(state.editedTextsByInk.isEmpty, "Opening review must not cache either seed value")
         let field = try XCTUnwrap(original.fields.first { ($0.text ?? "").isEmpty })
         field.text = "Eb7"
         field.sendActions(for: .editingChanged)
         let review = try await waitForMountedReview(in: host, window: window, expectedTexts: ["C", "Eb7"])
-        let render = try XCTUnwrap(descendants(review.view).compactMap { $0 as? PencilOnlyUIButton }
-            .first { $0.accessibilityLabel == "Render All" })
-        XCTAssertTrue(render.isEnabled)
-        render.sendActions(for: .touchUpInside)
-
-        try await waitUntil {
-            let alert = host.presentedViewController?.presentedViewController as? UIAlertController
-            return alert?.message == rejected
+        func enabledRenderButton() -> PencilOnlyUIButton? {
+            descendants(review.view).compactMap { $0 as? PencilOnlyUIButton }
+                .first { $0.accessibilityLabel == "Render All" && $0.isEnabled }
         }
+        try await waitUntil { enabledRenderButton() != nil }
+        try XCTUnwrap(enabledRenderButton()).sendActions(for: .touchUpInside)
+
+        try await waitUntil { state.renderError == rejected }
+        _ = try await waitForMountedReview(in: host, window: window, expectedTexts: ["C", "Eb7"])
+        XCTAssertNil(host.presentedViewController?.presentedViewController,
+            "Render feedback stays inline in the existing review instead of interrupting it with an alert")
         XCTAssertEqual(state.accepted.last?.entries[currentBatch.confirmations[1].id], "Eb7")
         XCTAssertEqual(state.batch?.id, currentBatch.id)
         XCTAssertEqual(state.clearCount, 0)
 
         state.renderError = nil
-        try await waitUntil { host.presentedViewController?.presentedViewController == nil }
         let restored = try await waitForMountedReview(in: host, window: window, expectedTexts: ["C", "Eb7"])
         let back = try XCTUnwrap(descendants(restored.view).compactMap { $0 as? PencilOnlyUIButton }
             .first { $0.accessibilityLabel == "Back to Writing" })
         back.sendActions(for: .touchUpInside)
         try await waitUntil { host.presentedViewController == nil }
+        XCTAssertEqual(state.editedTextsByInk, [currentBatch.confirmations[1].drawingData: "Eb7"])
 
         let reopenedBatch = batch(texts: ["C", ""])
         XCTAssertNotEqual(reopenedBatch.confirmations[1].id, currentBatch.confirmations[1].id)
@@ -63,38 +66,36 @@ final class ChordInkReviewSnapshotDiagnosticTests: XCTestCase {
         _ = try await waitForMountedReview(in: host, window: window, expectedTexts: ["C", "Eb7"])
     }
 
-    func testEveryPreviewUpdateModeAndReviewCombinationUsesTheSameSuspensionRule() {
+    func testOnlyManualDraftReviewKeepsReceivingWritingPreviewUpdates() {
         let modes: [EditorCanvasMode] = [.browse, .measureEdit, .repeatEdit, .timeSignatureEdit,
-            .rhythmicNotationEdit, .headerEntry, .chordEntry, .noteEdit, .freeHand, .textEdit]
+            .rhythmicNotationEdit, .chordEntry, .noteEdit, .freeHand, .textEdit]
         for mode in modes {
             for flags in 0..<8 {
                 let single = flags & 1 != 0
                 let batch = flags & 2 != 0
                 let correction = flags & 4 != 0
-                XCTAssertEqual(EditorChordDraftPreviewUpdatePolicy.allowsUpdate(mode: mode,
-                    hasSingleReview: single, hasBatchReview: batch, hasCorrection: correction),
-                    mode == .chordEntry && flags == 0,
-                    "Chord/barline previews must suspend during any review or outside Write & Render: \(mode), \(flags)")
+                for manual in [false, true] {
+                    XCTAssertEqual(EditorChordDraftPreviewUpdatePolicy.allowsUpdate(mode: mode,
+                        hasSingleReview: single, hasBatchReview: batch, hasCorrection: correction,
+                        isManualDraftReview: manual && batch),
+                        mode == .chordEntry && !single && !correction && (!batch || manual))
+                }
             }
         }
     }
 
-    func testChordAndBarlineCallbacksBothCheckTheSharedReviewSuspensionPolicy() throws {
+    func testAllPreviewCallbacksUseTheSameReviewUpdatePolicy() throws {
         let projectRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
         let editor = try String(contentsOf: projectRoot.appendingPathComponent("iChart/Features/Editor/EditorView.swift"))
         for (signature, mutation) in [
             ("private func handleChordInkDraftPreviewChanged(", "let previousDraftByAnchor"),
-            ("private func handleChordInkDraftBarlinesChanged(", "let previousCount")
+            ("private func handleChordInkDraftBarlinesChanged(", "let previousCount"),
+            ("private func handleChordInkDraftEndingsChanged(", "var updated")
         ] {
             let start = try XCTUnwrap(editor.range(of: signature))
             let end = try XCTUnwrap(editor.range(of: mutation, range: start.upperBound..<editor.endIndex))
-            let guardSource = String(editor[start.lowerBound..<end.lowerBound])
-            XCTAssertTrue(guardSource.contains("guard EditorChordDraftPreviewUpdatePolicy.allowsUpdate("))
-            XCTAssertTrue(guardSource.contains("mode: canvasMode"))
-            XCTAssertTrue(guardSource.contains("hasSingleReview: pendingChordInkConfirmation != nil"))
-            XCTAssertTrue(guardSource.contains("hasBatchReview: pendingChordInkBatchConfirmation != nil"))
-            XCTAssertTrue(guardSource.contains("hasCorrection: pendingChordCorrection != nil"))
+            XCTAssertTrue(editor[start.lowerBound..<end.lowerBound].contains("guard allowsChordDraftPreviewUpdates"))
         }
         let sheetStart = try XCTUnwrap(editor.range(of: ".sheet(item: $pendingChordInkBatchConfirmation"))
         let sheetEnd = try XCTUnwrap(editor.range(of: ".sheet(item: $pendingChordCorrection)",
@@ -264,7 +265,7 @@ private final class ReviewPresentationState: ObservableObject {
     @Published var refreshCount = 0
     @Published var renderError: String?
     var submissionError: String?
-    var entriesByInk: [Data: String] = [:]
+    var editedTextsByInk: [Data: String] = [:]
     var processedRefreshCount = 0
     var accepted: [(batchID: UUID, entries: [UUID: String])] = []
     var clearCount = 0
@@ -286,12 +287,12 @@ private struct ReviewPresentationHarness: View {
                     },
                     onClearAndRewrite: { state.clearCount += 1 },
                     onBackToInk: { state.batch = nil },
-                    initialEntryTextsByID: Dictionary(uniqueKeysWithValues: batch.confirmations.compactMap { confirmation in
-                        state.entriesByInk[confirmation.drawingData].map { (confirmation.id, $0) }
+                    initialEditedTextsByID: Dictionary(uniqueKeysWithValues: batch.confirmations.compactMap { confirmation in
+                        state.editedTextsByInk[confirmation.drawingData].map { (confirmation.id, $0) }
                     }),
-                    onEntryTextsChanged: { entries in
+                    onEditedTextsChanged: { entries in
                         for confirmation in batch.confirmations {
-                            state.entriesByInk[confirmation.drawingData] = entries[confirmation.id]
+                            state.editedTextsByInk[confirmation.drawingData] = entries[confirmation.id]
                         }
                     },
                     renderError: $state.renderError)

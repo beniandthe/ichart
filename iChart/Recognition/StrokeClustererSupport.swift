@@ -28,7 +28,45 @@ enum InkSplitMajorTriangleGeometry {
     private static func classify(_ first: InkStroke, _ second: InkStroke) -> Geometry? {
         let bounds = first.bounds.union(second.bounds)
         return classifyAtWrittenScale(first, second, in: bounds)
+            ?? classifyCaretAndBase(first, second, in: bounds)
             ?? classifyCompactTriangle(first, second, in: bounds)
+    }
+
+    private static func classifyCaretAndBase(
+        _ first: InkStroke, _ second: InkStroke, in bounds: InkBounds
+    ) -> Geometry? {
+        guard (8...28).contains(bounds.width), (8...28).contains(bounds.height),
+              (0.55...1.75).contains(bounds.width / bounds.height) else { return nil }
+        let matches = matchesCaretWithBase(caret: first, base: second, in: bounds)
+            || matchesCaretWithBase(caret: second, base: first, in: bounds)
+        return matches ? .matched(.standard) : nil
+    }
+
+    private static func matchesCaretWithBase(caret: InkStroke, base: InkStroke, in bounds: InkBounds) -> Bool {
+        guard let firstFoot = caret.points.first, let lastFoot = caret.points.last,
+              let baseStart = base.points.first, let baseEnd = base.points.last,
+              let apexIndex = caret.points.indices.min(by: { caret.points[$0].y < caret.points[$1].y }),
+              apexIndex > 0, apexIndex < caret.points.count - 1,
+              caret.bounds.width >= bounds.width * 0.80,
+              yRatio(firstFoot, in: bounds) >= 0.82, yRatio(lastFoot, in: bounds) >= 0.82,
+              base.bounds.height <= max(1.25, bounds.height * 0.12),
+              base.straightness >= 0.94, base.diagonalAngleMagnitude <= 12 else { return false }
+        let apex = caret.points[apexIndex]
+        let leftFoot = firstFoot.x < lastFoot.x ? firstFoot : lastFoot
+        let rightFoot = firstFoot.x < lastFoot.x ? lastFoot : firstFoot
+        let leftBase = baseStart.x < baseEnd.x ? baseStart : baseEnd
+        let rightBase = baseStart.x < baseEnd.x ? baseEnd : baseStart
+        let closureLimit = max(1.25, min(bounds.width, bounds.height) * 0.10)
+        // A major triangle closes at both feet. An A crossbar or a following
+        // minus sign cannot supply this base, even when it overlaps the caret.
+        guard (0.22...0.78).contains(xRatio(apex, in: bounds)),
+              apex.x - leftFoot.x >= bounds.width * 0.22,
+              rightFoot.x - apex.x >= bounds.width * 0.22,
+              leftFoot.clusterDistance(to: leftBase) <= closureLimit,
+              rightFoot.clusterDistance(to: rightBase) <= closureLimit else { return false }
+        let firstLeg = InkStroke(points: Array(caret.points[...apexIndex]))
+        let secondLeg = InkStroke(points: Array(caret.points[apexIndex...]))
+        return firstLeg.straightness >= 0.93 && secondLeg.straightness >= 0.93
     }
 
     private static func classifyAtWrittenScale(
