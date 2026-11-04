@@ -1,5 +1,33 @@
 # Project state and next Apple build
 
+## Current repository checkpoint — November 4, 2026
+
+Main's application baseline is **1.2.4 (108)** at `4fb03664`, merged through
+[PR #94](https://github.com/beniandthe/ichart/pull/94). Newer application work is
+in draft [PR #95](https://github.com/beniandthe/ichart/pull/95), head `3f34524f`
+on `codex/build136-integration`; that source declares **1.2.4 (137)** and already
+contains the Forum follow-up. It remains a candidate with its own hosted and
+physical acceptance gates.
+
+The [November 4 maintenance record](repository-maintenance-2026-11-04.md)
+documents recoverable branch/worktree cleanup, the active local backlog and
+the private archive. Existing dirty work, device/QA evidence, local-only work
+and parked ML/Graph/MyScript remain preserved.
+
+Main's executed native CI failure is tracked in
+[issue #96](https://github.com/beniandthe/ichart/issues/96). Its keyboard probe
+completed an assessment but the telemetry event did not reach the queue; no
+root cause or repair is claimed. The relevant PR #95 files are unchanged from
+that main revision. Scope-skipped housekeeping or push checks do not establish
+an application pass.
+
+No app version, device installation, backend or Apple publication changes are
+part of this repository checkpoint. The build-108 record below remains a
+historical source-preparation snapshot; later validation and device receipts
+are revision-specific.
+
+## Historical source-preparation checkpoint — November 2, 2026
+
 Updated: 2026-11-02. The current isolated integration candidate is **1.2.4 (108)**
 on `codex/next-app-store-20261102`, based on main `31e16ea5`. The
 [November 2 consolidation inventory](release-consolidation-2026-11-02.md) and
