@@ -805,7 +805,7 @@ enum LeadSheetPageLayoutEngine {
             firstPageSystemTopOffset: firstPageSystemTopOffset,
             metrics: metrics
         )
-        let retainedPaperCount = retainedSimpleInkPaperCount(for: chart,
+        let retainedPaperCount = retainedInkPaperCount(for: chart,
             paperWidth: paperWidth, paperHeight: minimumPaperHeight)
         while planPages.count < retainedPaperCount {
             // A deleted final measure must not move a floating mark or its
@@ -909,7 +909,7 @@ enum LeadSheetPageLayoutEngine {
             firstPageSystemTopOffset: resolvedHeaderFrame.maxY + 24 - paperFrame.minY,
             metrics: metrics
         )
-        let paperCount = max(planPages.count, retainedSimpleInkPaperCount(for: chart,
+        let paperCount = max(planPages.count, retainedInkPaperCount(for: chart,
             paperWidth: paperWidth, paperHeight: minimumPaperHeight))
         let pageHeights = Array(repeating: minimumPaperHeight, count: paperCount)
         let totalPaperHeight = pageHeights.reduce(0, +)
@@ -920,14 +920,28 @@ enum LeadSheetPageLayoutEngine {
         )
     }
 
-    private static func retainedSimpleInkPaperCount(
+    private static func retainedInkPaperCount(
         for chart: Chart, paperWidth: CGFloat, paperHeight: CGFloat
     ) -> Int {
-        guard chart.layoutStyle == .simpleChordSheet else { return 1 }
+        guard chart.layoutStyle == .simpleChordSheet || chart.layoutStyle == .rhythmSectionSheet else { return 1 }
         // Reject unbounded imported page indices before allocating paper.
         let maximumRetainedPaperCount = 1_024
         var count = 1
-        if let bounds = LeadSheetFreeInkDocumentLayoutPolicy.savedPageInkBounds(for: chart),
+        let paperInkBounds: CGRect?
+        if chart.layoutStyle == .simpleChordSheet {
+            paperInkBounds = LeadSheetFreeInkDocumentLayoutPolicy.savedPageInkBounds(for: chart)
+        } else {
+            #if canImport(UIKit)
+            // Staff-owned ink still follows its measures. Only connected raw
+            // groups already classified as unowned tail paper retain a page.
+            paperInkBounds = LeadSheetPersistentInkCoordinateSpacePolicy.unownedTailPaperInkBounds(
+                from: chart.pageHandwrittenNotationData,
+                sourceCoordinateSpace: chart.pageHandwrittenNotationCoordinateSpace)
+            #else
+            paperInkBounds = nil
+            #endif
+        }
+        if let bounds = paperInkBounds,
            !bounds.isEmpty, bounds.maxY.isFinite {
             // Scope dimensions describe capacity, not occupied paper. Only
             // actual restored/raw handwriting can keep a trailing page alive.

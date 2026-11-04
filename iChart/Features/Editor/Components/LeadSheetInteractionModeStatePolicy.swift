@@ -367,6 +367,78 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
         var top: CGFloat
     }
 
+    private final class TailPaperInkCacheKey: NSObject {
+        let data: Data
+        let space: PersistentInkCoordinateSpace
+
+        init(data: Data, space: PersistentInkCoordinateSpace) {
+            self.data = data
+            self.space = space
+        }
+
+        override var hash: Int {
+            var hasher = Hasher()
+            hasher.combine(data)
+            hasher.combine(space)
+            return hasher.finalize()
+        }
+
+        override func isEqual(_ object: Any?) -> Bool {
+            guard let other = object as? TailPaperInkCacheKey else { return false }
+            return data == other.data && space == other.space
+        }
+    }
+
+    private static let tailPaperInkBoundsCache: NSCache<TailPaperInkCacheKey, NSValue> = {
+        let cache = NSCache<TailPaperInkCacheKey, NSValue>()
+        cache.countLimit = 16
+        cache.totalCostLimit = 16 * 1_024 * 1_024
+        return cache
+    }()
+
+    /// The same connected groups that staff projection leaves on paper can
+    /// retain an otherwise empty page after Restore Ink removes its last mark.
+    /// Missing legacy staff geometry is not evidence for a new ownership guess.
+    static func unownedTailPaperInkBounds(
+        from data: Data?, sourceCoordinateSpace: PersistentInkCoordinateSpace?
+    ) -> CGRect? {
+        guard let data, !data.isEmpty, let sourceCoordinateSpace else { return nil }
+        let key = TailPaperInkCacheKey(data: data, space: sourceCoordinateSpace)
+        if let cached = tailPaperInkBoundsCache.object(forKey: key) {
+            return cached.cgRectValue.isNull ? nil : cached.cgRectValue
+        }
+        let anchors = (sourceCoordinateSpace.measureAnchors ?? []).filter { validStaffFrame($0.staffFrame) }
+        let rows = staffRows(from: anchors)
+        guard let last = rows.last,
+              let drawing = try? PKDrawing(data: data), !drawing.strokes.isEmpty else { return nil }
+        let padding = rows.map { $0.staff.height / 4 }.min()! * 0.25
+        let bounds = connectedStrokeGroups(drawing.strokes, padding: padding).reduce(CGRect.null) { result, indices in
+            let group = indices.reduce(CGRect.null) { $0.union(drawing.strokes[$1].renderBounds) }
+            return isUnownedTailPaperInk(group, below: last.staff) ? result.union(group) : result
+        }
+        tailPaperInkBoundsCache.setObject(NSValue(cgRect: bounds), forKey: key, cost: data.count)
+        return bounds.isNull ? nil : bounds
+    }
+
+    private static func staffRows(from sourceAnchors: [PersistentInkMeasureAnchor]) -> [StaffRow] {
+        var rows: [StaffRow] = []
+        for anchor in sourceAnchors.sorted(by: { $0.staffFrame!.y < $1.staffFrame!.y }) {
+            let staff = anchor.staffFrame!.rect
+            if let index = rows.indices.last, abs(rows[index].staff.minY - staff.minY) < 0.01 {
+                rows[index].anchors.append(anchor)
+                rows[index].staff = rows[index].staff.union(staff)
+                rows[index].top = min(rows[index].top, anchor.frame.rect.minY)
+            } else {
+                rows.append(StaffRow(anchors: [anchor], staff: staff, top: anchor.frame.rect.minY))
+            }
+        }
+        return rows
+    }
+
+    private static func isUnownedTailPaperInk(_ bounds: CGRect, below lastStaff: CGRect) -> Bool {
+        bounds.minY > lastStaff.maxY + max(80, lastStaff.height * 2)
+    }
+
     private static func staffRelativeDrawing(
         _ drawing: PKDrawing,
         from source: PersistentInkCoordinateSpace,
@@ -382,17 +454,7 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
         // Every stroke on a row uses one transform, including beams spanning
         // barlines and notes made from separate notehead/stem/accidental strokes.
         // Never assign these pieces to separate chord hit regions.
-        var rows: [StaffRow] = []
-        for anchor in sourceAnchors.sorted(by: { $0.staffFrame!.y < $1.staffFrame!.y }) {
-            let staff = anchor.staffFrame!.rect
-            if let index = rows.indices.last, abs(rows[index].staff.minY - staff.minY) < 0.01 {
-                rows[index].anchors.append(anchor)
-                rows[index].staff = rows[index].staff.union(staff)
-                rows[index].top = min(rows[index].top, anchor.frame.rect.minY)
-            } else {
-                rows.append(StaffRow(anchors: [anchor], staff: staff, top: anchor.frame.rect.minY))
-            }
-        }
+        let rows = staffRows(from: sourceAnchors)
         let transforms: [CGAffineTransform?] = rows.map { row in
             let matches = row.anchors.compactMap { targetAnchors[$0.measureID]?.staffFrame?.rect }
             guard matches.count == row.anchors.count, let first = matches.first,
@@ -424,7 +486,7 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
             // Headers and drawings in blank paper beyond the last staff are
             // paper annotations. Only row-local handwriting follows engraving.
             if index == rows.count - 1,
-               bounds.minY > rows[index].staff.maxY + max(80, rows[index].staff.height * 2) {
+               isUnownedTailPaperInk(bounds, below: rows[index].staff) {
                 continue
             }
             let transform: CGAffineTransform?
