@@ -1,7 +1,8 @@
 # Forum browsing follow-up: Build 137 candidate
 
-Updated November 4, 2026. This is a local follow-up to the installed Build 136
-checkpoint and draft PR #95. Build 136 remains the installed device baseline.
+Updated November 4, 2026. This tested follow-up is included in draft PR #95
+after the user approved public inclusion. Build 136 remains the installed
+device baseline; Build 137 is a source candidate.
 
 ## Observed problems and repair
 
@@ -37,7 +38,7 @@ The project build default and its expectation advance to 137.
 All three final app walkthrough methods passed with zero failures. Durable
 readback after app termination confirms both new publications have validated
 provenance; each seeded style retains one peer upvote and 168 comments. The
-last comment belongs to the expected second account. Screenshots were visually
+last comment belongs to the expected peer account. Screenshots were visually
 checked for the narrow forum layout and both native publication PDFs.
 
 The app walkthrough uses a unique proof bundle, fresh Simulator and isolated
@@ -56,12 +57,14 @@ the isolated test server was stopped; the proof Simulator is shut down.
 
 ## Integration boundary
 
-The exact installed Build 136 checkpoint remains `6ffeb144`, and draft PR #95
-retains its approved Build 136 head while this candidate is local. Hosted backend
-contracts and Dependency Review passed at that head. Hosted iOS, SwiftPM and
-CodeQL jobs were cancelled before execution because GitHub did not acquire
-macOS runners; the hosted gate remains unmet.
+The exact installed Build 136 checkpoint remains `6ffeb144`. The tested forum
+follow-up is checkpointed separately at `8c79e13a` and included in the same
+public draft PR #95 after explicit user approval. The integration documentation
+change leaves that tested runtime source unchanged.
 
-The candidate requires review and publication approval before it is included in
-the public draft. Promotion to main, app release and device installation remain
+At the earlier Build 136 PR head `2607d8ed`, hosted backend contracts and
+Dependency Review passed. Hosted iOS, SwiftPM and CodeQL jobs were cancelled
+before execution because GitHub did not acquire macOS runners. Checks for the
+updated PR head are separate; the earlier results do not establish its hosted
+gate. Review, promotion to main, app release and device installation remain
 separate actions.
