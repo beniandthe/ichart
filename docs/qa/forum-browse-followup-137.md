@@ -50,8 +50,8 @@ artifacts stay outside source control.
 
 Native Concert publication and seeded B-flat/legacy download checks are distinct
 lanes. This does not establish fresh Pencil gestures or physical iPad acceptance.
-No production test content, badge awards or additional device installation is
-part of this follow-up. The two disposable accounts and their posts, songs,
+No production test content was created and no production badges were awarded.
+No additional device installation is part of this follow-up. The two disposable accounts and their posts, songs,
 badges and stored PDFs were removed with zero remaining fixture records. Only
 the isolated test server was stopped; the proof Simulator is shut down.
 

@@ -22,7 +22,8 @@ participation. Existing marcato compatibility is retained; further mark-input
 work remains parked. Separate Graph, MyScript and ML research branches were not
 incorporated.
 
-No application-runtime code changed during integration. Integration sets the
+No application-runtime code changed during the initial Build 136 consolidation.
+That integration step sets the
 authoritative `project.yml` build default from 108 to 136 and updates its test
 expectation. The installed binary had already used an explicit build-136
 override; the new default makes ordinary builds use the same number.
