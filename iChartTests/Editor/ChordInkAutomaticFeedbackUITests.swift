@@ -1038,8 +1038,15 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
     }
 
     func testLandscapeSoftwareKeyboardLeavesBothReviewEntriesReachableAndCancelPreservesSource() async throws {
-        let mounted = try await mount(manual: true, viewport: CGSize(width: 1_180, height: 820),
-            sourceDrawing: landscapeSourceDrawing())
+        try await assertLandscapeKeyboardCancellation(layoutStyle: .rhythmSectionSheet)
+    }
+
+    func testSimpleLandscapeSoftwareKeyboardLeavesBothReviewEntriesReachableAndCancelPreservesSource() async throws {
+        try await assertLandscapeKeyboardCancellation(layoutStyle: .simpleChordSheet)
+    }
+
+    private func assertLandscapeKeyboardCancellation(layoutStyle: ChartLayoutStyle) async throws {
+        let mounted = try await mountLandscapeKeyboardReview(layoutStyle: layoutStyle)
         let keyboard = FeedbackSoftwareKeyboardProbe(window: mounted.window)
         XCTAssertTrue(mounted.window.windowScene?.effectiveGeometry.interfaceOrientation.isLandscape == true,
             "The software keyboard must be exercised in a real landscape scene")
@@ -1080,8 +1087,15 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
     }
 
     func testLandscapeSoftwareKeyboardReviewAcceptsBothEntriesWithExactSourceOwnership() async throws {
-        let mounted = try await mount(manual: true, viewport: CGSize(width: 1_180, height: 820),
-            sourceDrawing: landscapeSourceDrawing())
+        try await assertLandscapeKeyboardRender(layoutStyle: .rhythmSectionSheet)
+    }
+
+    func testSimpleLandscapeSoftwareKeyboardReviewAcceptsBothEntriesWithExactSourceOwnership() async throws {
+        try await assertLandscapeKeyboardRender(layoutStyle: .simpleChordSheet)
+    }
+
+    private func assertLandscapeKeyboardRender(layoutStyle: ChartLayoutStyle) async throws {
+        let mounted = try await mountLandscapeKeyboardReview(layoutStyle: layoutStyle)
         let keyboard = FeedbackSoftwareKeyboardProbe(window: mounted.window)
         XCTAssertTrue(mounted.window.windowScene?.effectiveGeometry.interfaceOrientation.isLandscape == true)
         let source = try PKDrawing(data: XCTUnwrap(mounted.model.chart.pageHandwrittenChordData))
@@ -1112,6 +1126,14 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
         XCTAssertNil(mounted.model.chart.pageHandwrittenChordData)
         let live = try XCTUnwrap(mounted.canvas.subviews.compactMap { $0 as? PKCanvasView }.last)
         XCTAssertTrue(live.drawing.strokes.isEmpty)
+    }
+
+    private func mountLandscapeKeyboardReview(layoutStyle: ChartLayoutStyle) async throws -> Mounted {
+        var chart = Chart.draft(title: "Disposable landscape review", layoutStyle: layoutStyle)
+        chart.completeInitialSetup(title: chart.title, key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine, startingMeasureCount: 1)
+        _ = chart.setPageHandwrittenChordDrawing(landscapeSourceDrawing().dataRepresentation())
+        return try await mount(manual: true, viewport: CGSize(width: 1_180, height: 820), initialChart: chart)
     }
 
     private func openLandscapeReview(in mounted: Mounted) async throws -> [IChartTypedUITextField] {

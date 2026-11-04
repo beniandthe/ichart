@@ -718,6 +718,10 @@ struct ChordInkBatchConfirmationSheetView: View {
                     .background(IChartTypedSheetScrollSupport(monitorsKeyboardReachability: true))
                 }
                 .scrollDismissesKeyboard(.interactively)
+                // Keep the focused field's border clear of a docked keyboard.
+                // UIKit still owns focus scrolling; a bottom safe-area margin
+                // prevents its settled target from ending flush at that edge.
+                .safeAreaPadding(.bottom, 8)
                 .chordRenderStatusInset(renderError)
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("Review Chords")
