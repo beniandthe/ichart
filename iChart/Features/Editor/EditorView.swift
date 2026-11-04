@@ -5698,7 +5698,10 @@ struct EditorView: View {
     ) -> Bool {
         let hasEndingToReview = ChordDraftEndingReviewPolicy.firstEndingNeedingReview(chart: chart, state: state) != nil
         let hasRepeatToReview = !ChordInkRepeatSignPairingPolicy.review(state: state).canRender
-        if state.renderableDraftChords.isEmpty {
+        // The independent toolbar action may commit safe structural marks
+        // while an unrelated ending or repeat still needs review. Its live
+        // coordinator validates that selected source and retains the rest.
+        if !independentOnly, state.renderableDraftChords.isEmpty {
             if hasEndingToReview {
                 presentChordRenderError("Review the ending bracket to choose its label and measures.")
                 return false
