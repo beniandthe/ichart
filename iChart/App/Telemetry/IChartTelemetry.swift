@@ -105,6 +105,27 @@ private struct IChartTelemetryBatch: Encodable {
     let events: [IChartTelemetryEvent]
 }
 
+/// Optional in-memory fixture diagnostics. These stages are never telemetry
+/// properties and contain no account, installation, chart or content values.
+struct IChartTelemetryRecordingTrace: Sendable {
+    enum Stage: String, Sendable {
+        case deferredScheduled, deferredStarted, deferredCompleted
+        case observationEntered, observationRejected, propertiesUnavailable
+        case recordEntered, consentPreparationRejected, expectedConsentRejected, eventNameRejected
+        case identityRequested, identityUnavailable, identityResolved
+        case contextAdmissionRejected, contextReady, contractPropertiesRejected
+        case queueAdmissionRejected, queueAppendFailed, queueAppended
+        case queueResetStarted, queueResetRejected, queueResetFailed, queueResetCompleted
+    }
+
+    let callID: UUID
+    let eventName: String
+    let stage: Stage
+    let errorDomain: String?
+    let errorCode: Int?
+    let admissionDenial: IChartTelemetryConsentAdmissionDenial?
+}
+
 enum IChartTelemetryBuildSource {
     static var value: String {
         #if DEBUG
@@ -185,10 +206,16 @@ enum IChartTelemetry {
         onCompletion: @escaping @Sendable () -> Void = {},
         properties: @escaping @Sendable () -> IChartTelemetryProperties?
     ) {
+        let callID = authorization.service.recordingTraceID()
+        authorization.service.traceRecording(.deferredScheduled, callID: callID, eventName: eventName)
         Task.detached(priority: .utility) {
-            defer { onCompletion() }
+            authorization.service.traceRecording(.deferredStarted, callID: callID, eventName: eventName)
+            defer {
+                authorization.service.traceRecording(.deferredCompleted, callID: callID, eventName: eventName)
+                onCompletion()
+            }
             await authorization.service.recordDiagnosticObservation(eventName, chartID: chartID,
-                expectedConsent: authorization.consent, properties: properties)
+                expectedConsent: authorization.consent, traceID: callID, properties: properties)
         }
     }
 
@@ -218,6 +245,7 @@ enum IChartTelemetry {
 
 actor IChartTelemetryService {
     nonisolated let consentStore: IChartTelemetryConsentStore
+    private nonisolated let recordingObserver: (@Sendable (IChartTelemetryRecordingTrace) -> Void)?
     private let endpointURL: URL
     private let publishableKey: String
     private let sessionStore: IChartSupabaseSessionStore?
@@ -248,7 +276,8 @@ actor IChartTelemetryService {
         sessionID: UUID? = nil,
         consentStore: IChartTelemetryConsentStore = .shared,
         urlSession: URLSession = .shared,
-        now: @escaping () -> Date = Date.init
+        now: @escaping () -> Date = Date.init,
+        recordingObserver: (@Sendable (IChartTelemetryRecordingTrace) -> Void)? = nil
     ) {
         self.endpointURL = endpointURL
         self.publishableKey = publishableKey
@@ -261,6 +290,7 @@ actor IChartTelemetryService {
         self.sessionID = sessionID
         self.urlSession = urlSession
         self.now = now
+        self.recordingObserver = recordingObserver
         let consent = consentStore.snapshot
         if consent.isGranted && !consentStore.requiresQueueReset {
             observedConsent = consent
@@ -320,12 +350,22 @@ actor IChartTelemetryService {
     /// sides of a potentially expensive comparison retain the original grant.
     func recordDiagnosticObservation(
         _ eventName: String, chartID: UUID?, expectedConsent: IChartTelemetryConsentSnapshot,
+        traceID: UUID? = nil,
         properties: @Sendable () -> IChartTelemetryProperties?
     ) async {
+        let traceID = traceID ?? recordingTraceID()
+        traceRecording(.observationEntered, callID: traceID, eventName: eventName)
         guard expectedConsent.isGranted,
-              consentStore.cachedSnapshotForScheduling == expectedConsent,
-              let values = properties() else { return }
-        await record(eventName, properties: values, chartID: chartID, expectedConsent: expectedConsent)
+              consentStore.cachedSnapshotForScheduling == expectedConsent else {
+            traceRecording(.observationRejected, callID: traceID, eventName: eventName)
+            return
+        }
+        guard let values = properties() else {
+            traceRecording(.propertiesUnavailable, callID: traceID, eventName: eventName)
+            return
+        }
+        await record(eventName, properties: values, chartID: chartID, expectedConsent: expectedConsent,
+                     traceID: traceID)
     }
 
     func consentDidChange() {
@@ -336,12 +376,24 @@ actor IChartTelemetryService {
         _ eventName: String,
         properties: IChartTelemetryProperties = [:],
         chartID: UUID? = nil,
-        expectedConsent: IChartTelemetryConsentSnapshot? = nil
+        expectedConsent: IChartTelemetryConsentSnapshot? = nil,
+        traceID: UUID? = nil
     ) async {
-        guard let consent = preparedConsent(),
-              expectedConsent == nil || expectedConsent == consent,
-              IChartTelemetryPrivacy.allowedEventNames.contains(eventName),
-              let context = currentContext(for: consent) else {
+        let traceID = traceID ?? recordingTraceID()
+        traceRecording(.recordEntered, callID: traceID, eventName: eventName)
+        guard let consent = preparedConsent(traceID: traceID, eventName: eventName) else {
+            traceRecording(.consentPreparationRejected, callID: traceID, eventName: eventName)
+            return
+        }
+        guard expectedConsent == nil || expectedConsent == consent else {
+            traceRecording(.expectedConsentRejected, callID: traceID, eventName: eventName)
+            return
+        }
+        guard IChartTelemetryPrivacy.allowedEventNames.contains(eventName) else {
+            traceRecording(.eventNameRejected, callID: traceID, eventName: eventName)
+            return
+        }
+        guard let context = currentContext(for: consent, traceID: traceID, eventName: eventName) else {
             return
         }
 
@@ -376,6 +428,7 @@ actor IChartTelemetryService {
         )
         if eventName == "feature.contract_checked",
            !IChartTelemetryPrivacy.hasRequiredContractFields(sanitizedProperties) {
+            traceRecording(.contractPropertiesRejected, callID: traceID, eventName: eventName)
             try? consentStore.performIfGranted(matching: consent) {
                 try queueStore.recordLocalRejection()
             }
@@ -399,13 +452,20 @@ actor IChartTelemetryService {
         )
 
         do {
-            guard try consentStore.performIfGranted(matching: consent, {
+            guard try consentStore.performIfGranted(matching: consent, onDenied: { denial in
+                self.traceRecording(.queueAdmissionRejected, callID: traceID, eventName: eventName,
+                                    admissionDenial: denial)
+            }, {
                 try queueStore.append(event)
                 return true
-            }) == true else { return }
+            }) == true else {
+                return
+            }
         } catch {
+            traceRecording(.queueAppendFailed, callID: traceID, eventName: eventName, error: error)
             return
         }
+        traceRecording(.queueAppended, callID: traceID, eventName: eventName)
 
         if shouldFlushOpportunistically() {
             await flush(expectedConsent: consent)
@@ -569,9 +629,18 @@ actor IChartTelemetryService {
         return now().timeIntervalSince(lastFlushAttemptAt) >= Self.opportunisticFlushInterval
     }
 
-    private func currentContext(for consent: IChartTelemetryConsentSnapshot) -> IChartTelemetryContext? {
-        guard let resolvedID = installationID ?? consentStore.installationID(for: consent) else { return nil }
-        return consentStore.performIfGranted(matching: consent) {
+    private func currentContext(for consent: IChartTelemetryConsentSnapshot, traceID: UUID? = nil,
+                                eventName: String = "") -> IChartTelemetryContext? {
+        traceRecording(.identityRequested, callID: traceID, eventName: eventName)
+        guard let resolvedID = installationID ?? consentStore.installationID(for: consent) else {
+            traceRecording(.identityUnavailable, callID: traceID, eventName: eventName)
+            return nil
+        }
+        traceRecording(.identityResolved, callID: traceID, eventName: eventName)
+        let context = consentStore.performIfGranted(matching: consent, onDenied: { denial in
+            self.traceRecording(.contextAdmissionRejected, callID: traceID, eventName: eventName,
+                                admissionDenial: denial)
+        }) {
             installationID = resolvedID
             let resolvedSessionID = sessionID ?? UUID()
             sessionID = resolvedSessionID
@@ -587,25 +656,48 @@ actor IChartTelemetryService {
                 timeZoneOffsetMinutes: TimeZone.current.secondsFromGMT() / 60
             )
         }
+        if context != nil { traceRecording(.contextReady, callID: traceID, eventName: eventName) }
+        return context
     }
 
-    private func preparedConsent() -> IChartTelemetryConsentSnapshot? {
+    private func preparedConsent(traceID: UUID? = nil, eventName: String = "") -> IChartTelemetryConsentSnapshot? {
         let consent = consentStore.snapshot
         if consent != observedConsent || !consent.isGranted || consentStore.requiresQueueReset {
+            let resetTraceID = traceID ?? recordingTraceID()
+            traceRecording(.queueResetStarted, callID: resetTraceID, eventName: eventName)
             inFlightRequest?.cancel()
             do {
                 guard try consentStore.clearQueuedEvents(matching: consent, {
                     try queueStore.clear()
-                }) else { return nil }
+                }) else {
+                    traceRecording(.queueResetRejected, callID: resetTraceID, eventName: eventName)
+                    return nil
+                }
             } catch {
+                traceRecording(.queueResetFailed, callID: resetTraceID, eventName: eventName, error: error)
                 return nil
             }
+            traceRecording(.queueResetCompleted, callID: resetTraceID, eventName: eventName)
             installationID = suppliedInstallationID
             sessionID = suppliedSessionID
             lastFlushAttemptAt = nil
             observedConsent = consent
         }
         return consent.isGranted ? consent : nil
+    }
+
+    nonisolated func recordingTraceID() -> UUID? {
+        recordingObserver == nil ? nil : UUID()
+    }
+
+    nonisolated func traceRecording(_ stage: IChartTelemetryRecordingTrace.Stage,
+                                   callID: UUID?, eventName: String, error: Error? = nil,
+                                   admissionDenial: IChartTelemetryConsentAdmissionDenial? = nil) {
+        guard let callID, let recordingObserver else { return }
+        let failure = error.map { $0 as NSError }
+        recordingObserver(.init(callID: callID, eventName: String(eventName.prefix(80)), stage: stage,
+                                errorDomain: failure.map { String($0.domain.prefix(80)) },
+                                errorCode: failure?.code, admissionDenial: admissionDenial))
     }
 
     private static func bundleValue(for key: String, fallback: String) -> String {

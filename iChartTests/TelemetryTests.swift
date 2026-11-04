@@ -24,6 +24,82 @@ final class TelemetryTests: XCTestCase {
         XCTAssertEqual(defaults.string(forKey: IChartTelemetryConsentStore.preferenceKey), IChartTelemetryConsentStore.currentVersion)
     }
 
+    @MainActor
+    func testAdmissionDenialReportsCapturedConsentAndKeepsGrantedOperationErrors() throws {
+        let suite = "iChart-consent-admission-reasons-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let consent = IChartTelemetryConsentStore(defaults: defaults)
+        var reasons: [IChartTelemetryConsentAdmissionDenial] = []
+        let onDenied: (IChartTelemetryConsentAdmissionDenial) -> Void = { reason in
+            reasons.append(reason)
+            self.assertConsentReadReturnsDuringAdmissionCallback(consent)
+        }
+
+        let disabledResult = consent.performIfGranted(matching: consent.snapshot, onDenied: onDenied) {
+            XCTFail("A disabled grant cannot run its operation")
+            return true
+        }
+        XCTAssertNil(disabledResult)
+        XCTAssertEqual(reasons, [.capturedConsentNotGranted])
+
+        consent.setConsentGranted(true)
+        let oldGrant = consent.snapshot
+        consent.setConsentGranted(false)
+        consent.setConsentGranted(true)
+        let staleResult = consent.performIfGranted(matching: oldGrant, onDenied: onDenied) {
+            XCTFail("An earlier grant cannot run after withdrawal and regrant")
+            return true
+        }
+        XCTAssertNil(staleResult)
+        XCTAssertEqual(reasons, [.capturedConsentNotGranted, .consentChanged])
+
+        let current = consent.snapshot
+        XCTAssertEqual(consent.performIfGranted(matching: current, onDenied: onDenied) { true }, true)
+        let expected = NSError(domain: "AdmissionOperationTest", code: 17)
+        let operation: () throws -> Bool = { throw expected }
+        XCTAssertThrowsError(try consent.performIfGranted(matching: current, onDenied: onDenied, operation)) { error in
+            XCTAssertEqual(error as NSError, expected)
+        }
+        XCTAssertEqual(reasons, [.capturedConsentNotGranted, .consentChanged],
+                       "Granted operations and their errors must not be reported as admission denial")
+    }
+
+    @MainActor
+    func testAdmissionDenialIdentifiesProjectionAndAllowsReentrantReadsAfterUnlock() throws {
+        let suite = "iChart-consent-projection-denial-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(ReentrantTelemetryDefaults(suiteName: suite))
+        defer {
+            defaults.onMutation = nil
+            defaults.removePersistentDomain(forName: suite)
+        }
+        let consent = IChartTelemetryConsentStore(defaults: defaults)
+        consent.setConsentGranted(true)
+        let original = consent.snapshot
+        var reasons: [IChartTelemetryConsentAdmissionDenial] = []
+        defaults.onMutation = { _ in
+            guard reasons.isEmpty else { return }
+            XCTAssertEqual(consent.cachedSnapshotForScheduling, original)
+            let denied = consent.performIfGranted(matching: original, onDenied: { reason in
+                reasons.append(reason)
+                self.assertConsentReadReturnsDuringAdmissionCallback(consent)
+            }) {
+                XCTFail("A preference projection must retain its admission block")
+                return true
+            }
+            XCTAssertNil(denied)
+        }
+
+        // The selected grant does not change, but its synchronous preference
+        // projection still excludes authoritative operations until it returns.
+        consent.setConsentGranted(true)
+        defaults.onMutation = nil
+
+        XCTAssertEqual(reasons, [.preferenceProjectionInProgress])
+        XCTAssertEqual(consent.snapshot, original)
+        XCTAssertEqual(consent.performIfGranted(matching: original) { true }, true)
+    }
+
     func testInitializationWithCurrentPreferencesDoesNotProjectOrBlockAdmission() async throws {
         for isGranted in [false, true] {
             let defaults = try XCTUnwrap(ReentrantTelemetryDefaults(suiteName: "iChart-consent-init-noop-\(UUID().uuidString)"))
@@ -690,6 +766,18 @@ final class TelemetryTests: XCTestCase {
             "queue_unacknowledged_batch_count": .int(1_000_000_000_001)
         ])
         XCTAssertEqual(sanitized, ["queue_overflow_count": .int(12)])
+    }
+
+    private func assertConsentReadReturnsDuringAdmissionCallback(_ consent: IChartTelemetryConsentStore,
+        file: StaticString = #filePath, line: UInt = #line) {
+        let readReturned = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = consent.snapshot
+            readReturned.signal()
+        }
+        XCTAssertEqual(readReturned.wait(timeout: .now() + 2), .success,
+                       "A denial callback must run after releasing the authoritative consent lock",
+                       file: file, line: line)
     }
 
     private func event(named name: String) -> IChartTelemetryEvent {
