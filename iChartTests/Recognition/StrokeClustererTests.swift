@@ -1,0 +1,763 @@
+import XCTest
+@testable import iChart
+
+final class StrokeClustererTests: XCTestCase {
+    private let clusterer = StrokeClusterer()
+    private let originalInkClusterer = StrokeClusterer(wrapperPolicy: .preserveOriginalInk)
+
+    func testPreservingOriginalInkPartitionsEveryRetainedFixtureWithoutChangingSourceStrokes() throws {
+        let fixtures = try InkFixtureLoader.loadAll(file: #filePath)
+        XCTAssertFalse(fixtures.isEmpty)
+        for fixture in fixtures {
+            for reversesOrder in [false, true] {
+                let strokes = reversesOrder ? Array(fixture.strokes.reversed()) : fixture.strokes
+                assertOriginalInkPartition(strokes, context: "\(fixture.name) reversed=\(reversesOrder)")
+            }
+        }
+    }
+
+    func testPreservingOriginalInkRetainsRepeatedGeometryAndDrawingMetadata() {
+        let repeatedStroke = InkStroke(
+            points: [
+                InkPoint(x: 10, y: 10, timeOffset: 0),
+                InkPoint(x: 10, y: 30, timeOffset: 0.1)
+            ],
+            bounds: InkBounds(minX: 9, minY: 9, maxX: 11, maxY: 31),
+            creationTimeOffset: 5
+        )
+        var laterStroke = repeatedStroke
+        laterStroke.creationTimeOffset = 6
+        let strokes = [repeatedStroke, laterStroke, repeatedStroke, repeatedStroke]
+        assertOriginalInkPartition(strokes, context: "repeated geometry")
+        assertOriginalInkPartition(Array(strokes.reversed()), context: "repeated geometry reversed")
+    }
+
+    func testPreservingOriginalInkRetainsDominantAndBareParenthesisWrappers() throws {
+        let dominantStrokes = try InkFixtureLoader.load("C7Sharp9", file: #filePath).strokes
+        let dominantClusters = clusterer.indexedClusters(dominantStrokes)
+        let sevenIndexes = Set(try XCTUnwrap(dominantClusters.dropFirst().first).originalIndexes)
+        let bareStrokes = dominantStrokes.enumerated().compactMap { index, stroke in
+            sevenIndexes.contains(index) ? nil : stroke
+        }
+
+        for strokes in [dominantStrokes, bareStrokes] {
+            let semanticClusters = clusterer.indexedClusters(strokes)
+            XCTAssertEqual(
+                semanticClusters,
+                StrokeClusterer(wrapperPolicy: .semanticNormalization).indexedClusters(strokes)
+            )
+            let discardedIndexes = Set(strokes.indices)
+                .subtracting(semanticClusters.flatMap(\.originalIndexes))
+            XCTAssertEqual(discardedIndexes.count, 2)
+            XCTAssertTrue(semanticClusters.contains {
+                $0.cluster.hasRecognitionHint(.parenthesizedAlteration)
+            })
+
+            let originalClusters = originalInkClusterer.indexedClusters(strokes)
+            assertOriginalInkPartition(strokes, context: "literal wrappers")
+            XCTAssertTrue(discardedIndexes.isSubset(of: Set(originalClusters.flatMap(\.originalIndexes))))
+            XCTAssertEqual(originalInkClusterer.cluster(strokes), originalClusters.map(\.cluster))
+        }
+    }
+
+    private func assertOriginalInkPartition(
+        _ strokes: [InkStroke],
+        context: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let clusters = originalInkClusterer.indexedClusters(strokes)
+        XCTAssertEqual(clusters.flatMap(\.originalIndexes).sorted(), Array(strokes.indices), context, file: file, line: line)
+        XCTAssertTrue(clusters.map(\.cluster).areSortedLeftToRight, context, file: file, line: line)
+        for indexed in clusters {
+            XCTAssertFalse(indexed.originalIndexes.isEmpty, context, file: file, line: line)
+            XCTAssertEqual(indexed.originalIndexes.count, indexed.cluster.strokes.count, context, file: file, line: line)
+            XCTAssertNil(indexed.cluster.recognitionHints, context, file: file, line: line)
+            for (index, stroke) in zip(indexed.originalIndexes, indexed.cluster.strokes) {
+                XCTAssertTrue(strokes.indices.contains(index), context, file: file, line: line)
+                guard strokes.indices.contains(index) else { continue }
+                XCTAssertEqual(stroke, strokes[index], context, file: file, line: line)
+            }
+        }
+    }
+
+    func testDetachedMinorSuffixDoesNotBecomeSharpConstructionWhenOwnedStrokeOrderChanges() throws {
+        for name in ["CSharpMinorCaptured03", "CSharpmCaptured03", "ESharpmCaptured03", "FSharpMinorCaptured02"] {
+            let fixture = try InkFixtureLoader.load(name, file: #filePath)
+            for reversesOrder in [false, true] {
+                let input = reversesOrder ? Array(fixture.strokes.reversed()) : fixture.strokes
+                let strokes = input.map { InkStroke(points: $0.points, bounds: $0.bounds) }
+                let clusters = clusterer.indexedClusters(strokes)
+                let details = "\(name) reversed=\(reversesOrder) groups=\(clusters.map(\.originalIndexes))"
+                XCTAssertEqual(clusters.count, 3, details)
+                XCTAssertEqual(clusters.last?.originalIndexes, [reversesOrder ? 0 : strokes.count - 1], details)
+                XCTAssertEqual(clusters.flatMap(\.originalIndexes).sorted(), Array(strokes.indices), details)
+                let result = ChordInkMaximumTrustRecognizer().recognize(strokes: strokes)
+                XCTAssertEqual(result.match?.displayText, fixture.expectedDisplayText, details)
+            }
+        }
+    }
+
+    func testRepeatedSharpCrossbarWithinStemBodyDoesNotBecomeMinorSuffix() throws {
+        let templates = ChordGlyphTemplateLibrary.initialTemplates
+        let root = try XCTUnwrap(templates.first { $0.text == "F" })
+        let sharp = try XCTUnwrap(templates.first { $0.text == "#" })
+        let repeatedBar = try XCTUnwrap(sharp.strokes.last)
+        let input = root.strokes + sharp.strokes + [repeatedBar]
+        for strokes in [input, Array(input.reversed())] {
+            let clusters = clusterer.indexedClusters(strokes)
+            XCTAssertEqual(clusters.map { $0.cluster.strokes.count }, [3, 5])
+            XCTAssertEqual(clusters.flatMap(\.originalIndexes).sorted(), Array(strokes.indices))
+            XCTAssertEqual(ChordInkRecognizer().recognize(strokes: strokes).match?.displayText, "F#")
+        }
+    }
+
+    func testCompletedRaisedDeviceSharpKeepsBothStemsAndCrossbarsTogether() throws {
+        let fixture = try InkFixtureLoader.load("FSharpRaisedBarsSimpleDeviceCaptured01", file: #filePath)
+        for strokes in [fixture.strokes, Array(fixture.strokes.reversed())] {
+            let clusters = clusterer.indexedClusters(strokes)
+            XCTAssertEqual(clusters.map { $0.cluster.strokes.count }, [3, 4])
+            XCTAssertEqual(Set(clusters.flatMap(\.originalIndexes)), Set(strokes.indices))
+            let sharp = try XCTUnwrap(clusters.last?.cluster)
+            let candidates = GestureTemplateRecognizer().rankedCandidates(
+                for: sharp,
+                templates: ChordGlyphTemplateLibrary.initialTemplates,
+                limit: 8
+            )
+            XCTAssertEqual(candidates.first?.text, "#")
+        }
+    }
+
+    func testIncompleteSharpCannotBorrowTheFRootsBars() throws {
+        let fixture = try InkFixtureLoader.load("FSharpRaisedBarsSimpleDeviceCaptured01", file: #filePath)
+        for missingBarIndex in [5, 6] {
+            let strokes = fixture.strokes.enumerated().compactMap {
+                $0.offset == missingBarIndex ? nil : $0.element
+            }
+            let clusters = clusterer.indexedClusters(strokes)
+            XCTAssertEqual(clusters.first?.originalIndexes.sorted(), [0, 1, 2])
+            XCTAssertEqual(Set(clusters.flatMap(\.originalIndexes)), Set(strokes.indices))
+            XCTAssertFalse(clusters.contains { cluster in
+                MutableInkCluster(strokes: cluster.cluster.strokes, originalIndexes: cluster.originalIndexes)
+                    .hasTwoCrossingSharpBars
+            })
+        }
+    }
+
+    func testClustersDefaultRegressionFixturesIntoGlyphSizedGroups() throws {
+        try assertClustersIntoExpectedGlyphGroups(
+            fixtures: InkFixtureLoader.loadDefaultRegressionFixtures(file: #filePath)
+        )
+    }
+
+    func testClustersFullInkFixtureArchiveWhenEnabled() throws {
+        try XCTSkipUnless(
+            InkFixtureLoader.shouldRunFullInkFixtureArchiveTests,
+            "Set \(InkFixtureLoader.fullInkFixtureArchiveEnvironmentVariable)=1 to run the full ink fixture archive."
+        )
+        try assertClustersIntoExpectedGlyphGroups(fixtures: InkFixtureLoader.loadAll(file: #filePath))
+    }
+
+    private func assertClustersIntoExpectedGlyphGroups(fixtures: [InkFixture]) throws {
+        for fixture in fixtures {
+            guard let expectedClusterCount = fixture.expectedClusterCount else {
+                continue
+            }
+
+            let clusters = clusterer.cluster(fixture.strokes)
+
+            if fixture.allowsCompactSemanticClusters {
+                XCTAssertGreaterThanOrEqual(
+                    clusters.count,
+                    max(1, expectedClusterCount - 2),
+                    "Expected \(fixture.name) to keep enough clusters to resolve \(fixture.expectedTopGlyphs)"
+                )
+                XCTAssertLessThanOrEqual(
+                    clusters.count,
+                    expectedClusterCount + 1,
+                    "Expected \(fixture.name) to avoid over-splitting \(fixture.expectedTopGlyphs)"
+                )
+                XCTAssertTrue(clusters.areSortedLeftToRight)
+                continue
+            }
+
+            XCTAssertEqual(
+                clusters.count,
+                expectedClusterCount,
+                "Expected \(fixture.name) to split into \(fixture.expectedTopGlyphs)"
+            )
+            XCTAssertEqual(clusters.count, fixture.expectedTopGlyphs.count)
+            XCTAssertTrue(clusters.areSortedLeftToRight)
+            let clusteredStrokeCount = clusters.reduce(0) { $0 + $1.strokes.count }
+            if fixture.allowsDiscardingSemanticParenthesisWrappers {
+                let discardedStrokeCount = fixture.strokes.count - clusteredStrokeCount
+                XCTAssertGreaterThanOrEqual(discardedStrokeCount, 0)
+                XCTAssertLessThanOrEqual(
+                    discardedStrokeCount,
+                    2,
+                    "Only literal altered-extension wrapper strokes should be discarded for \(fixture.name)"
+                )
+            } else {
+                XCTAssertEqual(clusteredStrokeCount, fixture.strokes.count)
+            }
+        }
+    }
+
+    func testClustererOutputIsDeterministicForReorderedInput() throws {
+        let fixture = try InkFixtureLoader.load("Db7b9", file: #filePath)
+
+        let forwardClusters = clusterer.cluster(fixture.strokes)
+        let reversedClusters = clusterer.cluster(Array(fixture.strokes.reversed()))
+
+        XCTAssertEqual(forwardClusters.map(\.bounds), reversedClusters.map(\.bounds))
+        XCTAssertEqual(forwardClusters.map(\.strokes.count), reversedClusters.map(\.strokes.count))
+    }
+
+    func testSlashBassKeepsSlashAsSeparatorCluster() throws {
+        for fixtureName in [
+            "GSlashB",
+            "GSlashBCaptured02",
+            "FSlashA",
+            "BFlatSlashDCaptured01",
+            "DSlashFSharpCaptured02",
+            "DSlashFSharpLooseDevice01",
+            "FSharpSlashASharpCaptured01"
+        ] {
+            let fixture = try InkFixtureLoader.load(fixtureName, file: #filePath)
+            let clusters = clusterer.cluster(fixture.strokes)
+            let slashIndex = try XCTUnwrap(fixture.expectedTopGlyphs.firstIndex(of: "/"))
+
+            XCTAssertEqual(clusters.count, fixture.expectedClusterCount, fixtureName)
+            XCTAssertEqual(clusters.count, fixture.expectedTopGlyphs.count, fixtureName)
+            XCTAssertEqual(clusters[slashIndex].strokes.count, 1, fixtureName)
+            XCTAssertGreaterThan(clusters[slashIndex].bounds.height, clusters[slashIndex].bounds.width, fixtureName)
+            XCTAssertTrue(clusters.areSortedLeftToRight, fixtureName)
+        }
+    }
+
+    func testDeviceSplitTriangleMajorSevenClustersTriangleAsOneGlyph() throws {
+        let fixture = try InkFixtureLoader.load("BFlatMajor7SplitTriangleDevice02", file: #filePath)
+        let clusters = clusterer.cluster(fixture.strokes)
+        let triangleIndex = try XCTUnwrap(fixture.expectedTopGlyphs.firstIndex(of: "△"))
+
+        XCTAssertEqual(clusters.count, fixture.expectedClusterCount)
+        XCTAssertEqual(clusters.map(\.strokes.count), [2, 2, 2, 1])
+        XCTAssertEqual(clusters[triangleIndex].strokes.count, 2)
+        XCTAssertTrue(clusters.areSortedLeftToRight)
+    }
+
+    func testAdjacentCompactTriangleAndSevenRetainSeparateStrokeOwnership() throws {
+        let fixture = try InkFixtureLoader.load("BFlatMajor7SplitTriangleDevice02", file: #filePath)
+        let left = testStroke([
+            (92.35, 41.65), (91.3, 42.6), (90.1, 44), (89.4, 45.5), (88.2, 47.3), (87, 48.6)
+        ])
+        let compactSeven = testStroke([
+            (96, 38.5), (98.4, 38.5), (101.5, 38.5), (104.6, 38.6),
+            (102.7, 40.8), (101, 42.9), (99.3, 44.8), (98.5, 46.48)
+        ])
+        XCTAssertFalse(compactSeven.isSevenCandidate)
+
+        for requiresReview in [false, true] {
+            let right = testStroke([
+                (requiresReview ? 89.22 : 90.4, 41), (91.1, 42), (93.1, 43.8), (94.4, 45.3),
+                (95.25, 47.1), (94.2, 48), (92.4, 48.7), (90.1, 49.35), (89.15, 49.27), (87.85, 48.45)
+            ])
+
+            let prefix = Array(fixture.strokes.prefix(4))
+            for scale in requiresReview ? [1.0] : [0.85, 0.90, 1.0, 1.10] {
+                func scaled(_ stroke: InkStroke) -> InkStroke {
+                    InkStroke(points: stroke.points.map {
+                        InkPoint(x: $0.x * scale, y: $0.y * scale, timeOffset: $0.timeOffset)
+                    }, creationTimeOffset: stroke.creationTimeOffset)
+                }
+                let leftLeg = scaled(left)
+                let rightLeg = scaled(right)
+                let seven = scaled(compactSeven)
+                let context = "compact triangle, ambiguous=\(requiresReview), scale=\(scale)"
+                XCTAssertEqual(InkSplitMajorTriangleGeometry.matches(leftLeg, rightLeg), !requiresReview, context)
+                XCTAssertEqual(InkSplitMajorTriangleGeometry.isAmbiguous(leftLeg, rightLeg), requiresReview, context)
+
+                for suffix in [[leftLeg, rightLeg, seven], [seven, rightLeg, leftLeg]] {
+                    let strokes = prefix.map(scaled) + suffix
+                    let clusters = clusterer.indexedClusters(strokes)
+                    XCTAssertEqual(clusters.map { $0.cluster.strokes.count }, [2, 2, 2, 1], context)
+                    guard clusters.count == 4 else { continue }
+                    XCTAssertEqual(Set(clusters[2].cluster.strokes), [leftLeg, rightLeg], context)
+                    XCTAssertEqual(clusters[3].cluster.strokes, [seven], context)
+                    assertOriginalInkPartition(strokes, context: context)
+                }
+            }
+        }
+    }
+
+    func testHalfDiminishedConstructionSurvivesLiveWritingScale() throws {
+        let fixture = try InkFixtureLoader.load("BFlatHalfDiminished7Captured01", file: #filePath)
+        let fixtureBounds = InkBounds.enclosing(fixture.strokes.map(\.bounds))
+        let scale = 58 / max(fixtureBounds.height, 1)
+        let scaledStrokes = fixture.strokes.map { stroke in
+            InkStroke(points: stroke.points.map { point in
+                InkPoint(
+                    x: (point.x - fixtureBounds.minX) * scale,
+                    y: (point.y - fixtureBounds.minY) * scale,
+                    timeOffset: point.timeOffset
+                )
+            })
+        }
+
+        let clusters = clusterer.cluster(scaledStrokes)
+
+        XCTAssertEqual(clusters.count, fixture.expectedClusterCount)
+        XCTAssertEqual(clusters.map(\.strokes.count), [2, 1, 2, 1])
+        XCTAssertTrue(clusters.areSortedLeftToRight)
+    }
+
+    func testCloseOffsetTriangleAfterERetainsCompleteQualityAndSeven() throws {
+        let root = try templateStrokes("E", offsetX: 0)
+        let seven = testStroke([
+            (79, 5), (81, 5), (84, 5), (87, 5.2),
+            (85, 7.5), (83, 10), (81, 13), (79.5, 17)
+        ])
+        let recognizer = ChordInkMaximumTrustRecognizer()
+        for apexRatio in [0.665, 0.685] {
+            let triangle = closeOffsetTriangle(apexRatio: apexRatio)
+            for scale in [0.85, 1.0, 1.10] {
+                for reversesDirection in [false, true] {
+                    for reversesOrder in [false, true] {
+                        let input = root + triangle + [seven]
+                        let transformed = input.enumerated().map { index, stroke in
+                            let reversesTriangle = reversesDirection && (root.count..<(root.count + 2)).contains(index)
+                            return InkStroke(points: (reversesTriangle ? Array(stroke.points.reversed()) : stroke.points).map {
+                                InkPoint(x: $0.x * scale, y: $0.y * scale, timeOffset: nil)
+                            })
+                        }
+                        let strokes = reversesOrder ? Array(transformed.reversed()) : transformed
+                        let context = "apex=\(apexRatio), scale=\(scale), direction=\(reversesDirection), order=\(reversesOrder)"
+                        let clusters = clusterer.indexedClusters(strokes)
+                        XCTAssertEqual(clusters.map { $0.cluster.strokes.count }, [root.count, 2, 1], context)
+                        XCTAssertEqual(Set(clusters.flatMap(\.originalIndexes)), Set(strokes.indices), context)
+                        let expectedTriangle = Set(transformed.dropFirst(root.count).prefix(2))
+                        XCTAssertTrue(clusters.contains { Set($0.cluster.strokes) == expectedTriangle }, context)
+                        XCTAssertTrue(clusters.contains { $0.cluster.strokes == [transformed.last!] }, context)
+                        assertOriginalInkPartition(strokes, context: context)
+
+                        let result = recognizer.recognize(strokes: strokes)
+                        XCTAssertEqual(result.match?.displayText, "E△7", "\(context), raw=\(result.rawCandidates.prefix(8))")
+                        XCTAssertNil(result.match?.symbol.slashBass, context)
+                        XCTAssertFalse(result.requiresTriangleQualityReview, context)
+                    }
+                }
+            }
+        }
+    }
+
+    func testCloseOffsetTriangleRequiresNearbyApexAndFullBase() {
+        let triangle = closeOffsetTriangle(apexRatio: 0.685)
+        XCTAssertNotNil(InkSplitMajorTriangleGeometry.match(triangle[0], triangle[1]))
+
+        let shortBase = InkStroke(points: Array(triangle[1].points.dropLast(3)))
+        XCTAssertNil(InkSplitMajorTriangleGeometry.match(triangle[0], shortBase))
+        XCTAssertFalse(InkSplitMajorTriangleGeometry.isAmbiguous(triangle[0], shortBase))
+
+        let distantApex = closeOffsetTriangle(apexRatio: 0.75)
+        XCTAssertNil(InkSplitMajorTriangleGeometry.match(distantApex[0], distantApex[1]))
+        XCTAssertFalse(InkSplitMajorTriangleGeometry.isAmbiguous(distantApex[0], distantApex[1]))
+    }
+
+    func testOpenTriangleAndSevenRemainSeparateForReview() throws {
+        let fixture = try InkFixtureLoader.load("BFlatHalfDiminished7Captured01", file: #filePath)
+        let root = Array(fixture.strokes.prefix(2))
+        func shiftedStroke(_ points: [(Double, Double)]) -> InkStroke {
+            testStroke(points.map { ($0.0 + 75, $0.1 + 116) })
+        }
+
+        let flat = shiftedStroke([
+            (61, 33), (61.5, 36), (61.5, 39), (61.5, 43), (61.8, 47),
+            (64.5, 44), (67.5, 43), (70, 45), (68.5, 48), (65, 50), (62.5, 51)
+        ])
+        let left = shiftedStroke([
+            (93.5, 42.8), (92.3, 44.2), (91.2, 46), (90.1, 47.9),
+            (89.1, 49.6), (88.2, 51.4), (87.5, 54)
+        ])
+        let right = shiftedStroke([
+            (89.6, 41), (91, 42.4), (92.8, 44.1), (95, 46.1), (97.3, 48.5),
+            (97.9, 50), (97, 51), (95.5, 52), (93.8, 53), (91.4, 53.5),
+            (89.5, 53.7), (87.8, 53.6), (86.9, 52.6)
+        ])
+        let seven = shiftedStroke([
+            (100.6, 38.2), (103.3, 38.2), (107, 38.2), (110.5, 38.4),
+            (108.6, 40.8), (106.8, 43.3), (105.1, 46), (103.1, 49.4)
+        ])
+        let strokes = root + [flat, left, right, seven]
+
+        XCTAssertTrue(InkSplitMajorTriangleGeometry.isAmbiguous(left, right))
+        XCTAssertEqual(clusterer.indexedClusters(strokes).map { $0.originalIndexes.sorted() }, [[0, 1], [2], [3, 4], [5]])
+        assertOriginalInkPartition(strokes, context: "open triangle followed by a standalone seven")
+        let result = ChordInkMaximumTrustRecognizer().recognize(strokes: strokes)
+        XCTAssertTrue(result.requiresTriangleQualityReview)
+        XCTAssertNil(result.match)
+        XCTAssertEqual(
+            clusterer.indexedClusters(fixture.strokes).map { $0.originalIndexes.sorted() },
+            [[0, 1], [2], [3, 4], [5]]
+        )
+    }
+
+    func testRootStemAndBodyCanMergeWhenTheyTouchAtTheEdge() throws {
+        let fixture = try InkFixtureLoader.load("BSharpMinor11Captured01", file: #filePath)
+        let clusters = clusterer.cluster(fixture.strokes)
+
+        XCTAssertEqual(clusters.count, fixture.expectedClusterCount)
+        XCTAssertEqual(clusters.first?.strokes.count, 2)
+        XCTAssertTrue(clusters.areSortedLeftToRight)
+    }
+
+    func testRootCrossbarAndBodyCanMergeWhenCrossbarIsDrawnRightToLeft() throws {
+        let fixture = try InkFixtureLoader.load("ASharpCaptured05", file: #filePath)
+        let clusters = clusterer.cluster(fixture.strokes)
+
+        XCTAssertEqual(clusters.count, fixture.expectedClusterCount)
+        XCTAssertEqual(clusters.first?.strokes.count, 2)
+        XCTAssertTrue(clusters.areSortedLeftToRight)
+    }
+
+    func testThreeStrokeRootACapturesLegsAndCrossbarAsOneGlyph() throws {
+        let fixture = try InkFixtureLoader.load("ARootSplitDevice01", file: #filePath)
+        let clusters = clusterer.cluster(fixture.strokes)
+
+        XCTAssertEqual(clusters.count, fixture.expectedClusterCount)
+        XCTAssertEqual(clusters.first?.strokes.count, 3)
+        XCTAssertTrue(clusters.areSortedLeftToRight)
+    }
+
+    func testAttachedFlatModifierSplitsFromRootConstruction() {
+        let stem = InkStroke(points: [
+            InkPoint(x: 10, y: 20, timeOffset: 0.0),
+            InkPoint(x: 10, y: 31, timeOffset: 0.03),
+            InkPoint(x: 10, y: 42, timeOffset: 0.06),
+            InkPoint(x: 10, y: 53, timeOffset: 0.09)
+        ])
+        let rootBody = InkStroke(points: [
+            InkPoint(x: 11, y: 22, timeOffset: 0.12),
+            InkPoint(x: 17, y: 22, timeOffset: 0.15),
+            InkPoint(x: 23, y: 26, timeOffset: 0.18),
+            InkPoint(x: 27, y: 33, timeOffset: 0.21),
+            InkPoint(x: 27, y: 40, timeOffset: 0.24),
+            InkPoint(x: 23, y: 48, timeOffset: 0.27),
+            InkPoint(x: 16, y: 53, timeOffset: 0.30),
+            InkPoint(x: 11, y: 53, timeOffset: 0.33)
+        ])
+        let flatModifier = InkStroke(points: [
+            InkPoint(x: 25, y: 10, timeOffset: 0.36),
+            InkPoint(x: 25, y: 18, timeOffset: 0.39),
+            InkPoint(x: 25, y: 26, timeOffset: 0.42),
+            InkPoint(x: 29, y: 22, timeOffset: 0.45),
+            InkPoint(x: 35, y: 20, timeOffset: 0.48),
+            InkPoint(x: 38, y: 24, timeOffset: 0.51),
+            InkPoint(x: 34, y: 30, timeOffset: 0.54),
+            InkPoint(x: 27, y: 32, timeOffset: 0.57)
+        ])
+
+        let clusters = clusterer.cluster([stem, rootBody, flatModifier])
+
+        XCTAssertEqual(clusters.map(\.strokes.count), [2, 1])
+        XCTAssertTrue(clusters.areSortedLeftToRight)
+    }
+
+    func testTallMinorMStaysSeparateFromFollowingSeven() throws {
+        let fixture = try InkFixtureLoader.load("CSharpm7Captured02", file: #filePath)
+        let clusters = clusterer.cluster(fixture.strokes)
+
+        XCTAssertEqual(clusters.count, fixture.expectedClusterCount)
+        XCTAssertEqual(clusters.suffix(2).map(\.strokes.count), [1, 1])
+        XCTAssertTrue(clusters.areSortedLeftToRight)
+    }
+
+    func testBareParenthesizedAlterationRemovesOnlyWrappersAndTagsItsContent() throws {
+        let dominantFixture = try InkFixtureLoader.load("C7Sharp9", file: #filePath)
+        let dominantClusters = clusterer.indexedClusters(dominantFixture.strokes)
+        XCTAssertEqual(dominantClusters.count, 4)
+
+        let dominantSevenStrokeIndices = Set(dominantClusters[1].originalIndexes)
+        let bareParenthesizedStrokes = dominantFixture.strokes.enumerated().compactMap { index, stroke in
+            dominantSevenStrokeIndices.contains(index) ? nil : stroke
+        }
+        let bareClusters = clusterer.indexedClusters(bareParenthesizedStrokes)
+        let retainedStrokeCount = bareClusters.reduce(0) { $0 + $1.originalIndexes.count }
+
+        XCTAssertEqual(bareClusters.count, 3)
+        XCTAssertEqual(retainedStrokeCount, bareParenthesizedStrokes.count - 2)
+        XCTAssertTrue(
+            bareClusters.suffix(2).allSatisfy {
+                $0.cluster.hasRecognitionHint(.parenthesizedAlteration)
+            }
+        )
+    }
+
+    func testBareParenthesizedAlterationSplitsAFlatMergedWithItsNumber() throws {
+        let openingWrapper = testStroke([
+            (88, 20), (85, 23), (83, 27), (83, 31),
+            (83, 35), (84, 39), (86, 41), (88, 42)
+        ])
+        let compactFlat = testStroke([
+            (101, 24), (101, 30), (101, 36), (101, 40),
+            (103, 34), (105, 35), (105, 40), (103, 42),
+            (101, 39), (104, 35), (101, 40)
+        ])
+        let compactThree = testStroke([
+            (105, 24), (118, 25), (112, 31), (119, 37), (105, 40)
+        ])
+        let closingWrapper = testStroke([
+            (135, 20), (138, 23), (140, 27), (140, 31),
+            (140, 35), (139, 39), (137, 41), (135, 42)
+        ])
+        let strokes = try templateStrokes("D", offsetX: 0)
+            + templateStrokes("b", offsetX: 0)
+            + [openingWrapper, compactFlat, compactThree, closingWrapper]
+
+        let clusters = clusterer.indexedClusters(strokes)
+
+        XCTAssertEqual(clusters.map(\.originalIndexes), [[0, 1], [2], [4], [5]])
+        XCTAssertTrue(
+            clusters.suffix(2).allSatisfy {
+                $0.cluster.hasRecognitionHint(.parenthesizedAlteration)
+            }
+        )
+    }
+
+    func testCompactSharpInsideDominantAlterationStillRemovesLiteralWrappers() throws {
+        let fixture = try InkFixtureLoader.load("C7Sharp11Captured01", file: #filePath)
+        let expectedClusterCount = try XCTUnwrap(fixture.expectedClusterCount)
+        let baselineClusters = clusterer.indexedClusters(fixture.strokes)
+        let sharpGlyphIndex = try XCTUnwrap(fixture.expectedTopGlyphs.firstIndex(of: "#"))
+        let sharpCluster = baselineClusters[sharpGlyphIndex]
+        let sharpSourceIndexes = Set(sharpCluster.originalIndexes)
+        let sharpCenterY = sharpCluster.bounds.recognitionMidY
+        let compactHeight = 11.0
+        let yScale = compactHeight / max(sharpCluster.bounds.height, 1)
+        let compactStrokes = fixture.strokes.enumerated().map { index, stroke in
+            guard sharpSourceIndexes.contains(index) else {
+                return stroke
+            }
+
+            return InkStroke(
+                points: stroke.points.map { point in
+                    InkPoint(
+                        x: point.x,
+                        y: sharpCenterY + (point.y - sharpCenterY) * yScale,
+                        timeOffset: point.timeOffset
+                    )
+                },
+                creationTimeOffset: stroke.creationTimeOffset
+            )
+        }
+
+        let clusters = clusterer.indexedClusters(compactStrokes)
+        let retainedStrokeCount = clusters.reduce(0) { $0 + $1.originalIndexes.count }
+        let result = ChordInkRecognizer().recognize(strokes: compactStrokes)
+
+        XCTAssertGreaterThanOrEqual(clusters.count, expectedClusterCount - 1)
+        XCTAssertLessThanOrEqual(clusters.count, expectedClusterCount)
+        XCTAssertEqual(retainedStrokeCount, fixture.strokes.count - 2)
+        XCTAssertEqual(result.match?.displayText, fixture.expectedDisplayText)
+    }
+
+    func testParenthesizedSharpArchiveNeverTrustsWrongAcrossCompactHeightBoundaryWhenEnabled() throws {
+        try XCTSkipUnless(
+            InkFixtureLoader.shouldRunFullInkFixtureArchiveTests,
+            "Set \(InkFixtureLoader.fullInkFixtureArchiveEnvironmentVariable)=1 to audit compact sharps."
+        )
+        let compactHeights = [10.0, 10.5, 11.0, 11.5]
+        let recognizer = ChordInkMaximumTrustRecognizer()
+        var auditedVariantCount = 0
+        var correctPrimaryCount = 0
+        var correctVisibleCount = 0
+        var hiddenCorrectCount = 0
+        var manualOnlyCount = 0
+
+        for fixture in try InkFixtureLoader.loadAll(file: #filePath) where fixture.expectedDisplayText.contains("(#") {
+            let baselineClusters = clusterer.indexedClusters(fixture.strokes)
+            guard baselineClusters.count == fixture.expectedTopGlyphs.count,
+                  let sharpGlyphIndex = fixture.expectedTopGlyphs.lastIndex(of: "#") else {
+                continue
+            }
+
+            let sharpCluster = baselineClusters[sharpGlyphIndex]
+            let sharpSourceIndexes = Set(sharpCluster.originalIndexes)
+            guard (4...6).contains(sharpCluster.strokes.count),
+                  sharpCluster.bounds.width >= 8 else {
+                continue
+            }
+
+            for compactHeight in compactHeights {
+                let sharpCenterY = sharpCluster.bounds.recognitionMidY
+                let yScale = compactHeight / max(sharpCluster.bounds.height, 1)
+                let compactStrokes = fixture.strokes.enumerated().map { index, stroke in
+                    guard sharpSourceIndexes.contains(index) else {
+                        return stroke
+                    }
+
+                    return InkStroke(
+                        points: stroke.points.map { point in
+                            InkPoint(
+                                x: point.x,
+                                y: sharpCenterY + (point.y - sharpCenterY) * yScale,
+                                timeOffset: point.timeOffset
+                            )
+                        },
+                        creationTimeOffset: stroke.creationTimeOffset
+                    )
+                }
+                let result = recognizer.recognize(strokes: compactStrokes)
+                let decision = ChordInkRecognitionPolicy.decision(for: result)
+                let allChoices = ChordInkRenderResolutionPolicy.candidateTexts(for: result)
+                let visibleChoices = Array(allChoices.prefix(3))
+
+                if result.match?.displayText == fixture.expectedDisplayText {
+                    correctPrimaryCount += 1
+                } else {
+                    XCTAssertNotEqual(
+                        decision.action,
+                        .trusted,
+                        "\(fixture.name) trusted \(decision.acceptedText ?? "nil") at compact sharp height \(compactHeight)"
+                    )
+                }
+                if visibleChoices.contains(fixture.expectedDisplayText) {
+                    correctVisibleCount += 1
+                } else if allChoices.contains(fixture.expectedDisplayText) {
+                    hiddenCorrectCount += 1
+                } else {
+                    manualOnlyCount += 1
+                }
+                auditedVariantCount += 1
+            }
+        }
+
+        XCTAssertGreaterThan(
+            auditedVariantCount,
+            0,
+            "The retained archive must exercise at least one constructed parenthesized sharp."
+        )
+        print(
+            "compact_sharp_boundary_audit"
+                + " variants=\(auditedVariantCount)"
+                + " primary_correct=\(correctPrimaryCount)"
+                + " visible_correct=\(correctVisibleCount)"
+                + " hidden_correct=\(hiddenCorrectCount)"
+                + " manual_only=\(manualOnlyCount)"
+        )
+    }
+
+    func testLongTimeGapPreventsMergingEvenWhenGeometryIsNear() {
+        let firstStroke = InkStroke(
+            points: [
+                InkPoint(x: 10, y: 10, timeOffset: 0.0),
+                InkPoint(x: 10, y: 50, timeOffset: 0.1)
+            ],
+            creationTimeOffset: 100
+        )
+        let secondStroke = InkStroke(
+            points: [
+                InkPoint(x: 13, y: 10, timeOffset: 0.0),
+                InkPoint(x: 13, y: 50, timeOffset: 0.1)
+            ],
+            creationTimeOffset: 101.2
+        )
+
+        let clusters = clusterer.cluster([firstStroke, secondStroke])
+
+        XCTAssertEqual(clusters.count, 2)
+    }
+
+    func testRelativePathOffsetsAreNotComparedAcrossLegacyStrokes() {
+        let firstStroke = InkStroke(
+            points: [
+                InkPoint(x: 10, y: 10, timeOffset: 0.0),
+                InkPoint(x: 10, y: 50, timeOffset: 0.1)
+            ]
+        )
+        let secondStroke = InkStroke(
+            points: [
+                InkPoint(x: 13, y: 10, timeOffset: 1.2),
+                InkPoint(x: 13, y: 50, timeOffset: 1.3)
+            ]
+        )
+
+        let clusters = clusterer.cluster([firstStroke, secondStroke])
+
+        XCTAssertEqual(clusters.count, 1)
+    }
+
+    private func templateStrokes(_ text: String, offsetX: Double) throws -> [InkStroke] {
+        let template = try XCTUnwrap(
+            ChordGlyphTemplateLibrary.initialTemplates.first { $0.text == text },
+            "Missing template \(text)"
+        )
+
+        return template.strokes.map { stroke in
+            InkStroke(
+                points: stroke.points.map { point in
+                    InkPoint(
+                        x: point.x + offsetX,
+                        y: point.y,
+                        timeOffset: point.timeOffset
+                    )
+                }
+            )
+        }
+    }
+
+    private func testStroke(_ points: [(Double, Double)]) -> InkStroke {
+        InkStroke(
+            points: points.map { x, y in
+                InkPoint(x: x, y: y, timeOffset: nil)
+            }
+        )
+    }
+
+    private func closeOffsetTriangle(apexRatio: Double) -> [InkStroke] {
+        // A generic paired triangle with a nearby, slightly staggered apex.
+        // Its full base distinguishes it from two adjacent suffix letters.
+        let apexX = 15 * apexRatio
+        let left = [
+            (apexX, 3.4), (apexX - 0.5, 4.1), (8.4, 5.5), (7.0, 7.5),
+            (5.5, 9.5), (4.0, 11.5), (2.5, 13.3), (1.2, 15)
+        ]
+        let rightAndBase = [
+            (8.4, 1.5), (8.8, 0), (10, 1.5), (11.5, 3.2), (13, 5.5),
+            (14.3, 8.5), (15, 11), (14.6, 12.5), (13.5, 13.5),
+            (11.5, 14.5), (9, 15), (6, 15), (3, 14.9), (0, 14.6)
+        ]
+        return [left, rightAndBase].map { points in
+            testStroke(points.map { (55 + $0.0, 12 + $0.1) })
+        }
+    }
+}
+
+private extension InkFixture {
+    var allowsDiscardingSemanticParenthesisWrappers: Bool {
+        expectedDisplayText.contains("(#9)")
+            || expectedDisplayText.contains("(b9)")
+            || expectedDisplayText.contains("(#5)")
+            || expectedDisplayText.contains("(b5)")
+            || expectedDisplayText.contains("(b13)")
+    }
+
+    var allowsCompactSharpElevenClusters: Bool {
+        expectedDisplayText.contains("(#11)")
+    }
+
+    var allowsCompactAlteredAltClusters: Bool {
+        expectedDisplayText.contains("7alt")
+    }
+
+    var allowsCompactSemanticClusters: Bool {
+        allowsCompactSharpElevenClusters || allowsCompactAlteredAltClusters
+    }
+}
+
+private extension [InkCluster] {
+    var areSortedLeftToRight: Bool {
+        zip(self, dropFirst()).allSatisfy { lhs, rhs in
+            lhs.bounds.minX <= rhs.bounds.minX
+        }
+    }
+}

@@ -1,0 +1,2662 @@
+import Foundation
+
+struct StrokeClustererConfiguration: Hashable {
+    var maxTimeGap: TimeInterval
+    var maxHorizontalGapRatio: Double
+    var maxVerticalOverlapMissRatio: Double
+    var smallModifierSizeRatio: Double
+
+    static let chordSymbols = StrokeClustererConfiguration(
+        maxTimeGap: 0.35,
+        maxHorizontalGapRatio: 0.18,
+        maxVerticalOverlapMissRatio: 0.18,
+        smallModifierSizeRatio: 0.20
+    )
+}
+struct StrokeClusterer {
+    enum WrapperPolicy {
+        case semanticNormalization
+        case preserveOriginalInk
+    }
+
+    var configuration: StrokeClustererConfiguration
+    var wrapperPolicy: WrapperPolicy
+
+    init(
+        configuration: StrokeClustererConfiguration = .chordSymbols,
+        wrapperPolicy: WrapperPolicy = .semanticNormalization
+    ) {
+        self.configuration = configuration
+        self.wrapperPolicy = wrapperPolicy
+    }
+
+    func cluster(_ strokes: [InkStroke]) -> [InkCluster] {
+        indexedClusters(strokes).map(\.cluster)
+    }
+
+    func indexedClusters(_ strokes: [InkStroke]) -> [IndexedInkCluster] {
+        mutableClusters(for: strokes).map { cluster in
+            IndexedInkCluster(
+                cluster: InkCluster(
+                    strokes: cluster.strokes,
+                    recognitionHints: cluster.recognitionHints.isEmpty ? nil : cluster.recognitionHints
+                ),
+                originalIndexes: cluster.originalIndexes
+            )
+        }
+    }
+
+    private func mutableClusters(for strokes: [InkStroke]) -> [MutableInkCluster] {
+        var workingClusters = strokes.enumerated().map { index, stroke in
+            MutableInkCluster(strokes: [stroke], originalIndexes: [index])
+        }
+
+        var didMerge = true
+        while didMerge {
+            didMerge = false
+            mergeLoop: for lhsIndex in workingClusters.indices {
+                for rhsIndex in workingClusters.indices where rhsIndex > lhsIndex {
+                    guard shouldMerge(workingClusters[lhsIndex], workingClusters[rhsIndex]) else {
+                        continue
+                    }
+
+                    let mergedCluster = workingClusters[lhsIndex].merged(with: workingClusters[rhsIndex])
+                    workingClusters[lhsIndex] = mergedCluster
+                    workingClusters.remove(at: rhsIndex)
+                    didMerge = true
+                    break mergeLoop
+                }
+            }
+        }
+
+        let splitClusters = splitEmbeddedSharpAccidentals(in: workingClusters)
+            .flatMap { cluster in
+                splitAttachedRightSideSharpStem(in: cluster) ?? [cluster]
+            }
+        let rootNormalizedClusters = mergeRootConstructionFragments(
+            in: mergeSharpConstructionFragments(in: splitClusters)
+        )
+            .flatMap { cluster in
+                splitAttachedRootFlatModifier(in: cluster) ?? [cluster]
+            }
+        let modifierSeparatedClusters = splitDetachedMinorSuffixesFromSharp(in: rootNormalizedClusters)
+        let normalizedClusters = modifierSeparatedClusters
+            .flatMap { cluster in
+                splitAdjacentOneGlyphs(in: cluster) ?? [cluster]
+            }
+            .flatMap { cluster in
+                splitAdjacentOneThreeGlyphs(in: cluster) ?? [cluster]
+            }
+            .flatMap { cluster in
+                splitMinorSeventhSuffix(in: cluster) ?? [cluster]
+            }
+        let suffixNormalizedClusters = mergeDominantFlatNineSuffixFragments(in: normalizedClusters)
+        let wrapperNormalizedClusters: [MutableInkCluster]
+        switch wrapperPolicy {
+        case .semanticNormalization:
+            let bareAlterationNormalizedClusters = normalizeExplicitBareParenthesizedAlterations(
+                in: suffixNormalizedClusters
+            )
+            wrapperNormalizedClusters = removeDominantAlterationParenthesisWrappers(
+                in: bareAlterationNormalizedClusters
+            )
+        case .preserveOriginalInk:
+            // Learned comparisons must read literal wrappers from their source
+            // ink. Both legacy normalization stages can discard those strokes
+            // and tag the remaining content with semantic recognition hints.
+            wrapperNormalizedClusters = suffixNormalizedClusters
+        }
+        let alteredFlatNormalizedClusters = mergeDominantAlterationFlatFragments(in: wrapperNormalizedClusters)
+        let semanticClusters = mergeDominantAlteredFiveSuffixFragments(in: alteredFlatNormalizedClusters)
+        let finalClusters = semanticClusters.flatMap { cluster in
+            splitTriangleMajorSeventhSuffix(in: cluster) ?? splitMinorSeventhSuffix(in: cluster) ?? [cluster]
+        }
+        let suspendedSuffixClusters = splitSuspendedSuffixFragments(in: finalClusters)
+        let slashSeparatedClusters = splitSlashBassSeparatorFragments(in: suspendedSuffixClusters)
+
+        return slashSeparatedClusters
+            .sorted { lhs, rhs in
+                if lhs.bounds.minX != rhs.bounds.minX {
+                    return lhs.bounds.minX < rhs.bounds.minX
+                }
+
+                if lhs.bounds.minY != rhs.bounds.minY {
+                    return lhs.bounds.minY < rhs.bounds.minY
+                }
+
+                return (lhs.originalIndexes.min() ?? 0) < (rhs.originalIndexes.min() ?? 0)
+            }
+    }
+
+    private func splitSlashBassSeparatorFragments(
+        in clusters: [MutableInkCluster]
+    ) -> [MutableInkCluster] {
+        let orderedClusters = clusters.sorted { lhs, rhs in
+            if abs(lhs.bounds.minX - rhs.bounds.minX) <= 4,
+               lhs.bounds.horizontalOverlap(with: rhs.bounds) > 0 {
+                return (lhs.originalIndexes.min() ?? 0) < (rhs.originalIndexes.min() ?? 0)
+            }
+
+            if lhs.bounds.minX != rhs.bounds.minX {
+                return lhs.bounds.minX < rhs.bounds.minX
+            }
+
+            return (lhs.originalIndexes.min() ?? 0) < (rhs.originalIndexes.min() ?? 0)
+        }
+
+        return orderedClusters.enumerated().flatMap { index, cluster in
+            let previousCluster = index > orderedClusters.startIndex ? orderedClusters[index - 1] : nil
+            let nextCluster = orderedClusters.indices.contains(index + 1) ? orderedClusters[index + 1] : nil
+            return splitSlashBassSeparatorFragment(
+                in: cluster,
+                previousCluster: previousCluster,
+                nextCluster: nextCluster
+            ) ?? [cluster]
+        }
+    }
+
+    private func splitSlashBassSeparatorFragment(
+        in cluster: MutableInkCluster,
+        previousCluster: MutableInkCluster?,
+        nextCluster: MutableInkCluster?
+    ) -> [MutableInkCluster]? {
+        if cluster.strokes.count == 2,
+           InkSplitMajorTriangleGeometry.matches(cluster.strokes[0], cluster.strokes[1]) {
+            // A triangle leg belongs to its complete quality, not a bass slash.
+            return nil
+        }
+        guard cluster.strokes.count >= 2 else {
+            return nil
+        }
+
+        let orderedPairs = zip(cluster.originalIndexes, cluster.strokes)
+            .sorted { lhs, rhs in
+                if lhs.1.bounds.minX != rhs.1.bounds.minX {
+                    return lhs.1.bounds.minX < rhs.1.bounds.minX
+                }
+
+                return lhs.0 < rhs.0
+            }
+
+        for slashIndex in orderedPairs.indices.dropFirst() {
+            let slashStroke = orderedPairs[slashIndex].1
+            guard slashStroke.isLooseSlashBassSeparatorCandidate else {
+                continue
+            }
+
+            let leftPairs = Array(orderedPairs[..<slashIndex])
+            let rightPairs = Array(orderedPairs.dropFirst(slashIndex + 1))
+            let leftCluster = MutableInkCluster(
+                strokes: leftPairs.map(\.1),
+                originalIndexes: leftPairs.map(\.0)
+            )
+            let rightCluster = rightPairs.isEmpty
+                ? nil
+                : MutableInkCluster(
+                    strokes: rightPairs.map(\.1),
+                    originalIndexes: rightPairs.map(\.0)
+                )
+            let hasBassTarget = rightCluster?.isSlashBassFollowingGlyphCandidate == true
+                || nextCluster?.isSlashBassFollowingGlyphCandidate == true
+            let hasPrefixWithPreviousRoot = previousCluster
+                .map { previousCluster in
+                    previousCluster.isSlashBassLeadingRootContextCandidate
+                        && (leftCluster.isAccidentalModifierCandidate
+                            || leftCluster.isSharpGlyphCandidate
+                            || leftCluster.isSharpConstructionPart)
+                } ?? false
+
+            guard hasBassTarget,
+                  leftCluster.isSlashBassPrefixCandidate || hasPrefixWithPreviousRoot else {
+                continue
+            }
+
+            var splitClusters = [
+                leftCluster,
+                MutableInkCluster(strokes: [slashStroke], originalIndexes: [orderedPairs[slashIndex].0])
+            ]
+
+            if let rightCluster {
+                splitClusters.append(rightCluster)
+            }
+
+            return splitClusters
+        }
+
+        return nil
+    }
+
+    private func splitSuspendedSuffixFragments(
+        in clusters: [MutableInkCluster]
+    ) -> [MutableInkCluster] {
+        let orderedClusters = clusters.sorted { lhs, rhs in
+            if lhs.bounds.minX != rhs.bounds.minX {
+                return lhs.bounds.minX < rhs.bounds.minX
+            }
+
+            return (lhs.originalIndexes.min() ?? 0) < (rhs.originalIndexes.min() ?? 0)
+        }
+
+        return orderedClusters.enumerated().flatMap { index, cluster in
+            let previousCluster = index > orderedClusters.startIndex ? orderedClusters[index - 1] : nil
+            let previousPreviousCluster = index >= 2 ? orderedClusters[index - 2] : nil
+            let nextCluster = orderedClusters.indices.contains(index + 1) ? orderedClusters[index + 1] : nil
+
+            if let splitClusters = splitSuspendedPair(
+                in: cluster,
+                previousCluster: previousCluster,
+                nextCluster: nextCluster
+            ) {
+                return splitClusters
+            }
+
+            if let splitClusters = splitSuspendedFourthTail(
+                in: cluster,
+                previousCluster: previousCluster,
+                previousPreviousCluster: previousPreviousCluster,
+                hasDominantSevenInkBefore: hasDominantSevenInk(before: index, in: orderedClusters)
+            ) {
+                return splitClusters
+            }
+
+            if let splitClusters = splitSuspendedSFromSharp(
+                in: cluster,
+                hasDominantSevenBefore: hasDominantSevenCandidate(before: index, in: orderedClusters),
+                nextCluster: nextCluster
+            ) {
+                return splitClusters
+            }
+
+            if let splitClusters = splitMinorMFromSharp(
+                in: cluster,
+                previousCluster: previousCluster,
+                nextCluster: nextCluster
+            ) {
+                return splitClusters
+            }
+
+            return [cluster]
+        }
+    }
+
+    private func splitSuspendedPair(
+        in cluster: MutableInkCluster,
+        previousCluster: MutableInkCluster?,
+        nextCluster: MutableInkCluster?
+    ) -> [MutableInkCluster]? {
+        guard cluster.strokes.count == 2 else {
+            return nil
+        }
+        guard !InkSplitMajorTriangleGeometry.matches(cluster.strokes[0], cluster.strokes[1]) else {
+            // The complete triangle takes precedence over letter-like pieces.
+            return nil
+        }
+
+        let singleStrokeClusters = zip(cluster.originalIndexes, cluster.strokes)
+            .map { index, stroke in
+                MutableInkCluster(strokes: [stroke], originalIndexes: [index])
+            }
+            .sorted { lhs, rhs in
+                if lhs.bounds.minX != rhs.bounds.minX {
+                    return lhs.bounds.minX < rhs.bounds.minX
+                }
+
+                return (lhs.originalIndexes.min() ?? 0) < (rhs.originalIndexes.min() ?? 0)
+            }
+
+        guard singleStrokeClusters.count == 2,
+              shouldKeepSeparateAsSuspendedSuffixLetters(singleStrokeClusters[0], singleStrokeClusters[1]) else {
+            return nil
+        }
+
+        let hasRootOrAccidentalBefore = previousCluster?.isPlainSuspendedPrefixCandidate == true
+        let hasSuspendedSAfter = nextCluster?.isSuspendedSLikeCandidate == true
+        let hasSuspendedSBefore = previousCluster?.isSuspendedSLikeCandidate == true
+
+        if singleStrokeClusters[0].isSuspendedSLikeCandidate,
+           singleStrokeClusters[1].isSuspendedULikeCandidate,
+           hasRootOrAccidentalBefore || hasSuspendedSAfter {
+            return singleStrokeClusters
+        }
+
+        if singleStrokeClusters[0].isSuspendedULikeCandidate,
+           singleStrokeClusters[1].isSuspendedSLikeCandidate,
+           hasSuspendedSBefore {
+            return singleStrokeClusters
+        }
+
+        return nil
+    }
+
+    private func splitSuspendedFourthTail(
+        in cluster: MutableInkCluster,
+        previousCluster: MutableInkCluster?,
+        previousPreviousCluster: MutableInkCluster?,
+        hasDominantSevenInkBefore: Bool
+    ) -> [MutableInkCluster]? {
+        guard cluster.strokes.count == 2,
+              !hasDominantSevenInkBefore,
+              previousCluster?.isSuspendedULikeContextCandidate == true,
+              previousPreviousCluster?.isSuspendedSLikeContextCandidate == true else {
+            return nil
+        }
+
+        let singleStrokeClusters = zip(cluster.originalIndexes, cluster.strokes)
+            .map { index, stroke in
+                MutableInkCluster(strokes: [stroke], originalIndexes: [index])
+            }
+            .sorted { lhs, rhs in
+                if lhs.bounds.minX != rhs.bounds.minX {
+                    return lhs.bounds.minX < rhs.bounds.minX
+                }
+
+                return (lhs.originalIndexes.min() ?? 0) < (rhs.originalIndexes.min() ?? 0)
+            }
+
+        guard singleStrokeClusters.count == 2 else {
+            return nil
+        }
+
+        let leadingS = singleStrokeClusters[0]
+        let trailingFour = singleStrokeClusters[1]
+        let horizontalGap = leadingS.bounds.horizontalGap(to: trailingFour.bounds)
+        let verticalMiss = leadingS.bounds.verticalMiss(to: trailingFour.bounds)
+
+        guard leadingS.isSuspendedSLikeContextCandidate,
+              trailingFour.isSuspendedFourthLikeCandidate,
+              horizontalGap <= 18,
+              verticalMiss <= 18 else {
+            return nil
+        }
+
+        return singleStrokeClusters
+    }
+
+    private func splitSuspendedSFromSharp(
+        in cluster: MutableInkCluster,
+        hasDominantSevenBefore: Bool,
+        nextCluster: MutableInkCluster?
+    ) -> [MutableInkCluster]? {
+        guard cluster.strokes.count >= 5,
+              nextCluster?.isSuspendedULikeCandidate == true,
+              !hasDominantSevenBefore else {
+            return nil
+        }
+
+        let orderedPairs = zip(cluster.originalIndexes, cluster.strokes)
+            .sorted { lhs, rhs in lhs.0 < rhs.0 }
+        let orderedIndexes = orderedPairs.map(\.0)
+        let orderedStrokes = orderedPairs.map(\.1)
+
+        let splitIndex = orderedStrokes.count - 1
+        let left = MutableInkCluster(
+            strokes: Array(orderedStrokes[..<splitIndex]),
+            originalIndexes: Array(orderedIndexes[..<splitIndex])
+        )
+        let right = MutableInkCluster(
+            strokes: [orderedStrokes[splitIndex]],
+            originalIndexes: [orderedIndexes[splitIndex]]
+        )
+
+        guard left.isSharpGlyphCandidate,
+              right.isSuspendedSLikeCandidate,
+              left.bounds.horizontalGap(to: right.bounds) <= 16,
+              left.bounds.verticalMiss(to: right.bounds) <= 16 else {
+            return nil
+        }
+
+        return [left, right]
+    }
+
+    private func splitMinorMFromSharp(
+        in cluster: MutableInkCluster,
+        previousCluster: MutableInkCluster?,
+        nextCluster: MutableInkCluster?
+    ) -> [MutableInkCluster]? {
+        guard cluster.strokes.count >= 5,
+              previousCluster?.isRootBodyCandidate == true,
+              previousCluster?.isDominantSevenInkAnchor != true,
+              nextCluster?.isMinorSixExtensionContextCandidate == true else {
+            return nil
+        }
+
+        let orderedPairs = zip(cluster.originalIndexes, cluster.strokes)
+            .sorted { lhs, rhs in lhs.0 < rhs.0 }
+        let orderedIndexes = orderedPairs.map(\.0)
+        let orderedStrokes = orderedPairs.map(\.1)
+        let splitIndex = orderedStrokes.count - 1
+        let left = MutableInkCluster(
+            strokes: Array(orderedStrokes[..<splitIndex]),
+            originalIndexes: Array(orderedIndexes[..<splitIndex])
+        )
+        let right = MutableInkCluster(
+            strokes: [orderedStrokes[splitIndex]],
+            originalIndexes: [orderedIndexes[splitIndex]]
+        )
+
+        guard left.isSharpGlyphCandidate,
+              right.isMinorSuffixCandidate,
+              left.bounds.horizontalGap(to: right.bounds) <= 10,
+              left.bounds.verticalMiss(to: right.bounds) <= 14 else {
+            return nil
+        }
+
+        return [left, right]
+    }
+
+    /// Greedy construction merging may encounter a lower minor stroke before
+    /// the sharp's crossbars. Recover its visible separation by geometry, not
+    /// by assuming that the modifier was the last source stroke. This does not
+    /// assign a glyph: the ordinary recognizer still reads each resulting part.
+    private func splitDetachedMinorSuffixesFromSharp(
+        in clusters: [MutableInkCluster]
+    ) -> [MutableInkCluster] {
+        let ordered = clusters.sorted {
+            if $0.bounds.minX != $1.bounds.minX { return $0.bounds.minX < $1.bounds.minX }
+            return ($0.originalIndexes.min() ?? 0) < ($1.originalIndexes.min() ?? 0)
+        }
+        return ordered.enumerated().flatMap { index, cluster -> [MutableInkCluster] in
+            guard index > 0,
+                  ordered[index - 1].isRootBodyCandidate,
+                  // The leading root can also have a geometric 7 lookalike;
+                  // only a later numeric anchor has the dominant-seven role.
+                  (index == 1 || !ordered[index - 1].isDominantSevenInkAnchor),
+                  cluster.strokes.count == cluster.originalIndexes.count,
+                  cluster.strokes.count >= 5, cluster.strokes.count <= 7 else {
+                return [cluster]
+            }
+            var partitions: [[MutableInkCluster]] = []
+            for suffixIndex in cluster.strokes.indices {
+                let suffix = MutableInkCluster(
+                    strokes: [cluster.strokes[suffixIndex]],
+                    originalIndexes: [cluster.originalIndexes[suffixIndex]],
+                    recognitionHints: cluster.recognitionHints
+                )
+                guard suffix.isMinorSuffixCandidate else { continue }
+                let remainingIndexes = cluster.strokes.indices.filter { $0 != suffixIndex }
+                let sharp = MutableInkCluster(
+                    strokes: remainingIndexes.map { cluster.strokes[$0] },
+                    originalIndexes: remainingIndexes.map { cluster.originalIndexes[$0] },
+                    recognitionHints: cluster.recognitionHints
+                )
+                let detachedToRight = suffix.bounds.minX >= sharp.bounds.maxX + 1
+                let detachedBelow = suffix.bounds.minY >= sharp.bounds.maxY + 1
+                guard sharp.isSharpGlyphCandidate,
+                      sharp.hasTwoCrossingSharpBars,
+                      suffix.bounds.minX >= sharp.bounds.minX + sharp.bounds.width * 0.40,
+                      suffix.bounds.minY >= sharp.bounds.maxY - max(2, sharp.bounds.height * 0.15),
+                      detachedToRight || detachedBelow,
+                      sharp.bounds.horizontalGap(to: suffix.bounds) <= 10,
+                      sharp.bounds.verticalMiss(to: suffix.bounds) <= 14 else {
+                    continue
+                }
+                partitions.append([sharp, suffix])
+            }
+            // Competing partitions are ambiguous, not a license to pick one.
+            return partitions.count == 1 ? partitions[0] : [cluster]
+        }
+    }
+
+    private func mergeSharpConstructionFragments(
+        in clusters: [MutableInkCluster]
+    ) -> [MutableInkCluster] {
+        var workingClusters = clusters
+        var didMerge = true
+
+        while didMerge {
+            didMerge = false
+            mergeLoop: for lhsIndex in workingClusters.indices {
+                for rhsIndex in workingClusters.indices where rhsIndex > lhsIndex {
+                    let lhs = workingClusters[lhsIndex]
+                    let rhs = workingClusters[rhsIndex]
+                    guard lhs.canMergeAsSharpFragment,
+                          rhs.canMergeAsSharpFragment,
+                          !shouldKeepSeparateAsMinorSuffixAndExtension(lhs, rhs) else {
+                        continue
+                    }
+                    // A slanted second stem can look like a slash on its own,
+                    // leaving the first stem plus two bars as a false F/ø.
+                    // Completed two-stem/two-crossbar geometry wins over those
+                    // fragment labels; incomplete or merely nearby strokes do
+                    // not bypass the existing separator/construction guards.
+                    guard (
+                            !lhs.isSlashLikeSeparator
+                                && !rhs.isSlashLikeSeparator
+                                && shouldMergeAsSharpConstruction(lhs, rhs)
+                          ) || shouldReassembleCrossedSharpWithSlantedStem(
+                            lhs, rhs,
+                            otherClusters: {
+                                workingClusters.enumerated().compactMap {
+                                    $0.offset == lhsIndex || $0.offset == rhsIndex ? nil : $0.element
+                                }
+                            }
+                          ) else {
+                        continue
+                    }
+
+                    workingClusters[lhsIndex] = lhs.merged(with: rhs)
+                    workingClusters.remove(at: rhsIndex)
+                    didMerge = true
+                    break mergeLoop
+                }
+            }
+        }
+
+        return workingClusters
+    }
+
+    private func shouldReassembleCrossedSharpWithSlantedStem(
+        _ lhs: MutableInkCluster,
+        _ rhs: MutableInkCluster,
+        otherClusters: () -> [MutableInkCluster]
+    ) -> Bool {
+        let pieces = lhs.strokes.count == 1 ? (stem: lhs, bars: rhs) : (stem: rhs, bars: lhs)
+        guard pieces.stem.strokes.count == 1,
+              pieces.bars.strokes.count == 3,
+              pieces.stem.isSlashLikeSeparator,
+              pieces.stem.looseSharpVerticalStrokeCount == 1,
+              pieces.bars.looseSharpVerticalStrokeCount == 1,
+              pieces.bars.looseSharpHorizontalStrokeCount == 2 else {
+            return false
+        }
+        let merged = lhs.merged(with: rhs)
+        let mergedBounds = merged.bounds
+        guard merged.isSharpGlyphCandidate,
+              merged.isSharpConstructionPart,
+              merged.hasTwoCrossingSharpBars else {
+            return false
+        }
+        // A complete sharp must follow a distinct nearby body. This excludes
+        // stealing an A/F root's construction strokes to fabricate its #.
+        return otherClusters().contains { anchor in
+            let anchorBounds = anchor.bounds
+            return anchor.hasRootConstructionBody
+                && anchorBounds.maxX <= mergedBounds.minX + 2
+                && anchorBounds.horizontalGap(to: mergedBounds) <= max(20, anchorBounds.height * 0.65)
+                && anchorBounds.verticalMiss(to: mergedBounds) <= max(20, anchorBounds.height * 0.70)
+        }
+    }
+
+    private func mergeRootConstructionFragments(
+        in clusters: [MutableInkCluster]
+    ) -> [MutableInkCluster] {
+        var workingClusters = clusters
+        var didMerge = true
+
+        while didMerge {
+            didMerge = false
+            mergeLoop: for lhsIndex in workingClusters.indices {
+                for rhsIndex in workingClusters.indices where rhsIndex > lhsIndex {
+                    let lhs = workingClusters[lhsIndex]
+                    let rhs = workingClusters[rhsIndex]
+                    guard !lhs.isSlashLikeSeparator,
+                          !rhs.isSlashLikeSeparator else {
+                        continue
+                    }
+
+                    let hasVerticalRootConstruction = lhs.hasRootConstructionVerticalStem
+                        || rhs.hasRootConstructionVerticalStem
+                    let hasBarRootConstruction = (lhs.hasRootConstructionBar || rhs.hasRootConstructionBar)
+                        && (lhs.hasRootConstructionBody || rhs.hasRootConstructionBody)
+                    guard (hasVerticalRootConstruction
+                            || hasBarRootConstruction
+                            || (!lhs.isQualityOrExtensionGlyphCandidate
+                                && !rhs.isQualityOrExtensionGlyphCandidate)),
+                          shouldMergeAsRootConstruction(lhs, rhs) else {
+                        continue
+                    }
+
+                    workingClusters[lhsIndex] = lhs.merged(with: rhs)
+                    workingClusters.remove(at: rhsIndex)
+                    didMerge = true
+                    break mergeLoop
+                }
+            }
+        }
+
+        return workingClusters
+    }
+
+    private func mergeDominantFlatNineSuffixFragments(
+        in clusters: [MutableInkCluster]
+    ) -> [MutableInkCluster] {
+        var workingClusters = clusters.sorted { lhs, rhs in
+            if lhs.bounds.minX != rhs.bounds.minX {
+                return lhs.bounds.minX < rhs.bounds.minX
+            }
+
+            return (lhs.originalIndexes.min() ?? 0) < (rhs.originalIndexes.min() ?? 0)
+        }
+
+        var index = 1
+        while index + 2 < workingClusters.count {
+            let seven = workingClusters[index - 1]
+            if index + 3 < workingClusters.count {
+                let flatStem = workingClusters[index]
+                let flatBody = workingClusters[index + 1]
+                let nineLoop = workingClusters[index + 2]
+                let nineTail = workingClusters[index + 3]
+
+                if shouldMergeAsDominantFlatNineSuffix(
+                    seven: seven,
+                    flatStem: flatStem,
+                    flatBody: flatBody,
+                    nineLoop: nineLoop,
+                    nineTail: nineTail
+                ) {
+                    workingClusters.replaceSubrange(
+                        index...(index + 3),
+                        with: [
+                            flatStem.merged(with: flatBody),
+                            nineLoop.merged(with: nineTail)
+                        ]
+                    )
+                    index += 2
+                    continue
+                }
+            }
+
+            let flat = workingClusters[index]
+            let nineLoop = workingClusters[index + 1]
+            let nineTail = workingClusters[index + 2]
+
+            if shouldMergeAsDominantFlatNineTailAfterMergedFlat(
+                seven: seven,
+                flat: flat,
+                nineLoop: nineLoop,
+                nineTail: nineTail
+            ) {
+                workingClusters.replaceSubrange(
+                    (index + 1)...(index + 2),
+                    with: [nineLoop.merged(with: nineTail)]
+                )
+                index += 2
+                continue
+            }
+
+            index += 1
+        }
+
+        return workingClusters
+    }
+
+    private func shouldMergeAsDominantFlatNineSuffix(
+        seven: MutableInkCluster,
+        flatStem: MutableInkCluster,
+        flatBody: MutableInkCluster,
+        nineLoop: MutableInkCluster,
+        nineTail: MutableInkCluster
+    ) -> Bool {
+        if flatStem.isSuspendedSLikeContextCandidate,
+           flatBody.isSuspendedULikeContextCandidate,
+           nineLoop.isSuspendedSLikeContextCandidate,
+           hasLowerDominantSuspendedSuffix(after: seven, suffixClusters: [flatStem, flatBody, nineLoop]) {
+            return false
+        }
+
+        guard seven.isDominantSevenSuffixAnchor,
+              flatStem.isDominantFlatNineStemFragment,
+              flatBody.isDominantFlatNineCurvedFragment,
+              nineLoop.isDominantFlatNineCurvedFragment,
+              nineTail.isDominantFlatNineTailFragment else {
+            return false
+        }
+
+        let flatBounds = InkBounds.enclosing([flatStem.bounds, flatBody.bounds])
+        let nineBounds = InkBounds.enclosing([nineLoop.bounds, nineTail.bounds])
+        let suffixBounds = InkBounds.enclosing([flatBounds, nineBounds])
+        let sevenToFlatGap = seven.bounds.horizontalGap(to: flatStem.bounds)
+        let flatStemToBodyGap = flatStem.bounds.horizontalGap(to: flatBody.bounds)
+        let flatToNineGap = flatBody.bounds.horizontalGap(to: nineLoop.bounds)
+        let nineLoopToTailGap = nineLoop.bounds.horizontalGap(to: nineTail.bounds)
+        let flatVerticalOverlap = flatStem.bounds.verticalOverlap(with: flatBody.bounds)
+        let nineVerticalOverlap = nineLoop.bounds.verticalOverlap(with: nineTail.bounds)
+        let flatReferenceHeight = max(min(flatStem.bounds.height, flatBody.bounds.height), 1)
+        let nineReferenceHeight = max(min(nineLoop.bounds.height, nineTail.bounds.height), 1)
+
+        return sevenToFlatGap <= 36
+            && flatStemToBodyGap <= 18
+            && flatToNineGap <= 20
+            && nineLoopToTailGap <= 22
+            && flatBounds.width <= 32
+            && flatBounds.height <= 42
+            && nineBounds.width <= 38
+            && nineBounds.height <= 44
+            && suffixBounds.height <= 48
+            && flatVerticalOverlap >= flatReferenceHeight * 0.18
+            && nineVerticalOverlap >= nineReferenceHeight * 0.18
+            && flatBody.bounds.recognitionMidX > flatStem.bounds.recognitionMidX
+            && nineTail.bounds.recognitionMidX > nineLoop.bounds.recognitionMidX
+    }
+
+    private func shouldMergeAsDominantFlatNineTailAfterMergedFlat(
+        seven: MutableInkCluster,
+        flat: MutableInkCluster,
+        nineLoop: MutableInkCluster,
+        nineTail: MutableInkCluster
+    ) -> Bool {
+        if flat.isSuspendedSLikeContextCandidate,
+           nineLoop.isSuspendedULikeContextCandidate,
+           nineTail.isSuspendedSLikeContextCandidate,
+           hasLowerDominantSuspendedSuffix(after: seven, suffixClusters: [flat, nineLoop, nineTail]) {
+            return false
+        }
+
+        guard seven.isDominantSevenSuffixAnchor,
+              flat.isDominantFlatNineMergedFlatFragment,
+              nineLoop.isDominantFlatNineCurvedFragment,
+              nineTail.isDominantFlatNineTailFragment else {
+            return false
+        }
+
+        let nineBounds = InkBounds.enclosing([nineLoop.bounds, nineTail.bounds])
+        let sevenToFlatGap = seven.bounds.horizontalGap(to: flat.bounds)
+        let flatToNineGap = flat.bounds.horizontalGap(to: nineLoop.bounds)
+        let nineLoopToTailGap = nineLoop.bounds.horizontalGap(to: nineTail.bounds)
+        let nineVerticalOverlap = nineLoop.bounds.verticalOverlap(with: nineTail.bounds)
+        let nineReferenceHeight = max(min(nineLoop.bounds.height, nineTail.bounds.height), 1)
+
+        return sevenToFlatGap <= 36
+            && flatToNineGap <= 24
+            && nineLoopToTailGap <= 22
+            && nineBounds.width <= 38
+            && nineBounds.height <= 44
+            && nineVerticalOverlap >= nineReferenceHeight * 0.18
+            && nineTail.bounds.recognitionMidX > nineLoop.bounds.recognitionMidX
+    }
+
+    private func mergeDominantAlterationFlatFragments(
+        in clusters: [MutableInkCluster]
+    ) -> [MutableInkCluster] {
+        var workingClusters = clusters.sorted { lhs, rhs in
+            if lhs.bounds.minX != rhs.bounds.minX {
+                return lhs.bounds.minX < rhs.bounds.minX
+            }
+
+            return (lhs.originalIndexes.min() ?? 0) < (rhs.originalIndexes.min() ?? 0)
+        }
+
+        var index = 1
+        while index + 2 < workingClusters.count {
+            let seven = workingClusters[index - 1]
+            let flatStem = workingClusters[index]
+            let flatBody = workingClusters[index + 1]
+            let nextSuffixFragment = workingClusters[index + 2]
+
+            if shouldMergeAsDominantAlterationFlat(
+                seven: seven,
+                flatStem: flatStem,
+                flatBody: flatBody,
+                nextSuffixFragment: nextSuffixFragment
+            ) {
+                workingClusters.replaceSubrange(
+                    index...(index + 1),
+                    with: [flatStem.merged(with: flatBody)]
+                )
+                index += 1
+                continue
+            }
+
+            index += 1
+        }
+
+        return workingClusters
+    }
+
+    private func shouldMergeAsDominantAlterationFlat(
+        seven: MutableInkCluster,
+        flatStem: MutableInkCluster,
+        flatBody: MutableInkCluster,
+        nextSuffixFragment: MutableInkCluster
+    ) -> Bool {
+        if flatStem.isSuspendedSLikeContextCandidate,
+           flatBody.isSuspendedULikeContextCandidate,
+           nextSuffixFragment.isSuspendedSLikeContextCandidate,
+           hasLowerDominantSuspendedSuffix(after: seven, suffixClusters: [flatStem, flatBody, nextSuffixFragment]) {
+            return false
+        }
+
+        guard seven.isDominantSevenSuffixAnchor,
+              flatStem.isDominantFlatNineStemFragment,
+              flatBody.isDominantFlatNineCurvedFragment,
+              nextSuffixFragment.isLooseAlteredFiveFragmentCandidate else {
+            return false
+        }
+
+        let flatBounds = InkBounds.enclosing([flatStem.bounds, flatBody.bounds])
+        let sevenToFlatGap = seven.bounds.horizontalGap(to: flatStem.bounds)
+        let flatStemToBodyGap = flatStem.bounds.horizontalGap(to: flatBody.bounds)
+        let flatToSuffixGap = flatBody.bounds.horizontalGap(to: nextSuffixFragment.bounds)
+        let flatVerticalOverlap = flatStem.bounds.verticalOverlap(with: flatBody.bounds)
+        let flatReferenceHeight = max(min(flatStem.bounds.height, flatBody.bounds.height), 1)
+
+        return sevenToFlatGap <= 42
+            && flatStemToBodyGap <= 18
+            && flatToSuffixGap <= 28
+            && flatBounds.width <= 34
+            && flatBounds.height <= 44
+            && flatVerticalOverlap >= flatReferenceHeight * 0.18
+            && flatBody.bounds.recognitionMidX > flatStem.bounds.recognitionMidX
+    }
+
+    private func mergeDominantAlteredFiveSuffixFragments(
+        in clusters: [MutableInkCluster]
+    ) -> [MutableInkCluster] {
+        var workingClusters = clusters.sorted { lhs, rhs in
+            if lhs.bounds.minX != rhs.bounds.minX {
+                return lhs.bounds.minX < rhs.bounds.minX
+            }
+
+            return (lhs.originalIndexes.min() ?? 0) < (rhs.originalIndexes.min() ?? 0)
+        }
+
+        var index = 1
+        while index + 1 < workingClusters.count {
+            if let (lastIndex, suffix) = recoverDetachedTriangleMajorSeventhSuffix(
+                in: workingClusters, startingAt: index
+            ) {
+                workingClusters.replaceSubrange(index...lastIndex, with: suffix)
+                index += suffix.count
+                continue
+            }
+
+            guard index + 2 < workingClusters.count else { break }
+            let seven = workingClusters[index - 1]
+            let alteration = workingClusters[index]
+
+            if index + 3 < workingClusters.count {
+                let fragments = Array(workingClusters[(index + 1)...(index + 3)])
+                if shouldMergeAsDominantAlteredFiveSuffix(
+                    seven: seven,
+                    alteration: alteration,
+                    fragments: fragments
+                ) {
+                    workingClusters.replaceSubrange(
+                        (index + 1)...(index + 3),
+                        with: [fragments.dropFirst().reduce(fragments[0]) { $0.merged(with: $1) }]
+                    )
+                    index += 2
+                    continue
+                }
+            }
+
+            let fragments = Array(workingClusters[(index + 1)...(index + 2)])
+            if shouldMergeAsDominantAlteredFiveSuffix(
+                seven: seven,
+                alteration: alteration,
+                fragments: fragments
+            ) {
+                workingClusters.replaceSubrange(
+                    (index + 1)...(index + 2),
+                    with: [fragments[0].merged(with: fragments[1])]
+                )
+                index += 2
+                continue
+            }
+
+            index += 1
+        }
+
+        return workingClusters
+    }
+
+    private func shouldMergeAsDominantAlteredFiveSuffix(
+        seven: MutableInkCluster,
+        alteration: MutableInkCluster,
+        fragments: [MutableInkCluster]
+    ) -> Bool {
+        if fragments.count >= 2,
+           alteration.isSuspendedSLikeContextCandidate,
+           fragments[0].isSuspendedULikeContextCandidate,
+           fragments[1].isSuspendedSLikeContextCandidate,
+           hasLowerDominantSuspendedSuffix(after: seven, suffixClusters: [alteration, fragments[0], fragments[1]]) {
+            return false
+        }
+
+        guard seven.isDominantSevenSuffixAnchor,
+              alteration.isWrittenAlterationAccidentalCandidate,
+              fragments.count >= 2,
+              fragments.count <= 3,
+              fragments.allSatisfy(\.isLooseAlteredFiveFragmentCandidate) else {
+            return false
+        }
+
+        if fragments.count >= 2,
+           fragments[0].isStandaloneOneGlyphCandidate,
+           fragments[1].isStandaloneThreeGlyphCandidate {
+            return false
+        }
+
+        if fragments.count >= 2,
+           fragments[0].isStandaloneOneGlyphCandidate,
+           fragments[1].isStandaloneOneGlyphCandidate {
+            return false
+        }
+
+        let fiveBounds = InkBounds.enclosing(fragments.map(\.bounds))
+        let alterationGap = alteration.bounds.horizontalGap(to: fragments[0].bounds)
+        let suffixBounds = InkBounds.enclosing([alteration.bounds, fiveBounds])
+        let fragmentGaps = zip(fragments, fragments.dropFirst()).map { lhs, rhs in
+            lhs.bounds.horizontalGap(to: rhs.bounds)
+        }
+
+        return alterationGap <= 28
+            && fragmentGaps.allSatisfy { $0 <= 18 }
+            && fiveBounds.width <= 42
+            && fiveBounds.height <= 38
+            && suffixBounds.height <= 46
+            && fragments.last?.bounds.recognitionMidX ?? 0 > fragments[0].bounds.recognitionMidX
+    }
+
+    private func splitAdjacentOneGlyphs(
+        in cluster: MutableInkCluster
+    ) -> [MutableInkCluster]? {
+        guard cluster.strokes.count == 2,
+              cluster.strokes.allSatisfy(\.isOneGlyphCandidate) else {
+            return nil
+        }
+
+        let orderedPairs = zip(cluster.originalIndexes, cluster.strokes)
+            .sorted { lhs, rhs in
+                if lhs.1.bounds.minX != rhs.1.bounds.minX {
+                    return lhs.1.bounds.minX < rhs.1.bounds.minX
+                }
+
+                return lhs.0 < rhs.0
+            }
+
+        return orderedPairs.map { index, stroke in
+            MutableInkCluster(strokes: [stroke], originalIndexes: [index])
+        }
+    }
+
+    private func splitAdjacentOneThreeGlyphs(
+        in cluster: MutableInkCluster
+    ) -> [MutableInkCluster]? {
+        guard cluster.strokes.count == 2 else {
+            return nil
+        }
+
+        let singleStrokeClusters = zip(cluster.originalIndexes, cluster.strokes)
+            .map { index, stroke in
+                MutableInkCluster(strokes: [stroke], originalIndexes: [index])
+            }
+            .sorted { lhs, rhs in
+                if lhs.bounds.minX != rhs.bounds.minX {
+                    return lhs.bounds.minX < rhs.bounds.minX
+                }
+
+                return (lhs.originalIndexes.min() ?? 0) < (rhs.originalIndexes.min() ?? 0)
+            }
+
+        guard singleStrokeClusters.count == 2,
+              singleStrokeClusters[0].isStandaloneOneGlyphCandidate,
+              singleStrokeClusters[1].isStandaloneThreeGlyphCandidate,
+              shouldKeepSeparateAsAdjacentOneThreeGlyphs(singleStrokeClusters[0], singleStrokeClusters[1]) else {
+            return nil
+        }
+
+        return singleStrokeClusters
+    }
+
+    private func recoverDetachedTriangleMajorSeventhSuffix(
+        in clusters: [MutableInkCluster], startingAt index: Int
+    ) -> (lastIndex: Int, suffix: [MutableInkCluster])? {
+        let first = clusters[index]
+        let second = clusters[index + 1]
+        guard first.strokes.count + second.strokes.count <= 3,
+              first.bounds.horizontalOverlap(with: second.bounds) > 0,
+              timingAllowsMerge(first, second) else {
+            return nil
+        }
+
+        var combined = first.merged(with: second)
+        var lastIndex = index + 1
+        if combined.strokes.count == 2 {
+            guard clusters.indices.contains(index + 2) else { return nil }
+            let next = clusters[index + 2]
+            guard next.strokes.count == 1, timingAllowsMerge(combined, next) else { return nil }
+            combined = combined.merged(with: next)
+            lastIndex = index + 2
+        }
+
+        // An open triangle can look like an accidental and a loose numeral.
+        // Keep the nearby, independent seven out of the altered-five merge.
+        guard let suffix = splitTriangleMajorSeventhSuffix(in: combined),
+              suffix[0].bounds.horizontalGap(to: suffix[1].bounds) <= 8 else {
+            return nil
+        }
+        return (lastIndex, suffix)
+    }
+
+    private func splitTriangleMajorSeventhSuffix(
+        in cluster: MutableInkCluster
+    ) -> [MutableInkCluster]? {
+        // Nearby strokes may have merged in either order. Recover the rightmost
+        // digit only if the other two strokes form a plausible major triangle.
+        guard cluster.strokes.count == 3,
+              cluster.recognitionHints.isEmpty,
+              let sevenIndex = cluster.strokes.indices.max(by: {
+                  cluster.strokes[$0].bounds.minX < cluster.strokes[$1].bounds.minX
+              }) else {
+            return nil
+        }
+
+        let seven = cluster.strokes[sevenIndex]
+        guard seven.hasEarlyTopHorizontalRun else {
+            return nil
+        }
+
+        let triangleIndexes = cluster.strokes.indices.filter { $0 != sevenIndex }
+        let triangle = MutableInkCluster(
+            strokes: triangleIndexes.map { cluster.strokes[$0] },
+            originalIndexes: triangleIndexes.map { cluster.originalIndexes[$0] }
+        )
+        let triangleBounds = triangle.bounds
+        let minimumSevenHeight = max(6.5, min(7.5, triangleBounds.height * 0.65))
+        guard seven.isSevenCandidate(minimumHeight: minimumSevenHeight),
+              seven.bounds.minX >= triangleBounds.maxX,
+              seven.bounds.verticalOverlap(with: triangleBounds) > 0,
+              InkSplitMajorTriangleGeometry.matches(triangle.strokes[0], triangle.strokes[1])
+                || InkSplitMajorTriangleGeometry.isAmbiguous(triangle.strokes[0], triangle.strokes[1]) else {
+            return nil
+        }
+
+        return [triangle, MutableInkCluster(strokes: [seven], originalIndexes: [cluster.originalIndexes[sevenIndex]])]
+    }
+
+    private func splitMinorSeventhSuffix(
+        in cluster: MutableInkCluster
+    ) -> [MutableInkCluster]? {
+        guard !cluster.recognitionHints.contains(.parenthesizedAlteration),
+              cluster.strokes.count == 2 else {
+            return nil
+        }
+
+        let singleStrokeClusters = zip(cluster.originalIndexes, cluster.strokes)
+            .map { index, stroke in
+                MutableInkCluster(strokes: [stroke], originalIndexes: [index])
+            }
+            .sorted { lhs, rhs in
+                if lhs.bounds.minX != rhs.bounds.minX {
+                    return lhs.bounds.minX < rhs.bounds.minX
+                }
+
+                return (lhs.originalIndexes.min() ?? 0) < (rhs.originalIndexes.min() ?? 0)
+            }
+
+        guard singleStrokeClusters.count == 2,
+              shouldKeepSeparateAsMinorSuffixAndExtension(singleStrokeClusters[0], singleStrokeClusters[1]) else {
+            return nil
+        }
+
+        if shouldKeepMergedAsRootBarBodyConstruction(singleStrokeClusters[0], singleStrokeClusters[1]) {
+            return nil
+        }
+
+        return singleStrokeClusters
+    }
+
+    private func shouldKeepMergedAsRootBarBodyConstruction(
+        _ lhs: MutableInkCluster,
+        _ rhs: MutableInkCluster
+    ) -> Bool {
+        let ordered = lhs.hasRootConstructionBar
+            ? (bar: lhs, body: rhs)
+            : (bar: rhs, body: lhs)
+
+        guard ordered.bar.hasRootConstructionBar,
+              !ordered.bar.hasRootConstructionBody,
+              ordered.body.hasRootConstructionBody else {
+            return false
+        }
+
+        let horizontalOverlap = ordered.bar.bounds.horizontalOverlap(with: ordered.body.bounds)
+        let narrowerWidth = max(min(ordered.bar.bounds.width, ordered.body.bounds.width), 1)
+        let centerDistance = abs(ordered.bar.bounds.recognitionMidX - ordered.body.bounds.recognitionMidX)
+        let bodyWidth = max(ordered.body.bounds.width, 1)
+
+        return horizontalOverlap >= narrowerWidth * 0.70
+            && centerDistance <= bodyWidth * 0.35
+            && ordered.bar.bounds.verticalOverlap(with: ordered.body.bounds) > 0
+    }
+
+    private func splitAttachedRightSideSharpStem(
+        in cluster: MutableInkCluster
+    ) -> [MutableInkCluster]? {
+        guard cluster.strokes.count == 2 else {
+            return nil
+        }
+
+        let singleStrokeClusters = zip(cluster.originalIndexes, cluster.strokes)
+            .map { index, stroke in
+                MutableInkCluster(strokes: [stroke], originalIndexes: [index])
+            }
+        guard let root = singleStrokeClusters.first(where: \.isRootBodyCandidate),
+              let modifier = singleStrokeClusters.first(where: { $0 != root && $0.isSharpConstructionPart }),
+              root.bounds.recognitionArea >= modifier.bounds.recognitionArea * 12 else {
+            return nil
+        }
+
+        let rootWidth = max(root.bounds.width, 1)
+        let rootHeight = max(root.bounds.height, 1)
+        let startsAtRightEdge = modifier.bounds.minX >= root.bounds.maxX - max(2, rootWidth * 0.10)
+        let closeEnoughToBelongToRoot = root.bounds.horizontalGap(to: modifier.bounds) <= max(8, rootHeight * 0.45)
+            && root.bounds.verticalMiss(to: modifier.bounds) <= max(8, rootHeight * 0.55)
+
+        guard startsAtRightEdge, closeEnoughToBelongToRoot else {
+            return nil
+        }
+
+        return [root, modifier]
+    }
+
+    private func splitAttachedRootFlatModifier(
+        in cluster: MutableInkCluster
+    ) -> [MutableInkCluster]? {
+        guard cluster.strokes.count == 3 else {
+            return nil
+        }
+
+        let singleStrokeClusters = zip(cluster.originalIndexes, cluster.strokes)
+            .map { index, stroke in
+                MutableInkCluster(strokes: [stroke], originalIndexes: [index])
+            }
+            .sorted { lhs, rhs in
+                if lhs.bounds.minX != rhs.bounds.minX {
+                    return lhs.bounds.minX < rhs.bounds.minX
+                }
+
+                return (lhs.originalIndexes.min() ?? 0) < (rhs.originalIndexes.min() ?? 0)
+            }
+
+        guard let modifier = singleStrokeClusters.last,
+              isAttachedRootFlatModifierCandidate(modifier) else {
+            return nil
+        }
+
+        let rootFragments = singleStrokeClusters.dropLast()
+        let rootCluster = MutableInkCluster(
+            strokes: rootFragments.flatMap(\.strokes),
+            originalIndexes: rootFragments.flatMap(\.originalIndexes)
+        )
+        let rootWidth = max(rootCluster.bounds.width, 1)
+        let rootHeight = max(rootCluster.bounds.height, 1)
+        let modifierHeight = max(modifier.bounds.height, 1)
+        let modifierVerticalOverlap = modifier.bounds.verticalOverlap(with: rootCluster.bounds)
+
+        guard rootCluster.hasRootConstructionVerticalStem,
+              rootCluster.hasRootConstructionBody,
+              modifier.bounds.recognitionMidX > rootCluster.bounds.recognitionMidX,
+              modifier.bounds.minX >= rootCluster.bounds.minX + rootWidth * 0.45,
+              modifier.bounds.minX <= rootCluster.bounds.maxX + max(5, rootWidth * 0.30),
+              modifier.bounds.maxY <= rootCluster.bounds.minY + rootHeight * 0.72,
+              modifierVerticalOverlap >= max(4, min(modifierHeight, rootHeight) * 0.18) else {
+            return nil
+        }
+
+        return [rootCluster, modifier]
+    }
+
+    private func isAttachedRootFlatModifierCandidate(_ cluster: MutableInkCluster) -> Bool {
+        guard cluster.strokes.count == 1,
+              let stroke = cluster.strokes.first else {
+            return false
+        }
+
+        let aspectRatio = cluster.bounds.width / max(cluster.bounds.height, 1)
+        return stroke.points.count >= 7
+            && cluster.bounds.width >= 4
+            && cluster.bounds.height >= 8
+            && aspectRatio >= 0.25
+            && aspectRatio <= 1.35
+            && stroke.straightness <= 0.82
+            && !stroke.hasEarlyTopHorizontalRun
+    }
+
+    private func splitEmbeddedSharpAccidentals(
+        in clusters: [MutableInkCluster]
+    ) -> [MutableInkCluster] {
+        clusters.flatMap { cluster in
+            splitEmbeddedSharpAccidental(in: cluster) ?? [cluster]
+        }
+    }
+
+    private func splitEmbeddedSharpAccidental(
+        in cluster: MutableInkCluster
+    ) -> [MutableInkCluster]? {
+        guard cluster.strokes.count >= 5 else {
+            return nil
+        }
+
+        let orderedPairs = zip(cluster.originalIndexes, cluster.strokes)
+            .sorted { lhs, rhs in lhs.0 < rhs.0 }
+        let orderedIndexes = orderedPairs.map(\.0)
+        let orderedStrokes = orderedPairs.map(\.1)
+
+        for splitIndex in stride(from: orderedStrokes.count - 4, through: 1, by: -1) {
+            let left = MutableInkCluster(
+                strokes: Array(orderedStrokes[..<splitIndex]),
+                originalIndexes: Array(orderedIndexes[..<splitIndex])
+            )
+            let right = MutableInkCluster(
+                strokes: Array(orderedStrokes[splitIndex...]),
+                originalIndexes: Array(orderedIndexes[splitIndex...])
+            )
+
+            guard right.isSharpGlyphCandidate,
+                  left.isRootBodyCandidate,
+                  !left.isSharpGlyphCandidate,
+                  right.bounds.recognitionMidX > left.bounds.recognitionMidX,
+                  left.bounds.horizontalGap(to: right.bounds) <= max(12, left.bounds.width * 0.60) else {
+                continue
+            }
+
+            return [left, right]
+        }
+
+        return nil
+    }
+
+    private func shouldMerge(_ lhs: MutableInkCluster, _ rhs: MutableInkCluster) -> Bool {
+        guard timingAllowsMerge(lhs, rhs) else {
+            return false
+        }
+
+        // A joined top/stem can resemble a slash on its own. Keep its
+        // intersecting middle arm with the same F shape the glyph reader uses.
+        if GestureTemplateRecognizer.matchesJoinedFRoot(strokes: lhs.strokes + rhs.strokes) {
+            return true
+        }
+
+        if shouldMergeAsRootAConstruction(lhs, rhs) {
+            return true
+        }
+
+        if shouldMergeAsHalfDiminishedConstruction(lhs, rhs) {
+            return true
+        }
+
+        if shouldMergeAsTriangleMajorConstruction(lhs, rhs) {
+            return true
+        }
+
+        guard !shouldKeepSeparateAsMinorSuffixAndExtension(lhs, rhs) else {
+            return false
+        }
+
+        if shouldMergeAsPlusConstruction(lhs, rhs) {
+            return true
+        }
+
+        guard !lhs.isSlashLikeSeparator,
+              !rhs.isSlashLikeSeparator else {
+            return false
+        }
+
+        guard !shouldKeepSeparateAsRightSideModifier(lhs, rhs) else {
+            return false
+        }
+
+        guard !shouldKeepSeparateAsAdjacentOneGlyphs(lhs, rhs) else {
+            return false
+        }
+
+        guard !shouldKeepSeparateAsAdjacentOneThreeGlyphs(lhs, rhs) else {
+            return false
+        }
+
+        guard !shouldKeepSeparateAsOverlappingFlatModifier(lhs, rhs) else {
+            return false
+        }
+
+        guard !shouldKeepSeparateAsParenthesizedAlterationWrapper(lhs, rhs) else {
+            return false
+        }
+
+        if shouldMergeAsSharpConstruction(lhs, rhs) {
+            return true
+        }
+
+        guard !shouldKeepSeparateAsSequentialGlyphs(lhs, rhs) else {
+            return false
+        }
+
+        if shouldMergeAsRootConstruction(lhs, rhs) {
+            return true
+        }
+
+        let horizontalGap = lhs.bounds.horizontalGap(to: rhs.bounds)
+        let verticalMiss = lhs.bounds.verticalMiss(to: rhs.bounds)
+        let referenceHeight = max(lhs.bounds.height, rhs.bounds.height, 1)
+        let referenceWidth = max(lhs.bounds.width, rhs.bounds.width, 1)
+        let smallModifierTightening = hasSmallModifier(lhs, rhs) ? 0.75 : 1.0
+
+        let maxHorizontalGap = max(
+            2,
+            referenceHeight * configuration.maxHorizontalGapRatio * smallModifierTightening
+        )
+        let maxVerticalMiss = max(
+            2,
+            referenceWidth * configuration.maxVerticalOverlapMissRatio
+        )
+        let overlappingGlyphStrokeVerticalMiss = horizontalGap == 0 ? 4.0 : maxVerticalMiss
+
+        return horizontalGap <= maxHorizontalGap
+            && verticalMiss <= overlappingGlyphStrokeVerticalMiss
+    }
+
+    private func shouldMergeAsRootConstruction(
+        _ lhs: MutableInkCluster,
+        _ rhs: MutableInkCluster
+    ) -> Bool {
+        let combinedStrokeCount = lhs.strokes.count + rhs.strokes.count
+        guard combinedStrokeCount <= 4,
+              lhs.bounds.horizontalGap(to: rhs.bounds) <= 4 else {
+            return false
+        }
+
+        let ordered = lhs.bounds.minX <= rhs.bounds.minX ? (left: lhs, right: rhs) : (left: rhs, right: lhs)
+        if ordered.left.hasRootConstructionBody,
+           ordered.right.isFlatGlyphCandidate,
+           ordered.right.bounds.recognitionMidX > ordered.left.bounds.recognitionMidX {
+            return false
+        }
+
+        let combinedBounds = InkBounds.enclosing([lhs.bounds, rhs.bounds])
+        let horizontalOverlap = lhs.bounds.horizontalOverlap(with: rhs.bounds)
+        let narrowerWidth = max(min(lhs.bounds.width, rhs.bounds.width), 1)
+        let verticalMiss = lhs.bounds.verticalMiss(to: rhs.bounds)
+        let hasRootBar = lhs.hasRootConstructionBar || rhs.hasRootConstructionBar
+        let hasRootBody = lhs.hasRootConstructionBody || rhs.hasRootConstructionBody
+        let hasRootVerticalStem = lhs.hasRootConstructionVerticalStem || rhs.hasRootConstructionVerticalStem
+        let horizontalGap = lhs.bounds.horizontalGap(to: rhs.bounds)
+        let edgeTouchingDetachedStem = horizontalGap <= 1.5
+            && lhs.hasRootConstructionBody != rhs.hasRootConstructionBody
+
+        if hasRootVerticalStem,
+           hasRootBody,
+           combinedBounds.width >= 14,
+           (horizontalOverlap >= narrowerWidth * 0.40 || edgeTouchingDetachedStem),
+           verticalMiss <= max(6, combinedBounds.height * 0.32) {
+            return true
+        }
+
+        return hasRootBar
+            && hasRootBody
+            && horizontalOverlap >= narrowerWidth * 0.35
+            && verticalMiss <= max(6, combinedBounds.height * 0.28)
+    }
+
+    private func shouldMergeAsRootAConstruction(
+        _ lhs: MutableInkCluster,
+        _ rhs: MutableInkCluster
+    ) -> Bool {
+        guard lhs.strokes.count == 1,
+              rhs.strokes.count == 1,
+              let lhsStroke = lhs.strokes.first,
+              let rhsStroke = rhs.strokes.first else {
+            return false
+        }
+
+        let combinedBounds = InkBounds.enclosing([lhs.bounds, rhs.bounds])
+        let combinedWidth = max(combinedBounds.width, 1)
+        let combinedHeight = max(combinedBounds.height, 1)
+        let combinedAspectRatio = combinedWidth / combinedHeight
+
+        guard combinedBounds.width >= 12,
+              combinedBounds.height >= 16,
+              combinedAspectRatio >= 0.35,
+              combinedAspectRatio <= 1.25,
+              lhs.bounds.horizontalGap(to: rhs.bounds) <= max(4, combinedWidth * 0.12),
+              lhs.bounds.verticalOverlap(with: rhs.bounds) >= min(lhs.bounds.height, rhs.bounds.height) * 0.58,
+              let lhsLeg = rootALegProfile(for: lhsStroke),
+              let rhsLeg = rootALegProfile(for: rhsStroke),
+              lhsLeg.direction != rhsLeg.direction else {
+            return false
+        }
+
+        let topBand = combinedBounds.minY + combinedHeight * 0.34
+        let bottomBand = combinedBounds.minY + combinedHeight * 0.62
+        let apexDistance = abs(lhsLeg.topPoint.x - rhsLeg.topPoint.x)
+        let bottomSpan = abs(lhsLeg.bottomPoint.x - rhsLeg.bottomPoint.x)
+
+        return lhsLeg.topPoint.y <= topBand
+            && rhsLeg.topPoint.y <= topBand
+            && lhsLeg.bottomPoint.y >= bottomBand
+            && rhsLeg.bottomPoint.y >= bottomBand
+            && apexDistance <= max(8, combinedWidth * 0.32)
+            && bottomSpan >= max(10, combinedWidth * 0.48)
+    }
+
+    private func rootALegProfile(for stroke: InkStroke) -> RootALegProfile? {
+        guard stroke.points.count >= 2,
+              stroke.bounds.height >= 14,
+              stroke.bounds.width >= 3,
+              stroke.aspectRatio >= 0.08,
+              stroke.aspectRatio <= 0.82,
+              stroke.straightness >= 0.50,
+              stroke.diagonalAngleMagnitude >= 30,
+              stroke.diagonalAngleMagnitude <= 82,
+              let topPoint = stroke.points.min(by: { $0.y < $1.y }),
+              let bottomPoint = stroke.points.max(by: { $0.y < $1.y }) else {
+            return nil
+        }
+
+        let horizontalAdvance = bottomPoint.x - topPoint.x
+        guard abs(horizontalAdvance) >= max(2.5, stroke.bounds.height * 0.08) else {
+            return nil
+        }
+
+        return RootALegProfile(
+            direction: horizontalAdvance < 0 ? .downLeft : .downRight,
+            topPoint: topPoint,
+            bottomPoint: bottomPoint
+        )
+    }
+
+    private func shouldMergeAsHalfDiminishedConstruction(
+        _ lhs: MutableInkCluster,
+        _ rhs: MutableInkCluster
+    ) -> Bool {
+        let ordered = lhs.isDiminishedCircleConstructionPart
+            ? (circle: lhs, slash: rhs)
+            : (circle: rhs, slash: lhs)
+
+        guard ordered.circle.isDiminishedCircleConstructionPart,
+              ordered.slash.isHalfDiminishedSlashConstructionPart else {
+            return false
+        }
+
+        let combinedBounds = InkBounds.enclosing([ordered.circle.bounds, ordered.slash.bounds])
+        let horizontalGap = ordered.circle.bounds.horizontalGap(to: ordered.slash.bounds)
+        let verticalMiss = ordered.circle.bounds.verticalMiss(to: ordered.slash.bounds)
+        let horizontalOverlap = ordered.circle.bounds.horizontalOverlap(with: ordered.slash.bounds)
+        let verticalOverlap = ordered.circle.bounds.verticalOverlap(with: ordered.slash.bounds)
+
+        return combinedBounds.width <= 34
+            && combinedBounds.height <= 34
+            && horizontalGap <= max(5, ordered.circle.bounds.width * 0.55)
+            && verticalMiss <= max(5, ordered.circle.bounds.height * 0.55)
+            && (horizontalOverlap > 0 || verticalOverlap > 0)
+    }
+
+    private func shouldMergeAsTriangleMajorConstruction(
+        _ lhs: MutableInkCluster,
+        _ rhs: MutableInkCluster
+    ) -> Bool {
+        guard lhs.strokes.count == 1,
+              rhs.strokes.count == 1,
+              let lhsStroke = lhs.strokes.first,
+              let rhsStroke = rhs.strokes.first else {
+            return false
+        }
+
+        return InkSplitMajorTriangleGeometry.matches(lhsStroke, rhsStroke)
+    }
+
+    private func shouldMergeAsPlusConstruction(
+        _ lhs: MutableInkCluster,
+        _ rhs: MutableInkCluster
+    ) -> Bool {
+        let ordered = lhs.isPlusVerticalConstructionPart
+            ? (vertical: lhs, horizontal: rhs)
+            : (vertical: rhs, horizontal: lhs)
+
+        guard ordered.vertical.isPlusVerticalConstructionPart,
+              ordered.horizontal.isPlusHorizontalConstructionPart else {
+            return false
+        }
+
+        let combinedBounds = InkBounds.enclosing([ordered.vertical.bounds, ordered.horizontal.bounds])
+        let verticalCenterX = ordered.vertical.bounds.recognitionMidX
+        let horizontalCenterY = ordered.horizontal.bounds.recognitionMidY
+        let crossesHorizontalStroke = ordered.horizontal.bounds.minX - 2 <= verticalCenterX
+            && verticalCenterX <= ordered.horizontal.bounds.maxX + 2
+        let crossesVerticalStroke = ordered.vertical.bounds.minY - 2 <= horizontalCenterY
+            && horizontalCenterY <= ordered.vertical.bounds.maxY + 2
+
+        return combinedBounds.width >= 7
+            && combinedBounds.width <= 28
+            && combinedBounds.height >= 7
+            && combinedBounds.height <= 30
+            && crossesHorizontalStroke
+            && crossesVerticalStroke
+    }
+
+    private func shouldMergeAsSharpConstruction(
+        _ lhs: MutableInkCluster,
+        _ rhs: MutableInkCluster
+    ) -> Bool {
+        let combinedStrokeCount = lhs.strokes.count + rhs.strokes.count
+        guard combinedStrokeCount <= 6,
+              lhs.isSharpConstructionPart,
+              rhs.isSharpConstructionPart,
+              !lhs.isParenthesizedAlterationWrapperCandidate,
+              !rhs.isParenthesizedAlterationWrapperCandidate,
+              !lhs.isTallRootLikeSharpConstruction,
+              !rhs.isTallRootLikeSharpConstruction else {
+            return false
+        }
+
+        let combinedBounds = InkBounds.enclosing([lhs.bounds, rhs.bounds])
+        let combinedAspectRatio = max(combinedBounds.width, 1) / max(combinedBounds.height, 1)
+        let horizontalGap = lhs.bounds.horizontalGap(to: rhs.bounds)
+        let verticalGap = lhs.bounds.verticalMiss(to: rhs.bounds)
+        let combinedVerticalCount = lhs.looseSharpVerticalStrokeCount + rhs.looseSharpVerticalStrokeCount
+        let combinedHorizontalCount = lhs.looseSharpHorizontalStrokeCount + rhs.looseSharpHorizontalStrokeCount
+
+        guard combinedHorizontalCount <= 2,
+              combinedVerticalCount <= 3 else {
+            return false
+        }
+
+        if lhs.hasSharpVerticalStroke && rhs.hasSharpVerticalStroke {
+            guard combinedHorizontalCount > 0 else {
+                return false
+            }
+
+            let minimumHeight = max(min(lhs.bounds.height, rhs.bounds.height), 1)
+            return horizontalGap <= 11
+                && lhs.bounds.verticalOverlap(with: rhs.bounds) >= minimumHeight * 0.35
+                && combinedAspectRatio <= 1.15
+        }
+
+        if lhs.hasSharpHorizontalStroke && rhs.hasSharpHorizontalStroke {
+            let minimumWidth = max(min(lhs.bounds.width, rhs.bounds.width), 1)
+            return verticalGap <= 7
+                && lhs.bounds.horizontalOverlap(with: rhs.bounds) >= minimumWidth * 0.25
+                && combinedAspectRatio >= 0.75
+        }
+
+        return combinedVerticalCount >= 1
+            && combinedHorizontalCount >= 1
+            && combinedAspectRatio >= 0.22
+            && combinedAspectRatio <= 1.45
+            && horizontalGap <= 6
+            && verticalGap <= 9
+            && (lhs.bounds.horizontalOverlap(with: rhs.bounds) > 0
+                || lhs.bounds.verticalOverlap(with: rhs.bounds) > 0)
+    }
+
+    private func timingAllowsMerge(_ lhs: MutableInkCluster, _ rhs: MutableInkCluster) -> Bool {
+        // PKStrokePoint.timeOffset restarts at zero for every PencilKit path,
+        // so comparing offsets from different strokes does not describe their
+        // writing order. Only use timing when the adapter retained each path's
+        // creation offset on the drawing timeline; legacy fixtures safely fall
+        // back to geometry.
+        guard let lhsEnd = lhs.timelineEndTimeOffset,
+              let rhsStart = rhs.timelineStartTimeOffset else {
+            return true
+        }
+
+        let forwardGap = rhsStart - lhsEnd
+        if forwardGap >= 0 {
+            return forwardGap <= configuration.maxTimeGap
+        }
+
+        guard let rhsEnd = rhs.timelineEndTimeOffset,
+              let lhsStart = lhs.timelineStartTimeOffset else {
+            return true
+        }
+
+        let reverseGap = lhsStart - rhsEnd
+        return reverseGap <= configuration.maxTimeGap
+    }
+
+    private func hasSmallModifier(_ lhs: MutableInkCluster, _ rhs: MutableInkCluster) -> Bool {
+        let smallerArea = min(lhs.bounds.recognitionArea, rhs.bounds.recognitionArea)
+        let largerArea = max(lhs.bounds.recognitionArea, rhs.bounds.recognitionArea)
+        guard largerArea > 0 else {
+            return false
+        }
+
+        return smallerArea / largerArea <= configuration.smallModifierSizeRatio
+    }
+
+    private func shouldKeepSeparateAsRightSideModifier(
+        _ lhs: MutableInkCluster,
+        _ rhs: MutableInkCluster
+    ) -> Bool {
+        isRightSideModifier(lhs, attachedTo: rhs)
+            || isRightSideModifier(rhs, attachedTo: lhs)
+    }
+
+    private func shouldKeepSeparateAsAdjacentOneGlyphs(
+        _ lhs: MutableInkCluster,
+        _ rhs: MutableInkCluster
+    ) -> Bool {
+        guard lhs.isStandaloneOneGlyphCandidate,
+              rhs.isStandaloneOneGlyphCandidate else {
+            return false
+        }
+
+        let horizontalGap = lhs.bounds.horizontalGap(to: rhs.bounds)
+        let minimumHeight = max(min(lhs.bounds.height, rhs.bounds.height), 1)
+
+        return horizontalGap <= 12
+            && lhs.bounds.verticalOverlap(with: rhs.bounds) >= minimumHeight * 0.45
+    }
+
+    private func shouldKeepSeparateAsAdjacentOneThreeGlyphs(
+        _ lhs: MutableInkCluster,
+        _ rhs: MutableInkCluster
+    ) -> Bool {
+        let ordered = lhs.bounds.minX <= rhs.bounds.minX ? (left: lhs, right: rhs) : (left: rhs, right: lhs)
+        guard ordered.left.isStandaloneOneGlyphCandidate,
+              ordered.right.isStandaloneThreeGlyphCandidate else {
+            return false
+        }
+
+        let horizontalGap = ordered.left.bounds.horizontalGap(to: ordered.right.bounds)
+        let minimumHeight = max(min(ordered.left.bounds.height, ordered.right.bounds.height), 1)
+        let combinedBounds = InkBounds.enclosing([ordered.left.bounds, ordered.right.bounds])
+
+        return horizontalGap <= 8
+            && combinedBounds.height <= 24
+            && ordered.left.bounds.verticalOverlap(with: ordered.right.bounds) >= minimumHeight * 0.35
+    }
+
+    private func isRightSideModifier(
+        _ modifier: MutableInkCluster,
+        attachedTo root: MutableInkCluster
+    ) -> Bool {
+        let rootArea = root.bounds.recognitionArea
+        let modifierArea = modifier.bounds.recognitionArea
+        guard root.isRootBodyCandidate,
+              modifier.isAccidentalModifierCandidate else {
+            return false
+        }
+
+        if root.isPartialSharpConstruction,
+           modifier.isSharpConstructionPart,
+           !root.isTallRootLikeSharpConstruction,
+           !modifier.isTallRootLikeSharpConstruction {
+            return false
+        }
+
+        let rootWidth = max(root.bounds.width, 1)
+        let rootHeight = max(root.bounds.height, 1)
+        let horizontalGap = root.bounds.horizontalGap(to: modifier.bounds)
+        let verticalMiss = root.bounds.verticalMiss(to: modifier.bounds)
+        let clearlyDetachedToRight = modifier.bounds.minX >= root.bounds.maxX + max(1, rootWidth * 0.04)
+        guard rootArea >= modifierArea * 1.2
+                || (clearlyDetachedToRight && rootArea >= modifierArea * 0.60) else {
+            return false
+        }
+
+        let startsAfterRootBody = modifier.bounds.minX >= root.bounds.maxX - max(2, rootWidth * 0.08)
+        let sharpCrossesRootEdge = modifier.isSharpConstructionPart
+            && modifier.bounds.maxX >= root.bounds.maxX + max(2, rootWidth * 0.12)
+            && modifier.bounds.minX >= root.bounds.maxX - max(5, rootWidth * 0.24)
+        let closeEnoughToBelongToThisChord = horizontalGap <= rootHeight * 0.45
+            && verticalMiss <= rootHeight * 0.55
+        let modifierSized = modifierArea / rootArea <= 0.72
+            || modifier.bounds.width <= rootWidth * 0.85
+            || clearlyDetachedToRight
+
+        return (startsAfterRootBody || sharpCrossesRootEdge)
+            && closeEnoughToBelongToThisChord
+            && modifierSized
+    }
+
+    private func shouldKeepSeparateAsOverlappingFlatModifier(
+        _ lhs: MutableInkCluster,
+        _ rhs: MutableInkCluster
+    ) -> Bool {
+        isOverlappingFlatModifier(lhs, attachedTo: rhs)
+            || isOverlappingFlatModifier(rhs, attachedTo: lhs)
+    }
+
+    private func isOverlappingFlatModifier(
+        _ modifier: MutableInkCluster,
+        attachedTo root: MutableInkCluster
+    ) -> Bool {
+        guard root.isRootBodyCandidate,
+              modifier.isFlatGlyphCandidate else {
+            return false
+        }
+
+        let rootWidth = max(root.bounds.width, 1)
+        let rootHeight = max(root.bounds.height, 1)
+        let rootArea = root.bounds.recognitionArea
+        let modifierArea = modifier.bounds.recognitionArea
+        let startsAtRootEdge = modifier.bounds.minX >= root.bounds.maxX - max(4, rootWidth * 0.22)
+        let closeEnoughToBelongToThisChord = root.bounds.horizontalGap(to: modifier.bounds) <= rootHeight * 0.45
+            && root.bounds.verticalMiss(to: modifier.bounds) <= rootHeight * 0.55
+        let modifierSized = modifierArea / max(rootArea, 1) <= 0.72
+            || modifier.bounds.width <= rootWidth * 0.85
+
+        return startsAtRootEdge && closeEnoughToBelongToThisChord && modifierSized
+    }
+
+    /// Bare color tones such as `Ab(#5)` and `Db(b3)` do not have the
+    /// dominant-seven anchor used by the legacy alteration-wrapper pass. Keep
+    /// their handling local to an explicit root + opening parenthesis +
+    /// accidental window so ordinary 7, 11, and 13 strokes are never globally
+    /// rewritten as punctuation.
+    private func normalizeExplicitBareParenthesizedAlterations(
+        in clusters: [MutableInkCluster]
+    ) -> [MutableInkCluster] {
+        var orderedClusters = clusters.sorted { lhs, rhs in
+            if lhs.bounds.minX != rhs.bounds.minX {
+                return lhs.bounds.minX < rhs.bounds.minX
+            }
+
+            return (lhs.originalIndexes.min() ?? 0) < (rhs.originalIndexes.min() ?? 0)
+        }
+        var searchIndex = orderedClusters.startIndex
+
+        while searchIndex < orderedClusters.endIndex {
+            if let splitClusters = splitExplicitBareAccidentalNumber(
+                after: searchIndex,
+                in: orderedClusters
+            ) {
+                let fusedIndex = searchIndex + 1
+                orderedClusters.replaceSubrange(
+                    fusedIndex...fusedIndex,
+                    with: splitClusters
+                )
+            }
+
+            guard isExplicitBareAlterationOpening(
+                at: searchIndex,
+                in: orderedClusters
+            ) else {
+                searchIndex += 1
+                continue
+            }
+
+            let accidentalIndex = searchIndex + 1
+            let suffixStartIndex = accidentalIndex + 1
+            let initialUpperBound = min(orderedClusters.endIndex, searchIndex + 6)
+
+            if suffixStartIndex < initialUpperBound,
+               let fusedWrapperIndex = orderedClusters[suffixStartIndex..<initialUpperBound]
+                .indices
+                .first(where: { index in
+                    splitExplicitBareTrailingWrapper(
+                        in: orderedClusters[index]
+                    ) != nil
+                }),
+               let splitClusters = splitExplicitBareTrailingWrapper(
+                   in: orderedClusters[fusedWrapperIndex]
+               ) {
+                orderedClusters.replaceSubrange(
+                    fusedWrapperIndex...fusedWrapperIndex,
+                    with: splitClusters
+                )
+            }
+
+            let upperBound = min(orderedClusters.endIndex, searchIndex + 7)
+            let closingIndex = orderedClusters[suffixStartIndex..<upperBound]
+                .indices
+                .first { candidateIndex in
+                    guard candidateIndex > suffixStartIndex else {
+                        return false
+                    }
+
+                    let numberIndices = Array(suffixStartIndex..<candidateIndex)
+                    let candidate = orderedClusters[candidateIndex]
+                    let looksLikeClosingWrapper = candidate.isClosingParenthesizedAlterationWrapperCandidate
+                        || candidate.isLooseClosingParenthesizedAlterationWrapperCandidate
+                        || candidate.isTrailingParenthesizedAlterationWrapperCandidate
+
+                    return looksLikeClosingWrapper
+                        && hasCompleteBareAlterationNumber(
+                            at: numberIndices,
+                            in: orderedClusters
+                        )
+                        && orderedClusters[candidateIndex - 1].bounds
+                            .horizontalGap(to: candidate.bounds) <= 24
+                        && isTerminalAlterationWrapper(
+                            at: candidateIndex,
+                            in: orderedClusters
+                        )
+                }
+
+            guard let closingIndex else {
+                searchIndex += 1
+                continue
+            }
+
+            for index in accidentalIndex..<closingIndex {
+                orderedClusters[index].recognitionHints.insert(.parenthesizedAlteration)
+            }
+
+            orderedClusters.remove(at: closingIndex)
+            orderedClusters.remove(at: searchIndex)
+            searchIndex = max(orderedClusters.startIndex, searchIndex - 1)
+        }
+
+        return orderedClusters
+    }
+
+    private func splitExplicitBareAccidentalNumber(
+        after openingIndex: Int,
+        in clusters: [MutableInkCluster]
+    ) -> [MutableInkCluster]? {
+        guard openingIndex > clusters.startIndex,
+              clusters.indices.contains(openingIndex + 2),
+              clusters[openingIndex].strokes.count == 1,
+              clusters[openingIndex].isOpeningParenthesizedAlterationWrapperCandidate,
+              hasLocalBareAlterationRootPrefix(before: openingIndex, in: clusters) else {
+            return nil
+        }
+
+        let fusedCluster = clusters[openingIndex + 1]
+        guard fusedCluster.strokes.count == 2 else {
+            return nil
+        }
+
+        let orderedPairs = zip(fusedCluster.originalIndexes, fusedCluster.strokes)
+            .sorted { lhs, rhs in
+                if lhs.1.bounds.minX != rhs.1.bounds.minX {
+                    return lhs.1.bounds.minX < rhs.1.bounds.minX
+                }
+
+                return lhs.0 < rhs.0
+            }
+        let accidentalCluster = MutableInkCluster(
+            strokes: [orderedPairs[0].1],
+            originalIndexes: [orderedPairs[0].0]
+        )
+        let numberCluster = MutableInkCluster(
+            strokes: [orderedPairs[1].1],
+            originalIndexes: [orderedPairs[1].0]
+        )
+        let closingCluster = clusters[openingIndex + 2]
+        let hasClosingWrapper = closingCluster.isClosingParenthesizedAlterationWrapperCandidate
+            || closingCluster.isLooseClosingParenthesizedAlterationWrapperCandidate
+            || closingCluster.isTrailingParenthesizedAlterationWrapperCandidate
+
+        guard isExplicitBareAlterationAccidentalCandidate(accidentalCluster),
+              numberCluster.isLooseAlterationNumberCandidate,
+              hasClosingWrapper,
+              accidentalCluster.bounds.horizontalGap(to: numberCluster.bounds) <= 24,
+              numberCluster.bounds.horizontalGap(to: closingCluster.bounds) <= 24,
+              isTerminalAlterationWrapper(at: openingIndex + 2, in: clusters) else {
+            return nil
+        }
+
+        return [accidentalCluster, numberCluster]
+    }
+
+    private func splitExplicitBareTrailingWrapper(
+        in cluster: MutableInkCluster
+    ) -> [MutableInkCluster]? {
+        guard cluster.strokes.count >= 2 else {
+            return nil
+        }
+
+        let orderedPairs = zip(cluster.originalIndexes, cluster.strokes)
+            .sorted { lhs, rhs in
+                if lhs.1.bounds.minX != rhs.1.bounds.minX {
+                    return lhs.1.bounds.minX < rhs.1.bounds.minX
+                }
+
+                return lhs.0 < rhs.0
+            }
+        guard let wrapperPair = orderedPairs.last else {
+            return nil
+        }
+
+        let numberPairs = orderedPairs.dropLast()
+        let numberCluster = MutableInkCluster(
+            strokes: numberPairs.map(\.1),
+            originalIndexes: numberPairs.map(\.0)
+        )
+        let wrapperCluster = MutableInkCluster(
+            strokes: [wrapperPair.1],
+            originalIndexes: [wrapperPair.0]
+        )
+        let numberFragments = numberPairs.map { pair in
+            MutableInkCluster(strokes: [pair.1], originalIndexes: [pair.0])
+        }
+        let hasCompleteNumber = hasCompleteBareAlterationNumber(in: numberFragments)
+            || hasCompleteBareAlterationNumber(in: [numberCluster])
+        let looksLikeClosingWrapper = wrapperCluster.isClosingParenthesizedAlterationWrapperCandidate
+            || wrapperCluster.isLooseClosingParenthesizedAlterationWrapperCandidate
+            || wrapperCluster.isTrailingParenthesizedAlterationWrapperCandidate
+
+        guard looksLikeClosingWrapper,
+              hasCompleteNumber,
+              wrapperCluster.bounds.minX >= numberCluster.bounds.maxX - 2,
+              numberCluster.bounds.horizontalGap(to: wrapperCluster.bounds) <= 24 else {
+            return nil
+        }
+
+        if hasCompleteBareAlterationNumber(in: numberFragments) {
+            return numberFragments + [wrapperCluster]
+        }
+
+        return [numberCluster, wrapperCluster]
+    }
+
+    private func hasCompleteBareAlterationNumber(
+        at indices: [Int],
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        hasCompleteBareAlterationNumber(
+            in: indices.compactMap { index in
+                clusters.indices.contains(index) ? clusters[index] : nil
+            }
+        )
+    }
+
+    private func hasCompleteBareAlterationNumber(
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        guard !clusters.isEmpty, clusters.count <= 2 else {
+            return false
+        }
+
+        if clusters.count == 2 {
+            return clusters[0].isStandaloneOneGlyphCandidate
+                && (clusters[1].isStandaloneOneGlyphCandidate
+                    || clusters[1].isStandaloneThreeGlyphCandidate)
+        }
+
+        let cluster = clusters[0]
+        if cluster.strokes.count == 1,
+           cluster.isStandaloneOneGlyphCandidate {
+            return false
+        }
+
+        return cluster.isAlterationNumberCandidate
+            || cluster.isLooseAlterationNumberCandidate
+            || cluster.isLooseAlteredFiveFragmentCandidate
+    }
+
+    private func removeDominantAlterationParenthesisWrappers(
+        in clusters: [MutableInkCluster]
+    ) -> [MutableInkCluster] {
+        var orderedClusters = clusters.sorted { lhs, rhs in
+            // Parenthesis strokes can slightly overhang the following root in x.
+            // Preserve writing order for those overlapping glyphs so the close
+            // wrapper remains attached to the alteration it terminates instead
+            // of becoming the first glyph of the next chord.
+            if abs(lhs.bounds.minX - rhs.bounds.minX) <= 4,
+               lhs.bounds.horizontalOverlap(with: rhs.bounds) > 0 {
+                return (lhs.originalIndexes.min() ?? 0) < (rhs.originalIndexes.min() ?? 0)
+            }
+
+            if lhs.bounds.minX != rhs.bounds.minX {
+                return lhs.bounds.minX < rhs.bounds.minX
+            }
+
+            return (lhs.originalIndexes.min() ?? 0) < (rhs.originalIndexes.min() ?? 0)
+        }
+        let removalIndices = orderedClusters.indices.filter { index in
+            guard !isDominantSuspendedClosingSuffixCandidate(at: index, in: orderedClusters) else {
+                return false
+            }
+
+            guard !isPotentialDominantSuspendedSuffixPart(at: index, in: orderedClusters) else {
+                return false
+            }
+
+            guard !isSuspendedFourthTail(at: index, in: orderedClusters) else {
+                return false
+            }
+
+            return isOpeningDominantAlterationWrapper(at: index, in: orderedClusters)
+                || isClosingDominantAlterationWrapper(at: index, in: orderedClusters)
+        }
+        let removalIndexSet = Set(removalIndices)
+        let openingWrapperIndices = removalIndices.filter { index in
+            isOpeningDominantAlterationWrapper(at: index, in: orderedClusters)
+        }
+        let closingWrapperIndices = removalIndices.filter { index in
+            isClosingDominantAlterationWrapper(at: index, in: orderedClusters)
+        }
+        var contentIndices = Set<Int>()
+
+        for openingIndex in openingWrapperIndices {
+            if let closingIndex = closingWrapperIndices.first(where: { candidateIndex in
+                candidateIndex > openingIndex && candidateIndex - openingIndex <= 6
+            }) {
+                contentIndices.formUnion((openingIndex + 1)..<closingIndex)
+            }
+        }
+
+        for index in contentIndices where orderedClusters.indices.contains(index) {
+            orderedClusters[index].recognitionHints.insert(.parenthesizedAlteration)
+        }
+
+        return orderedClusters.enumerated().compactMap { index, cluster in
+            removalIndexSet.contains(index) ? nil : cluster
+        }
+    }
+
+    private func isDominantSuspendedClosingSuffixCandidate(
+        at index: Int,
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        guard index >= 3,
+              clusters[index].isSuspendedSLikeContextCandidate else {
+            return false
+        }
+
+        let sevenIndex = index - 3
+        let leadingSuspended = clusters[index - 2]
+        let middleSuspended = clusters[index - 1]
+
+        guard middleSuspended.isLooseDominantSuspendedMiddleCandidate,
+              leadingSuspended.isSuspendedSLikeContextCandidate,
+              clusters[sevenIndex].isDominantSevenInkAnchor,
+              hasLowerDominantSuspendedSuffix(after: sevenIndex, in: clusters) else {
+            return false
+        }
+
+        return clusters[sevenIndex].bounds.horizontalGap(to: clusters[index - 2].bounds) <= 44
+            && clusters[index - 2].bounds.horizontalGap(to: clusters[index - 1].bounds) <= 44
+            && clusters[index - 1].bounds.horizontalGap(to: clusters[index].bounds) <= 44
+    }
+
+    private func hasLowerDominantSuspendedSuffix(
+        after sevenIndex: Int,
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        guard sevenIndex + 3 < clusters.count else {
+            return false
+        }
+
+        let sevenBounds = clusters[sevenIndex].bounds
+        let suffixFloor = sevenBounds.minY + max(8, sevenBounds.height * 0.60)
+        return clusters[(sevenIndex + 1)...(sevenIndex + 3)].allSatisfy { suffixCluster in
+            suffixCluster.bounds.minY >= suffixFloor
+        }
+    }
+
+    private func hasLowerDominantSuspendedSuffix(
+        after seven: MutableInkCluster,
+        suffixClusters: [MutableInkCluster]
+    ) -> Bool {
+        guard suffixClusters.count >= 3 else {
+            return false
+        }
+
+        let suffixFloor = seven.bounds.minY + max(8, seven.bounds.height * 0.60)
+        return suffixClusters.prefix(3).allSatisfy { suffixCluster in
+            suffixCluster.bounds.minY >= suffixFloor
+        }
+    }
+
+    private func isDominantSuspendedSuffixPart(
+        at index: Int,
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        let sevenIndex: Int?
+        if index >= 1,
+           clusters[index - 1].isDominantSevenInkAnchor {
+            sevenIndex = index - 1
+        } else if index >= 2,
+                  clusters[index - 2].isDominantSevenInkAnchor {
+            sevenIndex = index - 2
+        } else if index >= 3,
+                  clusters[index - 3].isDominantSevenInkAnchor {
+            sevenIndex = index - 3
+        } else {
+            sevenIndex = nil
+        }
+
+        guard let sevenIndex,
+              sevenIndex > 0,
+              sevenIndex + 3 < clusters.count else {
+            return false
+        }
+
+        let suspendedStart = sevenIndex + 1
+        guard index >= suspendedStart,
+              index <= sevenIndex + 3 else {
+            return false
+        }
+
+        return clusters[suspendedStart].isSuspendedSLikeContextCandidate
+            && clusters[suspendedStart + 1].isSuspendedULikeContextCandidate
+            && clusters[suspendedStart + 2].isSuspendedSLikeContextCandidate
+            && hasLowerDominantSuspendedSuffix(after: sevenIndex, in: clusters)
+            && clusters[sevenIndex].bounds.horizontalGap(to: clusters[suspendedStart].bounds) <= 40
+            && clusters[suspendedStart].bounds.horizontalGap(to: clusters[suspendedStart + 1].bounds) <= 40
+            && clusters[suspendedStart + 1].bounds.horizontalGap(to: clusters[suspendedStart + 2].bounds) <= 40
+    }
+
+    private func isPotentialDominantSuspendedSuffixPart(
+        at index: Int,
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        if isDominantSuspendedSuffixPart(at: index, in: clusters) {
+            return true
+        }
+
+        guard index > 0 else {
+            return false
+        }
+
+        let nearbySevenIndex = clusters[..<index].indices.reversed().first { candidateIndex in
+            candidateIndex > 0
+                && index - candidateIndex <= 3
+                && clusters[candidateIndex].isDominantSevenInkAnchor
+        }
+
+        guard let sevenIndex = nearbySevenIndex else {
+            return false
+        }
+
+        guard hasLowerDominantSuspendedSuffix(after: sevenIndex, in: clusters) else {
+            return false
+        }
+
+        let offset = index - sevenIndex
+        let current = clusters[index]
+        let staysNearSeven = clusters[sevenIndex].bounds.horizontalGap(to: current.bounds) <= 78
+
+        guard staysNearSeven else {
+            return false
+        }
+
+        switch offset {
+        case 1:
+            return current.isSuspendedSLikeContextCandidate
+                && index + 1 < clusters.count
+                && clusters[index + 1].isSuspendedULikeContextCandidate
+        case 2:
+            return current.isSuspendedULikeContextCandidate
+                && clusters[index - 1].isSuspendedSLikeContextCandidate
+        case 3:
+            return current.isSuspendedSLikeContextCandidate
+                && clusters[index - 1].isSuspendedULikeContextCandidate
+                && clusters[index - 2].isSuspendedSLikeContextCandidate
+        default:
+            return false
+        }
+    }
+
+    private func isSuspendedFourthTail(
+        at index: Int,
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        guard index >= 3,
+              clusters[index].isSuspendedFourthLikeCandidate,
+              !hasDominantSevenInk(before: index, in: clusters) else {
+            return false
+        }
+
+        return clusters[index - 1].isSuspendedSLikeContextCandidate
+            && clusters[index - 2].isSuspendedULikeContextCandidate
+            && clusters[index - 3].isSuspendedSLikeContextCandidate
+    }
+
+    private func isOpeningDominantAlterationWrapper(
+        at index: Int,
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        let isExplicitBareAlterationOpening = isExplicitBareAlterationOpening(
+            at: index,
+            in: clusters
+        )
+        guard !clusters[index].isSuspendedSLikeCandidate
+                || hasDominantSevenCandidate(before: index, in: clusters)
+                || isExplicitBareAlterationOpening else {
+            return false
+        }
+
+        if isExplicitBareAlterationOpening {
+            return true
+        }
+
+        if index >= 1,
+           index + 1 < clusters.count,
+           clusters[index].isLooseOpeningParenthesizedAlterationWrapperCandidate,
+           !isProbableDetachedRootBody(at: index, in: clusters),
+           !clusters[index + 1].isParenthesizedAlterationWrapperCandidate,
+           clusters[index + 1].isWrittenAlterationAccidentalCandidate,
+           clusters[index - 1].isLooseAlterationNumberCandidate,
+           clusters[index - 1].bounds.horizontalGap(to: clusters[index].bounds) <= 36,
+           clusters[index].bounds.horizontalGap(to: clusters[index + 1].bounds) <= 24 {
+            return true
+        }
+
+        guard index + 1 < clusters.count,
+              let sevenIndex = nearestDominantSevenIndex(before: index, in: clusters),
+              !isProbableDetachedRootBody(at: index, in: clusters),
+              clusters[index].isOpeningParenthesizedAlterationWrapperCandidate
+                || clusters[index].isLooseOpeningParenthesizedAlterationWrapperCandidate,
+              !clusters[index + 1].isParenthesizedAlterationWrapperCandidate,
+              clusters[index + 1].isWrittenAlterationAccidentalCandidate else {
+            return false
+        }
+
+        return clusters[sevenIndex].bounds.horizontalGap(to: clusters[index].bounds) <= 96
+            && clusters[index].bounds.horizontalGap(to: clusters[index + 1].bounds) <= 24
+    }
+
+    private func isExplicitBareAlterationOpening(
+        at index: Int,
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        let isStrictOpeningWrapper = clusters.indices.contains(index)
+            && clusters[index].strokes.count == 1
+            && clusters[index].strokes[0].isOpeningParenthesizedAlterationWrapperCandidate
+        let hasClosingWrapper = hasExplicitAlterationClosingWrapper(
+            after: index,
+            in: clusters
+        )
+        let precedingGap = index > clusters.startIndex
+            ? clusters[index - 1].bounds.horizontalGap(to: clusters[index].bounds)
+            : .infinity
+        let isCompactPairedWrapper = isStrictOpeningWrapper
+            && hasClosingWrapper
+            && precedingGap <= 14
+        let isDistinctFromDominantSeven = !clusters[index].isDominantSevenInkAnchor
+            || clusters[index].isSuspendedSLikeCandidate
+            || isCompactPairedWrapper
+        let hasAlterationNumber = index + 2 < clusters.count
+            && (clusters[index + 2].isLooseAlterationNumberCandidate
+                || splitExplicitBareTrailingWrapper(in: clusters[index + 2]) != nil)
+        guard index > clusters.startIndex,
+              index + 2 < clusters.count,
+              (clusters[index].isOpeningParenthesizedAlterationWrapperCandidate
+                || clusters[index].isLooseOpeningParenthesizedAlterationWrapperCandidate),
+              isDistinctFromDominantSeven,
+              !isProbableDetachedRootBody(at: index, in: clusters),
+              !clusters[index + 1].isParenthesizedAlterationWrapperCandidate,
+              isExplicitBareAlterationAccidentalCandidate(clusters[index + 1]),
+              clusters[index + 1].bounds.width <= 28,
+              clusters[index + 1].bounds.height <= 42,
+              hasAlterationNumber,
+              hasLocalBareAlterationRootPrefix(before: index, in: clusters),
+              !hasImmediateDominantSeven(before: index, in: clusters),
+              clusters[index].bounds.horizontalGap(to: clusters[index + 1].bounds) <= 24,
+              clusters[index + 1].bounds.horizontalGap(to: clusters[index + 2].bounds) <= 24 else {
+            return false
+        }
+
+        return true
+    }
+
+    private func isExplicitBareAlterationAccidentalCandidate(
+        _ cluster: MutableInkCluster
+    ) -> Bool {
+        if cluster.isWrittenAlterationAccidentalCandidate {
+            return true
+        }
+
+        guard cluster.strokes.count == 1,
+              let stroke = cluster.strokes.first else {
+            return false
+        }
+
+        let bounds = cluster.bounds
+        let aspectRatio = bounds.width / max(bounds.height, 1)
+        let angle = abs(stroke.angleDegrees)
+
+        // A quickly written flat can collapse into one narrow loop and miss
+        // the general flat classifier. Accept that shape only inside the
+        // already-verified root + opening-wrapper + number window.
+        return stroke.points.count >= 8
+            && bounds.width >= 2
+            && bounds.width <= 12
+            && bounds.height >= 10
+            && bounds.height <= 28
+            && aspectRatio >= 0.10
+            && aspectRatio <= 0.85
+            && stroke.straightness <= 0.45
+            && angle >= 45
+            && angle <= 125
+            && !stroke.hasEarlyTopHorizontalRun
+    }
+
+    private func hasLocalBareAlterationRootPrefix(
+        before index: Int,
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        let lowerBound = max(clusters.startIndex, index - 2)
+        return clusters[lowerBound..<index].contains { cluster in
+            cluster.isRootBodyCandidate
+                || cluster.hasRootConstructionBody
+                || cluster.hasRootConstructionVerticalStem
+        }
+    }
+
+    private func hasImmediateDominantSeven(
+        before index: Int,
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        guard index > clusters.startIndex else {
+            return false
+        }
+
+        let cluster = clusters[index - 1]
+        return !cluster.isRootBodyCandidate
+            && !cluster.hasRootConstructionBody
+            && !cluster.hasRootConstructionVerticalStem
+            && !isExplicitBareAlterationAccidentalCandidate(cluster)
+            && (cluster.isDominantSevenAlterationAnchor
+                || cluster.isDominantSevenSuffixAnchor)
+    }
+
+    private func hasExplicitAlterationClosingWrapper(
+        after openingIndex: Int,
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        let lowerBound = openingIndex + 2
+        let upperBound = min(clusters.endIndex, openingIndex + 6)
+        guard lowerBound < upperBound else {
+            return false
+        }
+
+        return clusters[lowerBound..<upperBound].indices.contains { index in
+            if splitExplicitBareTrailingWrapper(in: clusters[index]) != nil {
+                return isTerminalAlterationWrapper(at: index, in: clusters)
+            }
+
+            guard index > lowerBound else {
+                return false
+            }
+
+            let numberIndices = Array(lowerBound..<index)
+            let candidate = clusters[index]
+            let looksLikeClosingWrapper = candidate.isClosingParenthesizedAlterationWrapperCandidate
+                || candidate.isLooseClosingParenthesizedAlterationWrapperCandidate
+                || candidate.isTrailingParenthesizedAlterationWrapperCandidate
+
+            return looksLikeClosingWrapper
+                && hasCompleteBareAlterationNumber(at: numberIndices, in: clusters)
+                && clusters[index - 1].bounds.horizontalGap(to: candidate.bounds) <= 24
+                && isTerminalAlterationWrapper(at: index, in: clusters)
+        }
+    }
+
+    private func isClosingDominantAlterationWrapper(
+        at index: Int,
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        guard !isProbableDetachedRootBody(at: index, in: clusters),
+              !clusters[index].isSuspendedSLikeCandidate
+                || hasDominantSevenCandidate(before: index, in: clusters) else {
+            return false
+        }
+
+        if clusters[index].isAlterationNumberCandidate,
+           !hasOpeningAlterationWrapper(before: index, in: clusters) {
+            return false
+        }
+
+        if index > 0,
+           clusters[index].isStandaloneThreeGlyphCandidate,
+           clusters[index - 1].isLooseAlterationNumberCandidate {
+            return false
+        }
+
+        if index + 1 < clusters.count,
+           clusters[index].isStandaloneOneGlyphCandidate,
+           clusters[index + 1].isStandaloneThreeGlyphCandidate {
+            return false
+        }
+
+        if index >= 4,
+           clusters[index].isTrailingParenthesizedAlterationWrapperCandidate
+            || clusters[index].isLooseTrailingAlterationWrapperCandidate,
+           clusters[index - 1].isStandaloneThreeGlyphCandidate,
+           clusters[index - 2].isLooseAlterationNumberCandidate,
+           clusters[index - 3].isWrittenAlterationAccidentalCandidate,
+           (clusters[index - 4].isDominantSevenSuffixAnchor || clusters[index - 4].isLooseAlterationNumberCandidate),
+           clusters[index - 2].bounds.horizontalGap(to: clusters[index - 1].bounds) <= 24,
+           clusters[index - 1].bounds.horizontalGap(to: clusters[index].bounds) <= 24 {
+            return true
+        }
+
+        if index >= 3,
+           clusters[index].isTrailingParenthesizedAlterationWrapperCandidate
+            || clusters[index].isLooseTrailingAlterationWrapperCandidate,
+           clusters[index - 1].isLooseAlterationNumberCandidate
+            || clusters[index - 1].isLooseAlteredFiveFragmentCandidate,
+           clusters[index - 2].isWrittenAlterationAccidentalCandidate,
+           (clusters[index - 3].isDominantSevenSuffixAnchor || clusters[index - 3].isLooseAlterationNumberCandidate),
+           clusters[index - 2].bounds.horizontalGap(to: clusters[index - 1].bounds) <= 36,
+           clusters[index - 1].bounds.horizontalGap(to: clusters[index].bounds) <= 24 {
+            return true
+        }
+
+        guard index > 0,
+              let sevenIndex = nearestDominantSevenIndex(before: index, in: clusters) else {
+            return false
+        }
+
+        let hasAlterationAccidental = clusters[(sevenIndex + 1)..<index].contains { cluster in
+            cluster.isWrittenAlterationAccidentalCandidate
+        }
+        let isFinalWrapper = index == clusters.indices.last
+            || clusters[index].bounds.horizontalGap(to: clusters[index + 1].bounds) > 18
+        let followsAlterationNumber = clusters[index - 1].isAlterationNumberCandidate
+            || clusters[index - 1].isLooseAlterationNumberCandidate
+        let looksLikeClosingWrapper = clusters[index].isLooseClosingParenthesizedAlterationWrapperCandidate
+            || (followsAlterationNumber && clusters[index].isTrailingParenthesizedAlterationWrapperCandidate)
+
+        return hasAlterationAccidental
+            && isFinalWrapper
+            && looksLikeClosingWrapper
+            && clusters[sevenIndex].bounds.horizontalGap(to: clusters[index].bounds) <= 118
+            && clusters[index - 1].bounds.horizontalGap(to: clusters[index].bounds) <= 24
+    }
+
+    private func isProbableDetachedRootBody(
+        at index: Int,
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        guard index > clusters.startIndex,
+              clusters[index].isRootBodyCandidate else {
+            return false
+        }
+
+        let current = clusters[index]
+        let previous = clusters[index - 1]
+        let horizontalGap = previous.bounds.horizontalGap(to: current.bounds)
+        let minimumRootGap = max(8, min(18, current.bounds.width * 0.55))
+        let verticalDrop = current.bounds.recognitionMidY - previous.bounds.recognitionMidY
+        let minimumRootDrop = max(
+            7,
+            min(current.bounds.height, previous.bounds.height) * 0.28
+        )
+
+        return horizontalGap >= minimumRootGap
+            && verticalDrop >= minimumRootDrop
+    }
+
+    private func hasProbableRootPrefix(
+        before index: Int,
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        clusters[..<index].contains { cluster in
+            cluster.isRootBodyCandidate
+                || cluster.hasRootConstructionBody
+                || cluster.hasRootConstructionVerticalStem
+        }
+    }
+
+    private func hasOpeningAlterationWrapper(
+        before index: Int,
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        let lowerBound = max(clusters.startIndex, index - 5)
+        return clusters[lowerBound..<index].indices.contains { candidateIndex in
+            guard candidateIndex > clusters.startIndex,
+                  hasProbableRootPrefix(before: candidateIndex, in: clusters) else {
+                return false
+            }
+
+            let cluster = clusters[candidateIndex]
+            return cluster.isOpeningParenthesizedAlterationWrapperCandidate
+                || cluster.isLooseOpeningParenthesizedAlterationWrapperCandidate
+        }
+    }
+
+    private func isTerminalAlterationWrapper(
+        at index: Int,
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        guard clusters.indices.contains(index + 1) else {
+            return true
+        }
+
+        let current = clusters[index]
+        let next = clusters[index + 1]
+        let nextDropsToRootBaseline = next.isRootBodyCandidate
+            && next.bounds.recognitionMidY >= current.bounds.recognitionMidY + 7
+
+        return nextDropsToRootBaseline
+            || current.bounds.horizontalGap(to: next.bounds) > 18
+    }
+
+    private func nearestDominantSevenIndex(
+        before index: Int,
+        in clusters: [MutableInkCluster]
+    ) -> Int? {
+        clusters[..<index].indices.reversed().first { candidateIndex in
+            candidateIndex > 0
+                && (clusters[candidateIndex].isDominantSevenAlterationAnchor
+                    || candidateIndex == index - 1 && clusters[candidateIndex].isDominantSevenSuffixAnchor)
+        }
+    }
+
+    private func hasDominantSevenContext(
+        before index: Int,
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        clusters[..<index].indices.contains { candidateIndex in
+            candidateIndex > 0 && clusters[candidateIndex].isDominantSevenAlterationAnchor
+        }
+    }
+
+    private func hasDominantSevenCandidate(
+        before index: Int,
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        clusters[..<index].indices.contains { candidateIndex in
+            let participatesInSuspendedSuffix = clusters[candidateIndex].isSuspendedSLikeCandidate
+                && candidateIndex + 1 < index
+                && clusters[candidateIndex + 1].isSuspendedULikeCandidate
+                || clusters[candidateIndex].isSuspendedULikeCandidate
+                && candidateIndex > 0
+                && clusters[candidateIndex - 1].isSuspendedSLikeCandidate
+
+            return candidateIndex > 0
+                && clusters[candidateIndex].isDominantSevenSuffixAnchor
+                && !participatesInSuspendedSuffix
+        }
+    }
+
+    private func hasDominantSevenInk(
+        before index: Int,
+        in clusters: [MutableInkCluster]
+    ) -> Bool {
+        clusters[..<index].indices.contains { candidateIndex in
+            guard candidateIndex > 0,
+                  clusters[candidateIndex].isDominantSevenAlterationAnchor else {
+                return false
+            }
+
+            let participatesInSuspendedSuffix = clusters[candidateIndex].isSuspendedSLikeCandidate
+                && candidateIndex + 1 < index
+                && clusters[candidateIndex + 1].isSuspendedULikeContextCandidate
+                || clusters[candidateIndex].isSuspendedSLikeCandidate
+                && candidateIndex > 0
+                && clusters[candidateIndex - 1].isSuspendedULikeContextCandidate
+                || clusters[candidateIndex].isSuspendedSLikeContextCandidate
+                && candidateIndex > 1
+                && clusters[candidateIndex - 1].isSuspendedULikeContextCandidate
+                && clusters[candidateIndex - 2].isSuspendedSLikeContextCandidate
+
+            return !participatesInSuspendedSuffix
+        }
+    }
+
+    private func shouldKeepSeparateAsParenthesizedAlterationWrapper(
+        _ lhs: MutableInkCluster,
+        _ rhs: MutableInkCluster
+    ) -> Bool {
+        let ordered = lhs.bounds.minX <= rhs.bounds.minX ? (left: lhs, right: rhs) : (left: rhs, right: lhs)
+
+        return ordered.left.isOpeningParenthesizedAlterationWrapperCandidate
+            && ordered.right.isAlterationAccidentalCandidate
+            && ordered.left.bounds.horizontalGap(to: ordered.right.bounds) <= 18
+    }
+
+    private func shouldKeepSeparateAsMinorSuffixAndExtension(
+        _ lhs: MutableInkCluster,
+        _ rhs: MutableInkCluster
+    ) -> Bool {
+        let ordered = lhs.bounds.minX <= rhs.bounds.minX ? (left: lhs, right: rhs) : (left: rhs, right: lhs)
+
+        return ordered.left.isMinorSuffixCandidate
+            && ordered.right.isDominantSevenSuffixAnchor
+            && ordered.left.bounds.horizontalGap(to: ordered.right.bounds) <= 14
+            && ordered.left.bounds.verticalMiss(to: ordered.right.bounds) <= 14
+    }
+
+    private func shouldKeepSeparateAsSuspendedSuffixLetters(
+        _ lhs: MutableInkCluster,
+        _ rhs: MutableInkCluster
+    ) -> Bool {
+        let ordered = lhs.bounds.minX <= rhs.bounds.minX ? (left: lhs, right: rhs) : (left: rhs, right: lhs)
+        let horizontalGap = ordered.left.bounds.horizontalGap(to: ordered.right.bounds)
+        let verticalMiss = ordered.left.bounds.verticalMiss(to: ordered.right.bounds)
+
+        guard horizontalGap <= 16,
+              verticalMiss <= 16 else {
+            return false
+        }
+
+        if ordered.left.isSharpGlyphCandidate,
+           ordered.right.isSuspendedSLikeCandidate {
+            return true
+        }
+
+        if ordered.left.isSuspendedSLikeCandidate,
+           ordered.right.isSuspendedULikeCandidate {
+            return true
+        }
+
+        if ordered.left.isSuspendedULikeCandidate,
+           ordered.right.isSuspendedSLikeCandidate {
+            return true
+        }
+
+        return false
+    }
+
+    private func shouldKeepSeparateAsSequentialGlyphs(
+        _ lhs: MutableInkCluster,
+        _ rhs: MutableInkCluster
+    ) -> Bool {
+        let ordered = lhs.bounds.minX <= rhs.bounds.minX ? (left: lhs, right: rhs) : (left: rhs, right: lhs)
+        let leftWidth = max(ordered.left.bounds.width, 1)
+        let rightStartsAfterLeftBody = ordered.right.bounds.minX >= ordered.left.bounds.maxX - max(1, leftWidth * 0.08)
+        let closeEnoughToBeSameChord = ordered.left.bounds.horizontalGap(to: ordered.right.bounds) <= 8
+            && ordered.left.bounds.verticalMiss(to: ordered.right.bounds) <= 10
+
+        guard rightStartsAfterLeftBody,
+              closeEnoughToBeSameChord else {
+            return ordered.left.isQualityOrExtensionGlyphCandidate
+                && ordered.right.isQualityOrExtensionGlyphCandidate
+                && ordered.right.bounds.recognitionMidX > ordered.left.bounds.recognitionMidX + leftWidth * 0.35
+        }
+
+        return ((ordered.left.isFlatGlyphCandidate || ordered.left.isSharpGlyphCandidate)
+            && ordered.right.isQualityOrExtensionGlyphCandidate)
+            || (ordered.left.isQualityOrExtensionGlyphCandidate && ordered.right.isQualityOrExtensionGlyphCandidate)
+    }
+}
+
+private struct RootALegProfile: Hashable {
+    var direction: RootALegDirection
+    var topPoint: InkPoint
+    var bottomPoint: InkPoint
+}
+
+private enum RootALegDirection: Hashable {
+    case downLeft
+    case downRight
+}

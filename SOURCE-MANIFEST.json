@@ -1,0 +1,135 @@
+{
+  "snapshot": "repeat-dot-clusters",
+  "baseCommit": "42d423f2130295b9d41e16a55480a5a7523518ec",
+  "originalBranch": "codex/repeat-dot-clusters",
+  "sourceOnly": true,
+  "files": [
+    {
+      "path": "docs/qa/repeat-writing-standard-2026-11-04.md",
+      "sha256": "5cf298e4f2e55c6a3ce63e035c897d51c171e4ef305bf500c22a0e53c79e5877",
+      "bytes": 15687
+    },
+    {
+      "path": "iChart/Features/Editor/Components/ChordDraftRepeatReviewPolicy.swift",
+      "sha256": "f1ce37f514a3b8c96d69dce58ce87c06481c494fd064eadfc897402fee2ee33a",
+      "bytes": 3751
+    },
+    {
+      "path": "iChart/Features/Editor/Components/ChordInkAutomaticRenderFeedback.swift",
+      "sha256": "2a4de396e568749214db33bd6cb687ab93b96ab327046db48a6841c19b03f3ed",
+      "bytes": 4611
+    },
+    {
+      "path": "iChart/Features/Editor/Components/ChordInkDraftPreview.swift",
+      "sha256": "5983e11615bd6f3311f9c4a2fea15a04e57770a6dade7b5d82f5242a638de87e",
+      "bytes": 147461
+    },
+    {
+      "path": "iChart/Features/Editor/Components/ChordInkRepeatSignRecognizer.swift",
+      "sha256": "bf2bc7f40bb31c3a8e4e05bce4ef81b8a3a38534459e43ed12780d8e317820b7",
+      "bytes": 16321
+    },
+    {
+      "path": "iChart/Features/Editor/Components/LeadSheetCanvasHostView.swift",
+      "sha256": "453b64300a0b43d3430130f4cf95059a533bb249d558fb77f5daafb7940da57c",
+      "bytes": 445551
+    },
+    {
+      "path": "iChart/Features/Editor/EditorCanvasMode.swift",
+      "sha256": "9c965ec8775159cafe64e5deaf1d34222aef86566cf572ef8a98710eac7745fa",
+      "bytes": 8983
+    },
+    {
+      "path": "iChart/Features/Editor/EditorView.swift",
+      "sha256": "930b8a1ee0a9a32918f36e777f06adf551a18373a19ea42cb5bb81e5f87137a0",
+      "bytes": 337104
+    },
+    {
+      "path": "iChart/Features/Library/LibraryView.swift",
+      "sha256": "9c122eb9caaa156b54e8d50eac218b50322ef4833304e629e2b88d6072de70dd",
+      "bytes": 314081
+    },
+    {
+      "path": "iChart/Recognition/GestureTemplateRecognizer.swift",
+      "sha256": "ee5d13a67b0410582b2af51ea83b3b856e2d298b1a0b45fd77586532ec43f96c",
+      "bytes": 115998
+    },
+    {
+      "path": "iChart/Recognition/StrokeClusterer.swift",
+      "sha256": "a6710eebf97bb9750ba4dbe21cbd5d2ba6ff01251484bf9934bdbc495fb2999c",
+      "bytes": 107661
+    },
+    {
+      "path": "iChart/Recognition/StrokeClustererSupport.swift",
+      "sha256": "d17465837f7fd107a53ff777002f7f8a2210a78febab92190ef0092540503b27",
+      "bytes": 51333
+    },
+    {
+      "path": "iChartTests/Editor/ChordDraftRepeatDeletionTests.swift",
+      "sha256": "decc14dda6b544f7e3d37e82b6e16edfea2501da3ebb74a60fe506d80e3cc717",
+      "bytes": 15801
+    },
+    {
+      "path": "iChartTests/Editor/ChordDraftRepeatReviewUITests.swift",
+      "sha256": "e02c6abdfaa29f36a10b25964407e533f4b7d01e266ffef71e236c6f9baccdde",
+      "bytes": 12815
+    },
+    {
+      "path": "iChartTests/Editor/ChordInkAutomaticFeedbackTests.swift",
+      "sha256": "a6001db5f7a0d8ffa44a2b37bcaedca1ce6f1919ebb3eaad3b73c36ae672ab9f",
+      "bytes": 45704
+    },
+    {
+      "path": "iChartTests/Editor/ChordInkAutomaticFeedbackUITests.swift",
+      "sha256": "268e1bef71c35da2c6319f055fbe557b77420a65181f20bda9fd062f7f060742",
+      "bytes": 130506
+    },
+    {
+      "path": "iChartTests/Editor/ChordInkEndingRecognizerTests.swift",
+      "sha256": "ae4d7d16ac42cf6d8278110a4fdb63d872746fc7a579c951d5ab55b5cc1deffd",
+      "bytes": 22823
+    },
+    {
+      "path": "iChartTests/Editor/ChordInkRepeatComponentRecognitionTests.swift",
+      "sha256": "b9399df88761314d1d8f579aa9c05e0494bf3bce19883895779ba0d80d5d2e6f",
+      "bytes": 21451
+    },
+    {
+      "path": "iChartTests/Editor/ChordInkRepeatSignRecognizerTests.swift",
+      "sha256": "b5be6b66444ef89d84fb5c7d14ac50433407c3394bbb4e9a33f2e54cb0479cdc",
+      "bytes": 42453
+    },
+    {
+      "path": "iChartTests/Editor/ChordInkRepeatSignWorkflowTests.swift",
+      "sha256": "b2e59308bbf93a4dcc504f2872afbfa1d5d433960c60a4cdc01e873255599fe0",
+      "bytes": 50864
+    },
+    {
+      "path": "iChartTests/Editor/LeadSheetInteractionModeStatePolicyTests.swift",
+      "sha256": "4c8f9a2776b892ed3dd4079e6491272648e77336859a7be38b919d9ae4c4e812",
+      "bytes": 358140
+    },
+    {
+      "path": "iChartTests/ProjectConfigurationTests.swift",
+      "sha256": "6ff6b13d83909d041aeb4dd37dd730f91f7b9b9b9dc6644693cef67981ad3906",
+      "bytes": 202577
+    },
+    {
+      "path": "iChartTests/Recognition/GestureTemplateRecognizerTests.swift",
+      "sha256": "e8289bc74ef59b116398228a32ba75ae76473911ff44ffdd4cbc8377b9069869",
+      "bytes": 64937
+    },
+    {
+      "path": "iChartTests/Recognition/StrokeClustererTests.swift",
+      "sha256": "82d52c117e515e0899b077755119b520a9295e4ccc6d9ec68c4b4dbf5787485f",
+      "bytes": 35983
+    },
+    {
+      "path": "project.yml",
+      "sha256": "6fa78f0a2b2d323da2c1e8175cf1d6c424ceaef4eb8fb75a324c4959a9c5f3b8",
+      "bytes": 7926
+    }
+  ],
+  "originalFilesModified": false,
+  "runtimeActivation": false
+}
