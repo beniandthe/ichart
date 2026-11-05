@@ -117,6 +117,233 @@ final class IChartForumParticipationTests: XCTestCase {
         }
     }
 
+    func testOverlappingRefreshRemovesHiddenRecentCommentsAndKeepsExpandedHistory() async throws {
+        for style in chartStyles {
+            for addsReply in [false, true] {
+                let fixture = try makeFixture(commentCount: 177, layoutStyle: style)
+                defer { fixture.clean() }
+                await fixture.store.openPost(fixture.detail.post, song: fixture.detail.song)
+                await fixture.store.loadEarlierComments()
+                let expanded = try XCTUnwrap(fixture.store.selectedDetail)
+                let cursor = try XCTUnwrap(expanded.earlierCommentCursor)
+                // Remove the old latest row too: interval reconnection must
+                // use tuple positions rather than require a shared boundary ID.
+                await fixture.service.setHiddenCommentBodies(["120", "176"])
+                await fixture.service.appendComments(count: 20)
+
+                try await refresh(fixture, addingReply: addsReply)
+
+                let refreshed = try XCTUnwrap(fixture.store.selectedDetail)
+                let expected = (17..<197).filter { $0 != 120 && $0 != 176 }.map(String.init)
+                    + (addsReply ? ["A new reply"] : [])
+                XCTAssertEqual(refreshed.comments.map(\.body), expected)
+                XCTAssertTrue(refreshed.comments.contains { $0.body == "20" })
+                XCTAssertEqual(refreshed.earlierCommentCursor, cursor)
+                XCTAssertEqual(Set(refreshed.comments.map(\.id)).count, expected.count)
+                await fixture.store.loadEarlierComments()
+                let complete = try XCTUnwrap(fixture.store.selectedDetail)
+                let allVisible = (0..<197).filter { $0 != 120 && $0 != 176 }.map(String.init)
+                    + (addsReply ? ["A new reply"] : [])
+                XCTAssertEqual(complete.comments.map(\.body), allVisible)
+                XCTAssertEqual(Set(complete.comments.map(\.id)).count, allVisible.count)
+                XCTAssertNil(complete.earlierCommentCursor)
+                XCTAssertNil(fixture.store.errorMessage)
+            }
+        }
+    }
+
+    func testExhaustedRefreshReplacesCachedHistoryForEmptyPartialAndExactLimitResponses() async throws {
+        for style in chartStyles {
+            for visibleCount in [0, 10, 80] {
+                let fixture = try makeFixture(commentCount: 177, layoutStyle: style)
+                defer { fixture.clean() }
+                await fixture.store.openPost(fixture.detail.post, song: fixture.detail.song)
+                await fixture.store.loadEarlierComments()
+                await fixture.store.loadEarlierComments()
+                XCTAssertEqual(fixture.store.selectedDetail?.comments.count, 177)
+                XCTAssertNil(fixture.store.selectedDetail?.earlierCommentCursor)
+                await fixture.service.setHiddenCommentBodies(Set((0..<(177 - visibleCount)).map(String.init)))
+
+                try await refresh(fixture, addingReply: false)
+
+                let refreshed = try XCTUnwrap(fixture.store.selectedDetail)
+                XCTAssertEqual(refreshed.comments.map(\.body), ((177 - visibleCount)..<177).map(String.init))
+                XCTAssertEqual(Set(refreshed.comments.map(\.id)).count, visibleCount)
+                XCTAssertNil(refreshed.earlierCommentCursor, "Exactly 80 rows can also be an exhausted response")
+                XCTAssertNil(fixture.store.errorMessage)
+            }
+        }
+    }
+
+    func testDisjointRefreshKeepsAllGapsReachableWithPartialOrExhaustedOldHistory() async throws {
+        for style in chartStyles {
+            for (initialCount, loadAll) in [(177, false), (177, true), (40, false)] {
+                for addsReply in [false, true] {
+                    let fixture = try makeFixture(commentCount: initialCount, layoutStyle: style)
+                    defer { fixture.clean() }
+                    await fixture.store.openPost(fixture.detail.post, song: fixture.detail.song)
+                    if initialCount > 80 { await fixture.store.loadEarlierComments() }
+                    if loadAll { await fixture.store.loadEarlierComments() }
+                    let previous = try XCTUnwrap(fixture.store.selectedDetail)
+                    XCTAssertEqual(previous.earlierCommentCursor == nil, loadAll || initialCount < 80)
+                    await fixture.service.appendComments(count: 200)
+
+                    try await refresh(fixture, addingReply: addsReply)
+
+                    let refreshed = try XCTUnwrap(fixture.store.selectedDetail)
+                    let lowerIndex = initialCount + 200 - (addsReply ? 79 : 80)
+                    let boundary = try XCTUnwrap(refreshed.comments.first { $0.body == String(lowerIndex) })
+                    let refreshedCursor = try XCTUnwrap(refreshed.earlierCommentCursor)
+                    XCTAssertEqual(refreshedCursor, ForumCommentCursor(boundary))
+                    XCTAssertEqual(refreshedCursor.timestamp, boundary.paginationTimestamp)
+                    XCTAssertTrue(refreshedCursor.timestamp.hasSuffix(".000000+00:00"))
+                    XCTAssertNotEqual(refreshedCursor, previous.earlierCommentCursor)
+                    XCTAssertTrue(Set(previous.comments.map(\.id)).isSubset(of: Set(refreshed.comments.map(\.id))))
+                    await fixture.service.setHiddenCommentBodies(["20"])
+
+                    try await loadAllEarlierComments(in: fixture)
+
+                    let complete = try XCTUnwrap(fixture.store.selectedDetail)
+                    let expected = (0..<(initialCount + 200)).filter { $0 != 20 }.map(String.init)
+                        + (addsReply ? ["A new reply"] : [])
+                    XCTAssertEqual(complete.comments.map(\.body), expected)
+                    XCTAssertEqual(Set(complete.comments.map(\.id)).count, expected.count)
+                    XCTAssertNil(complete.earlierCommentCursor)
+                    XCTAssertNil(fixture.store.errorMessage)
+                }
+            }
+        }
+    }
+
+    func testRefreshDoesNotReuseExhaustionWhenOlderVisibilityExtendsPastKnownHistory() async throws {
+        for style in chartStyles {
+            for (firstVisible, hidesLatest, addsNew) in [(137, true, false), (97, false, false), (97, false, true)] {
+                let fixture = try makeFixture(commentCount: 177, layoutStyle: style)
+                defer { fixture.clean() }
+                await fixture.service.setHiddenCommentBodies(Set((0..<firstVisible).map(String.init)))
+                await fixture.store.openPost(fixture.detail.post, song: fixture.detail.song)
+                XCTAssertEqual(fixture.store.selectedDetail?.comments.map(\.body), (firstVisible..<177).map(String.init))
+                XCTAssertNil(fixture.store.selectedDetail?.earlierCommentCursor)
+                // Unhide older history with a lower, equal, or later fresh
+                // boundary. None can reuse the cache's previous exhaustion.
+                await fixture.service.setHiddenCommentBodies(hidesLatest ? ["176"] : [])
+                if addsNew { await fixture.service.appendComments(count: 1) }
+
+                try await refresh(fixture, addingReply: false)
+
+                let refreshed = try XCTUnwrap(fixture.store.selectedDetail)
+                let end = (hidesLatest ? 176 : 177) + (addsNew ? 1 : 0)
+                let firstRetained = min(firstVisible, end - 80)
+                XCTAssertEqual(refreshed.comments.map(\.body), (firstRetained..<end).map(String.init))
+                let boundary = try XCTUnwrap(refreshed.comments.first { $0.body == String(end - 80) })
+                let freshCursor = try XCTUnwrap(refreshed.earlierCommentCursor)
+                XCTAssertEqual(freshCursor, ForumCommentCursor(boundary))
+                XCTAssertEqual(freshCursor.timestamp, boundary.paginationTimestamp)
+                try await loadAllEarlierComments(in: fixture)
+                let complete = try XCTUnwrap(fixture.store.selectedDetail)
+                XCTAssertEqual(complete.comments.map(\.body), (0..<end).map(String.init))
+                XCTAssertEqual(Set(complete.comments.map(\.id)).count, end)
+                XCTAssertNil(complete.earlierCommentCursor)
+                XCTAssertNil(fixture.store.errorMessage)
+            }
+        }
+    }
+
+    func testRepeatedDisjointRefreshWalksPastOverlapUntilEveryEarlierGapIsFilled() async throws {
+        for style in chartStyles {
+            let fixture = try makeFixture(commentCount: 80, layoutStyle: style)
+            defer { fixture.clean() }
+            await fixture.store.openPost(fixture.detail.post, song: fixture.detail.song)
+            XCTAssertNil(fixture.store.selectedDetail?.earlierCommentCursor)
+            await fixture.service.appendComments(count: 90)
+            try await refresh(fixture, addingReply: false)
+            var detail = try XCTUnwrap(fixture.store.selectedDetail)
+            XCTAssertEqual(detail.earlierCommentCursor?.id,
+                try XCTUnwrap(detail.comments.first { $0.body == "90" }).id)
+            await fixture.service.appendComments(count: 130)
+            try await refresh(fixture, addingReply: false)
+            detail = try XCTUnwrap(fixture.store.selectedDetail)
+            XCTAssertEqual(detail.earlierCommentCursor?.id,
+                try XCTUnwrap(detail.comments.first { $0.body == "220" }).id)
+
+            await fixture.store.loadEarlierComments()
+
+            detail = try XCTUnwrap(fixture.store.selectedDetail)
+            XCTAssertEqual(detail.earlierCommentCursor?.id,
+                try XCTUnwrap(detail.comments.first { $0.body == "140" }).id,
+                "Overlap with 90...169 must not skip the unseen 80...89 gap")
+            await fixture.store.loadEarlierComments()
+            detail = try XCTUnwrap(fixture.store.selectedDetail)
+            XCTAssertEqual(detail.earlierCommentCursor?.id,
+                try XCTUnwrap(detail.comments.first { $0.body == "60" }).id)
+            XCTAssertTrue((80..<90).allSatisfy { value in detail.comments.contains { $0.body == String(value) } })
+            try await loadAllEarlierComments(in: fixture)
+            let complete = try XCTUnwrap(fixture.store.selectedDetail)
+            XCTAssertEqual(complete.comments.map(\.body), (0..<300).map(String.init))
+            XCTAssertEqual(Set(complete.comments.map(\.id)).count, 300)
+            XCTAssertNil(complete.earlierCommentCursor)
+            XCTAssertNil(fixture.store.errorMessage)
+        }
+    }
+
+    func testEarlierPagesReconcileTheirAuthoritativeIntervalsAndExhaustedHistory() async throws {
+        for style in chartStyles {
+            let fixture = try makeFixture(commentCount: 300, layoutStyle: style)
+            defer { fixture.clean() }
+            await fixture.store.openPost(fixture.detail.post, song: fixture.detail.song)
+            await fixture.store.loadEarlierComments()
+            XCTAssertEqual(fixture.store.selectedDetail?.comments.map(\.body), (140..<300).map(String.init))
+            await fixture.service.appendComments(count: 200)
+            try await refresh(fixture, addingReply: false)
+            await fixture.store.loadEarlierComments()
+            await fixture.service.setHiddenCommentBodies(["280"])
+
+            await fixture.store.loadEarlierComments()
+
+            let page = try XCTUnwrap(fixture.store.selectedDetail)
+            let expected = (140..<500).filter { $0 != 280 }.map(String.init)
+            XCTAssertEqual(page.comments.map(\.body), expected)
+            XCTAssertEqual(Set(page.comments.map(\.id)).count, expected.count)
+            XCTAssertEqual(page.earlierCommentCursor?.id,
+                try XCTUnwrap(page.comments.first { $0.body == "259" }).id)
+            XCTAssertTrue(page.comments.contains { $0.body == "140" })
+            XCTAssertTrue(page.comments.contains { $0.body == "499" })
+            // The remaining earlier response is complete, despite omitting
+            // cached rows which became hidden outside the preceding page.
+            await fixture.service.setHiddenCommentBodies(Set((0..<250).map(String.init)).union(["280"]))
+
+            await fixture.store.loadEarlierComments()
+
+            let complete = try XCTUnwrap(fixture.store.selectedDetail)
+            let allVisible = (250..<500).filter { $0 != 280 }.map(String.init)
+            XCTAssertEqual(complete.comments.map(\.body), allVisible)
+            XCTAssertEqual(Set(complete.comments.map(\.id)).count, allVisible.count)
+            XCTAssertNil(complete.earlierCommentCursor)
+            XCTAssertNil(fixture.store.errorMessage)
+        }
+    }
+
+    private func refresh(_ fixture: Fixture, addingReply: Bool) async throws {
+        let detail = try XCTUnwrap(fixture.store.selectedDetail)
+        if addingReply {
+            let posted = await fixture.store.addComment("A new reply", to: detail)
+            XCTAssertTrue(posted)
+        } else {
+            await fixture.store.vote(.up, on: detail)
+        }
+    }
+
+    private func loadAllEarlierComments(in fixture: Fixture) async throws {
+        for _ in 0..<8 {
+            let detail = try XCTUnwrap(fixture.store.selectedDetail)
+            guard detail.earlierCommentCursor != nil else { return }
+            await fixture.store.loadEarlierComments()
+            let next = try XCTUnwrap(fixture.store.selectedDetail)
+            XCTAssertEqual(Set(next.comments.map(\.id)).count, next.comments.count)
+        }
+        XCTAssertNil(fixture.store.selectedDetail?.earlierCommentCursor, "Paging must finish within the fixture's bound")
+    }
+
     func testEarlierCommentFailureKeepsTheSameCursorForRetry() async throws {
         for style in chartStyles {
             let fixture = try makeFixture(commentCount: 161, layoutStyle: style)
@@ -200,10 +427,15 @@ final class IChartForumParticipationTests: XCTestCase {
             rankingScore: 0, publishedAt: Date(timeIntervalSinceReferenceDate: 10)
         )
         let detail = IChartForumPostDetail(song: song, post: post, comments: [], authorBadges: [], currentUserVote: nil)
-        let comments = (0..<commentCount).map { index in
-            ForumComment(id: UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", index + 1))!,
-                postID: post.id, ownerID: post.ownerID, creatorDisplayName: "Author", body: String(index),
-                createdAt: Date(timeIntervalSinceReferenceDate: Double(index / 4)))
+        let comments: [ForumComment] = (0..<commentCount).map { index -> ForumComment in
+            let idText = String(format: "00000000-0000-0000-0000-%012d", index + 1)
+            let id = UUID(uuidString: idText)!
+            let seconds = index / 4
+            let createdAt = Date(timeIntervalSinceReferenceDate: Double(seconds))
+            let timestamp = String(format: "2001-01-01T00:%02d:%02d.000000+00:00", seconds / 60, seconds % 60)
+            return ForumComment(id: id, postID: post.id, ownerID: post.ownerID,
+                creatorDisplayName: "Author", body: String(index), createdAt: createdAt,
+                paginationTimestamp: timestamp)
         }
         let service = ForumParticipationService(detail: detail, comments: comments)
         return Fixture(
@@ -230,6 +462,7 @@ private actor ForumParticipationService: IChartForumServicing {
     private var currentUserVote: ForumVoteValue?
     private let commenterID = UUID()
     private var comments: [ForumComment] = []
+    private var hiddenCommentBodies: Set<String> = []
     private var rejectsNextComment = false
     private var rejectsNextDetailLoad = false
     private var rejectsNextEarlierLoad = false
@@ -242,6 +475,19 @@ private actor ForumParticipationService: IChartForumServicing {
         self.post = detail.post
         self.currentUserVote = detail.currentUserVote
         self.comments = comments
+    }
+
+    func setHiddenCommentBodies(_ bodies: Set<String>) { hiddenCommentBodies = bodies }
+
+    func appendComments(count: Int) {
+        let firstIndex = (comments.compactMap { Int($0.body) }.max() ?? -1) + 1
+        for index in firstIndex..<(firstIndex + count) {
+            comments.append(ForumComment(
+                id: UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", index + 1))!,
+                postID: post.id, ownerID: commenterID, creatorDisplayName: "Peer", body: String(index),
+                createdAt: Date(timeIntervalSinceReferenceDate: Double(index / 4)),
+                paginationTimestamp: String(format: "2001-01-01T00:%02d:%02d.000000+00:00", index / 4 / 60, index / 4 % 60)))
+        }
     }
 
     func rejectNextComment() { rejectsNextComment = true }
@@ -285,7 +531,9 @@ private actor ForumParticipationService: IChartForumServicing {
     func loadCurrentUserBadges() async throws -> [ForumAuthorBadgeType] { [.communityExpert] }
 
     private func commentPage(before cursor: ForumCommentCursor? = nil) -> ForumCommentPage {
-        let selected = comments.filter { cursor?.includesEarlier($0) ?? true }.sorted {
+        let selected = comments.filter {
+            !hiddenCommentBodies.contains($0.body) && (cursor?.includesEarlier($0) ?? true)
+        }.sorted {
             $0.createdAt == $1.createdAt ? $0.id.uuidString > $1.id.uuidString : $0.createdAt > $1.createdAt
         }
         return ForumCommentPage(descendingComments: selected)

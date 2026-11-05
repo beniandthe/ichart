@@ -465,7 +465,10 @@ final class IChartForumStore: ObservableObject {
             let page = try await activeService.loadEarlierComments(postID: detail.post.id, before: cursor)
             guard detailSessionID == sessionID, var current = selectedDetail,
                   current.post.id == detail.post.id, current.earlierCommentCursor == cursor else { return }
-            current.comments = ForumCommentPage.merging(current.comments, with: page.comments)
+            current.comments = Self.reconciledComments(current.comments, with: page.comments,
+                before: cursor, hasEarlierComments: page.earlierCursor != nil)
+            // Keep walking server pages: overlap with one cached range does
+            // not establish that every earlier gap has been filled.
             current.earlierCommentCursor = page.earlierCursor
             selectedDetail = current
         } catch {
@@ -691,6 +694,33 @@ final class IChartForumStore: ObservableObject {
         isWorking = false
     }
 
+    private static func reconciledComments(_ cached: [ForumComment], with authoritative: [ForumComment],
+        before upperBound: ForumCommentCursor? = nil, hasEarlierComments: Bool) -> [ForumComment] {
+        // A truncated page owns [first row, upper bound); an exhausted page
+        // owns every earlier row. A latest refresh has no upper bound.
+        let lowerBound = hasEarlierComments ? authoritative.first.map(ForumCommentCursor.init) : nil
+        let outsideWindow = cached.filter { comment in
+            if let upperBound, !upperBound.includesEarlier(comment) { return true }
+            return lowerBound?.includesEarlier(comment) ?? false
+        }
+        return ForumCommentPage.merging(outsideWindow, with: authoritative)
+    }
+
+    private static func cursor(_ lhs: ForumCommentCursor, precedes rhs: ForumCommentCursor) -> Bool {
+        lhs.createdAt < rhs.createdAt || (lhs.createdAt == rhs.createdAt && lhs.id.uuidString < rhs.id.uuidString)
+    }
+
+    private static func canRetainEarlierCursor(from previous: IChartForumPostDetail,
+        below refreshedLowerBound: ForumCommentCursor) -> Bool {
+        // A fresh server cursor can expose newly visible older rows even
+        // after an exhausted cache overlaps. Keep that cursor for a bounded,
+        // user-requested rescan instead of inferring exhaustion from the cache.
+        guard let previousCursor = previous.earlierCommentCursor,
+              let last = previous.comments.last,
+              !refreshedLowerBound.includesEarlier(last) else { return false }
+        return cursor(previousCursor, precedes: refreshedLowerBound)
+    }
+
     private func refreshSelectedDetail(postID: UUID, song: ForumSong, onlyIfSelected: Bool = false,
         preservingCommentHistory: Bool = false) async throws {
         let sessionID = detailSessionID
@@ -698,8 +728,12 @@ final class IChartForumStore: ObservableObject {
             var detail = try await activeService.loadPostDetail(postID: postID, song: song)
             guard detailSessionID == sessionID, !onlyIfSelected || selectedDetail?.post.id == postID else { return }
             if preservingCommentHistory, let previous = selectedDetail, previous.post.id == postID {
-                detail.comments = ForumCommentPage.merging(previous.comments, with: detail.comments)
-                detail.earlierCommentCursor = previous.earlierCommentCursor
+                let refreshedCursor = detail.earlierCommentCursor
+                detail.comments = Self.reconciledComments(previous.comments, with: detail.comments,
+                    hasEarlierComments: refreshedCursor != nil)
+                if let refreshedCursor, Self.canRetainEarlierCursor(from: previous, below: refreshedCursor) {
+                    detail.earlierCommentCursor = previous.earlierCommentCursor
+                }
             }
             selectedDetail = detail
         } catch IChartForumServiceError.missingForumPost {
