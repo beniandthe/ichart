@@ -1,0 +1,13 @@
+# Reader-retry evidence source archive
+
+This is a source-only publication archive of the parked reader-retry evidence lane, captured from original ref `codex/ipad-reader-retry-receipt` at commit `024961cbaed3bbc427cd74092b2123b332934a89`. Files retain their original repository-relative paths and exact source bytes. See `manifest.json` for provenance and checksums.
+
+This archive is not a buildable repository, a current app candidate, or an acceptance receipt. It intentionally omits the shared application's dependencies, build project and historical device/QA data. Publishing it does not integrate, activate, install, test, or accept the lane. Full original history and recovery references remain preserved separately and are not published by this snapshot.
+
+The lane records consent-bound local evidence of two actual current-source Vision attempts: a technical failure followed by a supported recovery, followed by a matching automatic-render commit with source preservation. Proof belongs to one work/census/consent generation; cache reuse, independent candidates, stale source and later publications cannot inherit it. The included tests describe that intended contract; this publication task ran no tests and makes no new validation claim.
+
+`ICHART_READER_RETRY_QA` gates receipt disk I/O. The original project passed optional `$(ICHART_READER_RETRY_QA_CONDITIONS)` into the iChart app target's inherited compilation conditions; this archive defines neither variable and does not enable capture. When the capture flag is enabled, the original DEBUG raw-preview diagnostics are compiled out. The entire lane is not compile-inert: consent/proof tracking, render-map validation and preservation-assessment plumbing also exist outside that flag. Do not transplant the whole lane into an active app on the assumption that disabling receipt I/O disables all behavior.
+
+Seven app source files and three focused test files are included. The original `project.yml` and `iChartTests/ProjectConfigurationTests.swift` changes were historical build108→109 pins plus the optional target-only flag wiring. They are omitted; the flag mechanism is described above. These old build pins must not replace a newer candidate's build identity.
+
+No device receipts, captures, QA binaries, real case identifiers, local recovery paths or credential files are included. Source files are unredacted exact copies; this README is newly authored technical context. The manifest's original commit and ref identify provenance, not a promise of a currently published or active branch. Graph/MyScript/ML-core research and new mark-input work remain outside this archive.

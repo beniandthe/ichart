@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "archiveKind": "source-only historical publication snapshot; not buildable or accepted current app",
+  "originalRef": "codex/ipad-reader-retry-receipt",
+  "originalCommit": "024961cbaed3bbc427cd74092b2123b332934a89",
+  "originalLaneBaseCommit": "4fb03664670f90ed477fdebfc8fbf181f7b2a1a2",
+  "runtimeActivationAuthorized": false,
+  "sourceFiles": [
+    {
+      "path": "iChart/App/Telemetry/IChartTelemetryConsentStore.swift",
+      "originalGitBlob": "a2869ff172e3328145d16f6f2de8049ad09a1c60",
+      "bytes": 21652,
+      "originalSha256": "e9a09a6f70625f3a6cbae3424492466780bf469d87e66d0b0db6042f2192a27d",
+      "publishedSha256": "e9a09a6f70625f3a6cbae3424492466780bf469d87e66d0b0db6042f2192a27d",
+      "redaction": "none; byte-identical original source"
+    },
+    {
+      "path": "iChart/Features/Editor/Components/ChordInkDraftPreview.swift",
+      "originalGitBlob": "f6644a27e890aa1dcc7c7bac52cf2cfefa9cc784",
+      "bytes": 127871,
+      "originalSha256": "35d02208c81e470622f8bb2ee0274b9814af643cdf179c769c562fbabb1cdef1",
+      "publishedSha256": "35d02208c81e470622f8bb2ee0274b9814af643cdf179c769c562fbabb1cdef1",
+      "redaction": "none; byte-identical original source"
+    },
+    {
+      "path": "iChart/Features/Editor/Components/ChordInkIncrementalDraftState.swift",
+      "originalGitBlob": "28a9259522cdfb736ae08a94ad5d3a69fe378ab0",
+      "bytes": 11848,
+      "originalSha256": "9c50f7a59381eee3813399f8829d34c4a1271b5323acc30c7a0427b1a709cb55",
+      "publishedSha256": "9c50f7a59381eee3813399f8829d34c4a1271b5323acc30c7a0427b1a709cb55",
+      "redaction": "none; byte-identical original source"
+    },
+    {
+      "path": "iChart/Features/Editor/Components/ChordInkRecognitionSession.swift",
+      "originalGitBlob": "4a6dac1c6d3fa84dd63c1003e3f385084263594e",
+      "bytes": 67451,
+      "originalSha256": "fba7d98fb6db82117b6b55d6062c09fefa9b36a2b47ad50e3d3cfef23e4b75f4",
+      "publishedSha256": "fba7d98fb6db82117b6b55d6062c09fefa9b36a2b47ad50e3d3cfef23e4b75f4",
+      "redaction": "none; byte-identical original source"
+    },
+    {
+      "path": "iChart/Features/Editor/Components/LeadSheetCanvasHostView.swift",
+      "originalGitBlob": "210da587bcd2f330ea4913f3cc2b71b53ec5113b",
+      "bytes": 404179,
+      "originalSha256": "e7fb5d8ca3c79f9881394fccb19cc76a73366542fc7f30b313ae3970f5a99cec",
+      "publishedSha256": "e7fb5d8ca3c79f9881394fccb19cc76a73366542fc7f30b313ae3970f5a99cec",
+      "redaction": "none; byte-identical original source"
+    },
+    {
+      "path": "iChart/Services/ChordDraftPreviewDeviceDiagnostics.swift",
+      "originalGitBlob": "43eec65fc936a36d11f66dd45a3b28769e36afcd",
+      "bytes": 24458,
+      "originalSha256": "f787665dc3ab99a65cd6c3cbe94a077678a04d8002d71719a9f6cf65c6ed47d1",
+      "publishedSha256": "f787665dc3ab99a65cd6c3cbe94a077678a04d8002d71719a9f6cf65c6ed47d1",
+      "redaction": "none; byte-identical original source"
+    },
+    {
+      "path": "iChart/Services/ChordInkReaderRetryDiagnostics.swift",
+      "originalGitBlob": "d8f02c61d252d5ceaa404fcd746818b200403ce2",
+      "bytes": 4263,
+      "originalSha256": "296607aa23a46c91028a583703af99a14e65ee271fff846ace52dcd94f5d4804",
+      "publishedSha256": "296607aa23a46c91028a583703af99a14e65ee271fff846ace52dcd94f5d4804",
+      "redaction": "none; byte-identical original source"
+    },
+    {
+      "path": "iChartTests/Editor/ChordInkAutomaticFallbackSessionTests.swift",
+      "originalGitBlob": "e4ce3c1948a69dd18dd412a976d7ffb6ed5ea232",
+      "bytes": 50200,
+      "originalSha256": "9120f8e315355008c9273175f585f0b20ffe9a8b2cdb4154b49f808aa8d808a5",
+      "publishedSha256": "9120f8e315355008c9273175f585f0b20ffe9a8b2cdb4154b49f808aa8d808a5",
+      "redaction": "none; byte-identical original source"
+    },
+    {
+      "path": "iChartTests/Editor/ChordInkIncrementalDraftStateTests.swift",
+      "originalGitBlob": "1b5fa82eacaa99d8012f707993e3c97eacc5a127",
+      "bytes": 22416,
+      "originalSha256": "a35d3635dcada7e6c5ffbae71761938e5fc4a1e1a521d26b76b96d227644e52e",
+      "publishedSha256": "a35d3635dcada7e6c5ffbae71761938e5fc4a1e1a521d26b76b96d227644e52e",
+      "redaction": "none; byte-identical original source"
+    },
+    {
+      "path": "iChartTests/Editor/ChordInkReaderRetryDiagnosticsTests.swift",
+      "originalGitBlob": "12b263b661897ab64489ab6fe17da9930909cad0",
+      "bytes": 5096,
+      "originalSha256": "c12497130f98c2a45d75b47ab695b6856929a702b32dae31dbb41e489f2049e0",
+      "publishedSha256": "c12497130f98c2a45d75b47ab695b6856929a702b32dae31dbb41e489f2049e0",
+      "redaction": "none; byte-identical original source"
+    }
+  ],
+  "authoredContext": [
+    {
+      "path": "README.md",
+      "bytes": 2649,
+      "sha256": "5f32cb33d2940894ae16ef829f90bf2ab2b22aee338ea89417b898d6d9adf427",
+      "provenance": "New sanitized technical context; no raw device/capture data copied."
+    }
+  ],
+  "omittedChangedPaths": [
+    {
+      "path": "project.yml",
+      "reason": "Historical108\u2192109 build pin and optional app-only capture compilation condition; technical condition documented in README, not enabled."
+    },
+    {
+      "path": "iChartTests/ProjectConfigurationTests.swift",
+      "reason": "Only lane-specific change is the obsolete108\u2192109 build assertion."
+    }
+  ],
+  "privateRecovery": "Original exact history and recovery refs remain separately preserved; private filesystem/recovery paths intentionally omitted.",
+  "validation": "Source/provenance/privacy checks only. No tests, builds, device or backend calls in archive preparation.",
+  "publicationPrivacy": {
+    "sourceRedactions": 0,
+    "sourceBytesMatchOriginal": true,
+    "includedAssetTypes": [
+      "Swift source/tests",
+      "authored Markdown context",
+      "JSON provenance"
+    ],
+    "excluded": [
+      "device/QA receipts",
+      "captures and images",
+      "raw case identifiers and private filesystem paths",
+      "credentials/signing assets"
+    ],
+    "emailShapeTriage": "No hits in reader-retry. Manual-selection contains only existing public support/policy contacts/assertions and a generic example-domain form placeholder.",
+    "boundary": "Pattern/provenance check of these archive files only; source not built or activated."
+  }
+}
