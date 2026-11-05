@@ -44,6 +44,18 @@ private history or device assets. Complete original refs and local case evidence
 remain preserved privately. Historical ending QA screenshots/receipts are not
 runtime omissions and are not newly published without privacy clearance.
 
+The original uncommitted source bytes are also retained as source-only snapshots:
+
+- [Primary working source](https://github.com/beniandthe/ichart/tree/archive/2026-11-05/source-primary-working).
+- [Repeat dot-cluster working source](https://github.com/beniandthe/ichart/tree/archive/2026-11-05/source-working-repeat-dot-clusters).
+- [Earlier Build 139 working source](https://github.com/beniandthe/ichart/tree/archive/2026-11-05/source-working-repeat-writing-install-139).
+- [Earlier repeat-standard working source](https://github.com/beniandthe/ichart/tree/archive/2026-11-05/source-working-repeat-writing-standard-137).
+
+These snapshots preserve alternatives without replacing newer application files.
+They are sparse source archives, not standalone builds or release candidates.
+Two historical primary plans use explicitly sanitized public derivatives; private
+case references and local home paths remain excluded.
+
 ## Publication boundary
 
 Private detailed case history, original drawings and chart data, device backups,
@@ -57,6 +69,13 @@ from verified source snapshots without resetting or stashing those directories.
 Required hosted tests, CodeQL/dependency checks and review apply to the final
 integration commit, not the earlier `42d423f2` results. PR checks and merge records
 are authoritative for the final revision's execution results.
+
+The first complete portable run of the newly collected working code exposed an
+existing public half-diminished control read as E-sharp instead of F-sharp. The
+new E-arm rule had accepted a short diagonal stem tail. The integration tightens
+only that joined-arm orientation requirement and adds a root-level regression;
+the existing full half-diminished expectation and positive E/F controls remain
+intact. The original working-source archive retains the pre-correction bytes.
 
 Issue #96 remains an unresolved historical telemetry investigation. Issue #99
 tracks physical repeat acceptance after Beni's explicit Build 138 failure report.

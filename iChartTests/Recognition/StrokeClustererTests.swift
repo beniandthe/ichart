@@ -311,6 +311,58 @@ final class StrokeClustererTests: XCTestCase {
         XCTAssertTrue(clusters.areSortedLeftToRight)
     }
 
+    func testCloseOffsetTriangleAfterERetainsCompleteQualityAndSeven() throws {
+        let root = try templateStrokes("E", offsetX: 0)
+        let seven = testStroke([
+            (79, 5), (81, 5), (84, 5), (87, 5.2),
+            (85, 7.5), (83, 10), (81, 13), (79.5, 17)
+        ])
+        let recognizer = ChordInkMaximumTrustRecognizer()
+        for apexRatio in [0.665, 0.685] {
+            let triangle = closeOffsetTriangle(apexRatio: apexRatio)
+            for scale in [0.85, 1.0, 1.10] {
+                for reversesDirection in [false, true] {
+                    for reversesOrder in [false, true] {
+                        let input = root + triangle + [seven]
+                        let transformed = input.enumerated().map { index, stroke in
+                            let reversesTriangle = reversesDirection && (root.count..<(root.count + 2)).contains(index)
+                            return InkStroke(points: (reversesTriangle ? Array(stroke.points.reversed()) : stroke.points).map {
+                                InkPoint(x: $0.x * scale, y: $0.y * scale, timeOffset: nil)
+                            })
+                        }
+                        let strokes = reversesOrder ? Array(transformed.reversed()) : transformed
+                        let context = "apex=\(apexRatio), scale=\(scale), direction=\(reversesDirection), order=\(reversesOrder)"
+                        let clusters = clusterer.indexedClusters(strokes)
+                        XCTAssertEqual(clusters.map { $0.cluster.strokes.count }, [root.count, 2, 1], context)
+                        XCTAssertEqual(Set(clusters.flatMap(\.originalIndexes)), Set(strokes.indices), context)
+                        let expectedTriangle = Set(transformed.dropFirst(root.count).prefix(2))
+                        XCTAssertTrue(clusters.contains { Set($0.cluster.strokes) == expectedTriangle }, context)
+                        XCTAssertTrue(clusters.contains { $0.cluster.strokes == [transformed.last!] }, context)
+                        assertOriginalInkPartition(strokes, context: context)
+
+                        let result = recognizer.recognize(strokes: strokes)
+                        XCTAssertEqual(result.match?.displayText, "E△7", "\(context), raw=\(result.rawCandidates.prefix(8))")
+                        XCTAssertNil(result.match?.symbol.slashBass, context)
+                        XCTAssertFalse(result.requiresTriangleQualityReview, context)
+                    }
+                }
+            }
+        }
+    }
+
+    func testCloseOffsetTriangleRequiresNearbyApexAndFullBase() {
+        let triangle = closeOffsetTriangle(apexRatio: 0.685)
+        XCTAssertNotNil(InkSplitMajorTriangleGeometry.match(triangle[0], triangle[1]))
+
+        let shortBase = InkStroke(points: Array(triangle[1].points.dropLast(3)))
+        XCTAssertNil(InkSplitMajorTriangleGeometry.match(triangle[0], shortBase))
+        XCTAssertFalse(InkSplitMajorTriangleGeometry.isAmbiguous(triangle[0], shortBase))
+
+        let distantApex = closeOffsetTriangle(apexRatio: 0.75)
+        XCTAssertNil(InkSplitMajorTriangleGeometry.match(distantApex[0], distantApex[1]))
+        XCTAssertFalse(InkSplitMajorTriangleGeometry.isAmbiguous(distantApex[0], distantApex[1]))
+    }
+
     func testOpenTriangleAndSevenRemainSeparateForReview() throws {
         let fixture = try InkFixtureLoader.load("BFlatHalfDiminished7Captured01", file: #filePath)
         let root = Array(fixture.strokes.prefix(2))
@@ -659,6 +711,24 @@ final class StrokeClustererTests: XCTestCase {
                 InkPoint(x: x, y: y, timeOffset: nil)
             }
         )
+    }
+
+    private func closeOffsetTriangle(apexRatio: Double) -> [InkStroke] {
+        // A generic paired triangle with a nearby, slightly staggered apex.
+        // Its full base distinguishes it from two adjacent suffix letters.
+        let apexX = 15 * apexRatio
+        let left = [
+            (apexX, 3.4), (apexX - 0.5, 4.1), (8.4, 5.5), (7.0, 7.5),
+            (5.5, 9.5), (4.0, 11.5), (2.5, 13.3), (1.2, 15)
+        ]
+        let rightAndBase = [
+            (8.4, 1.5), (8.8, 0), (10, 1.5), (11.5, 3.2), (13, 5.5),
+            (14.3, 8.5), (15, 11), (14.6, 12.5), (13.5, 13.5),
+            (11.5, 14.5), (9, 15), (6, 15), (3, 14.9), (0, 14.6)
+        ]
+        return [left, rightAndBase].map { points in
+            testStroke(points.map { (55 + $0.0, 12 + $0.1) })
+        }
     }
 }
 

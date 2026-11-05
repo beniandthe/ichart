@@ -108,6 +108,13 @@ enum InkSplitMajorTriangleGeometry {
             let joinsAtBase = baseGap <= min(1.25, smallerDimension * 0.09)
             return matchesApex || joinsAtBase ? .matched(.offsetJoin) : .ambiguous
         }
+        // Nearby staggered tips and a full base support a slightly rightward
+        // left-leg apex. Keep the wider allowance out of open/short-base reads.
+        if apexGap <= min(3, smallerDimension * 0.20),
+           matchesRoles(left: first, right: second, in: bounds, apexLimit: 0.70, baseLimit: 0.20)
+            || matchesRoles(left: second, right: first, in: bounds, apexLimit: 0.70, baseLimit: 0.20) {
+            return .matched(.offsetJoin)
+        }
         return nil
     }
 

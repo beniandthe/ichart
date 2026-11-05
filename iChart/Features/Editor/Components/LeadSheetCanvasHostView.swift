@@ -179,7 +179,9 @@ enum ChordDraftBarlineDeletionPolicy {
         let current = context.remappedBarlineRecognition(safe).barlines.filter { $0.identitySignature == barline.identitySignature }
         guard current.count == 1,
               let verified = current.first,
-              verified.isRenderable,
+              // Removing an exactly re-detected unfinished repeat is a
+              // recovery action, not permission to render its structure.
+              (verified.isRenderable || (verified.kind.isRepeat && verified.ambiguity == .incompleteRepeat)),
               ChordDraftBarlinePresentationPolicy.DetectionSignature(verified) == ChordDraftBarlinePresentationPolicy.DetectionSignature(barline) else { return nil }
         return indices
     }

@@ -4546,17 +4546,28 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
 
         XCTAssertTrue(automaticRhythm.contains("pause to render"))
-        XCTAssertTrue(automaticRhythm.contains("Use Fix Writing for unclear ink."))
+        XCTAssertTrue(automaticRhythm.contains("Use Fix Writing for unclear ink or Review Ending for brackets."))
         XCTAssertTrue(automaticRhythm.contains("The first chord in each measure renders on beat 1."))
         XCTAssertTrue(manualRhythm.contains("The first chord in each measure renders on beat 1."))
         XCTAssertTrue(manualRhythm.contains("Render Chords for ready ink."))
-        XCTAssertTrue(manualRhythm.contains("Use Review & Render to check chord guesses or enter missing chords."))
+        XCTAssertTrue(manualRhythm.contains("Use Review & Render for chord corrections or ending review."))
         XCTAssertTrue(manualRhythm.contains("Keep suffixes close to their roots"))
         XCTAssertTrue(manualRhythm.contains("Unplaced ink stays on the page."))
         XCTAssertTrue(manualRhythm.contains("split at a rhythmic boundary"))
         XCTAssertTrue(manualRhythm.contains("If a note crosses the cut, the line stays as ink."))
         XCTAssertTrue(manualRhythm.contains("Use Measures for other form edits."))
         XCTAssertTrue(automaticSimpleSheet.contains("Draw tall barlines between chords"))
+        for style in ChartLayoutStyle.allCases {
+            for manualRenderWithPreview in [false, true] {
+                let instruction = EditorCanvasMode.chordEntry.activeToolInstruction(
+                    layoutStyle: style, manualRenderWithPreview: manualRenderWithPreview
+                )
+                XCTAssertTrue(instruction.contains("1–2 upright bars at least half a lane tall"))
+                XCTAssertTrue(instruction.contains("stacked dots beside the middle"))
+                XCTAssertTrue(instruction.contains("Right dots start; left dots end."))
+                XCTAssertTrue(instruction.contains("Unplaced ink stays on the page."))
+            }
+        }
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
             for manualRenderWithPreview in [false, true] {
                 let instruction = EditorCanvasMode.chordEntry.activeToolInstruction(

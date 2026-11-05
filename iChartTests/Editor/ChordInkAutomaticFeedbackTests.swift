@@ -45,6 +45,40 @@ final class ChordInkAutomaticFeedbackTests: XCTestCase {
         }
     }
 
+    func testIncompleteRepeatOffersStructuralHelpAndStaysInkAfterAutomaticGrace() throws {
+        let chart = makeChart()
+        let sourceLayout = layout(chart)
+        let frame = LeadSheetActiveInkScope.chordWritingFrame(for: sourceLayout)
+        let drawing = PKDrawing(strokes: [stroke(106, width: 1, top: 20, bottom: 80, seed: 7)])
+        var sign = DraftBarline(measureID: chart.measures[0].id, measureIndex: chart.measures[0].index,
+            fraction: 0.5, layoutPageSize: pageSize, sourceStrokeIndex: 0,
+            metrics: .init(height: 60, width: 1, angleDegreesFromVertical: 0, straightness: 1, laneCoverage: 0.6),
+            ambiguity: .incompleteRepeat, kind: .repeatEnd, sourceStrokeIndices: [0],
+            sourceStrokeGeometry: PencilKitInkAdapter.inkStrokes(from: drawing))
+        for kind in [DraftBarlineKind.repeatStart, .repeatEnd, .repeatBoth] {
+            sign.kind = kind
+            let state = ChordPreviewState(draftBarlines: [sign], layoutPageSize: pageSize)
+            let original = drawing.dataRepresentation()
+            let feedback = ChordInkAutomaticRenderFeedback.baseline(for: state)
+            XCTAssertEqual(feedback.globalReason, .repeatReview)
+            let result = ChordInkDraftRenderCoordinator.prepareAutomaticAttempt(chart: chart, state: state,
+                currentDrawing: drawing, coordinateSpace: .init(size: frame.size), now: now,
+                lastInputAt: now.addingTimeInterval(-4), isUsingTool: false,
+                sourcePageLayout: sourceLayout, sourceChordFrame: frame)
+            XCTAssertNil(result.outcome)
+            XCTAssertEqual(result.feedback.globalReason, .repeatReview)
+            let presentation = try XCTUnwrap(ChordInkAutomaticFeedbackPresentationPolicy.globalStatus(
+                activity: activity(chart, phase: .settled, age: 4), feedback: result.feedback,
+                hasSourceInk: true, now: now, requiredIdleDelay: ChordInkAutomaticRenderPolicy.structuralIdleDelay))
+            XCTAssertEqual(presentation.title, "Repeat needs attention")
+            XCTAssertTrue(presentation.canReview)
+            XCTAssertTrue(presentation.detail.contains("Fix Writing"))
+            XCTAssertFalse(presentation.detail.contains("chord"))
+            XCTAssertNil(completion(chart, feedback: result.feedback, strokeCount: drawing.strokes.count))
+            XCTAssertEqual(drawing.dataRepresentation(), original)
+        }
+    }
+
     func testCompletedNoReadOffersFixActionAndDoesNotRemainReading() throws {
         let chart = makeChart()
         let draft = makeDraft(chart, text: nil, trusted: false)

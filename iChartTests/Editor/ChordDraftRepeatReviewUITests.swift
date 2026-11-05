@@ -100,6 +100,29 @@ final class ChordDraftRepeatReviewUITests: XCTestCase {
         XCTAssertTrue(ChordInkRepeatSignPairingPolicy.review(state: paired).canRender)
     }
 
+    @MainActor
+    func testIncompleteRepeatExplainsItsDotsBeforePairingAndCannotConfirmOrRender() throws {
+        let chart = chartWithInk()
+        for kind in [DraftBarlineKind.repeatStart, .repeatEnd, .repeatBoth] {
+            var unfinished = sign(in: chart, kind: kind)
+            unfinished.ambiguity = .incompleteRepeat
+            let state = preview([unfinished])
+            let original = state
+
+            let message = try XCTUnwrap(ChordDraftRepeatReviewPolicy.blockingMessage(for: state))
+            XCTAssertTrue(message.contains("two dots beside the bar"))
+            XCTAssertTrue(message.contains("Dots on the right start a repeat"))
+            XCTAssertTrue(message.contains("dots on the left end it"))
+            XCTAssertTrue(message.contains("ink is still on the page"))
+            XCTAssertFalse(message.contains("needs an end repeat"), "Finish this sign before reviewing the repeat range")
+            XCTAssertFalse(unfinished.isRenderable)
+            XCTAssertEqual(state.unresolvedBarlineCount, 1)
+            XCTAssertTrue(ChordInkDraftRenderCoordinator.independentlyRenderableStructuralIDs(in: state).isEmpty)
+            XCTAssertNil(ChordDraftRepeatReviewPolicy.confirmation(for: chart, state: state))
+            XCTAssertEqual(state, original)
+        }
+    }
+
     func testDetectionPublicationIncludesKindGroupingAndGeometryButIgnoresReviewOnlyChanges() {
         let chart = chartWithInk()
         let original = sign(in: chart)

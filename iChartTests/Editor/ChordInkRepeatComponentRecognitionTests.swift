@@ -55,13 +55,19 @@ final class ChordInkRepeatComponentRecognitionTests: XCTestCase {
             chordFrame: ordinary.frame, pageLayout: ordinary.layout))
     }
 
-    func testOtherChartStylesKeepTheirExistingRepeatCoverageGate() throws {
+    func testOtherChartStylesUseTheCommonHalfLaneRepeatCoverageGate() throws {
         for style in [ChartLayoutStyle.rhythmSectionSheet, .leadSheet] {
             for coverage in [0.50, 0.55, 0.60] {
                 let fixture = try makeFixture(style: style, coverage: coverage)
-                let result = recognize(PKDrawing(strokes: fixture.sign(kind: .repeatEnd, bars: 1)), fixture: fixture)
-                XCTAssertTrue(result.barlines.isEmpty, "\(style.rawValue), \(coverage)")
-                XCTAssertTrue(result.strokeIndices.isEmpty)
+                let drawing = PKDrawing(strokes: fixture.sign(kind: .repeatEnd, bars: 1))
+                let result = recognize(drawing, fixture: fixture)
+                let note = "\(style.rawValue), \(coverage)"
+                XCTAssertEqual(result.barlines.map(\.kind), [.repeatEnd], note)
+                XCTAssertTrue(result.barlines.allSatisfy(\.isRenderable), note)
+                XCTAssertEqual(result.strokeIndices, Set(drawing.strokes.indices), note)
+                let prepared = prepare(drawing, fixture: fixture)
+                XCTAssertEqual(prepared.barlines.map(\.kind), [.repeatEnd], note)
+                XCTAssertEqual(prepared.recognitionStrokeCount, 0, note)
             }
             let fixture = try makeFixture(style: style, coverage: 0.80)
             let drawing = PKDrawing(strokes: fixture.sign(kind: .repeatEnd, bars: 1))
@@ -71,23 +77,38 @@ final class ChordInkRepeatComponentRecognitionTests: XCTestCase {
         }
     }
 
-    func testShortRepeatStillRequiresTwoAlignedCenteredDotsOnEachPopulatedSide() throws {
+    func testShortRepeatReservesIncompleteDotGroupsWithoutGrantingRenderability() throws {
         let f = try makeFixture(coverage: 0.55)
         for kind in [DraftBarlineKind.repeatStart, .repeatEnd] {
             let source = f.sign(kind: kind, bars: 1)
-            let dotX = f.x + (kind == .repeatStart ? f.height * 0.20 : -f.height * 0.20)
+            let side: CGFloat = kind == .repeatStart ? 1 : -1
+            let dotX = f.x + side * f.height * 0.20
             let invalid: [[PKStroke]] = [
                 Array(source.dropLast()),
                 source + [Self.stroke([CGPoint(x: dotX, y: f.y)])],
-                [source[0], source[1], Self.stroke([CGPoint(x: dotX + f.height * 0.20, y: f.y + f.height * 0.18)])],
+                [source[0], source[1], Self.stroke([CGPoint(x: dotX + side * f.height * 0.20, y: f.y + f.height * 0.18)])],
                 [source[0], Self.stroke([CGPoint(x: dotX, y: f.y - f.height * 0.40)]),
                  Self.stroke([CGPoint(x: dotX, y: f.y - f.height * 0.20)])]
             ]
             for strokes in invalid {
-                let result = recognize(PKDrawing(strokes: strokes), fixture: f)
-                XCTAssertTrue(result.barlines.isEmpty)
-                XCTAssertTrue(result.strokeIndices.isEmpty)
+                let drawing = PKDrawing(strokes: strokes)
+                let result = recognize(drawing, fixture: f)
+                XCTAssertEqual(result.barlines.map(\.kind), [kind])
+                XCTAssertEqual(result.barlines.map(\.ambiguity), [.incompleteRepeat])
+                XCTAssertTrue(result.barlines.allSatisfy { !$0.isRenderable })
+                XCTAssertEqual(result.strokeIndices, Set(strokes.indices))
+                XCTAssertEqual(result.barlines.first?.sourceStrokeGeometry,
+                    PencilKitInkAdapter.inkStrokes(from: drawing))
+                let prepared = prepare(drawing, fixture: f)
+                XCTAssertEqual(prepared.barlines.map(\.ambiguity), [.incompleteRepeat])
+                XCTAssertEqual(prepared.recognitionStrokeCount, 0,
+                    "Unfinished repeat bars and dots must stay out of chord recognition")
             }
+            let crossingDot = PKDrawing(strokes: [source[0], source[1],
+                Self.stroke([CGPoint(x: f.x, y: f.y + f.height * 0.18)])])
+            let crossing = recognize(crossingDot, fixture: f)
+            XCTAssertTrue(crossing.barlines.isEmpty, "Punctuation on the bar must not establish safely owned repeat intent")
+            XCTAssertTrue(crossing.strokeIndices.isEmpty)
         }
     }
 
@@ -130,14 +151,30 @@ final class ChordInkRepeatComponentRecognitionTests: XCTestCase {
         XCTAssertEqual(requests.flatMap(\.strokes), [try XCTUnwrap(allInk.last)])
     }
 
-    func testCompletedRepeatTakesOverPrefixSourceBeforeChordTargetingWithoutChangingIdlePolicy() throws {
+    func testRepeatReservesPrefixFromFirstDotThroughCompletionWithoutChangingIdlePolicy() throws {
         let f = try makeFixture(coverage: 0.55)
         let complete = f.sign(kind: .repeatStart, bars: 1)
         for length in [1, 2] {
             let prefix = PKDrawing(strokes: Array(complete.prefix(length)))
             let result = recognize(prefix, fixture: f)
-            XCTAssertTrue(result.barlines.isEmpty)
-            XCTAssertTrue(result.strokeIndices.isEmpty, "An incomplete repeat must not claim its provisional bar")
+            if length == 1 {
+                XCTAssertTrue(result.barlines.isEmpty)
+                XCTAssertTrue(result.strokeIndices.isEmpty, "A bar alone does not establish repeat intent")
+            } else {
+                XCTAssertEqual(result.barlines.map(\.kind), [.repeatStart])
+                XCTAssertEqual(result.barlines.map(\.ambiguity), [.incompleteRepeat])
+                XCTAssertTrue(result.barlines.allSatisfy { !$0.isRenderable })
+                XCTAssertEqual(result.strokeIndices, Set(prefix.strokes.indices))
+                let prepared = prepare(prefix, fixture: f)
+                XCTAssertEqual(prepared.barlines.map(\.ambiguity), [.incompleteRepeat])
+                XCTAssertEqual(prepared.visibleStrokeCount, length,
+                    "The first repeat dot must remain owned and visible during completion")
+                XCTAssertEqual(prepared.recognitionStrokeCount, 0)
+                let state = ChordPreviewState(draftBarlines: prepared.barlines)
+                XCTAssertEqual(ChordInkAutomaticRenderPolicy.requiredIdleDelay(for: state),
+                    ChordInkAutomaticRenderPolicy.structuralIdleDelay)
+                XCTAssertNotNil(ChordDraftRepeatReviewPolicy.blockingMessage(for: state))
+            }
         }
         let drawing = PKDrawing(strokes: complete)
         let prepared = prepare(drawing, fixture: f)

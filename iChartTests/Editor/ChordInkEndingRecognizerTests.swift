@@ -188,11 +188,34 @@ final class ChordInkEndingRecognizerTests: XCTestCase {
 
     func testIncompleteRepeatDotNearABoundaryIsNotConsumedAsALabelPeriod() throws {
         let fixture = try Fixture()
+        let bracket = fixture.bracket()
         let bar = fixture.stroke([fixture.point(0.72, 0.07), fixture.point(0.72, 0.93)])
         let dot = fixture.stroke([CGPoint(x: fixture.point(0.72, 0).x - fixture.lane.height * 0.12,
             y: fixture.point(0, 0.38).y)])
-        let source = fixture.bracket() + [bar, dot]
-        XCTAssertTrue(fixture.recognize(source).endings.isEmpty)
+        let source = bracket + [bar, dot]
+        let endings = fixture.recognize(source)
+        let ending = try XCTUnwrap(endings.endings.first)
+        XCTAssertEqual(endings.endings.count, 1)
+        XCTAssertEqual(ending.sourceStrokeIndices, Set(bracket.indices))
+        XCTAssertEqual(ending.sourceStrokeGeometry, bracket)
+        XCTAssertTrue(ending.label.isEmpty, "The lone repeat dot must not become a label period")
+        XCTAssertFalse(ending.isRenderable)
+
+        let barlines = ChordDraftEndingRecognizer.recognizeBarlinesExcludingEndings(
+            strokes: source, chordFrame: fixture.chordFrame, pageLayout: fixture.layout)
+        let unfinished = try XCTUnwrap(barlines.barlines.first)
+        XCTAssertEqual(barlines.barlines.count, 1)
+        XCTAssertEqual(unfinished.kind, .repeatEnd)
+        XCTAssertEqual(unfinished.ambiguity, .incompleteRepeat)
+        XCTAssertFalse(unfinished.isRenderable)
+        XCTAssertEqual(unfinished.ownedSourceStrokeIndices, Set(bracket.count..<source.count))
+        XCTAssertEqual(unfinished.sourceStrokeGeometry, [bar, dot])
+        XCTAssertEqual(barlines.strokeIndices, unfinished.ownedSourceStrokeIndices)
+        XCTAssertTrue(ending.sourceStrokeIndices.isDisjoint(with: unfinished.ownedSourceStrokeIndices))
+        let state = ChordPreviewState(draftBarlines: barlines.barlines, draftEndings: endings.endings,
+            layoutPageSize: fixture.layout.pageBounds.size)
+        XCTAssertTrue(ChordDraftRepeatReviewPolicy.hasIncompleteRepeat(in: state))
+        XCTAssertNotNil(ChordDraftRepeatReviewPolicy.blockingMessage(for: state))
     }
 
     func testShortVerticalEndingNumeralNearBoundaryIsNotARepeatDot() throws {

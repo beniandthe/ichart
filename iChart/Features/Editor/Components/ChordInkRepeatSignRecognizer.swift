@@ -6,6 +6,39 @@ import Foundation
 /// original input indices before ordinary barline deduplication or chord targeting.
 /// These thresholds are conservative shape gates, not recognition confidence.
 enum ChordDraftRepeatSignRecognizer {
+    /// One scale-relative drawing contract for every chart layout. These are
+    /// admission limits for a complete bar-and-dot construction, not plain
+    /// barline or chord thresholds. H is the full bar-group height.
+    enum DrawingStandard {
+        static let minimumLaneCoverage = 0.50
+        static let maximumHeightToLaneRatio = 1.35
+        static let maximumAngleDegreesFromVertical = 24.0
+        static let minimumStraightness = 0.70
+        static let maximumBarWidthRatio = 0.35
+        static let maximumBarSeparationRatio = 0.35
+        static let maximumIntentBarSeparationRatio = 0.50
+        static let minimumBarHeightRatio = 0.65
+        static let minimumBarOverlapRatio = 0.60
+        static let maximumBarCenterDifferenceRatio = 0.22
+        static let dotVerticalRange = 0.10...0.90
+        static let maximumDotDistanceRatio = 0.45
+        static let maximumDotSpanRatio = 0.20
+        static let maximumDotComponentGapRatio = 0.02
+        static let maximumDotComponentCount = 128
+        static let maximumDotAlignmentDifferenceRatio = 0.18
+        static let dotSeparationRange = 0.12...0.62
+        static let maximumDotPairCenterDifferenceRatio = 0.22
+        static let neighboringBodyClearanceRatio = 0.12
+        // Coordinate transforms can put an inclusive boundary a few floating
+        // point ulps outside its limit. This is numerical tolerance only.
+        static let numericalTolerance = 1e-8
+
+        static func contains(_ value: Double, in range: ClosedRange<Double>) -> Bool {
+            value >= range.lowerBound - numericalTolerance
+                && value <= range.upperBound + numericalTolerance
+        }
+    }
+
     private struct Bar {
         let index: Int
         let stroke: InkStroke
@@ -16,7 +49,7 @@ enum ChordDraftRepeatSignRecognizer {
     }
 
     private struct Dot {
-        let index: Int
+        let indices: Set<Int>
         let bounds: InkBounds
         var centerX: Double { (bounds.minX + bounds.maxX) / 2 }
         var centerY: Double { (bounds.minY + bounds.maxY) / 2 }
@@ -68,10 +101,10 @@ enum ChordDraftRepeatSignRecognizer {
                     let next = remaining[index]
                     if group.contains(where: { bar in
                         guard bar.draft.laneLocation?.systemIndex == next.draft.laneLocation?.systemIndex else { return false }
-                        let height = max(bar.stroke.bounds.height, next.stroke.bounds.height)
+                        let height = bar.stroke.bounds.union(next.stroke.bounds).height
                         let overlap = min(bar.stroke.bounds.maxY, next.stroke.bounds.maxY)
                             - max(bar.stroke.bounds.minY, next.stroke.bounds.minY)
-                        return abs(bar.centerX - next.centerX) <= max(8, height * 0.22)
+                        return abs(bar.centerX - next.centerX) <= max(8, height * DrawingStandard.maximumIntentBarSeparationRatio)
                             && overlap >= min(bar.stroke.bounds.height, next.stroke.bounds.height) * 0.65
                     }) {
                         group.append(remaining.remove(at: index))
@@ -94,41 +127,53 @@ enum ChordDraftRepeatSignRecognizer {
         let bounds = InkBounds.enclosing(group.map { $0.stroke.bounds })
         let height = bounds.height
         guard height > 0 else { return nil }
+        let tolerance = height * DrawingStandard.numericalTolerance
+        var barsAreComplete = true
         if group.count == 2 {
             let first = group[0], second = group[1]
             let overlap = min(first.stroke.bounds.maxY, second.stroke.bounds.maxY)
                 - max(first.stroke.bounds.minY, second.stroke.bounds.minY)
             let separation = second.centerX - first.centerX
-            guard separation >= max(1.5, height * 0.02),
-                  separation <= height * 0.22,
-                  min(first.stroke.bounds.height, second.stroke.bounds.height) >= height * 0.70,
-                  overlap >= height * 0.70,
-                  abs(first.centerY - second.centerY) <= height * 0.15 else { return nil }
+            barsAreComplete = separation >= max(1.5, height * 0.02) - tolerance
+                && separation <= height * DrawingStandard.maximumBarSeparationRatio + tolerance
+                && min(first.stroke.bounds.height, second.stroke.bounds.height) >= height * DrawingStandard.minimumBarHeightRatio - tolerance
+                && overlap >= height * DrawingStandard.minimumBarOverlapRatio - tolerance
+                && abs(first.centerY - second.centerY) <= height * DrawingStandard.maximumBarCenterDifferenceRatio + tolerance
         }
 
         let barIndices = Set(group.map(\.index))
-        let dots = strokes.enumerated().compactMap { index, stroke -> Dot? in
-            guard !barIndices.contains(index), isCompactDot(stroke, barHeight: height) else { return nil }
-            let dot = Dot(index: index, bounds: stroke.bounds)
+        let dotComponents = strokes.enumerated().compactMap { index, stroke -> Dot? in
+            guard !barIndices.contains(index), isDotComponent(stroke, barHeight: height) else { return nil }
+            let dot = Dot(indices: [index], bounds: stroke.bounds)
             let relativeY = (dot.centerY - bounds.minY) / height
-            guard relativeY >= 0.18, relativeY <= 0.82 else { return nil }
+            guard DrawingStandard.contains(relativeY, in: DrawingStandard.dotVerticalRange) else { return nil }
             return dot
         }
-        let maximumDotDistance = max(10, height * 0.32)
+        let maximumDotDistance = max(10, height * DrawingStandard.maximumDotDistanceRatio)
         let minimumClearance = max(1, height * 0.015)
-        let left = dots.filter {
+        let leftComponents = dotComponents.filter {
             $0.bounds.maxX <= bounds.minX - minimumClearance
                 && bounds.minX - $0.centerX <= maximumDotDistance
         }
-        let right = dots.filter {
+        let rightComponents = dotComponents.filter {
             $0.bounds.minX >= bounds.maxX + minimumClearance
                 && $0.centerX - bounds.maxX <= maximumDotDistance
         }
-        // Incomplete or crowded punctuation on either side remains unclaimed.
-        guard (left.isEmpty || isDotPair(left, barBounds: bounds)),
-              (right.isEmpty || isDotPair(right, barBounds: bounds)),
-              !left.isEmpty || !right.isEmpty else { return nil }
-        let members = barIndices.union(left.map(\.index)).union(right.map(\.index))
+        // Count visible dot regions, not Pencil pen-downs. A filled or
+        // retraced dot can contain several overlapping compact strokes while
+        // retaining exact ownership of every original source stroke.
+        guard leftComponents.count + rightComponents.count <= DrawingStandard.maximumDotComponentCount,
+              let left = logicalDots(from: leftComponents, barHeight: height),
+              let right = logicalDots(from: rightComponents, barHeight: height) else { return nil }
+        // Strong, isolated repeat intent stays structural even while one dot
+        // is missing or a pair needs rewriting. It must not fall through to
+        // chord recognition as B/bb or surrender its bars to plain splitting.
+        // Extra text and large/crossing marks still fail the interference gate.
+        guard !left.isEmpty || !right.isEmpty,
+              left.count <= 3, right.count <= 3 else { return nil }
+        let isComplete = barsAreComplete && (left.isEmpty || isDotPair(left, barBounds: bounds))
+            && (right.isEmpty || isDotPair(right, barBounds: bounds))
+        let members = (left + right).reduce(into: barIndices) { $0.formUnion($1.indices) }
         let signBounds = InkBounds.enclosing(members.map { strokes[$0].bounds })
         guard !hasInterferingInk(strokes, members: members, barBounds: bounds, signBounds: signBounds) else { return nil }
 
@@ -143,6 +188,7 @@ enum ChordDraftRepeatSignRecognizer {
             for: centerLine, chordFrame: chordFrame, pageLayout: pageLayout
         ) else { return nil }
         draft.kind = left.isEmpty ? .repeatStart : (right.isEmpty ? .repeatEnd : .repeatBoth)
+        if !isComplete { draft.ambiguity = .incompleteRepeat }
         draft.metrics.width = bounds.width
         draft.sourceStrokeIndex = anchor.index
         draft.sourceStrokeIndices = members
@@ -158,20 +204,65 @@ enum ChordDraftRepeatSignRecognizer {
         let height = barBounds.height
         let separation = lower.centerY - upper.centerY
         let centerY = (upper.centerY + lower.centerY) / 2
-        return abs(upper.centerX - lower.centerX) <= max(2.5, height * 0.07)
-            && separation >= height * 0.15 && separation <= height * 0.52
-            && abs(centerY - (barBounds.minY + barBounds.maxY) / 2) <= height * 0.12
+        let tolerance = height * DrawingStandard.numericalTolerance
+        return abs(upper.centerX - lower.centerX) <= max(2.5, height * DrawingStandard.maximumDotAlignmentDifferenceRatio) + tolerance
+            && DrawingStandard.contains(separation / height, in: DrawingStandard.dotSeparationRange)
+            && abs(centerY - (barBounds.minY + barBounds.maxY) / 2) <= height * DrawingStandard.maximumDotPairCenterDifferenceRatio + tolerance
     }
 
-    private static func isCompactDot(_ stroke: InkStroke, barHeight: Double) -> Bool {
+    private static func isDotComponent(_ stroke: InkStroke, barHeight: Double) -> Bool {
         guard hasFiniteGeometry(stroke) else { return false }
-        let span = max(stroke.bounds.width, stroke.bounds.height)
-        guard span <= max(2, barHeight * 0.16),
-              pathLength(of: stroke) <= max(4, barHeight * 0.55) else { return false }
+        // Filling a dot can use narrow crossing strokes. Judge their combined
+        // region's compactness after clustering rather than rejecting each
+        // pen-down's aspect ratio before it can join that region.
+        return max(stroke.bounds.width, stroke.bounds.height)
+            <= max(2, barHeight * DrawingStandard.maximumDotSpanRatio)
+    }
+
+    private static func isCompactDot(_ bounds: InkBounds, barHeight: Double) -> Bool {
+        let span = max(bounds.width, bounds.height)
+        guard span <= max(2, barHeight * DrawingStandard.maximumDotSpanRatio) else { return false }
         // Stationary PencilKit taps have nonempty point paths but zero bounds.
         // Larger short lines/slashes must not be mistaken for repeat dots.
         return span <= max(2, barHeight * 0.05)
-            || min(stroke.bounds.width, stroke.bounds.height) / max(0.001, span) >= 0.35
+            || min(bounds.width, bounds.height) / max(0.001, span) >= 0.30
+    }
+
+    private static func logicalDots(from components: [Dot], barHeight: Double) -> [Dot]? {
+        guard components.count <= DrawingStandard.maximumDotComponentCount else { return nil }
+        let gap = barHeight * DrawingStandard.maximumDotComponentGapRatio
+        let tolerance = barHeight * DrawingStandard.numericalTolerance
+        var visited = Array(repeating: false, count: components.count)
+        var dots = [Dot]()
+        for start in components.indices where !visited[start] {
+            visited[start] = true
+            var pending = [start]
+            var indices = Set<Int>()
+            var bounds = components[start].bounds
+            while let current = pending.popLast() {
+                indices.formUnion(components[current].indices)
+                bounds = bounds.union(components[current].bounds)
+                for neighbor in components.indices where !visited[neighbor] {
+                    let first = components[current].bounds
+                    let second = components[neighbor].bounds
+                    let dx = max(0, max(first.minX - second.maxX, second.minX - first.maxX))
+                    let dy = max(0, max(first.minY - second.maxY, second.minY - first.maxY))
+                    if hypot(dx, dy) <= gap + tolerance {
+                        visited[neighbor] = true
+                        pending.append(neighbor)
+                    }
+                }
+            }
+            // Test the entire connected component, never an input-order-
+            // dependent subset. A chain extending beyond a compact dot must
+            // not be split into convenient claims that could consume text.
+            guard isCompactDot(bounds, barHeight: barHeight) else { return nil }
+            dots.append(Dot(indices: indices, bounds: bounds))
+        }
+        return dots.sorted {
+            if $0.centerY != $1.centerY { return $0.centerY < $1.centerY }
+            return $0.centerX < $1.centerX
+        }
     }
 
     private static func hasInterferingInk(
@@ -189,8 +280,11 @@ enum ChordDraftRepeatSignRecognizer {
             let crossesBarNeighborhood = other.maxX >= barBounds.minX - height * 0.08
                 && other.minX <= barBounds.maxX + height * 0.08
             if crossesBarNeighborhood { return true }
-            let reachesSign = other.maxX >= signBounds.minX - height * 0.22
-                && other.minX <= signBounds.maxX + height * 0.22
+            // A detached seventh can sit close to a complete repeat without
+            // belonging to it. Keep a clear margin around the actual sign,
+            // separately from the stronger connected-stem veto above.
+            let reachesSign = other.maxX >= signBounds.minX - height * DrawingStandard.neighboringBodyClearanceRatio
+                && other.minX <= signBounds.maxX + height * DrawingStandard.neighboringBodyClearanceRatio
             let comparableBody = max(other.width, other.height) >= height * 0.22
             if reachesSign && comparableBody { return true }
         }
@@ -202,12 +296,6 @@ enum ChordDraftRepeatSignRecognizer {
             && stroke.points.allSatisfy { $0.x.isFinite && $0.y.isFinite }
             && [stroke.bounds.minX, stroke.bounds.minY, stroke.bounds.maxX, stroke.bounds.maxY].allSatisfy(\.isFinite)
             && stroke.bounds.maxX >= stroke.bounds.minX && stroke.bounds.maxY >= stroke.bounds.minY
-    }
-
-    private static func pathLength(of stroke: InkStroke) -> Double {
-        zip(stroke.points, stroke.points.dropFirst()).reduce(0) { length, pair in
-            length + hypot(pair.1.x - pair.0.x, pair.1.y - pair.0.y)
-        }
     }
 }
 #endif

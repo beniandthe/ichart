@@ -170,10 +170,11 @@ enum EditorCanvasMode: Hashable {
             case .leadSheet:
                 "Write chords, repeat signs, and ending brackets in the blue lanes."
             }
+            let repeats = "Repeats: use 1–2 upright bars at least half a lane tall, with stacked dots beside the middle. Right dots start; left dots end."
             let rendering = manualRenderWithPreview
-                ? "Keep suffixes close to their roots. Tap Render Chords for ready ink. Use Review & Render to check chord guesses or enter missing chords. Unplaced ink stays on the page."
-                : "Leave space between chords and pause to render. Unplaced ink stays on the page. Use Fix Writing for unclear ink."
-            return writing + " " + rendering
+                ? "Keep suffixes close to their roots. Tap Render Chords for ready ink. Use Review & Render for chord corrections or ending review. Unplaced ink stays on the page."
+                : "Leave space between chords and pause to render. Use Fix Writing for unclear ink or Review Ending for brackets. Unplaced ink stays on the page."
+            return writing + " " + repeats + " " + rendering
         case .noteEdit:
             return "Tap a rendered rhythm note to see its editing actions."
         case .freeHand:

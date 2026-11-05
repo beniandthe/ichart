@@ -1255,7 +1255,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("Use Measures for other form edits."))
         XCTAssertTrue(libraryText.contains("Draw the line near an existing note onset when splitting a measure that already has rhythms."))
         XCTAssertTrue(libraryText.contains("Both new measures use the current meter. Written notes keep their lengths, and rests fill the unused beats."))
-        XCTAssertTrue(libraryText.contains("Draw repeat bars with two dots on the right to start a repeat"))
+        XCTAssertTrue(libraryText.contains("Dots on the right start a repeat. Dots on the left end a repeat."))
+        XCTAssertTrue(libraryText.contains("Writing Repeat Signs"))
+        XCTAssertTrue(libraryText.contains("To retry saved repeat ink in Automatic, open the chart, tap Write & Render, and pause."))
+        XCTAssertTrue(libraryText.contains("You do not need to add a stroke."))
+        XCTAssertTrue(libraryText.contains("If Fix Writing is already showing, tap Select, then Write & Render to check that ink again."))
+        XCTAssertTrue(libraryText.contains("Writing Ending Brackets"))
         XCTAssertTrue(libraryText.contains("A complete end repeat with no earlier start repeats from the beginning of the chart."))
         XCTAssertTrue(libraryText.contains("Nested or conflicting starts stay as draft ink until corrected."))
         XCTAssertTrue(libraryText.contains("When Review Chords opens, check each Recognition guess."))
@@ -1783,7 +1788,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(projectText.contains("product: Supabase"))
         XCTAssertTrue(projectText.contains("path: iChart/App/Info.plist"))
         XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.2.4\""))
-        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"138\""))
+        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"140\""))
         // The requested build identity is pinned above. Also validate the
         // strictly positive numeric format required by the bundle contract.
         XCTAssertNotNil(projectText.range(
