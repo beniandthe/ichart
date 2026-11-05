@@ -15,7 +15,14 @@ struct PendingChordDraftRepeatConfirmation: Identifiable {
 /// A confirmation belongs to the exact reviewed draft and source snapshot.
 /// The live canvas still validates its current drawing before any source ink is consumed.
 enum ChordDraftRepeatReviewPolicy {
+    static func hasIncompleteRepeat(in state: ChordPreviewState) -> Bool {
+        state.draftBarlines.contains { $0.ambiguity == .incompleteRepeat }
+    }
+
     static func blockingMessage(for state: ChordPreviewState) -> String? {
+        if hasIncompleteRepeat(in: state) {
+            return "Check the repeat sign: use one or two close upright bars at least half a lane tall, with two dots beside the bar near its middle. Keep the dots stacked and separate from the bars. Dots on the right start a repeat; dots on the left end it. Erase extra dots or redraw the sign if needed. Your ink is still on the page."
+        }
         let review = ChordInkRepeatSignPairingPolicy.review(state: state)
         if !review.nestedStartIDs.isEmpty {
             return "These repeat signs contain a start repeat before the previous repeat has ended. Add or correct the end repeat, then render again. Nothing was rendered or erased."

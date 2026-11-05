@@ -691,6 +691,108 @@ final class GestureTemplateRecognizerTests: XCTestCase {
         XCTAssertEqual(result.match?.displayText, "E")
     }
 
+    func testRootEShortJoinedLowerArmTakesPrecedenceOverF() {
+        // Procedural roots only: the lower arm is 4-10 points on a
+        // 48-point stem, independently of the much wider top bar.
+        for armLength in [4.0, 6.0, 10.0] {
+            for topWidth in [32.0, 44.0] {
+                assertEFRoot("E", paths: [
+                    [(10, 12), (10, 60), (10 + armLength, 60)],
+                    [(10, 12), (10 + topWidth, 12)],
+                    [(10, 35), (34, 35)]
+                ], context: "joined arm=\(armLength), top width=\(topWidth)")
+            }
+        }
+    }
+
+    func testRootEShortCurvedLowerArmTakesPrecedenceOverF() {
+        for armLength in [6.0, 10.0] {
+            for middleY in [35.0, 48.0] {
+                assertEFRoot("E", paths: [
+                    [(10, 12), (8, 27), (6, 45), (6, 53),
+                     (7, 57), (9, 59), (6 + armLength, 60)],
+                    [(10, 12), (42, 12)],
+                    [(8, middleY), (32, middleY)]
+                ], context: "curved arm=\(armLength), middle y=\(middleY)")
+            }
+        }
+    }
+
+    func testRootEShortSeparateLowerArmTakesPrecedenceOverF() {
+        for armLength in [4.0, 6.0, 10.0] {
+            assertEFRoot("E", paths: [
+                [(10, 12), (10, 60)],
+                [(10, 12), (42, 12)],
+                [(10, 35), (34, 35)],
+                [(10, 60), (10 + armLength, 60)]
+            ], context: "separate arm=\(armLength)")
+        }
+    }
+
+    func testRootETwoStrokeFrameWithShortLowerArmTakesPrecedenceOverF() {
+        for armLength in [4.0, 6.0, 10.0] {
+            for middleY in [35.0, 48.0] {
+                assertEFRoot("E", paths: [
+                    [(42, 12), (10, 12), (10, 60), (10 + armLength, 60)],
+                    [(10, middleY), (34, middleY)]
+                ], context: "joined top/stem/foot arm=\(armLength), middle y=\(middleY)")
+            }
+        }
+    }
+
+    func testRootFStraightLeaningAndTinyHookStemsDoNotSupplyELowerArm() {
+        let stems: [[(Double, Double)]] = [
+            [(10, 12), (10, 60)],
+            [(10, 12), (21, 36), (32, 60)],
+            [(10, 12), (10, 58), (10.5, 59.5), (11, 60)],
+            [(10, 12), (10, 58), (10.5, 59.5), (12, 60)]
+        ]
+        for (index, stem) in stems.enumerated() {
+            for middleY in index == 1 ? [35.0] : [35.0, 48.0] {
+                let middleStartX = index == 1 ? 21.0 : 10.0
+                assertEFRoot("F", paths: [
+                    stem,
+                    [(10, 12), (42, 12)],
+                    [(middleStartX, middleY), (34, middleY)]
+                ], context: "F stem=\(index), middle y=\(middleY)")
+            }
+        }
+    }
+
+    func testRootFTwoStrokeFrameWithTinyTerminalHookKeepsF() {
+        for hookLength in [0.0, 1.0, 2.0] {
+            for middleY in [35.0, 48.0] {
+                assertEFRoot("F", paths: [
+                    [(42, 12), (10, 12), (10, 58), (10 + hookLength, 60)],
+                    [(10, middleY), (34, middleY)]
+                ], context: "joined F frame hook=\(hookLength), middle y=\(middleY)")
+            }
+        }
+    }
+
+    func testCapturedFRootWithShortDiagonalTerminalKeepsFAheadOfE() throws {
+        let fixture = try InkFixtureLoader.load("FSharpHalfDiminished7Captured02", file: #filePath)
+        let root = Array(fixture.strokes.prefix(3))
+        XCTAssertEqual(root.count, 3)
+        assertEFRoot("F", paths: root.map { stroke in
+            stroke.points.map { ($0.x, $0.y) }
+        }, context: fixture.name)
+    }
+
+    func testProvidedExactRootRanksEAheadOfF() throws {
+        guard let path = ProcessInfo.processInfo.environment["ICHART_EF_ROOT_STROKES_PATH"] else {
+            throw XCTSkip("Set ICHART_EF_ROOT_STROKES_PATH to an authorized exact-root stroke JSON file.")
+        }
+        let strokes = try JSONDecoder().decode([InkStroke].self,
+            from: Data(contentsOf: URL(fileURLWithPath: path)))
+        XCTAssertFalse(strokes.isEmpty, "Exact-root input must contain strokes")
+        let candidates = recognizer.rankedCandidates(for: InkCluster(strokes: strokes),
+            templates: ChordGlyphTemplateLibrary.initialTemplates, limit: 8)
+        XCTAssertEqual(candidates.first?.text, "E", "\(candidates)")
+        XCTAssertLessThan(candidateRank(of: "E", in: candidates),
+            candidateRank(of: "F", in: candidates), "\(candidates)")
+    }
+
     func testRootFRecognizesJoinedTopAndStemWithEitherPenDirectionAndStrokeOrder() {
         let reader = ChordInkMaximumTrustRecognizer()
         let frame = [InkPoint(x: 42, y: 12, timeOffset: nil),
@@ -1118,6 +1220,40 @@ final class GestureTemplateRecognizerTests: XCTestCase {
             XCTAssertFalse(expected.isEmpty)
             XCTAssertEqual(actual, expected)
             XCTAssertTrue(actual.allSatisfy { ChordRecognitionDomain.isAllowedGlyphToken($0.text) })
+        }
+    }
+
+    private func assertEFRoot(
+        _ expected: String,
+        paths: [[(Double, Double)]],
+        context: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        for scale in [0.70, 1.0, 1.60] {
+            for directionMask in 0..<(1 << paths.count) {
+                let strokes = paths.enumerated().map { index, path in
+                    let ordered = directionMask & (1 << index) == 0 ? path : Array(path.reversed())
+                    return InkStroke(points: ordered.map { x, y in
+                        InkPoint(x: 120 + x * scale, y: -42 + y * scale, timeOffset: nil)
+                    })
+                }
+                for reverseOrder in [false, true] {
+                    let input = reverseOrder ? Array(strokes.reversed()) : strokes
+                    let candidates = recognizer.rankedCandidates(
+                        for: InkCluster(strokes: input),
+                        templates: ChordGlyphTemplateLibrary.initialTemplates,
+                        limit: 8
+                    )
+                    let evidence = "\(context), scale=\(scale), directions=\(directionMask), reversed order=\(reverseOrder), candidates=\(candidates)"
+                    XCTAssertEqual(candidates.first?.text, expected, evidence, file: file, line: line)
+                    XCTAssertTrue(candidates.contains { $0.text == expected && $0.source == .heuristic },
+                        evidence, file: file, line: line)
+                    let otherRoot = expected == "E" ? "F" : "E"
+                    XCTAssertLessThan(candidateRank(of: expected, in: candidates),
+                        candidateRank(of: otherRoot, in: candidates), evidence, file: file, line: line)
+                }
+            }
         }
     }
 

@@ -160,6 +160,11 @@ struct StrokeClusterer {
         previousCluster: MutableInkCluster?,
         nextCluster: MutableInkCluster?
     ) -> [MutableInkCluster]? {
+        if cluster.strokes.count == 2,
+           InkSplitMajorTriangleGeometry.matches(cluster.strokes[0], cluster.strokes[1]) {
+            // A triangle leg belongs to its complete quality, not a bass slash.
+            return nil
+        }
         guard cluster.strokes.count >= 2 else {
             return nil
         }
@@ -280,6 +285,10 @@ struct StrokeClusterer {
         nextCluster: MutableInkCluster?
     ) -> [MutableInkCluster]? {
         guard cluster.strokes.count == 2 else {
+            return nil
+        }
+        guard !InkSplitMajorTriangleGeometry.matches(cluster.strokes[0], cluster.strokes[1]) else {
+            // The complete triangle takes precedence over letter-like pieces.
             return nil
         }
 

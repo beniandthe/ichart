@@ -368,12 +368,44 @@ private struct IChartHelpArticleSection: Identifiable {
                 "To add measures at the end of a short row, draw tall barlines on their own in the empty lane and leave space between them.",
                 "If a barline cannot be placed, it stays on the page while chords that can be placed independently render. Keep writing, or use Erase to remove the line and redraw it.",
                 "Splits in Simple measures and supported splits in committed Rhythm measures keep converted marks and their original handwriting. An open Rhythm measure may require Restore Ink in Free Ink before splitting when it holds a converted mark or its original writing.",
-                "Draw repeat bars with two dots on the right to start a repeat, on the left to end one, or on both sides to end one repeat and start another.",
-                "Complete each start repeat with an end repeat. A complete end repeat with no earlier start repeats from the beginning of the chart. Nested or conflicting starts stay as draft ink until corrected.",
-                "If a mark blocks Review Ending, tap its name or Back to Writing to highlight it. Correct the highlighted mark, then review the same ending bracket again.",
                 "When Review Chords opens, check each Recognition guess. Type a correction or choose a suggestion to mark the row Your edit. You can also rewrite just that chord.",
                 "In Edit Chord, choose a saved alternative or use Change quality for a supported chord quality on the same root. Quality choices are editing options, not new recognition guesses. Save applies the chord shown in Change to.",
                 "If you see Chart not saved, keep the chart open and tap Retry Save above the tools."
+            ]
+        ),
+        IChartHelpArticleSection(
+            id: "editor-writing-repeat-signs",
+            title: "Writing Repeat Signs",
+            systemImageName: "repeat",
+            body: "Use the same repeat-sign drawing rules in Automatic and Manual Render with Preview on every sheet layout.",
+            bullets: [
+                "Draw one or two upright bars in the blue lane, at least half as tall as the lane. A little overshoot is allowed; the bars do not need different thicknesses.",
+                "Place two small, stacked dots beside the middle of the bars, with a clear gap between the dots and the bars.",
+                "You can tap, loop, fill, or retrace each dot. Keep two separate, compact dot areas. A third separate dot or dots that run into a bar still need correction.",
+                "Dots on the right start a repeat. Dots on the left end a repeat. A pair on each side ends one repeat and starts the next.",
+                "Draw the bars and dots in any order, upward or downward. Keep the sign separate from nearby chords and other marks.",
+                "Complete each start repeat with an end repeat. A complete end repeat with no earlier start repeats from the beginning of the chart. Nested or conflicting starts stay as draft ink until corrected.",
+                "In Automatic, finish both the bars and dots before pausing. A bare barline that has already rendered cannot gain repeat dots from later dot strokes; use Tools > Repeats to mark the intended measures. While the sign is still draft ink, you can erase the whole sign and redraw it.",
+                "To retry saved repeat ink in Automatic, open the chart, tap Write & Render, and pause. You do not need to add a stroke. If Fix Writing is already showing, tap Select, then Write & Render to check that ink again.",
+                "In Manual Render with Preview, check the repeat preview, then use Render Chords or Review & Render when offered.",
+                "If a repeat is shown as a chord, return to writing and erase just that sign before redrawing it. Correcting chord text does not turn it into a repeat sign.",
+                "Use Tools > Repeats to place repeat marks by selecting measures. Free Ink keeps handwritten repeat signs as ink."
+            ]
+        ),
+        IChartHelpArticleSection(
+            id: "editor-writing-ending-brackets",
+            title: "Writing Ending Brackets",
+            systemImageName: "rectangle.topthird.inset.filled",
+            body: "Draw the bracket in the blue lane, then use Review Ending to enter its label and choose its measures.",
+            bullets: [
+                "Draw a long roof near the top of the lane across the intended measures, with a short downward hook at the left. Add a right hook for a closed ending, or leave that edge open.",
+                "The roof and hooks can be one stroke or separate strokes. Put the label just below the roof, between the hooks, with chords lower in the lane.",
+                "Tap the ending preview to open Review Ending. In Automatic, use Review Ending when offered. In Manual Render with Preview, use Review & Render when the ending needs review.",
+                "The handwritten label is shown for reference. Enter the intended label in Review Ending, such as 1., 2., 1–3, Last time, or On cue.",
+                "Check Start measure and End measure, choose Open or Closed under Right edge, then tap Use Ending. You can correct the measure range without redrawing the bracket.",
+                "Use Ending confirms the draft. Rendering replaces the bracket and label ink with the reviewed notation. Back to Writing keeps the ink; changed writing may need another review.",
+                "If a mark blocks Review Ending, tap its name or Back to Writing to highlight it. Correct the highlighted mark, then review the same ending bracket again.",
+                "Clear Draft Ink removes all unrendered chords, barlines, repeat signs, and endings after confirmation. Use Erase to change only the mark you are fixing."
             ]
         ),
         IChartHelpArticleSection(

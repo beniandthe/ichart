@@ -689,6 +689,7 @@ struct DraftBarlineGestureMetrics: Hashable {
 
 enum DraftBarlineAmbiguity: String, Hashable {
     case none
+    case incompleteRepeat
     case tooShort
     case tooWide
     case tooSlanted
@@ -1375,31 +1376,15 @@ enum ChordDraftBarlineRecognizer {
         draftBarline(for: stroke, chordFrame: chordFrame, pageLayout: pageLayout)
     }
 
-    /// A provisional bar for a complete repeat. The repeat reader must still
-    /// validate its dots, neighboring ink and exclusive source ownership before
-    /// claiming anything; this does not relax ordinary separator recognition.
+    /// A shorter bar is admitted only while assembling a repeat construction.
+    /// It cannot become a plain separator through this entry point.
     static func repeatComponentCandidate(
         for stroke: InkStroke,
         chordFrame: CGRect,
         pageLayout: LeadSheetPageLayout
     ) -> DraftBarline? {
         draftBarline(for: stroke, chordFrame: chordFrame, pageLayout: pageLayout,
-            purpose: .repeatComponent)
-    }
-
-    private enum CandidatePurpose {
-        case separator
-        case repeatComponent
-
-        func minimumLaneCoverage(for layoutStyle: ChartLayoutStyle) -> Double {
-            if case .repeatComponent = self, layoutStyle == .simpleChordSheet {
-                // Simple's detector includes the whole row allocation around
-                // its printed grid. Complete repeat punctuation supplies the
-                // additional evidence for a shorter bar inside that grid.
-                return 0.50
-            }
-            return AcceptanceThresholds.minimumLaneCoverage
-        }
+            isRepeatComponent: true)
     }
 
     private enum AcceptanceThresholds {
@@ -1579,7 +1564,7 @@ enum ChordDraftBarlineRecognizer {
         chordFrame: CGRect,
         pageLayout: LeadSheetPageLayout,
         allowsSlantInRenderedChordGap: Bool = false,
-        purpose: CandidatePurpose = .separator
+        isRepeatComponent: Bool = false
     ) -> DraftBarline? {
         guard stroke.points.count >= 2 else {
             return nil
@@ -1587,7 +1572,7 @@ enum ChordDraftBarlineRecognizer {
 
         let localBounds = stroke.bounds.cgRect
         let bounds = localBounds.offsetBy(dx: chordFrame.minX, dy: chordFrame.minY)
-        guard bounds.height >= AcceptanceThresholds.minimumHeight else {
+        guard bounds.height >= (isRepeatComponent ? 1 : AcceptanceThresholds.minimumHeight) else {
             return nil
         }
 
@@ -1604,9 +1589,18 @@ enum ChordDraftBarlineRecognizer {
         let diagonal = hypot(Double(bounds.width), Double(bounds.height))
         let straightness = pathLength > 0 ? min(max(diagonal / pathLength, 0), 1) : 0
         let widthRatio = Double(bounds.width / max(1, bounds.height))
-        let hasStandardBarlineShape = angleDegrees <= AcceptanceThresholds.maximumAngleDegreesFromVertical
-            && straightness >= AcceptanceThresholds.minimumStraightness
-            && (widthRatio <= AcceptanceThresholds.maximumWidthRatio
+        typealias RepeatStandard = ChordDraftRepeatSignRecognizer.DrawingStandard
+        let minimumLaneCoverage = isRepeatComponent
+            ? RepeatStandard.minimumLaneCoverage : AcceptanceThresholds.minimumLaneCoverage
+        let maximumHeightToLaneRatio = isRepeatComponent
+            ? RepeatStandard.maximumHeightToLaneRatio : Double(AcceptanceThresholds.maximumHeightToLaneRatio)
+        let numericalTolerance = isRepeatComponent ? RepeatStandard.numericalTolerance : 0
+        let hasStandardBarlineShape = angleDegrees <= (isRepeatComponent
+                ? RepeatStandard.maximumAngleDegreesFromVertical : AcceptanceThresholds.maximumAngleDegreesFromVertical)
+            && straightness >= (isRepeatComponent
+                ? RepeatStandard.minimumStraightness : AcceptanceThresholds.minimumStraightness)
+            && (widthRatio <= (isRepeatComponent
+                    ? RepeatStandard.maximumBarWidthRatio : AcceptanceThresholds.maximumWidthRatio)
                 || bounds.width <= AcceptanceThresholds.maximumAbsoluteWidth)
         let hasSlantedBarlineShape = allowsSlantInRenderedChordGap
             && angleDegrees <= AcceptanceThresholds.gapMaximumAngleDegreesFromVertical
@@ -1621,8 +1615,8 @@ enum ChordDraftBarlineRecognizer {
         ).first(where: { candidate in
             let coverage = Double(bounds.intersection(candidate.laneFrame).height / max(1, candidate.laneFrame.height))
             let heightRatio = bounds.height / max(1, candidate.laneFrame.height)
-            return coverage >= purpose.minimumLaneCoverage(for: candidate.system.layoutStyle)
-                && heightRatio <= AcceptanceThresholds.maximumHeightToLaneRatio
+            return coverage >= minimumLaneCoverage - numericalTolerance
+                && Double(heightRatio) <= maximumHeightToLaneRatio + numericalTolerance
                 && (hasStandardBarlineShape || (
                     coverage >= AcceptanceThresholds.gapMinimumLaneCoverage
                         && candidate.system.layoutStyle != .leadSheet
@@ -1634,8 +1628,8 @@ enum ChordDraftBarlineRecognizer {
         let laneFrame = target.laneFrame
         let laneCoverage = Double(bounds.intersection(laneFrame).height / max(1, laneFrame.height))
         let heightToLaneRatio = bounds.height / max(1, laneFrame.height)
-        guard laneCoverage >= purpose.minimumLaneCoverage(for: target.system.layoutStyle),
-              heightToLaneRatio <= AcceptanceThresholds.maximumHeightToLaneRatio else {
+        guard laneCoverage >= minimumLaneCoverage - numericalTolerance,
+              Double(heightToLaneRatio) <= maximumHeightToLaneRatio + numericalTolerance else {
             return nil
         }
         // A mostly vertical mark can span the lane and still be wide enough

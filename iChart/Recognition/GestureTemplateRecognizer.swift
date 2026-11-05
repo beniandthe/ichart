@@ -1646,6 +1646,10 @@ struct GestureTemplateRecognizer {
     }
 
     private func twoStrokeRootCandidates(_ features: RootGlyphFeatures) -> [GlyphCandidate] {
+        if Self.hasJoinedTopStemAndLowerArmERoot(features) {
+            return [heuristicCandidate("E", confidence: 0.996)]
+        }
+
         if Self.hasJoinedTopAndStemFRoot(features) {
             return [heuristicCandidate("F", confidence: 0.996)]
         }
@@ -1931,6 +1935,10 @@ struct GestureTemplateRecognizer {
         let hasMiddle = hasMiddleRootHorizontalEvidence(in: features)
         let hasBottom = hasBottomRootEvidence(in: features)
 
+        if hasTop && Self.hasBaselineLowerArmEvidence(in: features) {
+            return [heuristicCandidate("E", confidence: 0.996)]
+        }
+
         if hasShortLowMiddleFRoot(features) {
             return [heuristicCandidate("F", confidence: 0.996)]
         }
@@ -2000,6 +2008,102 @@ struct GestureTemplateRecognizer {
             && middle.minX <= bounds.minX + bounds.width * 0.20
     }
 
+    private static func hasJoinedTopStemAndLowerArmERoot(_ features: RootGlyphFeatures) -> Bool {
+        guard features.strokeCount == 2,
+              hasJoinedFFrameBounds(features.bounds),
+              hasBaselineLowerArmEvidence(in: features) else { return false }
+
+        for middleIndex in features.strokes.indices {
+            let middle = features.strokes[middleIndex]
+            let frame = features.strokes[1 - middleIndex]
+            guard hasJoinedFMiddleBounds(middle.bounds, in: features.bounds),
+                  middle.isLooseHorizontalInEitherDirection,
+                  middle.straightness >= 0.85,
+                  frame.pointCount >= 4 else { continue }
+
+            let leftLimit = features.bounds.minX + features.bounds.width * 0.20
+            let topLimit = features.bounds.minY + features.bounds.height * 0.12
+            let lowerLimit = features.bounds.maxY - features.bounds.height * 0.16
+            func isTopRightEnd(_ point: InkPoint) -> Bool {
+                point.x >= features.bounds.minX + features.bounds.width * 0.85
+                    && point.y <= topLimit
+            }
+            let hasFrameEnds = isTopRightEnd(frame.startPoint) && frame.endPoint.y >= lowerLimit
+                || isTopRightEnd(frame.endPoint) && frame.startPoint.y >= lowerLimit
+            let hasTopLeftCorner = frame.points.contains { $0.x <= leftLimit && $0.y <= topLimit }
+            let hasLowerStem = frame.points.contains { $0.x <= leftLimit && $0.y >= lowerLimit }
+            let followsFrame = frame.points.allSatisfy {
+                $0.x <= leftLimit || $0.y <= topLimit || $0.y >= lowerLimit
+            }
+            if hasFrameEnds && hasTopLeftCorner && hasLowerStem && followsFrame { return true }
+        }
+        return false
+    }
+
+    /// A lower arm belongs to the baseline and extends right beyond pen-slip
+    /// noise. Its size is measured against the stem height, never the top bar.
+    /// A joined arm must turn toward horizontal; a straight leaning F stem
+    /// cannot supply that turn merely by reaching farther to the right.
+    private static func hasBaselineLowerArmEvidence(in features: RootGlyphFeatures) -> Bool {
+        let height = features.bounds.height
+        let minimumAdvance = max(1.25, height * 0.06)
+        let baselineStart = features.bounds.maxY - height * 0.20
+        let terminalBand = height * 0.16
+        let noise = max(0.5, height * 0.03)
+
+        for stroke in features.strokes {
+            guard stroke.bounds.maxY >= baselineStart else { continue }
+
+            // A separate short lower bar still counts when the top bar is
+            // much wider, provided it actually meets the bottom of the stem.
+            if stroke.bounds.width >= minimumAdvance,
+               stroke.bounds.height <= height * 0.12,
+               stroke.straightness >= 0.65,
+               let left = stroke.points.min(by: { $0.x < $1.x }),
+               let right = stroke.points.max(by: { $0.x < $1.x }),
+               min(left.y, right.y) >= baselineStart,
+               right.x - left.x >= abs(right.y - left.y) * 1.5,
+               features.strokes.contains(where: { stem in
+                   stem.bounds.height >= height * 0.50 && stem.points.contains { point in
+                       point.y >= baselineStart
+                           && abs(point.x - left.x) <= minimumAdvance * 0.50
+                           && abs(point.y - left.y) <= height * 0.12
+                   }
+               }) {
+                return true
+            }
+
+            guard stroke.bounds.height >= height * 0.50 else { continue }
+            let points = stroke.startPoint.y <= stroke.endPoint.y ? stroke.points : Array(stroke.points.reversed())
+            guard let end = points.last,
+                  end.y >= features.bounds.maxY - terminalBand else { continue }
+
+            for hingeIndex in points.indices.dropLast() {
+                let hinge = points[hingeIndex]
+                let advance = end.x - hinge.x
+                let rise = abs(end.y - hinge.y)
+                // A short diagonal stem flare is not another arm. The joined
+                // terminal must run at least twice as far right as it rises.
+                guard hinge.y >= baselineStart,
+                      advance >= minimumAdvance,
+                      advance >= rise * 2,
+                      rise <= terminalBand,
+                      points[..<hingeIndex].contains(where: { $0.y <= hinge.y - height * 0.50 }) else {
+                    continue
+                }
+                let tail = points[hingeIndex...]
+                guard tail.allSatisfy({ $0.x >= hinge.x - noise && $0.y >= baselineStart - noise }) else {
+                    continue
+                }
+                let pathLength = zip(tail, tail.dropFirst()).reduce(0.0) { length, pair in
+                    length + pair.0.distance(to: pair.1)
+                }
+                if pathLength > 0, hinge.distance(to: end) / pathLength >= 0.65 { return true }
+            }
+        }
+        return false
+    }
+
     private func hasShortLowMiddleFRoot(_ features: RootGlyphFeatures) -> Bool {
         guard features.strokeCount == 3,
               let stem = features.strokes.first(where: { $0.isVerticalStem && $0.straightness >= 0.90 }),
@@ -2032,7 +2136,7 @@ struct GestureTemplateRecognizer {
 
         let hasTop = hasTopRootHorizontalEvidence(in: features)
         let hasMiddle = hasMiddleRootHorizontalEvidence(in: features)
-        let hasBottom = hasBottomRootEvidence(in: features)
+        let hasBottom = hasBottomRootEvidence(in: features) || Self.hasBaselineLowerArmEvidence(in: features)
 
         if features.hasVerticalStem && hasTop && hasMiddle && hasBottom {
             return [heuristicCandidate("E", confidence: 0.997)]

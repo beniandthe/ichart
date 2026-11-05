@@ -2,6 +2,7 @@
 import PencilKit
 import SwiftUI
 import UIKit
+import Vision
 import XCTest
 @testable import iChart
 
@@ -25,7 +26,13 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
         try await assertBarlineDownbeatHelper(layoutStyle: .rhythmSectionSheet, manual: true)
     }
 
-    private func assertBarlineDownbeatHelper(layoutStyle: ChartLayoutStyle, manual: Bool) async throws {
+    func testRhythmManualRepeatHelperAtLargestStandardTextKeepsControlsReachableAndCanvasSteady() async throws {
+        try await assertBarlineDownbeatHelper(layoutStyle: .rhythmSectionSheet, manual: true,
+            dynamicTypeSize: .xxxLarge)
+    }
+
+    private func assertBarlineDownbeatHelper(layoutStyle: ChartLayoutStyle, manual: Bool,
+        dynamicTypeSize: DynamicTypeSize? = nil) async throws {
         var chart = Chart.blank(title: "Barline downbeat guidance", measureCount: 1, layoutStyle: layoutStyle)
         _ = chart.setPageHandwrittenChordDrawing(drawing().dataRepresentation())
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
@@ -33,17 +40,23 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
         let sceneSize = scene.coordinateSpace.bounds.size
         let portraitViewport = CGSize(width: min(sceneSize.width, sceneSize.height),
             height: max(sceneSize.width, sceneSize.height))
-        let mounted = try await mount(manual: manual, viewport: portraitViewport, initialChart: chart)
+        let mounted = try await mount(manual: manual, viewport: portraitViewport, initialChart: chart,
+            dynamicTypeSize: dynamicTypeSize)
         let helperSentence = "A lone rendered chord moves to beat 1 when barlines form its measure."
         let helper = try await waitForNode(in: mounted.window) {
             $0.element.accessibilityLabel?.contains(helperSentence) == true
         }
-        let control = try await waitForNode(in: mounted.window) {
-            $0.isButton && $0.element.accessibilityLabel == (manual ? "Render Chords" : "Write")
-        }
         let viewport = mounted.window.bounds.insetBy(dx: -1, dy: -1)
         let helperFrame = helper.frame(in: mounted.window)
-        let controlFrame = control.frame(in: mounted.window)
+        let control = try await waitForNode(in: mounted.window) {
+            $0.isButton && $0.element.accessibilityLabel == (manual ? "Done" : "Write")
+        }
+        let controlFrame = manual
+            ? try await renderedActionFrame("Render Chords", below: helperFrame.maxY, in: mounted.window)
+            : control.frame(in: mounted.window)
+        XCTAssertTrue(helper.element.accessibilityLabel?.contains("1–2 upright bars at least half a lane tall") == true)
+        XCTAssertTrue(helper.element.accessibilityLabel?.contains("stacked dots beside the middle") == true)
+        XCTAssertTrue(helper.element.accessibilityLabel?.contains("Right dots start; left dots end.") == true)
         XCTAssertFalse(helperFrame.isEmpty)
         XCTAssertFalse(controlFrame.isEmpty)
         XCTAssertTrue(viewport.contains(helperFrame), "The wrapped helper must remain fully visible")
@@ -51,19 +64,29 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
         XCTAssertTrue(control.isEnabled)
         XCTAssertLessThan(helperFrame.maxY, controlFrame.minY, "The helper belongs above the writing controls")
         let before = await settledCanvasFrame(in: mounted)
+        let visibleCanvas = before.intersection(viewport)
+        XCTAssertGreaterThanOrEqual(visibleCanvas.width, 320, "Wrapped writing guidance must leave a usable canvas width")
+        XCTAssertGreaterThanOrEqual(visibleCanvas.height, 300, "Wrapped writing guidance must leave visible room to write")
 
         try await injectUncertainPair(into: mounted)
         let currentHelper = try await waitForNode(in: mounted.window) {
             $0.element.accessibilityLabel?.contains(helperSentence) == true
         }
-        let feedbackControl = try await waitForNode(in: mounted.window) {
-            $0.isButton && $0.element.accessibilityLabel == (manual ? "Review & Render" : placementRefusalLabel)
-        }
         let currentHelperFrame = currentHelper.frame(in: mounted.window)
-        let feedbackFrame = feedbackControl.frame(in: mounted.window)
+        let feedbackFrame: CGRect
+        if manual {
+            feedbackFrame = try await renderedActionFrame("Review & Render", below: currentHelperFrame.maxY,
+                in: mounted.window)
+        } else {
+            let feedbackControl = try await waitForNode(in: mounted.window) {
+                $0.isButton && $0.element.accessibilityLabel == placementRefusalLabel
+            }
+            XCTAssertTrue(feedbackControl.isEnabled)
+            feedbackFrame = feedbackControl.frame(in: mounted.window)
+        }
+        XCTAssertTrue(currentHelper.element.accessibilityLabel?.contains("stacked dots beside the middle") == true)
         XCTAssertTrue(viewport.contains(currentHelperFrame))
         XCTAssertTrue(viewport.contains(feedbackFrame), "Inline feedback must not push its action out of reach")
-        XCTAssertTrue(feedbackControl.isEnabled)
         XCTAssertLessThan(currentHelperFrame.maxY, feedbackFrame.minY)
         let after = await settledCanvasFrame(in: mounted)
         XCTAssertEqual(after.minX, before.minX, accuracy: 0.1)
@@ -73,7 +96,85 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
             "Wrapped guidance and inline recognition feedback must leave the writing canvas steady")
         XCTAssertNil(mounted.window.rootViewController?.presentedViewController)
         let styleName = layoutStyle == .simpleChordSheet ? "Simple" : "Rhythm"
-        attach(mounted.window, name: "\(styleName) \(manual ? "Manual" : "Automatic") barline downbeat helper")
+        let textSizeSuffix = dynamicTypeSize == nil ? "" : " at xxxLarge text"
+        attach(mounted.window, name: "\(styleName) \(manual ? "Manual" : "Automatic") barline downbeat helper\(textSizeSuffix)")
+    }
+
+    func testAutomaticIncompleteRepeatOffersStructuralHelpWithoutChordGuessesOrConsumingInk() async throws {
+        try await assertIncompleteRepeatRecovery(manual: false)
+    }
+
+    func testManualIncompleteRepeatShowsStructuralReviewWithoutChordGuessesOrConsumingInk() async throws {
+        try await assertIncompleteRepeatRecovery(manual: true)
+    }
+
+    private func assertIncompleteRepeatRecovery(manual: Bool) async throws {
+        let source = incompleteRepeatDrawing()
+        let mounted = try await mount(manual: manual, sourceDrawing: source)
+        let canvas = mounted.canvas
+        let sourceData = try XCTUnwrap(mounted.model.chart.pageHandwrittenChordData)
+        let live = try XCTUnwrap(canvas.subviews.compactMap { $0 as? PKCanvasView }.last)
+        let sourceBefore = live.drawing
+        let draft = DraftBarline(measureID: mounted.model.chart.measures[0].id,
+            measureIndex: 0, fraction: 0.5, sourceStrokeIndex: 0,
+            metrics: .init(height: 54, width: 0, angleDegreesFromVertical: 0,
+                straightness: 1, laneCoverage: 0.75),
+            ambiguity: .incompleteRepeat, kind: .repeatStart,
+            sourceStrokeIndices: Set(source.strokes.indices),
+            sourceStrokeGeometry: PencilKitInkAdapter.inkStrokes(from: source))
+        // A frozen structural census exercises the shipping Editor callback
+        // and action routing. Geometry/accuracy have separate recognizer tests.
+        try XCTUnwrap(canvas.onChordInkDraftBarlinesChanged)([draft])
+        for _ in 0..<40 {
+            mounted.window.layoutIfNeeded()
+            if canvas.chordPreviewState.draftBarlines.first?.ambiguity == .incompleteRepeat { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertEqual(canvas.chordPreviewState.draftBarlines.map(\.ambiguity), [.incompleteRepeat])
+        XCTAssertTrue(canvas.chordPreviewState.draftChords.isEmpty)
+        let helpMessage = try XCTUnwrap(ChordDraftRepeatReviewPolicy.blockingMessage(for: canvas.chordPreviewState))
+        if !manual {
+            try XCTUnwrap(canvas.onChordInkAutomaticActivityChanged)(.init(chartID: mounted.model.chart.id,
+                sourceRevision: canvas.automaticChordInputRevision, hasSourceInk: true,
+                phase: .settled, pendingTargetCount: 0, inputAt: Date().addingTimeInterval(-2),
+                feedback: .init(globalReason: .repeatReview)))
+            let status = try await waitForNode(in: mounted.window) {
+                $0.isButton && $0.element.accessibilityLabel?.hasPrefix("Repeat needs attention.") == true
+            }
+            XCTAssertTrue(status.isEnabled)
+            XCTAssertTrue(mounted.window.bounds.insetBy(dx: -1, dy: -1).contains(status.frame(in: mounted.window)))
+            try activate(status)
+            // The shipping status action must reveal the actual visible help.
+            // SwiftUI's nested scroll provider omits its text from the hosted
+            // test's accessibility tree, so inspect the rendered pixels here.
+            let helpFrame = try await renderedPhraseFrame(helpMessage, in: mounted.window)
+            XCTAssertTrue(mounted.window.bounds.insetBy(dx: -1, dy: -1).contains(helpFrame))
+        } else {
+            let helper = try await waitForNode(in: mounted.window) {
+                $0.element.accessibilityLabel?.contains("1–2 upright bars at least half a lane tall") == true
+            }
+            let reviewFrame = try await renderedActionFrame("Review & Render", below: helper.frame(in: mounted.window).maxY,
+                in: mounted.window)
+            XCTAssertTrue(mounted.window.bounds.insetBy(dx: -1, dy: -1).contains(reviewFrame))
+            // Rendering-only coverage: the hosted AX provider omits this
+            // horizontal-scroll button. Do not claim a Manual tap occurred.
+            XCTAssertTrue(helpMessage.contains("Your ink is still on the page."))
+            XCTAssertFalse(canvas.chordPreviewState.draftBarlines[0].isRenderable)
+        }
+        XCTAssertNil(mounted.window.rootViewController?.presentedViewController,
+            "Repeat recovery must leave the writing canvas available")
+        let nodes = try NativeAccessibilityLookup.nodes(in: mounted.window)
+        XCTAssertFalse(nodes.contains {
+            $0.element.accessibilityLabel?.hasPrefix("Recognized ") == true
+                || $0.element is IChartTypedUITextField
+        }, "An incomplete repeat must not open chord guessing or chord-entry recovery")
+        XCTAssertTrue(canvas.chordPreviewState.draftChords.isEmpty)
+        XCTAssertEqual(canvas.chordPreviewState.draftBarlines.map(\.ambiguity), [.incompleteRepeat])
+        XCTAssertEqual(mounted.model.chart.pageHandwrittenChordData, sourceData)
+        XCTAssertTrue(mounted.model.chart.measures.allSatisfy(\.chordEvents.isEmpty))
+        XCTAssertTrue(mounted.model.chart.roadmapObjects.isEmpty)
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: sourceBefore, current: live.drawing))
+        attach(mounted.window, name: "\(manual ? "Manual" : "Automatic") incomplete repeat stays ink with structural recovery")
     }
 
     func testSimpleFirstConvertedMarkKeepsTheEditorWritingCanvasSteady() async throws {
@@ -1522,13 +1623,74 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
         }
         attach(window, name: "Automatic feedback - missing control failure viewport")
         let diagnostics = try NativeAccessibilityLookup.nodes(in: window).map {
-            "\($0.automaticFeedbackIdentifier ?? "-"): \($0.element.accessibilityLabel ?? "-") frame=\($0.frame(in: window))"
+            "\($0.automaticFeedbackIdentifier ?? "-"): \($0.element.accessibilityLabel ?? "-") frame=\($0.frame(in: window)) type=\(type(of: $0.element)) traits=\($0.element.accessibilityTraits.rawValue) owner=\(type(of: $0.owner)) ownerBounds=\($0.owner.bounds)"
         }.joined(separator: "\n")
         let attachment = XCTAttachment(string: diagnostics)
         attachment.name = "Automatic feedback accessibility nodes"
         attachment.lifetime = XCTAttachment.Lifetime.keepAlways
         add(attachment)
         XCTFail("The expected automatic feedback or review control was not exposed")
+        throw Failure.missingStatus
+    }
+
+    private func renderedActionFrame(_ label: String, below minimumY: CGFloat,
+        in window: UIWindow) async throws -> CGRect {
+        if let node = try NativeAccessibilityLookup.nodes(in: window).first(where: {
+            $0.isButton && $0.element.accessibilityLabel == label
+                && $0.frame(in: window).minY >= minimumY
+        }) {
+            XCTAssertTrue(node.isEnabled)
+            return node.frame(in: window)
+        }
+        // Rendered-control coverage when the hosted SwiftUI ScrollView's AX
+        // provider omits its children. OCR proves visible label geometry only;
+        // it does not prove button enablement or simulate a tap.
+        return try await renderedPhraseFrame(label, below: minimumY, in: window)
+    }
+
+    private func renderedPhraseFrame(_ phrase: String, below minimumY: CGFloat = 0,
+        in window: UIWindow) async throws -> CGRect {
+        func normalized(_ text: String) -> String {
+            text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).joined(separator: " ")
+        }
+        let expected = normalized(phrase)
+        var lastText = ""
+        for _ in 0..<12 {
+            window.layoutIfNeeded()
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            request.recognitionLanguages = ["en-US"]
+            request.usesLanguageCorrection = false
+            try VNImageRequestHandler(cgImage: XCTUnwrap(image.cgImage)).perform([request])
+            let lines = (request.results ?? []).compactMap { observation -> (String, CGRect)? in
+                guard let text = observation.topCandidates(1).first?.string else { return nil }
+                let bounds = observation.boundingBox
+                let frame = CGRect(x: bounds.minX * window.bounds.width,
+                    y: (1 - bounds.maxY) * window.bounds.height,
+                    width: bounds.width * window.bounds.width, height: bounds.height * window.bounds.height)
+                return frame.minY >= minimumY ? (text, frame) : nil
+            }
+            lastText = lines.map(\.0).joined(separator: "\n")
+            for start in lines.indices {
+                var text = ""
+                var frame = CGRect.null
+                for end in start..<min(lines.count, start + 8) {
+                    text += " " + lines[end].0
+                    frame = frame.union(lines[end].1)
+                    if normalized(text).contains(expected) { return frame }
+                }
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        attach(window, name: "Rendered repeat guidance missing expected text")
+        let attachment = XCTAttachment(string: lastText)
+        attachment.name = "Rendered repeat guidance OCR"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        XCTFail("The visible editor did not render \(phrase)")
         throw Failure.missingStatus
     }
 
@@ -1571,7 +1733,7 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
 
     private func mount(manual: Bool, viewport: CGSize = CGSize(width: 820, height: 1_180),
         sourceDrawing: PKDrawing? = nil, repository: ChartRepository? = nil, initialChart: Chart? = nil,
-        freezesRecognition: Bool = true) async throws -> Mounted {
+        freezesRecognition: Bool = true, dynamicTypeSize: DynamicTypeSize? = nil) async throws -> Mounted {
         let key = ChordInkWorkflowSettings.manualRenderWithPreviewKey
         let previous = UserDefaults.standard.object(forKey: key)
         UserDefaults.standard.set(manual, forKey: key)
@@ -1603,6 +1765,9 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
         .environmentObject(store)
         .environmentObject(IChartPDFLibraryStore(baseDirectory: directory.appendingPathComponent("PDF Library")))
         .environment(\.accessibilityEnabled, true)
+        .transformEnvironment(\.dynamicTypeSize) { currentSize in
+            if let dynamicTypeSize { currentSize = dynamicTypeSize }
+        }
         let wantsLandscape = viewport.width > viewport.height
         let requestedMask: UIInterfaceOrientationMask = wantsLandscape ? .landscapeRight : .portrait
         let host = FeedbackFixtureHostingController(rootView: root)
@@ -1717,6 +1882,22 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
         // preparation; a legitimate empty-census publication could erase the
         // injected preview while its old accessibility node remained cached.
         landscapeSourceDrawing()
+    }
+
+    private func incompleteRepeatDrawing() -> PKDrawing {
+        let pointSets = [
+            [CGPoint(x: 300, y: 30), CGPoint(x: 300, y: 57), CGPoint(x: 300, y: 84)],
+            [CGPoint(x: 312, y: 47), CGPoint(x: 313, y: 46), CGPoint(x: 314, y: 47),
+                CGPoint(x: 313, y: 48), CGPoint(x: 312, y: 47)]
+        ]
+        return PKDrawing(strokes: pointSets.enumerated().map { index, points in
+            let path = PKStrokePath(controlPoints: points.enumerated().map { offset, point in
+                PKStrokePoint(location: point, timeOffset: Double(offset) * 0.01,
+                    size: CGSize(width: 3, height: 3), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+            }, creationDate: Date(timeIntervalSinceReferenceDate: Double(index + 1)))
+            return PKStroke(ink: PKInk(.pen, color: LeadSheetPersistentInkColorPolicy.inkColor),
+                path: path, transform: .identity, mask: nil, randomSeed: UInt32(index + 1))
+        })
     }
 
     private func geometryDiagnostics(scene: UIWindowScene, window: UIWindow, host: UIViewController,

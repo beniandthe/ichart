@@ -14,7 +14,7 @@ enum ChordInkAutomaticRenderReason: String, Equatable {
         case .noRead: return "This chord could not be read. Review or rewrite it."
         case .needsSpace: return "The rendered chord would overlap writing or another chord. Move or rewrite it with more space."
         case .needsSourceRefresh: return "Your writing changed. Review the latest ink or rewrite it."
-        case .repeatReview: return "Review the repeat signs before rendering."
+        case .repeatReview: return "Finish or correct the repeat signs. Use Fix Writing for help."
         case .endingReview: return "Choose the ending label and measure range, then render the bracket."
         case .placementUnavailable: return "This chord could not be placed safely. Review or rewrite it."
         case .barlinePlacementUnavailable: return "This barline could not be placed. Erase it or redraw it where there is room."
@@ -45,7 +45,8 @@ struct ChordInkAutomaticRenderFeedback: Equatable {
     static func baseline(for state: ChordPreviewState) -> Self {
         Self(reasonsByDraftID: Dictionary(state.draftChords.map {
             ($0.id, ChordInkAutomaticFeedbackPolicy.recognitionReason(for: $0))
-        }, uniquingKeysWith: { first, _ in first }))
+        }, uniquingKeysWith: { first, _ in first }),
+            globalReason: ChordDraftRepeatReviewPolicy.hasIncompleteRepeat(in: state) ? .repeatReview : nil)
     }
 }
 

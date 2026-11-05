@@ -94,6 +94,10 @@ enum ChordInkAutomaticFeedbackPresentationPolicy {
             return .init(title: "Barline needs attention", detail: reason.userMessage,
                 accessibilityLabel: reason.userMessage, canReview: true, isReading: false)
         }
+        if reason == .repeatReview {
+            return .init(title: "Repeat needs attention", detail: reason.userMessage,
+                accessibilityLabel: "Repeat needs attention. \(reason.userMessage)", canReview: true, isReading: false)
+        }
         if reason == .waiting { return reading("Finishing ink…") }
         return .init(title: "Writing needs attention",
             detail: reason.userMessage, accessibilityLabel: "\(reason.userMessage) Fix writing",
@@ -1039,8 +1043,8 @@ struct EditorView: View {
         .onChange(of: manualRenderWithPreview) { _, _ in
             cancelAutomaticChordRendering()
             resetAutomaticChordFeedback()
-            // A mode change never consumes writing that was awaiting review.
-            // Automatic rendering starts with the next actual ink input.
+            // Invalidate the earlier workflow deadline. Automatic rendering
+            // requires a fresh current-source census or new ink input.
             chordDraftRenderCoordinator.lastInputAt = nil
             chordDraftRenderCoordinator.renderSessionReadyAt = nil
         }
@@ -2713,6 +2717,7 @@ struct EditorView: View {
 
     private var canRenderChordDrafts: Bool {
         chordPreviewState.canReviewChordDrafts || chordPreviewState.canRenderAny
+            || ChordDraftRepeatReviewPolicy.hasIncompleteRepeat(in: chordPreviewState)
     }
 
     private var chordIDsWithPendingReviewEdits: Set<UUID> {
@@ -2742,6 +2747,7 @@ struct EditorView: View {
     private var chordDraftNeedsReview: Bool {
         requiresChordDraftReview
             || ChordDraftEndingReviewPolicy.firstEndingNeedingReview(chart: chart, state: chordPreviewState) != nil
+            || ChordDraftRepeatReviewPolicy.hasIncompleteRepeat(in: chordPreviewState)
             || !ChordInkRepeatSignPairingPolicy.review(state: chordPreviewState).canRender
     }
 
@@ -2777,7 +2783,7 @@ struct EditorView: View {
         let global = automaticChordFeedback.globalReason ?? automaticChordActivity?.feedback.globalReason
         let usesGlobal = chordPreviewState.draftChords.isEmpty || automaticChordActivity?.phase == .waiting
             || global == .unrepresentedInk || global == .needsSourceRefresh || global == .endingReview
-            || global == .barlinePlacementUnavailable
+            || global == .barlinePlacementUnavailable || global == .repeatReview
         if usesGlobal, let status = ChordInkAutomaticFeedbackPresentationPolicy.globalStatus(
             activity: automaticChordActivity, feedback: automaticChordFeedback,
             hasSourceInk: hasAutomaticSourceInk, now: automaticChordFeedbackNow,
@@ -5645,6 +5651,12 @@ struct EditorView: View {
             return
         }
 
+        if ChordDraftRepeatReviewPolicy.hasIncompleteRepeat(in: chordPreviewState),
+           let message = ChordDraftRepeatReviewPolicy.blockingMessage(for: chordPreviewState) {
+            presentChordRenderError(message)
+            return
+        }
+
         if requiresChordDraftReview {
             guard let batch = ChordInkDraftReviewPolicy.batch(for: chordPreviewState) else {
                 presentChordRenderError("One or more draft chords could not be prepared for review. Keep the ink and try again.")
@@ -5697,7 +5709,8 @@ struct EditorView: View {
         independentOnly: Bool = false
     ) -> Bool {
         let hasEndingToReview = ChordDraftEndingReviewPolicy.firstEndingNeedingReview(chart: chart, state: state) != nil
-        let hasRepeatToReview = !ChordInkRepeatSignPairingPolicy.review(state: state).canRender
+        let hasRepeatToReview = ChordDraftRepeatReviewPolicy.blockingMessage(for: state) != nil
+            || !ChordInkRepeatSignPairingPolicy.review(state: state).canRender
         // The independent toolbar action may commit safe structural marks
         // while an unrelated ending or repeat still needs review. Its live
         // coordinator validates that selected source and retains the rest.
