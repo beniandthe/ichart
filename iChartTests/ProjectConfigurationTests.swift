@@ -1,0 +1,2863 @@
+import XCTest
+
+final class ProjectConfigurationTests: XCTestCase {
+    func testTelemetryIsConfiguredBeforeStartupLibraryLoadCanScheduleReopenChecks() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let appText = try String(contentsOf: projectRoot.appendingPathComponent("iChart/App/IChartApp.swift"))
+        let start = try XCTUnwrap(appText.range(of: "    init() {"))
+        let end = try XCTUnwrap(appText.range(of: "    var body: some Scene", range: start.upperBound..<appText.endIndex))
+        let initialization = String(appText[start.upperBound..<end.lowerBound])
+        let clients = try XCTUnwrap(initialization.range(of: "let supabaseClients = IChartSupabaseClientFactory.liveClients()"))
+        let telemetry = try XCTUnwrap(initialization.range(of: "IChartTelemetry.configure(IChartTelemetryService.live(clients: supabaseClients))"))
+        let library = try XCTUnwrap(initialization.range(of: "let libraryStore = ChartLibraryStore.live()"))
+        let pdfLibrary = try XCTUnwrap(initialization.range(of: "let pdfLibraryStore = IChartPDFLibraryStore.live()"))
+        let launched = try XCTUnwrap(initialization.range(of: "\"app.launched\""))
+
+        XCTAssertLessThan(clients.lowerBound, telemetry.lowerBound)
+        XCTAssertLessThan(telemetry.lowerBound, library.lowerBound,
+                          "The real library loader schedules chart.load/ink.reopen immediately; its destination must already exist")
+        XCTAssertLessThan(telemetry.lowerBound, pdfLibrary.lowerBound)
+        XCTAssertLessThan(library.lowerBound, launched.lowerBound, "Launch counts still come from the loaded library")
+    }
+
+    func testNativeDependencyLockRetainsVerifiedPackageGraph() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let lockURL = projectRoot.appendingPathComponent(
+            "iChart.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+        )
+        let lock = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: lockURL)) as? [String: Any]
+        )
+        let pins = try XCTUnwrap(lock["pins"] as? [[String: Any]])
+        let expectedVersions = [
+            "supabase-swift": "2.55.3",
+            "swift-asn1": "1.7.3",
+            "swift-clocks": "1.1.1",
+            "swift-concurrency-extras": "1.4.1",
+            "swift-crypto": "4.5.2",
+            "swift-http-types": "1.8.0",
+            "xctest-dynamic-overlay": "1.13.1"
+        ]
+        XCTAssertEqual(pins.count, expectedVersions.count)
+        XCTAssertEqual(Set(pins.compactMap { $0["identity"] as? String }), Set(expectedVersions.keys))
+        for pin in pins {
+            let identity = try XCTUnwrap(pin["identity"] as? String)
+            let state = try XCTUnwrap(pin["state"] as? [String: Any])
+            XCTAssertEqual(state["version"] as? String, expectedVersions[identity])
+            let revision = try XCTUnwrap(state["revision"] as? String)
+            XCTAssertNotNil(revision.range(of: "^[0-9a-f]{40}$", options: .regularExpression))
+        }
+    }
+
+    func testGeneratedProjectIgnoreRetainsOnlyNativePackageLock() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let ignoreText = try String(contentsOf: projectRoot.appendingPathComponent(".gitignore"))
+        XCTAssertFalse(ignoreText.components(separatedBy: .newlines).contains("iChart.xcodeproj/"))
+        XCTAssertTrue(ignoreText.contains("iChart.xcodeproj/*"))
+        XCTAssertTrue(ignoreText.contains(
+            "!iChart.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+        ))
+    }
+
+    func testNativeCIAndCodeQLRequireLockedDependencies() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let ciText = try String(contentsOf: projectRoot.appendingPathComponent(".github/workflows/ci.yml"))
+        let codeQLText = try String(contentsOf: projectRoot.appendingPathComponent(".github/workflows/codeql.yml"))
+        XCTAssertEqual(ciText.components(separatedBy: "-onlyUsePackageVersionsFromResolvedFile").count - 1, 2)
+        XCTAssertTrue(codeQLText.contains("-project iChart.xcodeproj"))
+        XCTAssertTrue(codeQLText.contains("-onlyUsePackageVersionsFromResolvedFile"))
+        let lockPattern = #"iChart\.xcodeproj/project\.xcworkspace/xcshareddata/swiftpm/Package\.resolved"#
+        XCTAssertEqual(ciText.components(separatedBy: lockPattern).count - 1, 2)
+        XCTAssertTrue(codeQLText.contains(lockPattern))
+        XCTAssertTrue(ciText.contains(
+            "python3 -m unittest discover -s scripts -p 'test_personal_comparison_packaging.py' -v"
+        ))
+    }
+
+    func testCodeQLScopeExercisesAnalyzerUpdatesAndSharedBuildTooling() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let workflow = try String(contentsOf: projectRoot.appendingPathComponent(".github/workflows/codeql.yml"))
+        let filterLine = try XCTUnwrap(workflow.components(separatedBy: .newlines).first {
+            $0.contains("grep -Eq")
+        })
+        let parts = filterLine.components(separatedBy: "grep -Eq '")
+        XCTAssertEqual(parts.count, 2)
+        let expression = try XCTUnwrap(parts.last?.components(separatedBy: "'").first)
+        let filter = try NSRegularExpression(pattern: expression)
+        let requiredPaths = [
+            ".github/workflows/codeql.yml",
+            ".github/scripts/install-xcodegen.sh",
+            ".github/scripts/select-ipad-simulator.sh",
+            "iChart/App/AppRootView.swift",
+            "ThirdParty/NotationFonts/SMuFL/font.otf",
+            "scripts/embed_personal_comparison.sh",
+            "project.yml",
+            "Package.swift",
+            "iChart.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+        ]
+        for path in requiredPaths {
+            XCTAssertNotNil(filter.firstMatch(in: path, range: NSRange(path.startIndex..., in: path)), path)
+        }
+        for path in ["README.md", "docs/project-state.md", "public-site/useichart/index.html", "iChartTests/ExampleTests.swift"] {
+            XCTAssertNil(filter.firstMatch(in: path, range: NSRange(path.startIndex..., in: path)), path)
+        }
+    }
+
+    func testIPadBuildDeclaresFullScreenAndAllOrientations() throws {
+        let testFileURL = URL(fileURLWithPath: #filePath)
+        let projectRoot = testFileURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let projectFile = projectRoot.appendingPathComponent("project.yml")
+        let projectText = try String(contentsOf: projectFile)
+
+        XCTAssertTrue(projectText.contains("UIRequiresFullScreen: true"))
+        XCTAssertTrue(projectText.contains("UISupportedInterfaceOrientations~ipad:"))
+        XCTAssertTrue(projectText.contains("UIInterfaceOrientationPortrait"))
+        XCTAssertTrue(projectText.contains("UIInterfaceOrientationPortraitUpsideDown"))
+        XCTAssertTrue(projectText.contains("UIInterfaceOrientationLandscapeLeft"))
+        XCTAssertTrue(projectText.contains("UIInterfaceOrientationLandscapeRight"))
+    }
+
+    func testLaunchHandwritingIsBundledAndNotUserConfigurable() throws {
+        let testFileURL = URL(fileURLWithPath: #filePath)
+        let projectRoot = testFileURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let appRootText = try String(contentsOf: projectRoot.appendingPathComponent("iChart/App/AppRootView.swift"))
+        let libraryText = try String(contentsOf: projectRoot.appendingPathComponent("iChart/Features/Library/LibraryView.swift"))
+        let bundledLaunchSampleURL = projectRoot
+            .appendingPathComponent("iChart/Resources/Launch/IChartCanonicalLaunchHandwriting.json")
+        let bundledLaunchSampleText = try String(contentsOf: bundledLaunchSampleURL)
+
+        XCTAssertTrue(appRootText.contains("IChartLaunchScreenView"))
+        XCTAssertTrue(appRootText.contains("bundledCanonicalLaunchSample"))
+        XCTAssertTrue(appRootText.contains("IChartCanonicalLaunchHandwriting"))
+        XCTAssertTrue(appRootText.contains("subdirectory: canonicalResourceSubdirectory"))
+        XCTAssertTrue(appRootText.contains("bundle.url("))
+        XCTAssertFalse(appRootText.contains("@AppStorage"))
+        XCTAssertFalse(appRootText.contains("iChartLaunchHandwriting"))
+        XCTAssertFalse(libraryText.contains("Launch Handwriting"))
+        XCTAssertTrue(bundledLaunchSampleText.contains("\"strokes\""))
+    }
+
+    func testChordConfirmationUsesStreamlinedManualEntry() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sheetText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/ChordInkSheetViews.swift")
+        )
+        let actionButtonText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/PencilOnlyActionButton.swift")
+        )
+        let confirmationSheetText = try XCTUnwrap(
+            sheetText
+                .components(separatedBy: "struct ChordInkConfirmationSheetView: View")
+                .dropFirst()
+                .first?
+                .components(separatedBy: "struct ChordCorrectionSheetView: View")
+                .first
+        )
+        let batchSheetText = try XCTUnwrap(
+            sheetText
+                .components(separatedBy: "struct ChordInkBatchConfirmationSheetView: View")
+                .dropFirst()
+                .first?
+                .components(separatedBy: "enum ChordInkFixtureCopyResult")
+                .first
+        )
+        let correctionSheetText = try XCTUnwrap(
+            sheetText
+                .components(separatedBy: "struct ChordCorrectionSheetView: View")
+                .dropFirst()
+                .first
+        )
+
+        XCTAssertTrue(confirmationSheetText.contains("Text(\"Enter Chord\")"))
+        XCTAssertTrue(confirmationSheetText.contains("IChartTypedTextField("))
+        XCTAssertTrue(confirmationSheetText.contains("ChordInkReviewButton("))
+        XCTAssertTrue(confirmationSheetText.contains("title: \"Confirm\""))
+        XCTAssertTrue(confirmationSheetText.contains(".presentationDetents([.large])"))
+        XCTAssertTrue(confirmationSheetText.contains("ScrollView"))
+        XCTAssertFalse(confirmationSheetText.contains(".task(id:"))
+        XCTAssertFalse(confirmationSheetText.contains("Open keyboard for manual chord entry"))
+        XCTAssertFalse(confirmationSheetText.contains("No confident suggestions"))
+        XCTAssertFalse(confirmationSheetText.contains("Learn Chord"))
+        XCTAssertTrue(confirmationSheetText.contains("Chord Repeat"))
+        XCTAssertTrue(confirmationSheetText.contains("Use chord repeat symbol"))
+        XCTAssertTrue(batchSheetText.contains("IChartTypedTextField("))
+        XCTAssertTrue(batchSheetText.contains("IChartTypedSheetScrollSupport(monitorsKeyboardReachability: true)"))
+        XCTAssertTrue(batchSheetText.contains(".presentationDetents([.large])"))
+        XCTAssertFalse(batchSheetText.contains("title: \"Edit\""))
+        XCTAssertTrue(batchSheetText.contains("onKeyboardRequested: { requestKeyboard(for: confirmation.id) }"))
+        XCTAssertTrue(batchSheetText.contains("onNext: nextConfirmationID(after:"))
+        XCTAssertTrue(batchSheetText.contains("else if focusedConfirmationID == confirmation.id"))
+        XCTAssertFalse(batchSheetText.contains("TextField(\n                \"Chord\""))
+        XCTAssertTrue(correctionSheetText.contains("Text(\"Edit Chord\")"))
+        XCTAssertTrue(correctionSheetText.contains("IChartTypedTextField("))
+        XCTAssertTrue(correctionSheetText.contains("correction.visibleAlternativeTexts"))
+        XCTAssertTrue(correctionSheetText.contains("correction.qualityChoiceTexts"))
+        XCTAssertTrue(correctionSheetText.contains("Text(\"Change quality\")"))
+        XCTAssertTrue(correctionSheetText.contains("_candidateText = State(initialValue: correction.currentDisplayText)"))
+        XCTAssertTrue(correctionSheetText.contains("title: \"Save\""))
+        XCTAssertTrue(correctionSheetText.contains("ChordInkReviewButton(title: \"Cancel\", isRequiredForKeyboardTelemetry: true)"))
+        XCTAssertTrue(correctionSheetText.contains(".interactiveDismissDisabled(true)"))
+        XCTAssertFalse(correctionSheetText.contains("Text(\"Update Chord\")"))
+        XCTAssertFalse(correctionSheetText.contains("Text(\"Update\")"))
+        XCTAssertFalse(correctionSheetText.contains("Text(\"Quick Choices\")"))
+        XCTAssertTrue(correctionSheetText.contains("ScrollView"))
+        XCTAssertFalse(correctionSheetText.contains(".task(id:"))
+        XCTAssertTrue(sheetText.contains("candidateTexts: [String]"))
+        XCTAssertFalse(sheetText.contains("allowsScribble"))
+        XCTAssertTrue(sheetText.contains("private struct ChordInkReviewButton: View"))
+        XCTAssertTrue(sheetText.contains("acceptsDirectTouches: true"))
+        XCTAssertTrue(sheetText.contains(".frame(height: buttonHeight)"))
+        XCTAssertTrue(actionButtonText.contains("var acceptsDirectTouches = false"))
+        XCTAssertTrue(actionButtonText.contains("final class PencilOnlyUIButton"))
+        XCTAssertTrue(actionButtonText.contains("override func beginTracking(_ touch: UITouch"))
+        XCTAssertTrue(actionButtonText.contains("event?.allTouches"))
+        XCTAssertTrue(actionButtonText.contains("PencilOnlyActionButtonInputPolicy.allowsButtonTouch"))
+        XCTAssertTrue(actionButtonText.contains("case .device:"))
+        XCTAssertTrue(actionButtonText.contains("return touchType == .pencil"))
+        XCTAssertTrue(actionButtonText.contains("case .simulator:"))
+        XCTAssertTrue(sheetText.contains("blockedTexts.contains(ChordInkManualEntryShortcut.chordRepeatText)"))
+        XCTAssertFalse(correctionSheetText.contains("Correct Chord"))
+        XCTAssertFalse(correctionSheetText.contains("Update the chord"))
+        XCTAssertFalse(correctionSheetText.contains("Make this rendered chord match the chart."))
+        XCTAssertFalse(correctionSheetText.contains("Text(\"Current\")"))
+        XCTAssertFalse(correctionSheetText.contains("Text(\"New\")"))
+        XCTAssertFalse(correctionSheetText.contains("Open keyboard for chord correction"))
+        XCTAssertFalse(correctionSheetText.contains("Update to \\("))
+    }
+
+    func testChordInkRenderIsExplicitDraftBatchOnly() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let hostText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/LeadSheetCanvasHostView.swift")
+        )
+        let editorText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/EditorView.swift")
+        )
+        let flowText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/ChordInkRecognitionFlow.swift")
+        )
+        let gesturePolicyText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/ChordInkTapConfirmGesturePolicy.swift")
+        )
+        let coordinatorText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/ChordInkDraftRenderCoordinator.swift")
+        )
+        let draftText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/ChordInkDraftPreview.swift")
+        )
+        let automaticPolicyURL = projectRoot
+            .appendingPathComponent("iChart/Features/Editor/Components/ChordInkAutomaticRecognitionPolicy.swift")
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: automaticPolicyURL.path))
+        XCTAssertTrue(hostText.contains("startDraftChordInkPreviewIfStable"))
+        // The editor delegates the synchronous live-drawing transaction to
+        // the canvas, rather than authorizing erasure from cached chart ink.
+        XCTAssertTrue(editorText.contains("chordDraftRenderCoordinator.render(chart: chart, state: committedState)"))
+        let atomicRenderText = try XCTUnwrap(
+            hostText.components(separatedBy: "func renderChordDraftAtomically(").last?
+                .components(separatedBy: "func rewriteChordDraftAtomically(").first
+        )
+        XCTAssertTrue(atomicRenderText.contains("let sourceDrawing = pageInkCanvasView.drawing"))
+        XCTAssertTrue(atomicRenderText.contains("currentDrawing: sourceDrawing"))
+        let consumptionGuard = try XCTUnwrap(atomicRenderText.range(of: "guard outcome.canConsumeSource else {"))
+        let guardOpen = atomicRenderText.index(before: consumptionGuard.upperBound)
+        var braceDepth = 0
+        var guardClose: String.Index?
+        for index in atomicRenderText[guardOpen...].indices {
+            if atomicRenderText[index] == "{" { braceDepth += 1 }
+            if atomicRenderText[index] == "}" {
+                braceDepth -= 1
+                if braceDepth == 0 {
+                    guardClose = index
+                    break
+                }
+            }
+        }
+        let rejectionEnd = try XCTUnwrap(guardClose)
+        let rejectedBranch = String(atomicRenderText[guardOpen...rejectionEnd])
+        // Read-only diagnostics may observe a rejection. They must not allow
+        // that branch to consume the live canvas before returning the outcome.
+        XCTAssertTrue(rejectedBranch.contains("return outcome"))
+        XCTAssertFalse(rejectedBranch.contains("clearChordDraftInkCanvas()"))
+        XCTAssertFalse(rejectedBranch.contains("recordPendingPersistedInk("))
+        let canvasConsumption = try XCTUnwrap(atomicRenderText.range(of: "clearChordDraftInkCanvas()"))
+        XCTAssertLessThan(rejectionEnd, canvasConsumption.lowerBound)
+        XCTAssertTrue(coordinatorText.contains("preparedChart.commitChordInkDraftBatch(state,"))
+        XCTAssertTrue(coordinatorText.contains("automaticContinuationSourceLayout: automaticContinuationSourceLayout"))
+        XCTAssertTrue(draftText.contains("barlineSpacingMode: ChordDraftBarlineSpacingMode = .drawn"))
+        XCTAssertTrue(draftText.contains("ChordInkDraftSourceCoveragePolicy.hasCompleteCoverage(chart: self, state: state)"))
+        XCTAssertTrue(hostText.contains("clearsDirtyAuthoringRole: flow != .draftPreview"))
+        XCTAssertTrue(hostText.contains("clearChordDraftInkCanvas()"))
+        XCTAssertTrue(editorText.contains("chordDraftRenderInvalidationRequestID = UUID()"))
+        XCTAssertTrue(flowText.contains("case tapToConfirm"))
+        XCTAssertTrue(flowText.contains("case .draftPreview, .tapToConfirm:"))
+        XCTAssertFalse(flowText.contains("return true"))
+        XCTAssertFalse(hostText.contains("startTapConfirmedChordInkRecognition"))
+        XCTAssertFalse(hostText.contains("ChordInkTapConfirmGesturePolicy.shouldConfirmOutsideLaneTap"))
+        XCTAssertFalse(hostText.contains("scheduleChordInkRecognition"))
+        XCTAssertFalse(hostText.contains("schedulePassiveChordInkPersistence"))
+        XCTAssertFalse(hostText.contains(".automaticPreview"))
+        XCTAssertFalse(hostText.contains("ChordInkAutomaticRecognitionPolicy"))
+        XCTAssertFalse(hostText.contains("continuationGrace"))
+        XCTAssertFalse(hostText.contains("shouldConfirmChordInkTap"))
+        XCTAssertFalse(hostText.contains("currentChordInkBoundsInView"))
+        XCTAssertFalse(gesturePolicyText.contains("shouldConfirmOutsideLaneGesture"))
+    }
+
+    func testSettingsKeepAccountIdentityNonEditable() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let libraryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Library/LibraryView.swift")
+        )
+
+        XCTAssertFalse(libraryText.contains("User Info"))
+        XCTAssertFalse(libraryText.contains("IChartUserInfoSettings"))
+        XCTAssertFalse(libraryText.contains("@State private var userEmail"))
+        XCTAssertFalse(libraryText.contains("@State private var userPhone"))
+        XCTAssertFalse(libraryText.contains("Save Profile"))
+        XCTAssertFalse(libraryText.contains("@State private var userAddress"))
+        XCTAssertFalse(libraryText.contains("Mailing address"))
+        XCTAssertFalse(libraryText.contains("title: \"Address\""))
+        XCTAssertFalse(libraryText.contains("iChartUserEmail"))
+        XCTAssertFalse(libraryText.contains("iChartUserPhone"))
+        XCTAssertFalse(libraryText.contains("iChartUserAddress"))
+        XCTAssertFalse(libraryText.contains("iChartUserPaymentSummary"))
+        XCTAssertFalse(libraryText.contains("Payment Info"))
+        XCTAssertTrue(libraryText.contains("title: \"Account\""))
+        XCTAssertTrue(libraryText.contains("Complete Account Identity"))
+        XCTAssertTrue(libraryText.contains("Save Account Name"))
+        XCTAssertTrue(libraryText.contains("Sign Out"))
+        XCTAssertTrue(libraryText.contains("Delete Account"))
+        XCTAssertTrue(libraryText.contains("delete-account-button"))
+        XCTAssertTrue(libraryText.contains("isShowingDeleteAccountConfirmation"))
+        XCTAssertTrue(libraryText.contains("App Store subscriptions and billing are managed by Apple"))
+        XCTAssertTrue(libraryText.contains("title: \"Email\""))
+        XCTAssertTrue(libraryText.contains("title: \"Name\""))
+        XCTAssertTrue(libraryText.contains("This page will stay here until iChart confirms your email link."))
+        XCTAssertTrue(libraryText.contains("Open Mail on this iPad."))
+        XCTAssertTrue(libraryText.contains("Find the iChart verification email"))
+        XCTAssertTrue(libraryText.contains("Tap Verify iChart Account"))
+        XCTAssertTrue(libraryText.contains("Tap Return to iChart on the browser page"))
+        XCTAssertTrue(libraryText.contains("Waiting for email verification..."))
+        XCTAssertTrue(libraryText.contains("Email Didn't Arrive?"))
+        XCTAssertTrue(libraryText.contains("Send Replacement Email"))
+        XCTAssertFalse(libraryText.contains("If you do not see the email, tap Send Verification Email."))
+        XCTAssertFalse(libraryText.contains("I Tapped the Email Link"))
+        XCTAssertFalse(libraryText.contains("showSignInAfterEmailLink"))
+        XCTAssertFalse(libraryText.contains("I Verified, Sign In"))
+    }
+
+    func testForumUGCSafetyControlsArePresent() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let libraryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Library/LibraryView.swift")
+        )
+        let forumStoreText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/App/Forum/IChartForumStore.swift")
+        )
+        let migrationText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/migrations/20260729175642_forum_user_blocks.sql")
+        )
+
+        XCTAssertTrue(libraryText.contains("Label(\"Safety\", systemImage: \"flag\")"))
+        XCTAssertTrue(libraryText.contains("Label(\"Block Contributor\", systemImage: \"person.crop.circle.badge.xmark\")"))
+        XCTAssertTrue(libraryText.contains("Label(\"Block Commenter\", systemImage: \"person.crop.circle.badge.xmark\")"))
+        XCTAssertTrue(libraryText.contains("\"Block Contributor?\""))
+        XCTAssertTrue(libraryText.contains("ForumBlockConfirmationRequest"))
+        XCTAssertTrue(libraryText.contains("block contributors they no longer want to see"))
+        XCTAssertTrue(forumStoreText.contains("func blockUser(ownerID: UUID) async throws"))
+        XCTAssertTrue(forumStoreText.contains(".from(\"forum_user_blocks\")"))
+        XCTAssertTrue(forumStoreText.contains("ForumUserBlockInsert(ownerID: ownerID, blockedOwnerID: blockedOwnerID)"))
+        XCTAssertTrue(migrationText.contains("create table if not exists public.forum_user_blocks"))
+        XCTAssertTrue(migrationText.contains("alter table public.forum_user_blocks enable row level security"))
+        XCTAssertTrue(migrationText.contains("owner_id <> blocked_owner_id"))
+        XCTAssertTrue(migrationText.contains("forum_chart_posts_select_active_pro_visible"))
+        XCTAssertTrue(migrationText.contains("forum_comments_select_active_pro_visible"))
+        XCTAssertTrue(migrationText.contains("or (status = 'pending' and owner_id = (select auth.uid()))"))
+        XCTAssertTrue(migrationText.contains("blocked_owner_id = forum_chart_posts.owner_id"))
+        XCTAssertTrue(migrationText.contains("blocked_owner_id = forum_comments.owner_id"))
+    }
+
+    func testRhythmDiagnosticsAreOptInAndLocalOnly() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let libraryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Library/LibraryView.swift")
+        )
+        let editorText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/EditorView.swift")
+        )
+        let hostText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/LeadSheetCanvasHostView.swift")
+        )
+        let diagnosticsText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Services/RhythmRecognitionDiagnostics.swift")
+        )
+        let pipelinePreviewText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Models/RhythmRecognitionPipelinePreview.swift")
+        )
+
+        XCTAssertTrue(libraryText.contains("Rhythm Diagnostics"))
+        XCTAssertTrue(libraryText.contains("Diagnostics stay on this device in Application Support and do not upload chart ink."))
+        XCTAssertTrue(libraryText.contains("Experimental pipeline preview"))
+        XCTAssertTrue(libraryText.contains("Share Log"))
+        XCTAssertTrue(libraryText.contains("Clear Log"))
+        XCTAssertTrue(libraryText.contains("#if DEBUG"))
+        XCTAssertTrue(editorText.contains("rhythmDiagnosticStatusChip"))
+        XCTAssertTrue(editorText.contains("onRhythmicNotationPreviewChanged: isDedicatedRhythmToolAvailable"))
+        XCTAssertTrue(hostText.contains("RhythmRecognitionDiagnosticsRecorder.live().append(event)"))
+        XCTAssertTrue(diagnosticsText.contains("iChartRhythmRecognitionDiagnosticsEnabled"))
+        XCTAssertTrue(diagnosticsText.contains("#if DEBUG && targetEnvironment(simulator)"))
+        XCTAssertTrue(diagnosticsText.contains("#else\n        false\n        #endif"))
+        XCTAssertTrue(diagnosticsText.contains("rhythm-recognition-diagnostics.jsonl"))
+        XCTAssertTrue(diagnosticsText.contains("pipelinePreview"))
+        XCTAssertTrue(diagnosticsText.contains("maxLogSizeBytes"))
+        XCTAssertTrue(pipelinePreviewText.contains("RhythmRecognitionPipelinePreview"))
+        XCTAssertTrue(pipelinePreviewText.contains("statusText"))
+        XCTAssertFalse(diagnosticsText.contains("Supabase"))
+        XCTAssertFalse(diagnosticsText.contains("upload"))
+        XCTAssertFalse(pipelinePreviewText.contains("Supabase"))
+        XCTAssertFalse(pipelinePreviewText.contains("upload"))
+    }
+
+    func testPerformanceTraceIsLocalSupportOnlyForTestFlightQA() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let appSourceRoot = projectRoot.appendingPathComponent("iChart")
+        let appText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("App/IChartApp.swift")
+        )
+        let traceText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Services/IChartPerformanceTrace.swift")
+        )
+        let libraryText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Library/LibraryView.swift")
+        )
+        let storeText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Library/ChartLibraryStore.swift")
+        )
+        let setupText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Editor/Components/ChartSetupSheetView.swift")
+        )
+        let editorText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Editor/EditorView.swift")
+        )
+        let hostText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Editor/Components/LeadSheetCanvasHostView.swift")
+        )
+
+        XCTAssertTrue(traceText.contains("performance-trace.jsonl"))
+        XCTAssertTrue(traceText.contains("applicationSupportDirectory"))
+        XCTAssertTrue(traceText.contains("maxTraceSizeBytes"))
+        XCTAssertTrue(traceText.contains("Bundle.main.bundleIdentifier == \"com.ichart.app\""))
+        XCTAssertTrue(traceText.contains("IChartPerformanceTraceEvent"))
+        XCTAssertTrue(appText.contains("IChartPerformanceTrace.start(\"app.init\")"))
+        XCTAssertTrue(appText.contains("IChartPerformanceTrace.start(\"app.bootstrap\")"))
+        XCTAssertTrue(libraryText.contains("IChartPerformanceTrace.start("))
+        XCTAssertTrue(libraryText.contains("\"library.createNewChart\""))
+        XCTAssertTrue(libraryText.contains("Share Performance Report"))
+        XCTAssertTrue(libraryText.contains("Timing and diagnostic context. Stays on this iPad until you share it."))
+        XCTAssertTrue(storeText.contains("\"chartLibrary.createBlankChart\""))
+        XCTAssertTrue(setupText.contains("\"chartSetup.applySetup\""))
+        XCTAssertTrue(setupText.contains("\"chartSetup.completeInitialSetup\""))
+        XCTAssertTrue(editorText.contains("\"editor.canvas.firstAppear\""))
+        XCTAssertTrue(hostText.contains("\"editor.canvas.layout\""))
+        XCTAssertTrue(hostText.contains("\"editor.canvas.firstDraw\""))
+        XCTAssertTrue(hostText.contains("\"editor.renderer.drawStaffLines\""))
+        XCTAssertTrue(hostText.contains("\"editor.renderer.drawClef\""))
+        XCTAssertTrue(hostText.contains("\"editor.renderer.drawTimeSignature\""))
+        XCTAssertFalse(traceText.contains("Supabase"))
+        XCTAssertFalse(traceText.contains("URLSession"))
+        XCTAssertFalse(traceText.contains(".upload("))
+    }
+
+    func testDeveloperOnlySurfacesStayOutOfReleaseBuilds() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let appSourceRoot = projectRoot.appendingPathComponent("iChart")
+        let sourceFileURLs = try XCTUnwrap(
+            FileManager.default.enumerator(
+                at: appSourceRoot,
+                includingPropertiesForKeys: nil
+            )?.compactMap { $0 as? URL }
+                .filter { $0.pathExtension == "swift" }
+        )
+        let appSourceText = try sourceFileURLs
+            .map { try String(contentsOf: $0) }
+            .joined(separator: "\n")
+        let projectText = try String(contentsOf: projectRoot.appendingPathComponent("project.yml"))
+        let libraryText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Library/LibraryView.swift")
+        )
+        let upgradeText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Editor/Components/UpgradeSheetView.swift")
+        )
+        let chordSheetText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Editor/Components/ChordInkSheetViews.swift")
+        )
+        let forumStoreText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("App/Forum/IChartForumStore.swift")
+        )
+        let authStorageText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("App/Supabase/IChartSupabaseAuthLocalStorage.swift")
+        )
+        let chordDiagnosticsText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Services/ChordEntryDiagnostics.swift")
+        )
+        let rhythmDiagnosticsText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Services/RhythmRecognitionDiagnostics.swift")
+        )
+        let timingText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Editor/Components/LeadSheetChordInkRecognitionTiming.swift")
+        )
+        let canvasHostText = try String(
+            contentsOf: appSourceRoot
+                .appendingPathComponent("Features/Editor/Components/LeadSheetCanvasHostView.swift")
+        )
+
+        XCTAssertFalse(appSourceText.contains("#if DEBUG || targetEnvironment(simulator)"))
+        XCTAssertTrue(libraryText.contains("#if DEBUG"))
+        XCTAssertTrue(libraryText.contains("title: \"Diagnostics\""))
+        XCTAssertTrue(libraryText.contains("Sample Forum Charts"))
+        XCTAssertTrue(upgradeText.contains("#if DEBUG && targetEnvironment(simulator)"))
+        XCTAssertTrue(upgradeText.contains("Use Pro Preview"))
+        XCTAssertTrue(chordSheetText.contains("#if DEBUG && targetEnvironment(simulator)"))
+        XCTAssertTrue(chordSheetText.contains("Ink sample capture"))
+        XCTAssertTrue(chordSheetText.contains("Copy Ink Sample"))
+        XCTAssertTrue(forumStoreText.contains("#if DEBUG"))
+        XCTAssertTrue(forumStoreText.contains("iChartForumQASamplePDFs"))
+        XCTAssertTrue(forumStoreText.contains("#if DEBUG\nprivate actor IChartForumQASampleService"))
+        XCTAssertTrue(authStorageText.contains("#if DEBUG && targetEnvironment(simulator)"))
+        XCTAssertTrue(chordDiagnosticsText.contains("#if DEBUG && targetEnvironment(simulator)\nextension ChordEntryDiagnosticsRecorder"))
+        XCTAssertTrue(rhythmDiagnosticsText.contains("#if DEBUG && targetEnvironment(simulator)\nextension RhythmRecognitionDiagnosticsRecorder"))
+        XCTAssertTrue(timingText.contains("#if DEBUG && targetEnvironment(simulator)"))
+        XCTAssertTrue(canvasHostText.contains("#if DEBUG && targetEnvironment(simulator)"))
+        XCTAssertTrue(projectText.contains("SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG"))
+        XCTAssertFalse(projectText.contains("Release:\n      SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG"))
+        XCTAssertFalse(projectText.contains("- path: StoreKit\n        buildPhase: resources"))
+    }
+
+    func testRhythmRecognitionOverhaulRetiresDedicatedToolForFreeWriteFallback() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let gateText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/RhythmRecognitionOverhaulGate.swift")
+        )
+        let hostText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/LeadSheetCanvasHostView.swift")
+        )
+        let editorText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/EditorView.swift")
+        )
+        let modeText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/EditorCanvasMode.swift")
+        )
+        let mapText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Models/MeasureRhythmMapping.swift")
+        )
+        let parkingPlanText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/ichart-rhythm-recognition-overhaul-parking-2026-06-22.md")
+        )
+
+        XCTAssertTrue(gateText.contains("shipsDedicatedRhythmTool = false"))
+        XCTAssertTrue(gateText.contains("isConstrainedRetiredGlyphPrimaryForSimpleMeters = false"))
+        XCTAssertTrue(editorText.contains("releaseSafeInitialCanvasMode"))
+        XCTAssertTrue(editorText.contains("if isDedicatedRhythmToolAvailable"))
+        XCTAssertTrue(editorText.contains("activateFreeHandForRetiredRhythmTool()"))
+        XCTAssertTrue(editorText.contains("onRhythmicNotationPreviewChanged: isDedicatedRhythmToolAvailable"))
+        XCTAssertTrue(hostText.contains("persistRhythmicNotationInkIfStable"))
+        XCTAssertTrue(hostText.contains("LeadSheetRhythmicNotationLiveAdvisoryRecognitionPolicy"))
+        XCTAssertTrue(hostText.contains("LeadSheetRhythmicNotationAdvisoryPolicy"))
+        XCTAssertTrue(hostText.contains("chartByPersistingLiveDrawing"))
+        XCTAssertTrue(modeText.contains("case rhythmicNotationEdit"))
+        XCTAssertTrue(modeText.contains("allowsDirectRhythmicNotationInk"))
+        XCTAssertTrue(modeText.contains("&& RhythmRecognitionOverhaulGate.shipsDedicatedRhythmTool"))
+        XCTAssertTrue(mapText.contains("struct MeasureRhythmMap"))
+        XCTAssertTrue(mapText.contains("struct MeasureRhythmSlot"))
+        XCTAssertTrue(parkingPlanText.contains("Current Recognition System"))
+        XCTAssertTrue(parkingPlanText.contains("V1 ships without the dedicated Rhythm tool"))
+        XCTAssertTrue(parkingPlanText.contains("Keep Active"))
+        XCTAssertTrue(parkingPlanText.contains("Free-Write page ink for rhythm notation"))
+        XCTAssertTrue(parkingPlanText.contains("Build select input for rhythm notation as the V1.2 path before reconsidering"))
+    }
+
+    func testRhythmToolClearActionIsDormantWhileDedicatedToolIsRetired() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let editorText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/EditorView.swift")
+        )
+
+        XCTAssertTrue(editorText.contains("rhythmActiveToolActions"))
+        XCTAssertTrue(editorText.contains("canClearRenderedRhythmAtSelectedMeasure"))
+        XCTAssertTrue(editorText.contains("handleClearRenderedRhythmAtSelectedMeasure"))
+        XCTAssertTrue(editorText.contains("clearRenderedRhythm(in measureID: UUID)"))
+        XCTAssertTrue(editorText.contains("clearMeasureRhythmicNotation(for: measureID, clearRhythmMap: true)"))
+        XCTAssertTrue(editorText.contains("guard isDedicatedRhythmToolAvailable else"))
+        XCTAssertTrue(editorText.contains("Use Free Ink for page-level handwritten rhythm notes in this version."))
+    }
+
+    func testRhythmRecognitionReferenceIsBackendOnly() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let libraryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Library/LibraryView.swift")
+        )
+        let referenceText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/rhythm-recognition/backend-rhythm-reference.md")
+        )
+        let visualBridgeText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/rhythm-recognition/visual-ink-reference-bridge.md")
+        )
+        let decisionContractText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/rhythm-recognition/recognizer-decision-contract.md")
+        )
+        let goldenFixtureText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/rhythm-recognition/golden-fixture-matrix.md")
+        )
+        let referenceReadmeText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/rhythm-recognition/references/README.md")
+        )
+        let simpleReferenceURL = projectRoot
+            .appendingPathComponent("docs/rhythm-recognition/references/simple-rest-and-rhythm.jpg")
+        let combinationsReferenceURL = projectRoot
+            .appendingPathComponent("docs/rhythm-recognition/references/rhythm-combinations.pdf")
+
+        XCTAssertFalse(libraryText.contains("case rhythmReference"))
+        XCTAssertFalse(libraryText.contains("IChartRhythmReferencePage"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: simpleReferenceURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: combinationsReferenceURL.path))
+        XCTAssertTrue(referenceReadmeText.contains("not user-facing app assets"))
+        XCTAssertTrue(referenceReadmeText.contains("simple-rest-and-rhythm.jpg"))
+        XCTAssertTrue(referenceReadmeText.contains("rhythm-combinations.pdf"))
+        XCTAssertTrue(referenceText.contains("Backend Rhythm Recognition Reference"))
+        XCTAssertTrue(referenceText.contains("dotted quarter - eighth - eighth - dotted quarter"))
+        XCTAssertTrue(referenceText.contains("RhythmRecognitionContextRules"))
+        XCTAssertTrue(referenceText.contains("visual-ink-reference-bridge.md"))
+        XCTAssertTrue(referenceText.contains("recognizer-decision-contract.md"))
+        XCTAssertTrue(referenceText.contains("golden-fixture-matrix.md"))
+        XCTAssertTrue(referenceText.contains("LilyPond Notation Reference, Beams"))
+        XCTAssertTrue(referenceText.contains("MuseScore Studio Handbook, Beams"))
+        XCTAssertTrue(referenceText.contains("Steinberg Dorico Help"))
+        XCTAssertTrue(visualBridgeText.contains("Visual Ink Reference Bridge"))
+        XCTAssertTrue(visualBridgeText.contains("Eighth Rest Versus Eighth Note Decision Rule"))
+        XCTAssertTrue(visualBridgeText.contains("Do not let a neighboring note's head satisfy the notehead requirement"))
+        XCTAssertTrue(visualBridgeText.contains("Dotted Quarter - Eighth - Eighth - Dotted Quarter"))
+        XCTAssertTrue(decisionContractText.contains("Recognizer Decision Contract"))
+        XCTAssertTrue(decisionContractText.contains("Hard Negative Rules"))
+        XCTAssertTrue(goldenFixtureText.contains("Golden Fixture Matrix"))
+        XCTAssertTrue(goldenFixtureText.contains("eighth-rest-plus-eighth-not-note-pair"))
+        XCTAssertTrue(referenceReadmeText.contains("visual-ink-reference-bridge.md"))
+        XCTAssertTrue(referenceReadmeText.contains("recognizer-decision-contract.md"))
+        XCTAssertTrue(referenceReadmeText.contains("golden-fixture-matrix.md"))
+    }
+
+    func testManualTextEntrySurfacesExposeReachableSystemInput() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let libraryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Library/LibraryView.swift")
+        )
+        let headerSheetText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/ChartHeaderSheetView.swift")
+        )
+        let editorText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/EditorView.swift")
+        )
+        let chordSheetText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/ChordInkSheetViews.swift")
+        )
+        let actionButtonText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/PencilOnlyActionButton.swift")
+        )
+        let typedInputText = try String(contentsOf: projectRoot
+            .appendingPathComponent("iChart/Features/Editor/Components/IChartTypedTextInput.swift"))
+
+        XCTAssertTrue(libraryText.contains("IChartKeyboardFocusButton"))
+        XCTAssertTrue(libraryText.contains("field: .firstName"))
+        XCTAssertTrue(libraryText.contains("accessibilityLabel: \"Open keyboard for \\(title)\""))
+        XCTAssertTrue(libraryText.contains("IChartTypedTextField(placeholder: \"Chart title\""))
+        XCTAssertTrue(libraryText.contains("IChartTypedTextField(placeholder: \"Song or project title\""))
+        XCTAssertTrue(libraryText.contains("IChartTypedTextField(placeholder: \"Horn section chart\""))
+        XCTAssertFalse(libraryText.contains("Open keyboard for chart title"))
+        XCTAssertFalse(libraryText.contains("Open keyboard for project title"))
+        XCTAssertFalse(libraryText.contains("Open keyboard for variant title"))
+        XCTAssertTrue(headerSheetText.contains("IChartTypedTextField("))
+        XCTAssertTrue(headerSheetText.contains("@State private var focusedField"))
+        XCTAssertTrue(headerSheetText.contains("focusedField == field"))
+        XCTAssertTrue(headerSheetText.contains("onNext: field.next.map"))
+        XCTAssertTrue(headerSheetText.contains("requestKeyboard(for: next)"))
+        XCTAssertFalse(headerSheetText.contains("keyboardFocusRequestIDByField"))
+        XCTAssertFalse(headerSheetText.contains("Use keyboard for header text"))
+        XCTAssertTrue(headerSheetText.contains("VStack(spacing: 0)"))
+        XCTAssertEqual(headerSheetText.components(separatedBy: "Divider()").count - 1, 2)
+        XCTAssertFalse(headerSheetText.contains("Label(\"Keyboard\", systemImage: \"keyboard\")"))
+        XCTAssertFalse(headerSheetText.contains("Open keyboard for \\(title)"))
+        XCTAssertFalse(headerSheetText.contains("ChartHeaderSystemTextField"))
+        XCTAssertFalse(headerSheetText.contains("inputAssistantItem"))
+        XCTAssertFalse(headerSheetText.contains("requestKeyboardFocus"))
+        XCTAssertFalse(headerSheetText.contains(".task {"))
+        XCTAssertFalse(headerSheetText.contains("Header Mode"))
+        XCTAssertFalse(headerSheetText.contains("headerModePicker"))
+        XCTAssertFalse(headerSheetText.contains("draftHeaderInputMode"))
+        XCTAssertFalse(headerSheetText.contains("setHeaderInputMode"))
+        XCTAssertTrue(headerSheetText.contains("Write with Scribble, or tap the keyboard icon to type"))
+        XCTAssertTrue(headerSheetText.contains("ChartHeaderSheetPresentationModifier"))
+        XCTAssertTrue(headerSheetText.contains("private let compactHeight: CGFloat = 330"))
+        XCTAssertTrue(headerSheetText.contains(".presentationDetents([.height(compactHeight), .large])"))
+        XCTAssertTrue(headerSheetText.contains(".presentationDragIndicator(.visible)"))
+        XCTAssertTrue(editorText.contains("CueTextEntryPanelView("))
+        XCTAssertTrue(editorText.contains("IChartTypedTextView"))
+        XCTAssertTrue(editorText.contains("keyboardFocusRequestID"))
+        XCTAssertTrue(editorText.contains("UIViewRepresentable"))
+        XCTAssertTrue(typedInputText.contains("becomeFirstResponder()"))
+        XCTAssertTrue(typedInputText.contains("view.isScrollEnabled = true"))
+        XCTAssertTrue(typedInputText.contains("UIScribbleInteractionDelegate"))
+        XCTAssertTrue(typedInputText.contains("UITextInputContext.current()"))
+        XCTAssertTrue(typedInputText.contains("current.isPencilInputExpected = false"))
+        XCTAssertTrue(typedInputText.contains("keyboardButton = IChartNativeKeyboardFocus.makeButton()"))
+        XCTAssertTrue(typedInputText.contains("rightViewMode = .always"))
+        XCTAssertFalse(typedInputText.contains("isHardwareKeyboardInputExpected ="))
+        XCTAssertFalse(typedInputText.contains("isDictationInputExpected ="))
+        XCTAssertEqual(typedInputText.components(separatedBy: "bounds.contains(location)").count - 1, 2)
+        XCTAssertFalse(typedInputText.contains("shouldBeginAt location: CGPoint) -> Bool { false }"))
+        XCTAssertTrue(editorText.contains("CueTextEntryPanelGeometry.panelWidth"))
+        XCTAssertTrue(editorText.contains("CueTextEntryPanelGeometry.panelHeight"))
+        XCTAssertTrue(editorText.contains("CueTextEntryPanelGeometry.headerHeight"))
+        XCTAssertTrue(editorText.contains("CueTextEntryPanelGeometry.inputHeight"))
+        XCTAssertFalse(editorText.contains("Color.black.opacity(0.14)"))
+        XCTAssertFalse(editorText.contains("Open keyboard for text entry"))
+        XCTAssertTrue(editorText.contains(".allowsHitTesting(!showingCueTextEntry)"))
+        XCTAssertTrue(editorText.contains(".contentShape(Rectangle())"))
+        XCTAssertTrue(editorText.contains("PencilOnlyActionButton(title: \"Cancel\", style: .plain)"))
+        XCTAssertTrue(editorText.contains("PencilOnlyActionButton("))
+        XCTAssertTrue(editorText.contains("title: actionTitle"))
+        XCTAssertTrue(actionButtonText.contains("final class PencilOnlyUIButton"))
+        XCTAssertTrue(actionButtonText.contains("PencilOnlyActionButtonInputPolicy.allowsButtonTouch"))
+        XCTAssertTrue(actionButtonText.contains("case .device:"))
+        XCTAssertTrue(actionButtonText.contains("return touchType == .pencil"))
+        XCTAssertTrue(actionButtonText.contains("case .simulator:"))
+        XCTAssertFalse(editorText.contains(".sheet(isPresented: $showingCueTextEntry)"))
+        XCTAssertFalse(editorText.contains(".presentationDetents([.height(275)])"))
+        XCTAssertFalse(chordSheetText.contains("Open keyboard for chord correction"))
+    }
+
+    func testApplePencilObjectMovePanRequiresMovableTarget() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let canvasHostText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/LeadSheetCanvasHostView.swift")
+        )
+
+        XCTAssertTrue(canvasHostText.contains("shouldReceive touch: UITouch"))
+        XCTAssertTrue(canvasHostText.contains("gestureRecognizer === renderedObjectMovePanRecognizer"))
+        XCTAssertTrue(canvasHostText.contains("LeadSheetObjectMoveTouchPolicy.allowsMovePan("))
+        XCTAssertTrue(canvasHostText.contains("startsOnMoveTarget: objectMovePanStartHitTarget(at: location)"))
+        XCTAssertFalse(canvasHostText.contains("touch.type == .pencil {"))
+    }
+
+    func testFirstRunAccountLandingIsMandatoryAndCollectsName() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let libraryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Library/LibraryView.swift")
+        )
+        let appRootText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/App/AppRootView.swift")
+        )
+        let authStoreText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/App/Auth/IChartAuthStore.swift")
+        )
+        let profileNamesMigrationText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/migrations/20260614183703_add_profile_names.sql")
+        )
+        let lockedProfileNamesMigrationText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/migrations/20260614183718_lock_profile_account_names.sql")
+        )
+        let rlsTestText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/tests/rls_smoke.sql")
+        )
+        let planPolicyText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/ichart-plan-policy-source-of-truth.md")
+        )
+
+        XCTAssertTrue(libraryText.contains("IChartFirstRunAccountLandingView"))
+        XCTAssertTrue(libraryText.contains("requiresNameForSignup: Bool = true"))
+        XCTAssertTrue(libraryText.contains("private enum IChartAccountEntryMode"))
+        XCTAssertTrue(libraryText.contains("initialEntryMode: IChartAccountEntryMode = .signIn"))
+        XCTAssertTrue(libraryText.contains("_entryMode = State(initialValue: initialEntryMode)"))
+        XCTAssertTrue(libraryText.contains("showsSignedInActions: false,\n                                    initialEntryMode: .createAccount"))
+        XCTAssertTrue(libraryText.contains("@State private var accountEntryPrompt: String?"))
+        XCTAssertTrue(libraryText.contains("Text(\"Sign In\").tag(IChartAccountEntryMode.signIn)"))
+        XCTAssertTrue(libraryText.contains("signInButton"))
+        XCTAssertTrue(libraryText.contains("Enter your email and password, then tap Sign In."))
+        XCTAssertTrue(libraryText.contains("validateCreateAccountInputs()"))
+        XCTAssertTrue(libraryText.contains("password.count < 8"))
+        XCTAssertTrue(libraryText.contains("Enter first name, last name, email, and a password with at least 8 characters. Then tap Create Account."))
+        XCTAssertTrue(libraryText.contains("Email Didn't Arrive?"))
+        XCTAssertTrue(libraryText.contains("Send Replacement Email"))
+        XCTAssertTrue(libraryText.contains("Replacement Email Sent"))
+        XCTAssertTrue(libraryText.contains("didSendVerificationRecoveryEmail"))
+        XCTAssertTrue(libraryText.contains("isSendingVerificationRecoveryEmail"))
+        XCTAssertTrue(libraryText.contains("didSendVerificationRecoveryEmail = await authStore.resendVerificationEmail()"))
+        XCTAssertFalse(libraryText.contains("didSendVerificationRecoveryEmail = true\n                        Task"))
+        XCTAssertTrue(libraryText.contains("Already Verified? Sign In"))
+        XCTAssertTrue(libraryText.contains("Use a Different Email"))
+        XCTAssertTrue(libraryText.contains("Use this only if no iChart email arrived after a few minutes."))
+        XCTAssertTrue(libraryText.contains("Do not tap anything else here after opening the email."))
+        XCTAssertFalse(libraryText.contains("Do not use old iChart emails"))
+        XCTAssertFalse(libraryText.contains("Send One New Email"))
+        XCTAssertTrue(libraryText.contains(".accessibilityIdentifier(\"account-entry-prompt\")"))
+        XCTAssertTrue(libraryText.contains("TextField(placeholder, text: $text)"))
+        XCTAssertTrue(libraryText.contains("SecureField(placeholder, text: $text)"))
+        XCTAssertTrue(libraryText.contains("IChartAccountScribbleSuppressionBridge"))
+        XCTAssertTrue(libraryText.contains("func scribbleInteraction("))
+        XCTAssertTrue(libraryText.contains("shouldBeginAt location: CGPoint"))
+        XCTAssertTrue(libraryText.contains(") -> Bool {\n            false\n        }"))
+        XCTAssertFalse(libraryText.contains("IChartAccountScopedScribbleTextField"))
+        XCTAssertFalse(libraryText.contains("IChartAccountScopedScribbleUITextField"))
+        XCTAssertFalse(libraryText.contains("requiresPhoneForSignup"))
+        XCTAssertTrue(libraryText.contains("requiresNameForSignup: true"))
+        XCTAssertTrue(libraryText.contains("First Name"))
+        XCTAssertTrue(libraryText.contains("Last Name"))
+        XCTAssertFalse(libraryText.contains("field: .phone"))
+        XCTAssertFalse(libraryText.contains("phone: phone"))
+        XCTAssertFalse(libraryText.contains("IChartSettingsLockedValueRow"))
+        XCTAssertFalse(libraryText.contains("Set at account creation"))
+        XCTAssertTrue(libraryText.contains(".fullScreenCover(isPresented: $showingAccountLanding)"))
+        XCTAssertTrue(libraryText.contains(".frame(maxWidth: 640)"))
+        XCTAssertTrue(libraryText.contains(".frame(minHeight: proxy.size.height, alignment: .center)"))
+        XCTAssertTrue(libraryText.contains(".interactiveDismissDisabled(true)"))
+        XCTAssertTrue(libraryText.contains("showsSignedInActions: false"))
+        XCTAssertTrue(libraryText.contains("authStore.state.isVerifiedSignedIn"))
+        XCTAssertTrue(libraryText.contains("authStore.hasCompleteAccountIdentity"))
+        XCTAssertTrue(libraryText.contains("Verification complete. Opening iChart..."))
+        XCTAssertTrue(libraryText.contains("startLaunchAnimationIfReady()"))
+        XCTAssertFalse(libraryText.contains("Label(\"Continue\", systemImage: \"arrow.right\")"))
+        XCTAssertTrue(libraryText.contains("IChartLaunchScreenView("))
+        XCTAssertTrue(libraryText.contains("IChartLaunchHandwritingSample.bundledCanonicalLaunchSample()"))
+        XCTAssertTrue(libraryText.contains("completeFirstRunAccountLanding"))
+        XCTAssertTrue(libraryText.contains("hasSeenAccountLanding = true"))
+        XCTAssertFalse(libraryText.contains("Continue to Charts"))
+        XCTAssertFalse(libraryText.contains("Button(\"Close\")"))
+        XCTAssertTrue(appRootText.contains("hasSeenAccountLandingKey"))
+        XCTAssertTrue(appRootText.contains("UserDefaults.standard.bool(forKey: Self.hasSeenAccountLandingKey)"))
+        XCTAssertTrue(appRootText.contains("struct IChartLaunchScreenView"))
+        XCTAssertTrue(authStoreText.contains("firstName = \"first_name\""))
+        XCTAssertTrue(authStoreText.contains("lastName = \"last_name\""))
+        XCTAssertFalse(authStoreText.contains("metadata[\"phone\"]"))
+        XCTAssertTrue(authStoreText.contains("data: signupMetadata(firstName: firstName, lastName: lastName)"))
+        XCTAssertTrue(authStoreText.contains("let email = restorablePendingVerificationEmail()"))
+        XCTAssertTrue(authStoreText.contains("private func restorablePendingVerificationEmail() -> String?"))
+        XCTAssertTrue(authStoreText.contains("@discardableResult\n    func resendVerificationEmail() async -> Bool"))
+        XCTAssertTrue(authStoreText.contains("var didSend = false"))
+        XCTAssertTrue(authStoreText.contains("didSend = true"))
+        XCTAssertTrue(authStoreText.contains("return didSend && errorMessage == nil"))
+        XCTAssertTrue(authStoreText.contains("flow.kind == .signup"))
+        XCTAssertTrue(authStoreText.contains("Date().timeIntervalSince(flow.createdAt) <= Self.pendingAuthFlowLifetime"))
+        XCTAssertTrue(authStoreText.contains("clearRememberedPendingVerificationEmail()"))
+        let restorablePendingEmailText = try XCTUnwrap(
+            authStoreText
+                .components(separatedBy: "private func restorablePendingVerificationEmail() -> String? {")
+                .dropFirst()
+                .first?
+                .components(separatedBy: "private func clearRememberedPendingVerificationEmail()")
+                .first
+        )
+        XCTAssertTrue(restorablePendingEmailText.contains("guard flow.kind == .signup else {\n            clearRememberedPendingVerificationEmail()\n            return nil\n        }"))
+        XCTAssertFalse(restorablePendingEmailText.contains("flow.kind == .signup,\n              Date().timeIntervalSince"))
+        XCTAssertFalse(authStoreText.contains("firstName = profile.firstName"))
+        XCTAssertFalse(authStoreText.contains("lastName = profile.lastName"))
+        XCTAssertTrue(profileNamesMigrationText.contains("add column if not exists first_name text"))
+        XCTAssertTrue(profileNamesMigrationText.contains("add column if not exists last_name text"))
+        XCTAssertTrue(profileNamesMigrationText.contains("new.raw_user_meta_data ->> 'first_name'"))
+        XCTAssertTrue(profileNamesMigrationText.contains("new.raw_user_meta_data ->> 'last_name'"))
+        XCTAssertTrue(lockedProfileNamesMigrationText.contains("revoke update (first_name, last_name)"))
+        XCTAssertTrue(lockedProfileNamesMigrationText.contains("private.lock_profile_account_names"))
+        XCTAssertTrue(rlsTestText.contains("legacy profile cannot partially complete account name fields"))
+        XCTAssertTrue(rlsTestText.contains("legacy profile can complete blank account name fields once"))
+        XCTAssertTrue(rlsTestText.contains("client cannot rewrite locked profile name fields after completion"))
+        XCTAssertTrue(rlsTestText.contains("client cannot update locked email or legacy phone fields"))
+        XCTAssertTrue(rlsTestText.contains("client cannot update server-owned payment summary fields"))
+        XCTAssertTrue(planPolicyText.contains("In-app account creation requires first name, last name, email, and password"))
+        XCTAssertTrue(planPolicyText.contains("Name and email are locked account identity fields after signup"))
+        XCTAssertTrue(planPolicyText.contains("Phone setup and verification are legacy/post-v1"))
+    }
+
+    func testHomeShellPrimaryControlsKeepExplicitHitAreas() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let libraryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Library/LibraryView.swift")
+        )
+
+        XCTAssertTrue(libraryText.contains(".frame(minWidth: 180, minHeight: 44)"))
+        XCTAssertTrue(libraryText.contains(".contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))"))
+        XCTAssertTrue(libraryText.contains("IChartHomeSidebarButton"))
+        XCTAssertTrue(libraryText.contains("IChartNewChartControl"))
+        XCTAssertTrue(libraryText.contains("IChartHomeUpdateStamp"))
+        XCTAssertTrue(libraryText.contains("IChartBuildIdentity"))
+        XCTAssertTrue(libraryText.contains("\"v\\(version) (\\(buildNumber))\""))
+        XCTAssertTrue(libraryText.contains("\"Version \\(version), build \\(buildNumber)\""))
+        XCTAssertFalse(libraryText.contains("Aug 14, 2026"))
+        XCTAssertFalse(libraryText.contains("August 14, 2026"))
+        XCTAssertTrue(libraryText.contains("CFBundleVersion"))
+    }
+
+    func testEditorDelayedAndContinuationActionsShowVisualFeedback() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let editorText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/EditorView.swift")
+        )
+
+        XCTAssertTrue(editorText.contains("if pendingRepeatStartMeasureID != nil"))
+        XCTAssertTrue(editorText.contains("title: \"End Repeat\""))
+        XCTAssertTrue(editorText.contains("} else if let pendingEndingType"))
+        XCTAssertTrue(editorText.contains("title: \"Delete To\""))
+        XCTAssertTrue(editorText.contains("isSelected: true"))
+        XCTAssertTrue(editorText.contains("let selectedBackgroundColor = isDestructive"))
+        XCTAssertTrue(editorText.contains("? Color.red"))
+        XCTAssertTrue(editorText.contains("IChartEditorOperationOverlay"))
+        XCTAssertTrue(editorText.contains("runEditorOperation(\"Updating page style...\""))
+        XCTAssertTrue(editorText.contains("runEditorOperation(\"Updating engraving...\""))
+    }
+
+    func testHostedSupportSiteRoutesToRealContactPath() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let siteRoot = projectRoot.appendingPathComponent("public-site/useichart")
+        let supportText = try String(contentsOf: siteRoot.appendingPathComponent("support.html"))
+        let privacyText = try String(contentsOf: siteRoot.appendingPathComponent("privacy.html"))
+        let termsText = try String(contentsOf: siteRoot.appendingPathComponent("terms.html"))
+        let verifyText = try String(contentsOf: siteRoot.appendingPathComponent("verify.html"))
+        let indexText = try String(contentsOf: siteRoot.appendingPathComponent("index.html"))
+        let htaccessText = try String(contentsOf: siteRoot.appendingPathComponent(".htaccess"))
+        let rewrittenRouteFallbacks = [
+            ("privacy", "/privacy.html", "Privacy Policy - iChart"),
+            ("support", "/support.html", "Support - iChart"),
+            ("terms", "/terms.html", "Terms of Use - iChart"),
+            ("verify", "/verify.html", "Secure Account Verification - iChart"),
+        ]
+
+        XCTAssertTrue(supportText.contains("<title>Support - iChart</title>"))
+        XCTAssertTrue(supportText.contains("mailto:support@useichart.com"))
+        XCTAssertTrue(supportText.contains("mailto:support@useichart.com?subject=iChart%20Support"))
+        XCTAssertTrue(supportText.contains("Settings &gt; Account &gt; Delete Account"))
+        XCTAssertTrue(supportText.contains("What To Include"))
+        XCTAssertTrue(supportText.contains("What Not To Send"))
+        XCTAssertTrue(supportText.contains("nothing is verified on that browser page"))
+        XCTAssertTrue(supportText.contains("open iChart, tap Email Didn't Arrive?, then tap Send Replacement Email"))
+        XCTAssertFalse(supportText.contains("open iChart and tap Send Verification Email"))
+        XCTAssertFalse(supportText.contains("Use only the newest iChart email"))
+        XCTAssertTrue(supportText.contains("<a href=\"/privacy.html\">Privacy Policy</a>"))
+        XCTAssertTrue(supportText.contains("<a href=\"/\">iChart Home</a>"))
+
+        XCTAssertTrue(indexText.contains("<a href=\"/support.html\">Support</a>"))
+        XCTAssertTrue(indexText.contains("<a href=\"/terms.html\">Terms"))
+        XCTAssertTrue(privacyText.contains("mailto:support@useichart.com"))
+        XCTAssertTrue(privacyText.contains("Settings &gt; Account &gt; Delete Account"))
+        XCTAssertTrue(privacyText.contains("Account deletion removes your iChart account"))
+        XCTAssertTrue(termsText.contains("<title>Terms of Use - iChart</title>"))
+        XCTAssertTrue(termsText.contains("Apple handles billing, cancellation, refunds, and payment information"))
+        XCTAssertTrue(termsText.contains("Do not upload unlawful, infringing, abusive, misleading, private, or harmful material"))
+        XCTAssertTrue(verifyText.contains("ichart://auth-callback"))
+        XCTAssertTrue(verifyText.contains("flow_nonce"))
+        XCTAssertTrue(verifyText.contains("Finish Verification in iChart"))
+        XCTAssertTrue(verifyText.contains("Return to iChart"))
+        XCTAssertTrue(verifyText.contains("No account is verified on this browser page"))
+        XCTAssertTrue(verifyText.contains("isLikelyIpad()"))
+        XCTAssertTrue(verifyText.contains("Use Your iPad to Finish"))
+        XCTAssertTrue(verifyText.contains("Use Original iPad"))
+        XCTAssertTrue(verifyText.contains("No verification happened here"))
+        XCTAssertFalse(verifyText.contains("Verification Complete"))
+        XCTAssertFalse(verifyText.contains("Open iChart and Verify"))
+        XCTAssertFalse(verifyText.contains("Open iChart Now"))
+        XCTAssertTrue(verifyText.contains("var callbackParamNames = ["))
+        XCTAssertTrue(verifyText.contains("function baseCallbackTarget()"))
+        XCTAssertTrue(verifyText.contains("function appendKnownCallbackParam(callbackURL, name, value)"))
+        XCTAssertTrue(verifyText.contains("callbackParamNames.reduce"))
+        XCTAssertTrue(verifyText.contains("redirectURL.protocol === \"ichart:\""))
+        XCTAssertTrue(verifyText.contains("redirectURL.host === \"auth-callback\""))
+        XCTAssertTrue(verifyText.contains("redirectURL.searchParams.get(name)"))
+        XCTAssertFalse(verifyText.contains("decoded.indexOf(\"ichart://auth-callback\") === 0"))
+        XCTAssertTrue(verifyText.contains("hasCallbackCredential"))
+        XCTAssertFalse(verifyText.contains("hasCallbackPayload"))
+        XCTAssertTrue(verifyText.contains("token_hash"))
+        XCTAssertTrue(verifyText.contains("\"code\""))
+        let callbackCredentialFunction = try XCTUnwrap(
+            verifyText
+                .components(separatedBy: "function hasCallbackCredential() {")
+                .dropFirst()
+                .first?
+                .components(separatedBy: "].some")
+                .first
+        )
+        XCTAssertFalse(callbackCredentialFunction.contains("redirect_to"))
+        XCTAssertFalse(callbackCredentialFunction.contains("redirectTo"))
+        XCTAssertFalse(callbackCredentialFunction.contains("flow_nonce"))
+        XCTAssertFalse(verifyText.contains("access_token"))
+        XCTAssertFalse(verifyText.contains("refresh_token"))
+        XCTAssertFalse(verifyText.contains("provider_token"))
+        XCTAssertFalse(verifyText.contains("provider_refresh_token"))
+        XCTAssertFalse(verifyText.contains("window.setTimeout(openApp, 650)"))
+        XCTAssertTrue(verifyText.contains("openLink.focus()"))
+        XCTAssertTrue(verifyText.contains("Use a New iChart Email"))
+        XCTAssertTrue(verifyText.contains("New Email Needed"))
+        XCTAssertTrue(htaccessText.contains("RewriteRule ^support$ support.html [L]"))
+        XCTAssertTrue(htaccessText.contains("RewriteRule ^privacy$ privacy.html [L]"))
+        XCTAssertTrue(htaccessText.contains("RewriteRule ^terms$ terms.html [L]"))
+        XCTAssertTrue(htaccessText.contains("RewriteRule ^verify$ verify.html [L]"))
+        XCTAssertTrue(htaccessText.contains("RewriteRule ^ https://useichart.com%{REQUEST_URI} [R=301,L]"))
+        for (route, canonicalPath, expectedTitle) in rewrittenRouteFallbacks {
+            var isDirectory: ObjCBool = false
+            let routeDirectoryExists = FileManager.default.fileExists(
+                atPath: siteRoot.appendingPathComponent(route).path,
+                isDirectory: &isDirectory
+            )
+            XCTAssertTrue(routeDirectoryExists && isDirectory.boolValue)
+
+            let routeFallbackText = try String(
+                contentsOf: siteRoot
+                    .appendingPathComponent(route)
+                    .appendingPathComponent("index.html")
+            )
+            XCTAssertTrue(routeFallbackText.contains("<title>\(expectedTitle)</title>"))
+            XCTAssertTrue(routeFallbackText.contains("<meta http-equiv=\"refresh\" content=\"0; url=\(canonicalPath)\">"))
+            XCTAssertTrue(routeFallbackText.contains("<link rel=\"canonical\" href=\"\(canonicalPath)\">"))
+            XCTAssertTrue(routeFallbackText.contains("window.location.search + window.location.hash"))
+        }
+    }
+
+    func testHelpSurfaceIncludesStreamlinedQuickStartAndCompleteHowToReference() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let libraryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Library/LibraryView.swift")
+        )
+        let editorText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/EditorView.swift")
+        )
+        let editorModeText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/EditorCanvasMode.swift")
+        )
+        let canvasHostText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/LeadSheetCanvasHostView.swift")
+        )
+        let setupSheetText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/ChartSetupSheetView.swift")
+        )
+        let editorMenuTabLabelText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/EditorMenuTabLabel.swift")
+        )
+        let headerSheetText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/ChartHeaderSheetView.swift")
+        )
+        let typographySheetText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/ChartTypographySheetView.swift")
+        )
+        let notationRendererText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/LeadSheetNotationRenderer.swift")
+        )
+        let appearanceSheetText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/ChartAppearanceSheetView.swift")
+        )
+        let chartModelText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Models/Chart.swift")
+        )
+        let chartAppearanceText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Models/ChartAppearance.swift")
+        )
+        let chartEditingText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Models/ChartEditing.swift")
+        )
+        let chartLayoutProfileText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Models/ChartLayoutProfile.swift")
+        )
+        let measureTimingText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Services/MeasureTimingValidator.swift")
+        )
+        let chordInkSheetText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/ChordInkSheetViews.swift")
+        )
+
+        XCTAssertTrue(libraryText.contains("case tutorial"))
+        XCTAssertTrue(libraryText.contains("case howTo"))
+        XCTAssertTrue(libraryText.contains("selectedHelpTopic ?? .tutorial"))
+        XCTAssertTrue(libraryText.contains("IChartTutorialGuide"))
+        XCTAssertTrue(libraryText.contains("IChartHelpArticlePage"))
+        XCTAssertTrue(libraryText.contains("IChartHelpArticleSection"))
+        XCTAssertTrue(libraryText.contains("expandedSectionIDs"))
+        XCTAssertTrue(libraryText.contains("toggleSection"))
+        XCTAssertTrue(libraryText.contains("chevron.down"))
+        XCTAssertTrue(libraryText.contains("chevron.right"))
+        XCTAssertTrue(libraryText.contains("Collapse section"))
+        XCTAssertTrue(libraryText.contains("Expand section"))
+        XCTAssertTrue(libraryText.contains("isExpanded: expandedSectionIDs.contains(section.id)"))
+        XCTAssertTrue(libraryText.contains("expandedHelpDetailBackground"))
+        XCTAssertTrue(libraryText.contains("expandedHelpDetailBorder"))
+        XCTAssertTrue(libraryText.contains("IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.10 : 0.45)"))
+        XCTAssertTrue(libraryText.contains("IChartHomeBrand.blue.opacity(theme.isDark ? 0.52 : 0.34)"))
+        XCTAssertTrue(libraryText.contains(".stroke(expandedHelpDetailBorder, lineWidth: 1)"))
+        XCTAssertTrue(libraryText.contains("Start Quick Start"))
+        XCTAssertFalse(libraryText.contains("Read through the main iChart systems here"))
+        XCTAssertTrue(libraryText.contains("Make a first Simple Chord Sheet with one short guide"))
+        XCTAssertTrue(libraryText.contains("canStartGuidedTour: store.canCreateChart"))
+        XCTAssertTrue(libraryText.contains(".disabled(!canStartGuidedTour)"))
+        XCTAssertTrue(libraryText.contains("Quick Start creates one practice chart. Free a chart slot to begin."))
+        XCTAssertTrue(libraryText.contains("IChartQuickStartStep"))
+        XCTAssertTrue(libraryText.contains("IChartQuickStartStepRow"))
+        XCTAssertFalse(libraryText.contains("IChartTutorialSection"))
+        XCTAssertFalse(libraryText.contains("IChartTutorialStep"))
+        XCTAssertFalse(libraryText.contains("Getting Started"))
+        XCTAssertTrue(libraryText.contains("Create A Simple Sheet"))
+        XCTAssertTrue(libraryText.contains("Write And Render Chords"))
+        XCTAssertTrue(libraryText.contains("Shape The Form"))
+        XCTAssertTrue(libraryText.contains("Add A Cue And Review"))
+        XCTAssertTrue(libraryText.contains("Export When Ready"))
+        XCTAssertTrue(libraryText.contains("Quick Start prepares four measures"))
+        XCTAssertTrue(libraryText.contains("Tap Write & Render and write C, F, G, C with space between chords. Chords render automatically after a pause."))
+        XCTAssertTrue(libraryText.contains("For previews and a Render button, turn on Manual Render with Preview in app Settings."))
+        XCTAssertTrue(libraryText.contains("Need a specific command? How To keeps the complete tool reference."))
+        XCTAssertFalse(libraryText.contains("checkmark.shield"))
+        XCTAssertTrue(libraryText.contains("\"How To\""))
+        XCTAssertTrue(libraryText.contains("How To Use The Tools"))
+        XCTAssertTrue(libraryText.contains("Use the chart tools"))
+        XCTAssertTrue(libraryText.contains("case .howTo:\n            \"wrench.and.screwdriver\""))
+        XCTAssertFalse(libraryText.contains("case .howTo:\n            \"cursorarrow\""))
+        XCTAssertTrue(libraryText.contains("Simple help for Select, Write & Render, Free Ink, Measures, Tools, and Export PDF."))
+        XCTAssertTrue(libraryText.contains("Use Select when you want to check the page or change something already on it."))
+        XCTAssertTrue(libraryText.contains("On a Simple Chord Sheet or Rhythm Section Sheet, tap a converted mark to select it. Drag to move it or tap the red X to delete it."))
+        XCTAssertTrue(libraryText.contains("Release to attach when the line is visible."))
+        XCTAssertTrue(libraryText.contains("Drag out of range and the line disappears. Release in open space to leave the mark floating."))
+        XCTAssertTrue(libraryText.contains("Tap Undo Delete to bring back the last deleted converted mark."))
+        XCTAssertTrue(libraryText.contains("Tap Done to leave the current tool and return to Select."))
+        XCTAssertTrue(libraryText.contains("You can switch directly between Write & Render, Free Ink, Measures, and Tools without returning to Select first."))
+        XCTAssertTrue(libraryText.contains("Use Write & Render to turn handwritten chords, barlines, and repeat signs into chart notation."))
+        XCTAssertTrue(libraryText.contains("Write in the highlighted Corridor Lane above the staff."))
+        XCTAssertTrue(libraryText.contains("On a Rhythm Section Sheet, the first chord in each measure renders on beat 1"))
+        XCTAssertTrue(libraryText.contains("Turn on Manual Render with Preview in app Settings to check the small preview text"))
+        XCTAssertTrue(libraryText.contains("draw a tall, nearly vertical barline in the highlighted lane with space on either side."))
+        XCTAssertTrue(libraryText.contains("When barlines form measures around rendered chords in either style, each resulting measure with just one chord moves that chord to beat 1."))
+        XCTAssertTrue(libraryText.contains("Measures with multiple chords keep their relative placement."))
+        XCTAssertTrue(libraryText.contains("a handwritten barline can split a measure at a rhythmic boundary in Automatic or Manual Render with Preview."))
+        XCTAssertTrue(libraryText.contains("If a note crosses that boundary, the line stays as draft ink"))
+        XCTAssertTrue(libraryText.contains("Use Measures for other form edits."))
+        XCTAssertTrue(libraryText.contains("Draw the line near an existing note onset when splitting a measure that already has rhythms."))
+        XCTAssertTrue(libraryText.contains("Both new measures use the current meter. Written notes keep their lengths, and rests fill the unused beats."))
+        XCTAssertTrue(libraryText.contains("Dots on the right start a repeat. Dots on the left end a repeat."))
+        XCTAssertTrue(libraryText.contains("Writing Repeat Signs"))
+        XCTAssertTrue(libraryText.contains("Writing Ending Brackets"))
+        XCTAssertTrue(libraryText.contains("A complete end repeat with no earlier start repeats from the beginning of the chart."))
+        XCTAssertTrue(libraryText.contains("Nested or conflicting starts stay as draft ink until corrected."))
+        XCTAssertTrue(libraryText.contains("When Review Chords opens, check each Recognition guess."))
+        XCTAssertTrue(libraryText.contains("You can also rewrite just that chord."))
+        XCTAssertTrue(libraryText.contains("Turn on Manual Render with Preview in app Settings when you want to review your writing before it becomes notation."))
+        XCTAssertTrue(libraryText.contains("Use Review & Render to check chord guesses or enter missing chords."))
+        XCTAssertTrue(libraryText.contains("Tap an ending preview to review its label and measures."))
+        XCTAssertTrue(libraryText.contains("When only an unreviewed repeat or ending remains, use Review & Render."))
+        XCTAssertTrue(libraryText.contains("If a preview says Add chord, tap Review & Render and type the intended chord."))
+        XCTAssertTrue(libraryText.contains("If you see Separate chords, go back to writing and rewrite those chords with more space between them."))
+        XCTAssertTrue(libraryText.contains("Render All uses the text shown in every row."))
+        XCTAssertTrue(libraryText.contains("Ink that cannot be placed stays on the page."))
+        XCTAssertTrue(libraryText.contains("Clear Draft Ink removes all unrendered chords, barlines, repeat signs, and endings after confirmation."))
+        XCTAssertFalse(libraryText.contains("If Render Chords is disabled, fix the chord iChart could not read."))
+        XCTAssertFalse(libraryText.contains("If the preview is wrong, erase or discard the writing and try again before rendering."))
+        XCTAssertFalse(libraryText.contains("Use Discard to clear the current chord writing without changing the chart."))
+        XCTAssertTrue(libraryText.contains("Changing Chords, Text, And Markers"))
+        XCTAssertTrue(libraryText.contains("Tap a chord in Select to correct or delete it."))
+        XCTAssertTrue(libraryText.contains("Drag a selected chord to move it. The right handle adjusts its width only."))
+        XCTAssertTrue(libraryText.contains("If a selected chord has a custom width, Reset Width returns it to 100% width without changing its placement."))
+        XCTAssertTrue(libraryText.contains("Measures And Tools"))
+        XCTAssertTrue(libraryText.contains("Measures groups Add, Layout, and Delete actions for the selected measure."))
+        XCTAssertTrue(libraryText.contains("Open Layout for Start New Row, Join Row Above, Move to Row Below, Even Row Widths, or an eligible Merge with Next Measure."))
+        XCTAssertFalse(libraryText.contains("Layout starts new rows, moves a first measure up or a last measure down, and evens row widths."))
+        XCTAssertTrue(libraryText.contains("Tools > Repeats adds one-bar repeats, repeat starts and ends, endings, and removal actions."))
+        XCTAssertTrue(libraryText.contains("Tools > Time Signature, Text, and Form Markers use the selected measure as their target."))
+        XCTAssertTrue(libraryText.contains("Simple And Rhythm Section Sheets"))
+        XCTAssertTrue(libraryText.contains("Rhythm Section Sheet gives more space for hits, slashes, groove cues, and bass clef parts."))
+        XCTAssertTrue(libraryText.contains("Use Free Ink to write or erase notes and marks directly on the page."))
+        XCTAssertTrue(libraryText.contains("On a Simple Chord Sheet or Rhythm Section Sheet, draw a fermata or accent anywhere on the page. Lift the Pencil and pause."))
+        XCTAssertTrue(libraryText.contains("On a Simple Chord Sheet, a converted mark attaches above a nearby rendered chord."))
+        XCTAssertTrue(libraryText.contains("iChart converts clear marks into notation and leaves unclear marks as handwriting."))
+        XCTAssertTrue(libraryText.contains("On a Rhythm Section Sheet, draw a marcato (^) near a chord, rhythm note, or staff ink, then lift the Pencil and pause. In open space, the caret stays handwritten."))
+        XCTAssertTrue(libraryText.contains("On a Rhythm Section Sheet, a converted mark attaches above a nearby chord, rhythm note, or staff ink. Fermatas and accents drawn in open space stay where you drew them."))
+        XCTAssertTrue(libraryText.contains("Use Restore Ink to bring the handwriting back"))
+        XCTAssertTrue(libraryText.contains("Document Settings And Export"))
+        XCTAssertFalse(libraryText.contains("Page And Export"))
+        XCTAssertTrue(libraryText.contains("Tap the chart title for document settings; Export PDF stays visible in the navigation bar."))
+        XCTAssertTrue(libraryText.contains("If Export PDF is unavailable, tap Done and finish setup first."))
+        XCTAssertTrue(libraryText.contains("Your editable chart, original handwriting, and private drafts are not shared when you publish."))
+        XCTAssertFalse(libraryText.contains("recognizer can target"))
+        XCTAssertFalse(libraryText.contains("committed chart notation"))
+        XCTAssertFalse(libraryText.contains("shipping workflow"))
+        XCTAssertFalse(libraryText.contains("explicit continuation state"))
+        XCTAssertFalse(libraryText.contains("rendered chart objects"))
+        XCTAssertFalse(libraryText.contains("action tray"))
+        XCTAssertFalse(libraryText.contains("source ink"))
+        XCTAssertFalse(libraryText.contains("private local authoring state"))
+        XCTAssertFalse(libraryText.contains("case editorWorkflow"))
+        XCTAssertFalse(libraryText.contains("Editor Workflow"))
+        XCTAssertFalse(libraryText.contains("How the editor works"))
+        XCTAssertFalse(libraryText.contains("Write A Real Chart"))
+        XCTAssertFalse(libraryText.contains("Charts, Projects, And PDFs"))
+        XCTAssertFalse(libraryText.contains("Editor Navigation"))
+        XCTAssertFalse(libraryText.contains("Use Page for whole-chart setup, appearance, transposition, and PDF export."))
+        XCTAssertFalse(libraryText.contains("Use Page for chart settings and PDF export."))
+        XCTAssertFalse(libraryText.contains("Page has title/header, key, transposition, style, fonts, pen feel, engraving, and export."))
+        XCTAssertFalse(libraryText.contains("Use Repeats for repeat barlines, one-bar repeats, and endings."))
+        XCTAssertFalse(libraryText.contains("Use Coda for roadmap marks like Coda, Segno, Fine, D.S., and D.C."))
+        XCTAssertFalse(libraryText.contains("Use Time for meter changes inside the chart."))
+        XCTAssertFalse(libraryText.contains("Use Free-Write for page-level handwritten rhythm notes in this version."))
+        XCTAssertFalse(libraryText.contains("they are not attached to individual measures yet"))
+        XCTAssertFalse(libraryText.contains("Use Free-Write for persistent raw ink that iChart never reads or interprets."))
+        XCTAssertFalse(libraryText.contains("Account, Pro, And Forums"))
+        XCTAssertFalse(libraryText.contains("Settings And Support"))
+        XCTAssertFalse(libraryText.contains("Instrument Transposition changes the reading view"))
+        XCTAssertFalse(libraryText.contains("common /4 and /8 meters"))
+        XCTAssertFalse(libraryText.contains("The top row chooses the system: Page, Measures, Repeats, Coda, Text, Time, Chord, and Free-Write."))
+        XCTAssertFalse(libraryText.contains("On the first measure, Delete clears only the right barline when needed and keeps the opening barline."))
+        XCTAssertFalse(libraryText.contains("Del Thru finishes it"))
+        XCTAssertFalse(libraryText.contains("Start marks the opening repeat. Move to the last measure of the repeated section and tap End Rep to close the span."))
+        XCTAssertFalse(libraryText.contains("New Row starts the selected measure on a new system"))
+        XCTAssertFalse(libraryText.contains("Remove Repeat removes repeat markings"))
+        XCTAssertFalse(libraryText.contains("New Sys starts"))
+        XCTAssertFalse(libraryText.contains("Rm Rep removes"))
+        XCTAssertFalse(libraryText.contains("Select the measure, then add Coda, To Coda, Segno, D.S., D.S. al Coda, D.C., D.C. al Fine, Fine, or N.C."))
+        XCTAssertFalse(libraryText.contains("Add 𝄌, To 𝄌, 𝄋, D.S., D.S. al 𝄌"))
+        XCTAssertFalse(libraryText.contains("Move, Size, And Delete"))
+        XCTAssertFalse(libraryText.contains("Remove Roadmap Marker deletes the marker at the selected measure"))
+        XCTAssertFalse(libraryText.contains("How do I start a chart?"))
+        XCTAssertFalse(libraryText.contains("Can I export on Basic?"))
+        XCTAssertTrue(libraryText.contains("Answers about Forums and why iChart uses accounts."))
+        XCTAssertFalse(libraryText.contains("Answers for chart setup, handwriting tools, export, saved " + "charts, accounts, Pro, and Forums."))
+        XCTAssertTrue(libraryText.contains("Forums are an account-based space for sharing useful chart PDFs with other musicians, included in free Pro access."))
+        XCTAssertTrue(libraryText.contains("Why does iChart need an account?"))
+        XCTAssertTrue(libraryText.contains("Is Pro free?"))
+        XCTAssertTrue(libraryText.contains("What if I already subscribed?"))
+        XCTAssertTrue(libraryText.contains("IChartLegalLinks.freeProNotice"))
+        XCTAssertTrue(libraryText.contains("IChartLegalLinks.existingBillingNotice"))
+        XCTAssertTrue(libraryText.contains("IChartLegalLinks.futurePricingNotice"))
+        XCTAssertTrue(libraryText.contains("What should I send support?"))
+        XCTAssertTrue(libraryText.contains("https://useichart.com/support.html"))
+        XCTAssertTrue(libraryText.contains("support@useichart.com"))
+        XCTAssertTrue(libraryText.contains("Open Support Site"))
+        XCTAssertTrue(libraryText.contains("use the hosted support page"))
+        XCTAssertTrue(libraryText.contains("Account Identity"))
+        XCTAssertTrue(libraryText.contains("Voting is for chart quality, not personal pile-ons."))
+        XCTAssertFalse(libraryText.contains("Handwriting Corrections"))
+        XCTAssertFalse(libraryText.contains("Fonts And Third-Party Notices"))
+        XCTAssertFalse(libraryText.contains("should use"))
+        XCTAssertTrue(libraryText.contains("Legal Policy"))
+        XCTAssertTrue(libraryText.contains("Terms Of Use"))
+        XCTAssertTrue(libraryText.contains("Subscriptions"))
+        XCTAssertTrue(libraryText.contains("Only publish forum charts you have the right to share"))
+        XCTAssertTrue(libraryText.contains("IChartGuidedTourStep"))
+        XCTAssertTrue(libraryText.contains("iChartHasSeenGuidedTourOffer"))
+        XCTAssertTrue(libraryText.contains("iChartPendingSimpleChartTour"))
+        XCTAssertFalse(libraryText.contains("selected" + "SectionID"))
+        XCTAssertFalse(libraryText.contains("starting " + "ke" + "y"))
+        XCTAssertFalse(libraryText.contains("cle" + "f, and starting measure count"))
+        XCTAssertFalse(libraryText.contains("K" + "ey, Time, And Cle" + "f"))
+        XCTAssertTrue(setupSheetText.contains("Text(\"K" + "ey\")"))
+        XCTAssertTrue(setupSheetText.contains("Picker(\"Cle" + "f\""))
+        XCTAssertTrue(setupSheetText.contains("!chart.hasCompletedInitialSetup && setupPolicy.allowsInitialClefSelection"))
+        XCTAssertFalse(libraryText.contains("rushing the player"))
+        XCTAssertFalse(libraryText.contains("Repeat controls stay out"))
+        XCTAssertFalse(libraryText.contains("so chart structure stays consistent"))
+        XCTAssertFalse(libraryText.contains("Use the Repeat row for repeat barlines, endings, DC"))
+        XCTAssertFalse(libraryText.contains("Page And Header"))
+        XCTAssertFalse(libraryText.contains("Time And Structure"))
+        XCTAssertFalse(libraryText.contains("Instrument View"))
+        XCTAssertTrue(libraryText.contains("The chart-title menu has header, key, instrument view, transposition, style, fonts, and engraving."))
+        XCTAssertFalse(libraryText.contains("pen feel"))
+        XCTAssertFalse(editorText.contains("Pen Responsiveness"))
+        XCTAssertFalse(editorText.contains("iChartInkResponsivenessValue"))
+        XCTAssertFalse(canvasHostText.contains("inkResponsivenessValue"))
+        XCTAssertFalse(libraryText.contains("Page setup for the chart time signature"))
+        XCTAssertFalse(libraryText.contains("Chord Tool"))
+        XCTAssertFalse(libraryText.contains("Link Roadmap Marker"))
+        XCTAssertFalse(libraryText.contains("Clear Roadmap Link"))
+        XCTAssertFalse(libraryText.contains("Use Help for this written guide"))
+        XCTAssertFalse(libraryText.contains("Coda And Roadmap"))
+        XCTAssertFalse(libraryText.contains("Rhythm Edit to select"))
+        XCTAssertTrue(libraryText.contains("guidedTourStep = .welcome"))
+        XCTAssertTrue(libraryText.contains("guidedTourStep = .newChart"))
+        XCTAssertTrue(libraryText.contains("guidedTourStep = .simpleChart"))
+        XCTAssertFalse(libraryText.contains("guidedTourStep = .charts"))
+        XCTAssertTrue(libraryText.contains("onOpenChart(chartID, .browse)"))
+        XCTAssertTrue(libraryText.contains("libraryContentWithTour"))
+        XCTAssertTrue(libraryText.contains("Make your first usable chart with one short, optional guide."))
+        XCTAssertTrue(libraryText.contains("Start Quick Start"))
+        XCTAssertFalse(libraryText.contains("grandWelcome"))
+        XCTAssertTrue(libraryText.contains("accessibilityLabel(\"End Quick Start\")"))
+        XCTAssertTrue(editorText.contains("IChartEditorGuidedTourStep"))
+        XCTAssertFalse(editorText.contains("IChartEditorGuidedTourPrompt"))
+        XCTAssertTrue(editorText.contains("IChartEditorGuidedTourRail"))
+        XCTAssertTrue(editorText.contains("static let quickStartSteps"))
+        XCTAssertTrue(editorText.contains("case writeChords"))
+        XCTAssertTrue(editorText.contains("case renderChords"))
+        XCTAssertTrue(editorText.contains("case shapeForm"))
+        XCTAssertTrue(editorText.contains("case addCue"))
+        XCTAssertTrue(editorText.contains("case review"))
+        XCTAssertTrue(editorText.contains("case export"))
+        XCTAssertTrue(editorText.contains("Quick Start Complete"))
+        XCTAssertTrue(editorText.contains("Tap Write & Render and write C, F, G, C in the first four measures."))
+        XCTAssertTrue(editorText.contains("Double-tap a rendered chord to edit it. Use Fix Writing if handwriting needs attention."))
+        XCTAssertTrue(editorText.contains("If Manual Render with Preview is on in app Settings, check the previews and tap Render Chords or Review & Render."))
+        XCTAssertTrue(editorText.contains("Tap Measures. Select a measure, then use Add, Layout, or Delete."))
+        XCTAssertTrue(editorText.contains("Open Tools > Text, choose a measure, then Above or Below."))
+        XCTAssertTrue(editorText.contains("Tap Done. In Select, tap anything you want to move, edit, resize, or delete."))
+        XCTAssertTrue(editorText.contains("Tap Export PDF when the chart is ready."))
+        XCTAssertTrue(editorText.contains("\\(index + 1) of \\(Self.quickStartSteps.count)"))
+        XCTAssertFalse(editorText.contains("case chordModes"))
+        XCTAssertFalse(editorText.contains("case chordConfirm"))
+        XCTAssertFalse(editorText.contains("case measureStack"))
+        XCTAssertFalse(editorText.contains("case repeatsTool"))
+        XCTAssertFalse(editorText.contains("case pageHeader"))
+        XCTAssertFalse(editorText.contains("Tap Render Chords when the draft preview is correct."))
+        XCTAssertFalse(editorText.contains("explicit commit point"))
+        XCTAssertFalse(editorText.contains("fix unresolved draft chords first"))
+        XCTAssertFalse(editorText.contains("tap anywhere outside the measure to confirm your chord"))
+        XCTAssertFalse(editorText.contains("Tap anywhere outside the measure to confirm your chord"))
+        XCTAssertFalse(editorText.contains("Tap a suggestion or Confirm"))
+        XCTAssertTrue(editorText.contains("Tap Done"))
+        XCTAssertFalse(editorText.contains("Page holds whole-chart actions and export settings."))
+        XCTAssertTrue(editorText.contains("Tap Export PDF"))
+        XCTAssertFalse(editorText.contains("Page > Export"))
+        XCTAssertFalse(editorText.contains("Tap Page, then Export"))
+        XCTAssertTrue(editorText.contains("Text(chart.title)"))
+        XCTAssertTrue(editorText.contains(".accessibilityLabel(\"Document settings for \\(chart.title)\")"))
+        XCTAssertFalse(editorText.contains("title: \"Page\""))
+        XCTAssertTrue(editorText.contains("Label(\"Add Page\", systemImage: \"doc.badge.plus\")"))
+        XCTAssertTrue(editorText.contains("handleAddPageTapped()"))
+        XCTAssertTrue(editorText.contains("runEditorOperation(\"Adding page...\")"))
+        XCTAssertTrue(chartEditingText.contains("mutating func appendPage() -> UUID?"))
+        XCTAssertTrue(chartEditingText.contains("measureDefaults.addedPageMeasureCount"))
+        XCTAssertTrue(chartEditingText.contains("forcedBreakStartIDs.insert(firstNewMeasureID)"))
+        XCTAssertFalse(chartEditingText.contains("forcedBreakStartIDs.insert(newMeasures[offset].id)"))
+        XCTAssertTrue(chartLayoutProfileText.contains("var addedPageMeasureCount: Int"))
+        XCTAssertFalse(chartLayoutProfileText.contains("var addedPageSystemCount: Int"))
+        XCTAssertFalse(editorText.contains("chordToolWorkflowGuide"))
+        XCTAssertFalse(editorText.contains("chordToolWorkflowBullets"))
+        XCTAssertTrue(editorText.contains("accessibilityLabel(\"End Quick Start\")"))
+        XCTAssertTrue(editorText.contains(".clipShape(Capsule())"))
+        XCTAssertTrue(editorText.contains("activeToolControlStrip(minWidth: max(1, minWidth - 94))"))
+        XCTAssertTrue(editorText.contains("activeToolDoneButton"))
+        XCTAssertFalse(editorText.contains("advanceEditorGuidedTourAfterPageToolTapIfNeeded"))
+        XCTAssertFalse(editorText.contains("private var pageToolControl"))
+        XCTAssertFalse(editorText.contains("completeEditorGuidedTourStep(.page)"))
+        XCTAssertFalse(editorText.contains("isPageTourSectionActive"))
+        XCTAssertTrue(editorText.contains("isActive: editorGuidedTourStep == .export"))
+        XCTAssertFalse(editorText.contains("Tap Measures to adjust the Simple sheet form after the chords are in place."))
+        XCTAssertFalse(editorText.contains("Open Add and choose Add One After to insert one measure after the selection."))
+        XCTAssertTrue(editorText.contains("Label(\"Move to Row Below\", systemImage: \"arrow.down.to.line\")"))
+        XCTAssertTrue(editorText.contains("handleMoveSelectedMeasureToRowBelow"))
+        XCTAssertTrue(chartEditingText.contains("mutating func moveMeasureToRowBelow("))
+        XCTAssertFalse(editorText.contains("New Sys or Join"))
+        XCTAssertFalse(editorText.contains("Del Thru"))
+        XCTAssertFalse(editorText.contains("Open Remove and choose Remove Repeat to delete repeat markings attached to the selected measure."))
+        XCTAssertFalse(editorText.contains("Rm Rep"))
+        XCTAssertFalse(editorText.contains("Rm End"))
+        XCTAssertFalse(editorText.contains("Open Tools, then Repeats to add repeat symbols and endings to highlighted measures."))
+        XCTAssertFalse(editorText.contains("Tap Start Repeat"))
+        XCTAssertFalse(editorText.contains("Select another measure, then tap End Repeat"))
+        XCTAssertFalse(editorText.contains("then tap End Rep\""))
+        XCTAssertFalse(editorText.contains("Open Tools, then Form Markers to place a roadmap marker on the selected measure."))
+        XCTAssertTrue(editorText.contains("IChartTypedTextView"))
+        XCTAssertFalse(editorText.contains("After placing a marker, drag it around that measure or tap its x to delete it."))
+        XCTAssertFalse(editorText.contains("Coda is only for point roadmap markers: 𝄌"))
+        XCTAssertTrue(editorText.contains("Text(roadmapType.editorMenuDisplayText)"))
+        XCTAssertFalse(editorText.contains("roadmapMarkerActiveToolActions"))
+        XCTAssertFalse(editorText.contains("pendingRoadmapMarkerMoveID"))
+        XCTAssertFalse(editorText.contains("Remove Roadmap Marker at Selected Measure"))
+        XCTAssertFalse(editorText.contains("systemImage: roadmapType.editorMenuSystemImageName"))
+        XCTAssertTrue(editorText.contains("Make Marker Larger"))
+        XCTAssertTrue(editorText.contains("resizePointRoadmapMarker"))
+        XCTAssertTrue(notationRendererText.contains("drawRoadmapLabel"))
+        XCTAssertTrue(notationRendererText.contains("LeadSheetRoadmapLabelFitting"))
+        XCTAssertTrue(notationRendererText.contains("fittedBaseFontSize"))
+        XCTAssertTrue(notationRendererText.contains("NotationGlyphCatalog.coda"))
+        XCTAssertTrue(notationRendererText.contains("NotationGlyphCatalog.segno"))
+        XCTAssertFalse(notationRendererText.contains("markerPath.fill()"))
+        XCTAssertFalse(notationRendererText.contains("markerPath.stroke()"))
+        XCTAssertTrue(editorText.contains("systemImage: \"rectangle.split.3x1\""))
+        XCTAssertTrue(editorText.contains("if isDedicatedRhythmToolAvailable"))
+        XCTAssertTrue(typographySheetText.contains("To Coda"))
+        XCTAssertFalse(typographySheetText.contains("To 𝄌"))
+        XCTAssertTrue(editorText.contains("Meter(numerator: 7, denominator: 8)"))
+        XCTAssertFalse(editorText.contains("ChordToolInputMode"))
+        XCTAssertFalse(editorText.contains("Ink Only"))
+        XCTAssertFalse(editorText.contains("activeToolExplainer"))
+        XCTAssertFalse(editorText.contains("Read and render chords. Want handwritten notation? Use Free-Write."))
+        XCTAssertFalse(libraryText.contains("A dedicated literal rhythm input method will come later."))
+        XCTAssertFalse(editorText.contains("Read and render rhythms. Want handwritten notation? Use Free-Write."))
+        XCTAssertTrue(editorModeText.contains("Write or erase notes and marks that stay as handwriting."))
+        XCTAssertTrue(editorModeText.contains("Draw a fermata or accent anywhere, or a marcato (^) near a chord, note, or staff ink. Lift the Pencil and pause to convert."))
+        XCTAssertTrue(editorText.contains("ActiveToolDoneButtonStyle"))
+        XCTAssertTrue(editorText.contains("title: \"Undo Delete\""))
+        XCTAssertTrue(editorText.contains("configuration.isPressed"))
+        XCTAssertTrue(editorText.contains("selectedColor: EditorToolAccent.persistentInk"))
+        XCTAssertTrue(editorText.contains("recognizesChordInk: true"))
+        XCTAssertTrue(editorText.contains("\"chordToolInputMode\": manualRenderWithPreview ? \"draftPreview\" : \"automatic\""))
+        XCTAssertTrue(editorText.contains("isSelected: chart.headerInputMode == .typed"))
+        XCTAssertTrue(editorText.contains("isSelected: chart.headerInputMode == .handwritten"))
+        XCTAssertFalse(headerSheetText.contains("private var headerModePicker"))
+        XCTAssertFalse(headerSheetText.contains("draftHeaderInputMode == mode"))
+        XCTAssertFalse(headerSheetText.contains("Color(red: 0.16, green: 0.38, blue: 0.82)"))
+        XCTAssertFalse(headerSheetText.contains("ChartHeaderInputMode"))
+        XCTAssertFalse(headerSheetText.contains("setHeaderInputMode"))
+        XCTAssertTrue(editorText.contains("handleMeasureSelectedFromCanvas"))
+        XCTAssertTrue(editorText.contains("handleChordSelectedFromCanvas"))
+        XCTAssertTrue(editorText.contains("handleCueTextSelectedFromCanvas"))
+        XCTAssertTrue(editorText.contains("handleCueTextEditRequestedFromCanvas"))
+        XCTAssertTrue(editorText.contains("private var textActiveToolActions"))
+        XCTAssertTrue(editorText.contains("handleRoadmapMarkerSelectedFromCanvas"))
+        XCTAssertTrue(editorText.contains("if selectedCueText != nil"))
+        XCTAssertTrue(editorText.contains("selectedRoadmapMarker != nil"))
+        XCTAssertTrue(canvasHostText.contains("roadmapMarkerHitTarget(at: location)"))
+        XCTAssertTrue(canvasHostText.contains("cueTextHitTarget(at: location)"))
+        XCTAssertTrue(canvasHostText.contains("onCueTextEditRequested"))
+        XCTAssertTrue(canvasHostText.contains("LeadSheetCueTextEditOverlayGeometry"))
+        XCTAssertTrue(canvasHostText.contains("resizeCueText"))
+        XCTAssertTrue(canvasHostText.contains("deleteCueText"))
+        XCTAssertTrue(canvasHostText.contains("moveCueText"))
+        XCTAssertTrue(canvasHostText.contains("cueTextMoveTarget"))
+        XCTAssertTrue(canvasHostText.contains("handleCueTextMovePan"))
+        XCTAssertTrue(canvasHostText.contains("selectedRoadmapMarkerID == nil"))
+        XCTAssertTrue(canvasHostText.contains("drawRoadmapMarkerEditOverlay"))
+        XCTAssertTrue(canvasHostText.contains("LeadSheetRoadmapMarkerEditOverlayGeometry"))
+        XCTAssertTrue(canvasHostText.contains("deleteRoadmapMarker"))
+        XCTAssertTrue(canvasHostText.contains("movePointRoadmapMarkerHorizontally"))
+        XCTAssertTrue(canvasHostText.contains("panStartLocation(for: recognizer)"))
+        XCTAssertTrue(canvasHostText.contains("objectMovePanStartHitTarget(at:"))
+        XCTAssertFalse(canvasHostText.contains("drawRoadmapMarkerSelection"))
+        XCTAssertTrue(canvasHostText.contains("drawCueTextSelection"))
+        XCTAssertTrue(editorText.contains("Tap Measures"))
+        XCTAssertFalse(editorText.contains("Tools > Repeats"))
+        XCTAssertFalse(editorText.contains("Tools > Form Markers"))
+        XCTAssertFalse(editorText.contains("private var codaToolControl"))
+        XCTAssertFalse(editorText.contains("completeEditorGuidedTourStep(.codaTool)"))
+        XCTAssertFalse(editorText.contains("if editorGuidedTourStep == .codaTool {\n            Button"))
+        XCTAssertTrue(editorText.contains("Menu {\n                    codaToolMenuContent"))
+        XCTAssertFalse(editorText.contains("Tap Ink"))
+        XCTAssertFalse(editorText.contains("contentPromptAlignment"))
+        XCTAssertFalse(editorText.contains(".overlay(alignment: editorGuidedTourStep"))
+        XCTAssertTrue(editorText.contains("IChartEditorGuidedTourRail("))
+        XCTAssertFalse(editorText.contains("iChart never reads or interprets Ink."))
+        XCTAssertFalse(editorText.contains("Tap 1st, then End 1st"))
+        XCTAssertFalse(editorText.contains("Tap 2nd, then End 2nd"))
+        XCTAssertTrue(editorText.contains("highlightsAddAction: editorGuidedTourStep == .shapeForm"))
+        XCTAssertTrue(editorText.contains("handleActiveToolDoneTapped"))
+        XCTAssertTrue(editorText.contains("InkToolModeTab(mode: $inkToolMode)"))
+        XCTAssertTrue(editorText.contains("isGuidedChordConfirmation"))
+        XCTAssertTrue(editorText.contains("!isGuidedChordConfirmation"))
+        XCTAssertTrue(editorText.contains("completeEditorGuidedTourStep(.writeChords)"))
+        XCTAssertTrue(editorText.contains("completeEditorGuidedTourStep(.renderChords)"))
+        XCTAssertTrue(editorText.contains("completeEditorGuidedTourStep(.shapeForm)"))
+        XCTAssertTrue(editorText.contains("completeEditorGuidedTourStep(.addCue)"))
+        XCTAssertTrue(editorText.contains("completeEditorGuidedTourStep(.export)"))
+        XCTAssertFalse(editorText.contains("completeEditorGuidedTourStep(.chordConfirm)"))
+        XCTAssertFalse(editorText.contains("completeEditorGuidedTourStep(.freeWriteDone)"))
+        XCTAssertFalse(editorText.contains("completeEditorGuidedTourStep(.measureTool)"))
+        XCTAssertFalse(editorText.contains("completeEditorGuidedTourStep(.codaMarker)"))
+        XCTAssertFalse(editorText.contains("completeEditorGuidedTourStep(.freeWriteTool)"))
+        XCTAssertTrue(editorText.contains("startPendingSimpleChartTourIfNeeded"))
+        XCTAssertFalse(editorText.contains("advanceEditorGuidedTourIfNeeded"))
+        XCTAssertTrue(editorText.contains("advanceEditorGuidedTourAfterSetupIfNeeded"))
+        XCTAssertFalse(editorText.contains("advanceEditorGuidedTourAfterCodaToolTapIfNeeded"))
+        XCTAssertFalse(editorText.contains("rushing the player"))
+        XCTAssertTrue(editorText.contains("Quick Start Complete"))
+        XCTAssertFalse(editorText.contains("Page Tool"))
+        XCTAssertFalse(editorText.contains("instrument view"))
+        XCTAssertFalse(editorText.contains("Create single measures or stacks"))
+        XCTAssertFalse(editorText.contains("Add repeat barlines and first or second endings"))
+        XCTAssertFalse(editorText.contains("Keep these changes in Repeats instead of Measures"))
+        XCTAssertFalse(editorText.contains("Add repeat barlines, endings, DC"))
+        XCTAssertFalse(editorText.contains("Link Roadmap Marker at Selected Measure"))
+        XCTAssertTrue(chartModelText.contains("var renderedClef: ChartClef"))
+        XCTAssertTrue(chartModelText.contains("layoutStyle == .rhythmSectionSheet && !hasExplicitClefSelection"))
+        XCTAssertTrue(notationRendererText.contains("chart.renderedClef == .bass ? .bassClef : .trebleClef"))
+        XCTAssertFalse(editorMenuTabLabelText.contains("EditorCodaTabLabel"))
+        XCTAssertFalse(editorMenuTabLabelText.contains(".accessibilityLabel(\"Roadmap\")"))
+        XCTAssertFalse(setupSheetText.contains("Jazz Chord Notation"))
+        XCTAssertTrue(libraryText.contains("No Charts Yet"))
+        XCTAssertTrue(libraryText.contains("Create a new chart to start writing."))
+        XCTAssertFalse(libraryText.contains("Create a new chart to start the first project."))
+        XCTAssertTrue(libraryText.contains("Downvote"))
+        XCTAssertFalse(libraryText.contains("Not For Me"))
+        XCTAssertTrue(appearanceSheetText.contains("Sheet Style"))
+        XCTAssertTrue(appearanceSheetText.contains("Change the chart page surface without changing the app controls."))
+        XCTAssertTrue(appearanceSheetText.contains("Choose the notation symbol style used in the chart."))
+        XCTAssertTrue(appearanceSheetText.contains("Section(\"Notation Font\")"))
+        XCTAssertFalse(appearanceSheetText.contains("Choose the SMuFL notation family used for glyphs."))
+        XCTAssertFalse(appearanceSheetText.contains("Section(\"SMuFL Font\")"))
+        XCTAssertTrue(setupSheetText.contains("Sheet Style"))
+        XCTAssertTrue(setupSheetText.contains("selectedStylePreset"))
+        XCTAssertTrue(editorText.contains("StylePreset.sheetPresets(for: chart.layoutStyle)"))
+        XCTAssertTrue(notationRendererText.contains("guard layoutStyle == .simpleChordSheet else"))
+        XCTAssertFalse(
+            chartAppearanceText.contains(
+                """
+                case .rhythmSectionSheet:
+                            switch self {
+                            case .cleanStudio:
+                                return "Paper"
+                            case .gigSheet:
+                                return "Staff Paper"
+                """
+            )
+        )
+        XCTAssertTrue(chartModelText.contains("Staff-based page for melody, chords, and standard notation."))
+        XCTAssertFalse(chartModelText.contains("current iChart workflow"))
+        XCTAssertTrue(measureTimingText.contains("is tied to a rhythm position that changed"))
+        XCTAssertTrue(measureTimingText.contains("This rhythm has"))
+        XCTAssertFalse(measureTimingText.contains("rhythm slot that no longer exists after the beat map changed"))
+        XCTAssertFalse(measureTimingText.contains("This beat map has"))
+        XCTAssertTrue(editorText.contains("editable rhythm sketch"))
+        XCTAssertFalse(editorText.contains("editable rhythm map"))
+        XCTAssertTrue(editorText.contains("off the measure grid"))
+        XCTAssertFalse(editorText.contains("misaligned with the beat grid"))
+        XCTAssertTrue(editorText.contains("Add measures in this time signature?"))
+        XCTAssertFalse(editorText.contains("Add measures of time?"))
+        XCTAssertTrue(chordInkSheetText.contains("#if DEBUG && targetEnvironment(simulator)"))
+        XCTAssertTrue(chordInkSheetText.contains("Ink sample capture"))
+        XCTAssertTrue(chordInkSheetText.contains("Copy Ink Sample"))
+        XCTAssertFalse(chordInkSheetText.contains("Fixture capture"))
+        XCTAssertFalse(chordInkSheetText.contains("Copy Regression Fixture"))
+        XCTAssertFalse(setupSheetText.contains("notationSection"))
+    }
+
+    func testChartConsolidationUsesSingleDeleteList() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let libraryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Library/LibraryView.swift")
+        )
+
+        XCTAssertTrue(libraryText.contains("IChartChartConsolidationNotice"))
+        XCTAssertTrue(libraryText.contains("activeChartPreviewMode"))
+        XCTAssertTrue(libraryText.contains("Label(\"Delete Local\", systemImage: \"trash\")"))
+        XCTAssertFalse(libraryText.contains("IChartBasicChartPruningPanel"))
+        XCTAssertFalse(libraryText.contains("Label(\"Remove Local\""))
+    }
+
+    func testEditorExitUsesExplicitNavigationRoute() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let appRootText = try String(contentsOf: projectRoot.appendingPathComponent("iChart/App/AppRootView.swift"))
+        let editorText = try String(contentsOf: projectRoot.appendingPathComponent("iChart/Features/Editor/EditorView.swift"))
+
+        XCTAssertTrue(appRootText.contains("EditorView(chart: chart, initialCanvasMode: initialCanvasMode)"))
+        XCTAssertTrue(appRootText.contains("projectPath.removeAll()"))
+        XCTAssertTrue(editorText.contains("private let onExit"))
+        XCTAssertTrue(editorText.contains("exitEditor()"))
+        XCTAssertTrue(editorText.contains("editorNavigationChrome"))
+        XCTAssertTrue(editorText.contains("editorToolChrome"))
+        XCTAssertTrue(editorText.contains(".toolbar(.hidden, for: .navigationBar)"))
+        XCTAssertTrue(editorText.contains(".frame(width: 44, height: 44)"))
+    }
+
+    func testSlowChartOperationsHaveVisibleFeedback() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let appRootText = try String(contentsOf: projectRoot.appendingPathComponent("iChart/App/AppRootView.swift"))
+        let libraryText = try String(contentsOf: projectRoot.appendingPathComponent("iChart/Features/Library/LibraryView.swift"))
+        let editorText = try String(contentsOf: projectRoot.appendingPathComponent("iChart/Features/Editor/EditorView.swift"))
+        let setupSheetText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/ChartSetupSheetView.swift")
+        )
+        let typographySheetText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/ChartTypographySheetView.swift")
+        )
+        let appearanceSheetText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/ChartAppearanceSheetView.swift")
+        )
+
+        XCTAssertTrue(appRootText.contains("IChartAppOperationOverlay"))
+        XCTAssertTrue(appRootText.contains("Opening \\(chartTitle)..."))
+        XCTAssertTrue(appRootText.contains("app.openChart.notationWarmup"))
+        XCTAssertTrue(appRootText.contains("NotationGlyphPathCache.prepareCriticalLeadSheetWarmup(for: chart)"))
+        XCTAssertTrue(appRootText.contains("Task.sleep(nanoseconds: 80_000_000)"))
+        XCTAssertTrue(libraryText.contains("IChartLibraryOperationOverlay"))
+        XCTAssertTrue(libraryText.contains("Creating \\(layoutName)..."))
+        XCTAssertTrue(libraryText.contains("Deleting \\(title)..."))
+        XCTAssertTrue(editorText.contains("IChartEditorOperationOverlay"))
+        XCTAssertTrue(editorText.contains("Updating page style..."))
+        XCTAssertTrue(editorText.contains("Updating engraving..."))
+        XCTAssertTrue(editorText.contains("onOperationStarted: showEditorOperation"))
+        XCTAssertTrue(setupSheetText.contains("ChartSetupOperationOverlay"))
+        XCTAssertTrue(setupSheetText.contains("Creating blank page..."))
+        XCTAssertTrue(setupSheetText.contains("onOperationStarted(operationMessage)"))
+        XCTAssertFalse(setupSheetText.contains("420_000_000"))
+        XCTAssertTrue(typographySheetText.contains("ChartTypographyOperationOverlay"))
+        XCTAssertTrue(typographySheetText.contains("Updating fonts..."))
+        XCTAssertTrue(appearanceSheetText.contains("ChartAppearanceOperationOverlay"))
+    }
+
+    func testForumRefreshIsDeferredUntilForumTabIsVisible() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let appText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/App/IChartApp.swift")
+        )
+        let libraryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Library/LibraryView.swift")
+        )
+
+        XCTAssertFalse(appText.contains("await forumStore.refresh"))
+        XCTAssertTrue(libraryText.contains("refreshForumHomeIfVisible()"))
+        XCTAssertTrue(libraryText.contains("guard selectedHomeTab == .forums"))
+        XCTAssertTrue(libraryText.contains("if tab == .forums"))
+    }
+
+    func testSupabasePackageAndConfigurationAreWired() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let projectText = try String(contentsOf: projectRoot.appendingPathComponent("project.yml"))
+        let appText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/App/IChartApp.swift")
+        )
+        let configurationText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/App/Supabase/IChartSupabaseConfiguration.swift")
+        )
+        let authStoreText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/App/Auth/IChartAuthStore.swift")
+        )
+        let syncServiceText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/App/Sync/ChartCloudSyncService.swift")
+        )
+        let syncStateText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Models/ChartSyncState.swift")
+        )
+        let syncStoreText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/App/Sync/ChartCloudSyncStore.swift")
+        )
+        let syncFeedbackText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Models/ChartCloudSyncFeedback.swift")
+        )
+        let libraryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Library/LibraryView.swift")
+        )
+        let clientFactoryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/App/Supabase/IChartSupabaseClientFactory.swift")
+        )
+        let sessionStoreText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/App/Supabase/IChartSupabaseSessionStore.swift")
+        )
+        let authStorageText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/App/Supabase/IChartSupabaseAuthLocalStorage.swift")
+        )
+
+        XCTAssertTrue(projectText.contains("https://github.com/supabase/supabase-swift.git"))
+        XCTAssertTrue(projectText.contains("product: Supabase"))
+        XCTAssertTrue(projectText.contains("path: iChart/App/Info.plist"))
+        XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.2.4\""))
+        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"139\""))
+        // The requested build identity is pinned above. Also validate the
+        // strictly positive numeric format required by the bundle contract.
+        XCTAssertNotNil(projectText.range(
+            of: #"CURRENT_PROJECT_VERSION: "[1-9][0-9]*""#,
+            options: .regularExpression
+        ))
+        XCTAssertTrue(projectText.contains("PRODUCT_BUNDLE_IDENTIFIER: com.ichart.tests"))
+        XCTAssertTrue(projectText.contains("GENERATE_INFOPLIST_FILE: YES"))
+        XCTAssertTrue(projectText.contains("SUPABASE_URL: https://pausvvwoazbvmzyrebwl.supabase.co"))
+        XCTAssertTrue(projectText.contains("SUPABASE_PUBLISHABLE_KEY: sb_publishable_"))
+        XCTAssertFalse(projectText.contains("SUPABASE_SERVICE_ROLE_KEY"))
+        XCTAssertFalse(projectText.contains("SUPABASE_SECRET_KEY"))
+        XCTAssertTrue(projectText.contains("CFBundleShortVersionString: \"$(MARKETING_VERSION)\""))
+        XCTAssertTrue(projectText.contains("CFBundleVersion: \"$(CURRENT_PROJECT_VERSION)\""))
+        XCTAssertTrue(projectText.contains("ITSAppUsesNonExemptEncryption: false"))
+        XCTAssertTrue(projectText.contains("SupabaseURL: \"$(SUPABASE_URL)\""))
+        XCTAssertTrue(projectText.contains("SupabasePublishableKey: \"$(SUPABASE_PUBLISHABLE_KEY)\""))
+        XCTAssertTrue(projectText.contains("SupabaseAnonKey: \"$(SUPABASE_ANON_KEY)\""))
+        XCTAssertTrue(projectText.contains("CFBundleURLTypes:"))
+        XCTAssertTrue(projectText.contains("ichart"))
+        XCTAssertTrue(appText.contains("IChartSupabaseClientFactory.liveClients()"))
+        XCTAssertTrue(appText.contains("IChartAuthStore.live(clients:"))
+        XCTAssertTrue(appText.contains("ChartCloudSyncStore.live(clients:"))
+        XCTAssertTrue(configurationText.contains("SUPABASE_URL"))
+        XCTAssertTrue(configurationText.contains("SUPABASE_PUBLISHABLE_KEY"))
+        XCTAssertTrue(configurationText.contains("SUPABASE_ANON_KEY"))
+        XCTAssertTrue(authStoreText.contains("func deleteAccount() async"))
+        XCTAssertTrue(authStoreText.contains("\"account-deletion\""))
+        XCTAssertTrue(authStoreText.contains("DELETE_MY_ICHART_ACCOUNT"))
+        XCTAssertTrue(authStoreText.contains("signOut(scope: .local)"))
+        XCTAssertTrue(clientFactoryText.contains("SupabaseClient("))
+        XCTAssertTrue(clientFactoryText.contains("IChartSupabaseAuthLocalStorage"))
+        XCTAssertTrue(clientFactoryText.contains("IChartSupabaseSessionStore"))
+        XCTAssertTrue(clientFactoryText.contains("accessToken:"))
+        XCTAssertTrue(clientFactoryText.contains("ichart://auth-callback"))
+        XCTAssertTrue(clientFactoryText.contains("authCallbackURL(flowNonce:"))
+        XCTAssertTrue(clientFactoryText.contains("URLQueryItem(name: \"flow_nonce\""))
+        XCTAssertTrue(clientFactoryText.contains("isAuthCallbackURL"))
+        XCTAssertTrue(sessionStoreText.contains("IChartSupabaseSessionRefresher"))
+        XCTAssertTrue(sessionStoreText.contains("refreshIfNeeded()"))
+        XCTAssertTrue(sessionStoreText.contains("func accessToken() async throws -> String?"))
+        XCTAssertTrue(syncStoreText.contains("applySyncedSnapshot("))
+        XCTAssertTrue(syncStoreText.contains("ifUnchangedFrom: snapshot"))
+        XCTAssertTrue(syncStoreText.contains("queueUpload(libraryStore.snapshot)"))
+        XCTAssertTrue(authStorageText.contains("KeychainLocalStorage"))
+        XCTAssertTrue(authStorageText.contains("UserDefaults"))
+        XCTAssertTrue(authStorageText.contains("allowsInsecureFallback"))
+        XCTAssertTrue(authStorageText.contains("#if DEBUG"))
+        XCTAssertTrue(authStorageText.contains("targetEnvironment(simulator)"))
+        XCTAssertTrue(authStorageText.contains("IChartSupabasePersistentSessionStore"))
+        XCTAssertTrue(authStorageText.contains("iChart.supabase.session.v1"))
+        XCTAssertTrue(authStoreText.contains("func signUp("))
+        XCTAssertTrue(authStoreText.contains("signupMetadata(firstName:"))
+        XCTAssertTrue(authStoreText.contains("let session = try await authClient.auth.signIn("))
+        XCTAssertTrue(authStoreText.contains("resendVerificationEmail"))
+        XCTAssertTrue(authStoreText.contains("resetPasswordForEmail"))
+        XCTAssertTrue(authStoreText.contains("Set new password"))
+        XCTAssertTrue(authStoreText.contains("passwordRecovery"))
+        XCTAssertTrue(authStoreText.contains("updatePassword(_ password:"))
+        XCTAssertTrue(authStoreText.contains("UserAttributes(password: password)"))
+        XCTAssertTrue(authStoreText.contains("callbackType(from:"))
+        XCTAssertTrue(authStoreText.contains("verifyOTP("))
+        XCTAssertTrue(authStoreText.contains("tokenHash:"))
+        XCTAssertTrue(authStoreText.contains("token_hash"))
+        XCTAssertTrue(authStoreText.contains("tokenHashValue(from:"))
+        XCTAssertTrue(authStoreText.contains("\"token\""))
+        XCTAssertTrue(authStoreText.contains("pendingVerificationEmailStorage"))
+        XCTAssertTrue(authStoreText.contains("IChartPendingAuthFlow"))
+        XCTAssertTrue(authStoreText.contains("pendingAuthFlowKey"))
+        XCTAssertTrue(authStoreText.contains("iChart.pending-auth-flow.v1"))
+        XCTAssertTrue(authStoreText.contains("pendingAuthFlowLifetime"))
+        XCTAssertTrue(authStoreText.contains("storePendingAuthFlow(kind: .signup"))
+        XCTAssertTrue(authStoreText.contains("storePendingAuthFlow(kind: .recovery"))
+        XCTAssertTrue(authStoreText.contains("callbackFlowNonce(from:"))
+        XCTAssertTrue(authStoreText.contains("flow_nonce"))
+        XCTAssertTrue(authStoreText.contains("IChartAuthError.unexpectedAuthCallback"))
+        XCTAssertTrue(authStoreText.contains("IChartAuthError.expiredAuthCallback"))
+        XCTAssertTrue(authStoreText.contains("return \"Email Verification Sent\""))
+        XCTAssertTrue(authStoreText.contains("Verification complete."))
+        XCTAssertFalse(authStoreText.contains("Email verified. Sign in if asked."))
+        XCTAssertFalse(authStoreText.contains("Email verified. You're signed in."))
+        let callbackValidatorText = try XCTUnwrap(
+            authStoreText
+                .components(separatedBy: "private func validatePendingAuthFlow(for url: URL) throws {")
+                .dropFirst()
+                .first?
+                .components(separatedBy: "private func loadedPendingAuthFlow()")
+                .first
+        )
+        XCTAssertTrue(callbackValidatorText.contains("clearPendingAuthFlow()\n            throw IChartAuthError.expiredAuthCallback"))
+        XCTAssertFalse(callbackValidatorText.contains("clearPendingAuthFlow()\n            throw IChartAuthError.unexpectedAuthCallback"))
+        XCTAssertTrue(callbackValidatorText.contains("let callbackEmail = callbackEmail(from: url)"))
+        XCTAssertTrue(callbackValidatorText.contains("callbackEmail?.caseInsensitiveCompare(expectedEmail)"))
+        XCTAssertTrue(callbackValidatorText.contains("if let callbackNonce = callbackFlowNonce(from: url)"))
+        XCTAssertTrue(callbackValidatorText.contains("callbackNonce == flow.nonce"))
+        XCTAssertTrue(callbackValidatorText.contains("else if callbackEmail == nil"))
+        XCTAssertTrue(authStoreText.contains("IChartAuthError.emailNotConfirmed"))
+        XCTAssertTrue(authStoreText.contains("IChartAuthError.verificationEmailRateLimited"))
+        XCTAssertTrue(authStoreText.contains("clearPendingAuthFlow()"))
+        XCTAssertTrue(authStoreText.contains("Verification email sent. Open Mail and tap Verify iChart Account."))
+        XCTAssertFalse(authStoreText.contains("Do not use old links"))
+        XCTAssertFalse(authStoreText.contains("newest iChart email"))
+        XCTAssertFalse(authStoreText.contains("return \"Check your email\""))
+        XCTAssertFalse(authStoreText.contains("return \"Verify email\""))
+        XCTAssertTrue(authStoreText.contains("isEmailNotConfirmedError"))
+        XCTAssertTrue(authStoreText.contains(".emailNotConfirmed"))
+        XCTAssertTrue(authStoreText.contains("isVerificationEmailRateLimitError"))
+        XCTAssertTrue(authStoreText.contains(".overEmailSendRateLimit"))
+        XCTAssertTrue(authStoreText.contains("restorePendingAuthFlow(previousFlow)"))
+        XCTAssertTrue(authStoreText.contains("IChartSupabaseAuthLocalStorage()"))
+        XCTAssertFalse(authStoreText.contains("allowsInsecureFallback: false"))
+        XCTAssertTrue(authStoreText.contains("iChart.pending-verification-email.v1"))
+        XCTAssertTrue(authStoreText.contains("legacyPendingVerificationEmailKey"))
+        XCTAssertFalse(authStoreText.contains("UserDefaults.standard.set(email"))
+        XCTAssertTrue(authStoreText.contains("applyAuthState"))
+        XCTAssertTrue(authStoreText.contains("dataClient"))
+        XCTAssertTrue(authStoreText.contains("sessionStore.update"))
+        XCTAssertTrue(authStoreText.contains("persistentSessionStore.store"))
+        XCTAssertTrue(authStoreText.contains("restoreStoredSession"))
+        XCTAssertTrue(authStoreText.contains("temporarilyOffline"))
+        XCTAssertTrue(authStoreText.contains("Temporarily offline"))
+        XCTAssertTrue(authStoreText.contains("Account is offline. Local charts remain available."))
+        XCTAssertTrue(authStoreText.contains("isConnectivityError"))
+        XCTAssertTrue(authStoreText.contains("setSession("))
+        XCTAssertTrue(authStoreText.contains("redirectTo: redirectURL"))
+        XCTAssertTrue(authStoreText.contains("emailRedirectTo: redirectURL"))
+        XCTAssertTrue(authStoreText.contains("IChartSupabaseClientFactory.authCallbackURL(flowNonce: pendingFlow.nonce)"))
+        XCTAssertFalse(authStoreText.contains("IChartUserProfileUpdate"))
+        XCTAssertFalse(authStoreText.contains("saveProfile"))
+        XCTAssertTrue(authStoreText.contains("IChartAuthError.invalidAuthCallback"))
+        XCTAssertTrue(authStoreText.contains("session(from:"))
+        XCTAssertFalse(authStoreText.contains("client.auth.currentUser"))
+        XCTAssertTrue(syncServiceText.contains("existingSnapshotID(chartID:"))
+        XCTAssertTrue(syncServiceText.contains("ignoreDuplicates: true"))
+        XCTAssertTrue(syncServiceText.contains(".eq(\"version\", value: String(version))"))
+        XCTAssertTrue(syncServiceText.contains("sessionRefresher.refreshIfNeeded()"))
+        XCTAssertTrue(syncStoreText.contains("IChartSupabaseSessionRefresher"))
+        XCTAssertTrue(syncStoreText.contains("backUpNow(enrollLocalCharts:"))
+        XCTAssertTrue(syncStoreText.contains("restoreChartsFromCloud()"))
+        XCTAssertTrue(syncServiceText.contains("func restoreFromCloud(localSnapshot:"))
+        XCTAssertTrue(syncStoreText.contains("runRestore(snapshot:"))
+        XCTAssertTrue(syncStoreText.contains("runPush(snapshot:"))
+        XCTAssertTrue(syncStoreText.contains("case .signedIn, .passwordRecovery:"))
+        XCTAssertTrue(syncStoreText.contains("backUpNow(enrollLocalCharts: false)"))
+        XCTAssertTrue(syncServiceText.contains("localSnapshotForSync"))
+        XCTAssertTrue(syncServiceText.contains("shouldRestoreRemoteForLegacyOwnerlessSnapshot"))
+        XCTAssertFalse(syncServiceText.contains("client.auth.currentUser"))
+        XCTAssertFalse(syncServiceText.contains("enum ChartSyncState"))
+        XCTAssertTrue(syncStateText.contains("enum ChartSyncState"))
+        XCTAssertTrue(syncStateText.contains("Cloud backup unavailable"))
+        XCTAssertTrue(syncStateText.contains("Sign in to back up"))
+        XCTAssertTrue(syncStateText.contains("Cloud backup requires Pro"))
+        XCTAssertTrue(syncStateText.contains("Upgrade to Pro to back up and restore from cloud."))
+        XCTAssertTrue(syncStateText.contains("Reconnect to back up."))
+        XCTAssertTrue(syncStateText.contains("Back Up Now includes this iPad's local charts in cloud backup."))
+        XCTAssertTrue(syncStateText.contains("allowsCloudRestore"))
+        XCTAssertTrue(syncStateText.contains("cloudRestoreDisabledReason"))
+        XCTAssertFalse(syncStateText.contains("Charts are saved " + "locally"))
+        XCTAssertFalse(syncStateText.contains("Saved " + "locally"))
+        XCTAssertTrue(syncStateText.contains("manualSyncTitle"))
+        XCTAssertTrue(syncStateText.contains("Try Again"))
+        XCTAssertTrue(syncStateText.contains("Back Up Now"))
+        XCTAssertFalse(syncStateText.contains("Retry Sync"))
+        XCTAssertFalse(syncStateText.contains("Sync Now"))
+        XCTAssertTrue(syncStateText.contains("manualSyncDisabledReason"))
+        XCTAssertTrue(syncStoreText.contains("lastSyncAttemptAt"))
+        XCTAssertTrue(syncStoreText.contains("cancelPendingSyncWork()"))
+        XCTAssertTrue(syncStoreText.contains("case .temporarilyOffline"))
+        XCTAssertTrue(syncFeedbackText.contains(".notConnectedToInternet"))
+        XCTAssertTrue(syncFeedbackText.contains("Sign in again, then retry"))
+        XCTAssertTrue(syncFeedbackText.contains("Cloud permissions blocked"))
+        XCTAssertFalse(syncStoreText.contains("Cloud permissions blocked backup. Sign in again, then retry."))
+        XCTAssertTrue(syncFeedbackText.contains("We could not finish"))
+        XCTAssertTrue(libraryText.contains("IChartCloudSyncSettings"))
+        XCTAssertTrue(libraryText.contains("syncStore.backUpNow()"))
+        XCTAssertTrue(libraryText.contains("syncStore.restoreChartsFromCloud()"))
+        XCTAssertTrue(libraryText.contains("Restore Charts from Cloud"))
+        XCTAssertTrue(libraryText.contains("Reconnect"))
+        XCTAssertTrue(libraryText.contains("Save Password"))
+        XCTAssertFalse(libraryText.contains("Last Backup"))
+        XCTAssertFalse(libraryText.contains("Last Checked"))
+        XCTAssertTrue(libraryText.contains("syncStore.state.manualSyncTitle"))
+        XCTAssertTrue(libraryText.contains("syncStore.state.manualSyncDisabledReason"))
+        XCTAssertTrue(libraryText.contains("statusTint"))
+        XCTAssertFalse(configurationText.contains("eyJ"))
+    }
+
+    func testStoreKitSubscriptionAuthorityIsWired() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let projectText = try String(contentsOf: projectRoot.appendingPathComponent("project.yml"))
+        let appText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/App/IChartApp.swift")
+        )
+        let catalogText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Models/IChartStoreKitProductCatalog.swift")
+        )
+        let storeKitText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/App/StoreKit/IChartStoreKitSubscriptionStore.swift")
+        )
+        let libraryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Library/LibraryView.swift")
+        )
+        let upgradeText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/UpgradeSheetView.swift")
+        )
+        let forumStoreText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/App/Forum/IChartForumStore.swift")
+        )
+        let rhythmDiagnosticsText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Services/RhythmRecognitionDiagnostics.swift")
+        )
+        let appEntitlementsText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Models/AppEntitlements.swift")
+        )
+        let planPolicyText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/ichart-plan-policy-source-of-truth.md")
+        )
+        let storeKitRunbookText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/ichart-storekit-subscription-runbook.md")
+        )
+        let storeKitConfigURL = projectRoot
+            .appendingPathComponent("StoreKit/iChartProSubscriptions.storekit")
+        let storeKitConfigText = try String(contentsOf: storeKitConfigURL)
+        let storeKitConfigData = try Data(contentsOf: storeKitConfigURL)
+        let storeKitConfigJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: storeKitConfigData) as? [String: Any]
+        )
+
+        XCTAssertTrue(projectText.contains("fileGroups:"))
+        XCTAssertTrue(projectText.contains("SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG"))
+        XCTAssertTrue(projectText.contains("- StoreKit"))
+        XCTAssertFalse(projectText.contains("- path: StoreKit\n        buildPhase: resources"))
+        XCTAssertTrue(projectText.contains("storeKitConfiguration: StoreKit/iChartProSubscriptions.storekit"))
+        XCTAssertTrue(catalogText.contains("com.ichart.app.pro.monthly"))
+        XCTAssertTrue(catalogText.contains("com.ichart.app.pro.annual"))
+        XCTAssertTrue(catalogText.contains("localPreviewProductOptions"))
+        XCTAssertFalse(catalogText.contains("localStoreKitConfigurationFileName"))
+        XCTAssertTrue(catalogText.contains("IChartStoreKitEntitlementResolver"))
+        XCTAssertTrue(storeKitConfigText.contains("\"productID\": \"com.ichart.app.pro.monthly\""))
+        XCTAssertTrue(storeKitConfigText.contains("\"productID\": \"com.ichart.app.pro.annual\""))
+        XCTAssertTrue(storeKitConfigText.contains("\"displayPrice\": \"7.99\""))
+        XCTAssertTrue(storeKitConfigText.contains("\"displayPrice\": \"64.99\""))
+        XCTAssertTrue(storeKitConfigText.contains("\"recurringSubscriptionPeriod\": \"P1M\""))
+        XCTAssertTrue(storeKitConfigText.contains("\"recurringSubscriptionPeriod\": \"P1Y\""))
+        XCTAssertEqual(
+            (storeKitConfigJSON["version"] as? [String: Any])?["major"] as? Int,
+            3
+        )
+        XCTAssertTrue(storeKitText.contains("Product.products(for: productIDs)"))
+        XCTAssertTrue(storeKitText.contains("Transaction.currentEntitlements"))
+        XCTAssertTrue(storeKitText.contains("Transaction.updates"))
+        XCTAssertTrue(storeKitText.contains("#if DEBUG && targetEnvironment(simulator)"))
+        XCTAssertTrue(storeKitText.contains("localStoreKitProductOptions()"))
+        XCTAssertTrue(storeKitText.contains("IChartStoreKitProductCatalog.localPreviewProductOptions"))
+        XCTAssertFalse(storeKitText.contains("Bundle.main.url("))
+        XCTAssertFalse(storeKitText.contains("LocalStoreKitConfiguration"))
+        XCTAssertTrue(storeKitText.contains("applyLocalPreview(.activePro(verifiedAt: Date()))"))
+        XCTAssertTrue(storeKitText.contains("Pro preview is active on this device."))
+        XCTAssertTrue(storeKitText.contains("Pro subscriptions are temporarily unavailable."))
+        XCTAssertTrue(storeKitText.contains("Pro subscriptions could not be loaded."))
+        XCTAssertFalse(storeKitText.contains("Local Pro preview active for simulator QA."))
+        XCTAssertFalse(storeKitText.contains("StoreKit products are not configured."))
+        XCTAssertFalse(storeKitText.contains("StoreKit products could not be loaded."))
+        XCTAssertFalse(storeKitText.contains("Subscription server verification is unavailable. Using local simulator entitlement."))
+        XCTAssertTrue(storeKitText.contains("product.purchase(options: purchaseOptions)"))
+        XCTAssertTrue(storeKitText.contains("storeKitPurchaseOptions()"))
+        XCTAssertTrue(storeKitText.contains(".appAccountToken(appAccountToken)"))
+        XCTAssertTrue(storeKitText.contains("func appAccountToken() async throws -> UUID?"))
+        XCTAssertTrue(storeKitText.contains("try await refreshedSession().user.id"))
+        XCTAssertTrue(storeKitText.contains("try await authClient.auth.session"))
+        XCTAssertTrue(storeKitText.contains("await sessionStore.update(session)"))
+        XCTAssertTrue(storeKitText.contains("AppStore.sync()"))
+        XCTAssertTrue(storeKitText.contains("AppStore.showManageSubscriptions(in: scene)"))
+        XCTAssertTrue(storeKitText.contains("Opening subscription management..."))
+        XCTAssertTrue(storeKitText.contains("IChartStoreKitEntitlementResolver.entitlement"))
+        XCTAssertTrue(storeKitText.contains("FunctionInvokeOptions"))
+        XCTAssertTrue(storeKitText.contains(#""Authorization": "Bearer \(session.accessToken)""#))
+        XCTAssertTrue(storeKitText.contains("jwsRepresentation"))
+        XCTAssertTrue(storeKitText.contains("\"storekit-subscription-claims\""))
+        XCTAssertTrue(storeKitText.contains("loadRemoteSubscriptionEntitlement"))
+        XCTAssertTrue(appText.contains("@StateObject private var subscriptionStore"))
+        XCTAssertTrue(appText.contains("IChartStoreKitSubscriptionStore.live(clients: supabaseClients)"))
+        XCTAssertTrue(appText.contains("await subscriptionStore.bootstrap()"))
+        XCTAssertTrue(appText.contains("await subscriptionStore.refreshEntitlements()"))
+        XCTAssertTrue(appText.contains("applySubscriptionState(subscriptionStore.entitlement)"))
+        XCTAssertTrue(appText.contains("resolvedForLibraryApplication"))
+        XCTAssertTrue(appText.contains("store.applySubscriptionState(resolvedEntitlement)"))
+        XCTAssertTrue(appText.contains("for: resolvedEntitlement,"))
+        XCTAssertTrue(appText.contains("accessPolicy: store.entitlements.accessPolicy"))
+        XCTAssertTrue(appText.contains(".environmentObject(subscriptionStore)"))
+        XCTAssertTrue(libraryText.contains("@EnvironmentObject private var subscriptionStore"))
+        XCTAssertTrue(libraryText.contains("Pro Subscription"))
+        XCTAssertTrue(libraryText.contains("Restore Purchases"))
+        XCTAssertTrue(libraryText.contains("Manage Subscription"))
+        XCTAssertTrue(libraryText.contains("subscriptionStore.productOptions"))
+        XCTAssertTrue(libraryText.contains("Pro subscriptions are temporarily unavailable. Try again later or restore an existing purchase."))
+        XCTAssertTrue(libraryText.contains("Use local preview controls on this device."))
+        XCTAssertTrue(libraryText.contains("Sample Forum Charts"))
+        XCTAssertTrue(libraryText.contains("#if DEBUG"))
+        XCTAssertTrue(libraryText.contains("title: \"Diagnostics\""))
+        XCTAssertTrue(libraryText.contains("private struct IChartDiagnosticsSettings"))
+        XCTAssertFalse(libraryText.contains("StoreKit products are unavailable"))
+        XCTAssertFalse(libraryText.contains("Simulator control for StoreKit/Supabase entitlement QA"))
+        XCTAssertFalse(libraryText.contains("Forum QA Samples"))
+        XCTAssertTrue(libraryText.contains("product.valueBadge"))
+        XCTAssertTrue(libraryText.contains("subscriptionStore.applyLocalPreview(subscriptionState)"))
+        XCTAssertTrue(libraryText.contains("subscriptionStore.purchase(product)"))
+        XCTAssertTrue(libraryText.contains("subscriptionStore.manageSubscriptions()"))
+        XCTAssertTrue(upgradeText.contains("@EnvironmentObject private var subscriptionStore"))
+        XCTAssertTrue(upgradeText.contains("subscriptionStore.productOptions"))
+        XCTAssertTrue(upgradeText.contains("product.valueBadge"))
+        XCTAssertTrue(upgradeText.contains("subscriptionStore.purchase(product)"))
+        XCTAssertTrue(upgradeText.contains("subscriptionStore.restorePurchases()"))
+        XCTAssertTrue(upgradeText.contains("Manage Subscription"))
+        XCTAssertTrue(upgradeText.contains("subscriptionStore.manageSubscriptions()"))
+        XCTAssertTrue(upgradeText.contains("Pro Preview unlocks Pro locally on this device."))
+        XCTAssertTrue(upgradeText.contains("#if DEBUG && targetEnvironment(simulator)"))
+        XCTAssertFalse(upgradeText.contains("#if DEBUG || targetEnvironment(simulator)"))
+        XCTAssertTrue(upgradeText.contains("Pro subscriptions are temporarily unavailable. Try again later or restore an existing purchase."))
+        XCTAssertTrue(forumStoreText.contains("#if DEBUG"))
+        XCTAssertFalse(forumStoreText.contains("#if DEBUG || targetEnvironment(simulator)"))
+        XCTAssertTrue(rhythmDiagnosticsText.contains("#if DEBUG && targetEnvironment(simulator)"))
+        XCTAssertTrue(rhythmDiagnosticsText.contains("#else\n        false\n        #endif"))
+        XCTAssertTrue(upgradeText.contains("Projects for song variants"))
+        XCTAssertTrue(appEntitlementsText.contains("Instrument Transposition"))
+        XCTAssertTrue(appEntitlementsText.contains("Repeats And Coda"))
+        XCTAssertTrue(appEntitlementsText.contains("Rhythm Editing"))
+        XCTAssertFalse(appEntitlementsText.contains("Transposition Views"))
+        XCTAssertFalse(appEntitlementsText.contains("Transposition views"))
+        XCTAssertFalse(appEntitlementsText.contains("section charts, keys"))
+        XCTAssertFalse(upgradeText.contains("Cross-device sync when available"))
+        XCTAssertFalse(libraryText.contains("future service-backed features"))
+        XCTAssertFalse(libraryText.contains("future multi-device work"))
+        XCTAssertFalse(upgradeText.contains("simulator entitlement QA"))
+        XCTAssertFalse(upgradeText.contains("monthly and annual product IDs"))
+        XCTAssertFalse(upgradeText.contains("until StoreKit is wired"))
+        XCTAssertTrue(planPolicyText.contains("StoreKit owns Apple subscription purchase/restore."))
+        XCTAssertTrue(planPolicyText.contains("StoreKit/iChartProSubscriptions.storekit"))
+        XCTAssertTrue(planPolicyText.contains("Supabase subscription rows are read-only from the app and are updated only by trusted server-side purchase verification"))
+        XCTAssertTrue(storeKitRunbookText.contains("com.ichart.app.pro.monthly"))
+        XCTAssertTrue(storeKitRunbookText.contains("com.ichart.app.pro.annual"))
+        XCTAssertTrue(storeKitRunbookText.contains("$7.99/month"))
+        XCTAssertTrue(storeKitRunbookText.contains("$64.99/year"))
+        XCTAssertTrue(storeKitRunbookText.contains("StoreKit/iChartProSubscriptions.storekit"))
+        XCTAssertTrue(storeKitRunbookText.contains("App Store Connect Production Gate"))
+        XCTAssertTrue(storeKitRunbookText.contains("subscription group for iChart Pro"))
+        XCTAssertTrue(storeKitRunbookText.contains("up to 1 hour to appear in the sandbox environment"))
+        XCTAssertTrue(storeKitRunbookText.contains("App Store Server Notifications"))
+        XCTAssertTrue(storeKitRunbookText.contains("App Store Server API"))
+        XCTAssertTrue(storeKitRunbookText.contains("Settings and the upgrade sheet expose Manage Subscription"))
+        XCTAssertTrue(storeKitRunbookText.contains("Have the verified server path write the subscription authority metadata in `subscriptions`; the iOS app remains select-only."))
+        XCTAssertTrue(storeKitRunbookText.contains("StoreKit is an entitlement source"))
+        XCTAssertTrue(storeKitRunbookText.contains("Keep service-role keys, webhook secrets, App Store Connect API keys, and signing keys out of the iOS app and out of git."))
+    }
+
+    func testAppStoreServerNotificationFunctionIsLockedBehindVerificationAndServerWrites() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let supabaseConfigText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/config.toml")
+        )
+        let functionText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/functions/app-store-server-notifications/index.mjs")
+        )
+        let claimFunctionText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/functions/storekit-subscription-claims/index.mjs")
+        )
+        let retentionFunctionText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/functions/subscription-retention-jobs/index.mjs")
+        )
+        let telemetryFunctionText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/functions/app-telemetry-ingest/index.mjs")
+        )
+        let telemetryIngestText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/functions/_shared/telemetry_ingest.mjs")
+        )
+        let telemetryIngestTestText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/functions/_shared/telemetry_ingest.test.mjs")
+        )
+        let retentionJobText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/functions/_shared/subscription_retention_jobs.mjs")
+        )
+        let retentionJobTestText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/functions/_shared/subscription_retention_jobs.test.mjs")
+        )
+        let authorityText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/functions/_shared/app_store_subscription_authority.mjs")
+        )
+        let authorityStoreText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/functions/_shared/supabase_subscription_authority_store.mjs")
+        )
+        let authorityTestText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/functions/_shared/app_store_subscription_authority.test.mjs")
+        )
+        let authorityStoreTestText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/functions/_shared/supabase_subscription_authority_store.test.mjs")
+        )
+        let signedVerifierText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/functions/_shared/app_store_signed_data_verifier.mjs")
+        )
+        let verifierConfigText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/functions/_shared/app_store_verifier_config.mjs")
+        )
+        let verifierConfigTestText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/functions/_shared/app_store_verifier_config.test.mjs")
+        )
+        let storeKitRunbookText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/ichart-storekit-subscription-runbook.md")
+        )
+        let productionReadinessText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/supabase-production-readiness-checklist.md")
+        )
+        let planPolicyText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/ichart-plan-policy-source-of-truth.md")
+        )
+
+        XCTAssertTrue(supabaseConfigText.contains("[functions.app-store-server-notifications]"))
+        XCTAssertTrue(supabaseConfigText.contains("verify_jwt = false"))
+        XCTAssertTrue(supabaseConfigText.contains("entrypoint = \"./functions/app-store-server-notifications/index.mjs\""))
+        XCTAssertTrue(supabaseConfigText.contains("[functions.storekit-subscription-claims]"))
+        XCTAssertTrue(supabaseConfigText.contains("verify_jwt = true"))
+        XCTAssertTrue(supabaseConfigText.contains("entrypoint = \"./functions/storekit-subscription-claims/index.mjs\""))
+        XCTAssertTrue(supabaseConfigText.contains("[functions.subscription-retention-jobs]"))
+        XCTAssertTrue(supabaseConfigText.contains("entrypoint = \"./functions/subscription-retention-jobs/index.mjs\""))
+        XCTAssertTrue(supabaseConfigText.contains("[functions.app-telemetry-ingest]"))
+        XCTAssertTrue(supabaseConfigText.contains("entrypoint = \"./functions/app-telemetry-ingest/index.mjs\""))
+        XCTAssertFalse(supabaseConfigText.contains("app-store-server-notifications/index.ts"))
+        XCTAssertFalse(supabaseConfigText.contains("@supabase/server"))
+        XCTAssertTrue(functionText.contains("handleAppStoreServerNotificationRequest"))
+        XCTAssertTrue(claimFunctionText.contains("handleStoreKitSubscriptionClaimRequest"))
+        XCTAssertTrue(retentionFunctionText.contains("handleSubscriptionRetentionJobRequest"))
+        XCTAssertTrue(telemetryFunctionText.contains("handleTelemetryIngestRequest"))
+        XCTAssertTrue(functionText.contains("createAppStoreSignedDataVerifiers"))
+        XCTAssertTrue(claimFunctionText.contains("createAppStoreSignedDataVerifiers"))
+        XCTAssertTrue(functionText.contains("createSupabaseSubscriptionAuthorityDependencies"))
+        XCTAssertTrue(claimFunctionText.contains("createSupabaseSubscriptionAuthorityDependencies"))
+        XCTAssertFalse(functionText.contains("Hello from Functions"))
+        XCTAssertFalse(functionText.contains("withSupabase"))
+        XCTAssertFalse(claimFunctionText.contains("withSupabase"))
+        XCTAssertTrue(authorityText.contains("com.ichart.app.pro.monthly"))
+        XCTAssertTrue(authorityText.contains("com.ichart.app.pro.annual"))
+        XCTAssertTrue(authorityText.contains("App Store signedPayload verification is not configured."))
+        XCTAssertTrue(authorityText.contains("writeSubscriptionAuthority"))
+        XCTAssertTrue(authorityText.contains("Missing App Store signedPayload."))
+        XCTAssertTrue(authorityText.contains("readJSON(request, { maxBytes: 128_000"))
+        XCTAssertTrue(authorityText.contains("readBoundedText(request, maxBytes)"))
+        XCTAssertTrue(authorityText.contains("responseSubscription(writeResult, staleOrDuplicateMappingStatuses)"))
+        XCTAssertTrue(authorityText.contains("responseSubscription(claimResult, rejectedClaimMappingStatuses)"))
+        XCTAssertTrue(authorityText.contains("Nested App Store signed payload verification is not configured."))
+        XCTAssertTrue(authorityText.contains("Verified App Store payload is missing subscription identity fields."))
+        XCTAssertTrue(authorityText.contains("StoreKit signed transaction verification is not configured."))
+        XCTAssertTrue(authorityText.contains("writeSubscriptionAuthorityClaim"))
+        XCTAssertTrue(authorityText.contains("Verified StoreKit transaction is not an iChart Pro subscription."))
+        XCTAssertTrue(authorityText.contains("Verified StoreKit transaction is missing app account binding."))
+        XCTAssertTrue(authorityText.contains("Verified StoreKit transaction belongs to a different iChart account."))
+        XCTAssertTrue(authorityText.contains("Authenticated user resolver is not configured."))
+        XCTAssertTrue(authorityText.contains("mapping_status"))
+        XCTAssertTrue(authorityStoreText.contains("SUPABASE_SECRET_KEYS"))
+        XCTAssertTrue(authorityStoreText.contains("SUPABASE_SERVICE_ROLE_KEY"))
+        XCTAssertTrue(authorityStoreText.contains("authenticatedUserIDFromBearer"))
+        XCTAssertTrue(authorityStoreText.contains("on_conflict"))
+        XCTAssertTrue(authorityStoreText.contains("storekit_original_transaction_id"))
+        XCTAssertTrue(authorityStoreText.contains("storekit_app_account_token"))
+        XCTAssertTrue(authorityStoreText.contains("app_store_notification_events"))
+        XCTAssertTrue(authorityStoreText.contains("unmapped_original_transaction"))
+        XCTAssertTrue(authorityStoreText.contains("original_transaction_owner_conflict"))
+        XCTAssertTrue(authorityStoreText.contains("stale_transaction_claim"))
+        XCTAssertTrue(authorityStoreText.contains("duplicate_notification"))
+        XCTAssertTrue(authorityStoreText.contains("stale_notification"))
+        XCTAssertTrue(authorityTestText.contains("webhook refuses to process signedPayload without verifier"))
+        XCTAssertTrue(authorityTestText.contains("webhook refuses nested signed payloads until nested verifiers are configured"))
+        XCTAssertTrue(authorityTestText.contains("webhook refuses verified payloads without subscription identity fields"))
+        XCTAssertTrue(authorityTestText.contains("webhook rejects oversized request bodies before verification"))
+        XCTAssertTrue(authorityTestText.contains("webhook rejects streamed oversized request bodies before reading the full stream"))
+        XCTAssertTrue(authorityTestText.contains("webhook does not echo subscription rows for duplicate writer rejections"))
+        XCTAssertTrue(authorityTestText.contains("transaction claim rejects streamed oversized request bodies before verification"))
+        XCTAssertTrue(authorityTestText.contains("transaction claim refuses to process without verifier"))
+        XCTAssertTrue(authorityTestText.contains("transaction claim writes only after user and transaction are verified"))
+        XCTAssertTrue(authorityTestText.contains("transaction claim rejects verified transactions without app account token"))
+        XCTAssertTrue(authorityTestText.contains("transaction claim rejects app account token mismatch"))
+        XCTAssertTrue(authorityTestText.contains("transaction claim returns conflict for stale writer rejections"))
+        XCTAssertTrue(authorityTestText.contains("webhook accepts verified unmapped transactions without inventing ownership"))
+        XCTAssertTrue(authorityTestText.contains("unknown products never unlock pro"))
+        XCTAssertTrue(authorityStoreTestText.contains("claim writer upserts subscription authority by owner"))
+        XCTAssertTrue(authorityStoreTestText.contains("claim writer rejects original transactions already mapped to another owner"))
+        XCTAssertTrue(authorityStoreTestText.contains("claim writer rejects stale transaction claims for the same owner"))
+        XCTAssertTrue(authorityStoreTestText.contains("notification writer patches only previously claimed original transactions"))
+        XCTAssertTrue(authorityStoreTestText.contains("notification writer ignores duplicate notification UUIDs"))
+        XCTAssertTrue(authorityStoreTestText.contains("notification writer rejects stale notifications"))
+        XCTAssertTrue(authorityStoreTestText.contains("authenticated user resolver validates bearer token"))
+        XCTAssertTrue(retentionJobText.contains("ICHART_RETENTION_JOB_SECRET"))
+        XCTAssertTrue(retentionJobText.contains("RESEND_API_KEY"))
+        XCTAssertTrue(retentionJobText.contains("claim_subscription_retention_events"))
+        XCTAssertTrue(retentionJobText.contains("mark_subscription_retention_event_sent"))
+        XCTAssertTrue(retentionJobTestText.contains("retention job requires configured secret"))
+        XCTAssertTrue(retentionJobTestText.contains("retention job dispatches claimed email events and marks successes"))
+        XCTAssertTrue(retentionJobTestText.contains("retention job marks email provider failures"))
+        XCTAssertTrue(telemetryIngestText.contains("allowedEventNames"))
+        XCTAssertTrue(telemetryIngestText.contains("allowedPropertyKeys"))
+        XCTAssertTrue(telemetryIngestText.contains("validateClientAPIKey"))
+        XCTAssertTrue(telemetryIngestText.contains("SUPABASE_ANON_KEY"))
+        XCTAssertFalse(telemetryIngestText.contains("\"chart_title\""))
+        XCTAssertFalse(telemetryIngestText.contains("\"raw_chord_text\""))
+        XCTAssertTrue(telemetryIngestText.contains("/rest/v1/telemetry_events"))
+        XCTAssertTrue(telemetryIngestTestText.contains("raw_chord_text"))
+        XCTAssertTrue(telemetryIngestTestText.contains("ingest rejects invalid client api keys when configured"))
+        XCTAssertTrue(telemetryIngestTestText.contains("ingest stores valid signed-out telemetry batches"))
+        XCTAssertTrue(telemetryIngestTestText.contains("ingest attaches owner id when bearer session resolves"))
+        XCTAssertTrue(signedVerifierText.contains("@apple/app-store-server-library@3.1.0"))
+        XCTAssertTrue(signedVerifierText.contains("SignedDataVerifier"))
+        XCTAssertTrue(signedVerifierText.contains("verifyAndDecodeNotification"))
+        XCTAssertTrue(signedVerifierText.contains("verifyAndDecodeTransaction"))
+        XCTAssertTrue(signedVerifierText.contains("verifyAndDecodeRenewalInfo"))
+        XCTAssertTrue(verifierConfigText.contains("APP_STORE_BUNDLE_ID"))
+        XCTAssertTrue(verifierConfigText.contains("APP_STORE_ENVIRONMENT"))
+        XCTAssertTrue(verifierConfigText.contains("APP_STORE_ROOT_CERTIFICATES_PEM"))
+        XCTAssertTrue(verifierConfigText.contains("APP_STORE_APP_APPLE_ID"))
+        XCTAssertTrue(verifierConfigTestText.contains("requires App Apple ID for production verification"))
+        XCTAssertTrue(verifierConfigTestText.contains("allows sandbox configuration without an App Apple ID"))
+        XCTAssertTrue(storeKitRunbookText.contains("supabase/functions/app-store-server-notifications/index.mjs"))
+        XCTAssertTrue(storeKitRunbookText.contains("supabase/functions/storekit-subscription-claims/index.mjs"))
+        XCTAssertTrue(storeKitRunbookText.contains("supabase/functions/_shared/app_store_signed_data_verifier.mjs"))
+        XCTAssertTrue(storeKitRunbookText.contains("supabase/functions/_shared/supabase_subscription_authority_store.mjs"))
+        XCTAssertTrue(storeKitRunbookText.contains("APP_STORE_ROOT_CERTIFICATES_PEM"))
+        XCTAssertTrue(storeKitRunbookText.contains("APP_STORE_APP_APPLE_ID"))
+        XCTAssertTrue(storeKitRunbookText.contains("supabase/functions/_shared/app_store_subscription_authority.test.mjs"))
+        XCTAssertTrue(storeKitRunbookText.contains("supabase/functions/_shared/supabase_subscription_authority_store.test.mjs"))
+        XCTAssertTrue(storeKitRunbookText.contains("supabase/functions/_shared/app_store_verifier_config.test.mjs"))
+        XCTAssertTrue(storeKitRunbookText.contains("Apple's official `@apple/app-store-server-library` `SignedDataVerifier`"))
+        XCTAssertTrue(storeKitRunbookText.contains("invalid Apple signatures are rejected before mapping or writing"))
+        XCTAssertTrue(storeKitRunbookText.contains("bounded streaming size limits"))
+        XCTAssertTrue(storeKitRunbookText.contains("server rejects missing or mismatched app-account tokens"))
+        XCTAssertTrue(storeKitRunbookText.contains("duplicate notification UUIDs are idempotent no-ops"))
+        XCTAssertTrue(storeKitRunbookText.contains("duplicate/stale writer rejections do not echo subscription rows"))
+        XCTAssertTrue(storeKitRunbookText.contains("stale signed-date replay"))
+        XCTAssertTrue(storeKitRunbookText.contains("The authenticated claim endpoint creates the trusted account-to-original-transaction mapping"))
+        XCTAssertTrue(storeKitRunbookText.contains("unmapped notifications are accepted without assigning ownership"))
+        XCTAssertTrue(productionReadinessText.contains("App Store Server Notifications are received by `app-store-server-notifications`."))
+        XCTAssertTrue(productionReadinessText.contains("StoreKit transaction claims are received by `storekit-subscription-claims`."))
+        XCTAssertTrue(productionReadinessText.contains("missing/mismatched StoreKit `appAccountToken`"))
+        XCTAssertTrue(productionReadinessText.contains("bounded streaming body cap"))
+        XCTAssertTrue(productionReadinessText.contains("Notification UUIDs are recorded for idempotency"))
+        XCTAssertTrue(productionReadinessText.contains("rejected replay/idempotency paths do not echo subscription rows"))
+        XCTAssertTrue(productionReadinessText.contains("The server-only subscription writer reads Edge Function secrets and never runs in the iOS app."))
+        XCTAssertTrue(productionReadinessText.contains("Nested App Store transaction/renewal payloads must also be verified"))
+        XCTAssertTrue(productionReadinessText.contains("Verified transaction claims must resolve the signed-in Supabase user before writing owner mapping."))
+        XCTAssertTrue(productionReadinessText.contains("Apple JWS verification is wired through Apple's `SignedDataVerifier`"))
+        XCTAssertTrue(productionReadinessText.contains("APP_STORE_ROOT_CERTIFICATES_PEM"))
+        XCTAssertTrue(planPolicyText.contains("uses Apple's signed-data verifier and an Edge-only Supabase writer when secrets are configured"))
+        XCTAssertTrue(planPolicyText.contains("StoreKit transaction claiming is the authenticated path that maps an Apple original transaction to an iChart account"))
+        XCTAssertTrue(planPolicyText.contains("the signed transaction includes the expected `appAccountToken`"))
+    }
+
+    func testSupabaseMigrationCreatesProtectedAccountAndChartTables() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let migrationText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/migrations/20260609133000_initial_auth_profiles_and_charts.sql")
+        )
+        let appStoreSubscriptionMigrationText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/migrations/20260612232613_harden_app_store_subscription_authority.sql")
+        )
+        let securityHardeningMigrationText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/migrations/20260621001910_security_hardening.sql")
+        )
+        let profileAddressRemovalMigrationText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/migrations/20260624184032_remove_profile_mailing_address.sql")
+        )
+        let contactIdentityMigrationText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/migrations/20260705180650_lock_profile_contact_identity.sql")
+        )
+        let legacyProfileNameCompletionMigrationText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/migrations/20260713224343_allow_legacy_profile_name_completion.sql")
+        )
+        let requireCompleteLegacyProfileNamesMigrationText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/migrations/20260713235015_require_complete_legacy_profile_names.sql")
+        )
+        let serviceRoleSubscriptionGrantMigrationText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/migrations/20260705210845_grant_service_role_subscription_rest_access.sql")
+        )
+        let serviceRoleForumGrantMigrationText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/migrations/20260705211043_grant_service_role_forum_post_finalization_access.sql")
+        )
+        let configText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/config.toml")
+        )
+
+        XCTAssertTrue(migrationText.contains("create table public.profiles"))
+        XCTAssertTrue(migrationText.contains("create table public.chart_documents"))
+        XCTAssertTrue(migrationText.contains("create table public.chart_snapshots"))
+        XCTAssertTrue(migrationText.contains("create table public.subscriptions"))
+        XCTAssertTrue(migrationText.contains("create table public.devices"))
+        XCTAssertTrue(migrationText.contains("deleted_at timestamptz"))
+        XCTAssertTrue(migrationText.contains("remote_revision bigint"))
+        XCTAssertTrue(migrationText.contains("client_updated_at timestamptz"))
+        XCTAssertTrue(migrationText.contains("enable row level security"))
+        XCTAssertTrue(migrationText.contains("auth.uid() = owner_id"))
+        XCTAssertTrue(migrationText.contains("auth.uid() = id"))
+        XCTAssertTrue(migrationText.contains("chart_snapshots.chart_id = chart_documents.id"))
+        XCTAssertTrue(migrationText.contains("handle_new_auth_user"))
+        XCTAssertTrue(migrationText.contains("stripe_customer_id"))
+        XCTAssertTrue(migrationText.contains("revoke all on table public.subscriptions from anon, authenticated"))
+        XCTAssertTrue(migrationText.contains("grant select on table public.subscriptions to authenticated"))
+        XCTAssertTrue(serviceRoleSubscriptionGrantMigrationText.contains("grant select, insert, update, delete on table public.subscriptions to service_role"))
+        XCTAssertTrue(serviceRoleForumGrantMigrationText.contains("grant select, update on table public.forum_chart_posts to service_role"))
+        XCTAssertTrue(migrationText.contains("grant insert (id, email, phone, mailing_address, payment_summary)"))
+        XCTAssertTrue(profileAddressRemovalMigrationText.contains("information_schema.columns"))
+        XCTAssertTrue(profileAddressRemovalMigrationText.contains("column_name = 'mailing_address'"))
+        XCTAssertTrue(profileAddressRemovalMigrationText.contains("drop column if exists mailing_address"))
+        XCTAssertTrue(profileAddressRemovalMigrationText.contains("revoke insert (mailing_address)"))
+        XCTAssertTrue(profileAddressRemovalMigrationText.contains("revoke update (mailing_address)"))
+        XCTAssertTrue(contactIdentityMigrationText.contains("revoke insert (email, phone, payment_summary)"))
+        XCTAssertTrue(contactIdentityMigrationText.contains("revoke update (email, phone, payment_summary)"))
+        XCTAssertTrue(contactIdentityMigrationText.contains("new.payment_summary = old.payment_summary"))
+        XCTAssertTrue(contactIdentityMigrationText.contains("private.lock_profile_contact_identity"))
+        XCTAssertTrue(legacyProfileNameCompletionMigrationText.contains("grant update (first_name, last_name)"))
+        XCTAssertTrue(legacyProfileNameCompletionMigrationText.contains("old_first_name is null"))
+        XCTAssertTrue(legacyProfileNameCompletionMigrationText.contains("requested_first_name"))
+        XCTAssertTrue(legacyProfileNameCompletionMigrationText.contains("first and last name are required"))
+        XCTAssertTrue(requireCompleteLegacyProfileNamesMigrationText.contains("private.lock_profile_account_names"))
+        XCTAssertTrue(requireCompleteLegacyProfileNamesMigrationText.contains("first and last name are required"))
+        XCTAssertTrue(appStoreSubscriptionMigrationText.contains("provider text not null default 'none'"))
+        XCTAssertTrue(appStoreSubscriptionMigrationText.contains("storekit_product_id text"))
+        XCTAssertTrue(appStoreSubscriptionMigrationText.contains("storekit_original_transaction_id text"))
+        XCTAssertTrue(appStoreSubscriptionMigrationText.contains("storekit_environment text"))
+        XCTAssertTrue(appStoreSubscriptionMigrationText.contains("app_store_status text"))
+        XCTAssertTrue(appStoreSubscriptionMigrationText.contains("app_store_notification_type text"))
+        XCTAssertTrue(appStoreSubscriptionMigrationText.contains("app_store_last_transaction_id text"))
+        XCTAssertTrue(appStoreSubscriptionMigrationText.contains("entitlement_expires_at timestamptz"))
+        XCTAssertTrue(appStoreSubscriptionMigrationText.contains("grace_period_expires_at timestamptz"))
+        XCTAssertTrue(appStoreSubscriptionMigrationText.contains("last_verified_at timestamptz"))
+        XCTAssertTrue(appStoreSubscriptionMigrationText.contains("subscriptions_provider_check"))
+        XCTAssertTrue(appStoreSubscriptionMigrationText.contains("subscriptions_storekit_original_transaction_id_idx"))
+        XCTAssertTrue(securityHardeningMigrationText.contains("storekit_app_account_token uuid"))
+        XCTAssertTrue(securityHardeningMigrationText.contains("app_store_signed_at timestamptz"))
+        XCTAssertTrue(securityHardeningMigrationText.contains("app_store_notification_uuid text"))
+        XCTAssertTrue(securityHardeningMigrationText.contains("create table if not exists public.app_store_notification_events"))
+        XCTAssertTrue(securityHardeningMigrationText.contains("revoke all on table public.app_store_notification_events from anon, authenticated"))
+        XCTAssertTrue(securityHardeningMigrationText.contains("and (select public.current_user_has_active_pro())"))
+        XCTAssertTrue(securityHardeningMigrationText.contains("private.forum_song_exists"))
+        XCTAssertTrue(securityHardeningMigrationText.contains("grant execute on function private.forum_song_exists(uuid) to authenticated"))
+        XCTAssertTrue(securityHardeningMigrationText.contains("private.apply_forum_chart_post_server_fields"))
+        XCTAssertTrue(securityHardeningMigrationText.contains("new.creator_display_name := profile_display_name"))
+        XCTAssertTrue(securityHardeningMigrationText.contains("private.finalize_forum_chart_post_pdf"))
+        XCTAssertTrue(securityHardeningMigrationText.contains("pdf_provenance_status = 'validated'"))
+        XCTAssertFalse(migrationText.contains("chart_snapshots_update_own"))
+        XCTAssertFalse(migrationText.contains("card_number"))
+        XCTAssertTrue(configText.contains("max_frequency = \"1m\""))
+        XCTAssertTrue(configText.contains("otp_length = 6"))
+    }
+
+    func testSupabaseRunbookAndRlsSmokeTestsArePresent() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let gitignoreText = try String(contentsOf: projectRoot.appendingPathComponent(".gitignore"))
+        let envExampleText = try String(contentsOf: projectRoot.appendingPathComponent(".env.example"))
+        let runbookText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/supabase-integration-runbook.md")
+        )
+        let productionReadinessText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/supabase-production-readiness-checklist.md")
+        )
+        let rlsTestText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/tests/rls_smoke.sql")
+        )
+        let supabaseConfigText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/config.toml")
+        )
+        let integrationTestText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChartTests/SupabaseIntegrationTests.swift")
+        )
+        let qaScriptText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("scripts/run_supabase_local_qa.sh")
+        )
+        let productionReadinessScriptText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("scripts/run_supabase_production_readiness.sh")
+        )
+        let accountDeletionMigrationText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/migrations/20260729145831_prepare_account_deletion.sql")
+        )
+
+        XCTAssertTrue(gitignoreText.contains("!.env.example"))
+        XCTAssertTrue(envExampleText.contains("SUPABASE_URL"))
+        XCTAssertTrue(envExampleText.contains("SUPABASE_PUBLISHABLE_KEY"))
+        XCTAssertFalse(envExampleText.contains("eyJ"))
+        XCTAssertTrue(runbookText.contains("supabase db reset"))
+        XCTAssertTrue(runbookText.contains("supabase db push"))
+        XCTAssertTrue(runbookText.contains("ichart://auth-callback"))
+        XCTAssertTrue(runbookText.contains("blank browser page"))
+        XCTAssertTrue(runbookText.contains("custom SMTP"))
+        XCTAssertTrue(runbookText.contains("supabase status -o env"))
+        XCTAssertTrue(runbookText.contains("remote project settings cannot accidentally redirect local RLS/integration tests"))
+        XCTAssertTrue(runbookText.contains("scripts/run_supabase_production_readiness.sh"))
+        XCTAssertTrue(runbookText.contains("docs/supabase-production-readiness-checklist.md"))
+        XCTAssertTrue(productionReadinessText.contains("Auth email/password provider is enabled"))
+        XCTAssertTrue(productionReadinessText.contains("ichart://auth-callback"))
+        XCTAssertTrue(productionReadinessText.contains("ichart://auth-callback**"))
+        XCTAssertTrue(productionReadinessText.contains("https://useichart.com/verify.html"))
+        XCTAssertTrue(productionReadinessText.contains("token_hash={{ .TokenHash }}&type=signup&email={{ .Email }}&redirect_to={{ .RedirectTo }}"))
+        XCTAssertTrue(productionReadinessText.contains("Verify iChart Account Here"))
+        XCTAssertTrue(productionReadinessText.contains("must never claim the account is verified before iChart consumes the token"))
+        XCTAssertTrue(productionReadinessText.contains("Your account is not verified until iChart opens and confirms the link"))
+        XCTAssertTrue(productionReadinessText.contains("no verification happened there"))
+        XCTAssertFalse(productionReadinessText.contains("newest iChart email"))
+        XCTAssertFalse(productionReadinessText.contains("Older links may stop working"))
+        XCTAssertTrue(productionReadinessText.contains("not Supabase's `{{ .ConfirmationURL }}`"))
+        XCTAssertFalse(productionReadinessText.contains("href=\"{{ .ConfirmationURL }}\""))
+        XCTAssertTrue(productionReadinessText.contains("token_hash={{ .TokenHash }}&type=recovery&email={{ .Email }}&redirect_to={{ .RedirectTo }}"))
+        XCTAssertTrue(productionReadinessText.contains("Email templates use the direct token-hash handoff link"))
+        XCTAssertTrue(productionReadinessText.contains("service-role keys"))
+        XCTAssertTrue(productionReadinessText.contains("Back Up Now"))
+        XCTAssertTrue(productionReadinessText.contains("Try Again"))
+        XCTAssertTrue(productionReadinessText.contains("Restore/Reinstall Gate"))
+        XCTAssertTrue(productionReadinessText.contains("Data And RLS Gate"))
+        XCTAssertTrue(productionReadinessText.contains("The app stores a pending auth-flow record before sending signup/resend/password-reset email"))
+        XCTAssertTrue(productionReadinessText.contains("Subscription rows include server-owned provider, StoreKit product, original transaction, app-account token, App Store status, auto-renew status, expiration, grace, revocation, signed-date, notification UUID, retention deadline, warning/deletion timestamps, and last-verification metadata."))
+        XCTAssertTrue(productionReadinessText.contains("`chart_documents` and `chart_snapshots` policies require active Pro in addition to owner match."))
+        XCTAssertTrue(productionReadinessText.contains("Forum chart post attribution is server-owned from locked profile names"))
+        XCTAssertTrue(productionReadinessText.contains("Published forum PDF downloads require the post-owned storage path and validated server-side PDF provenance."))
+        XCTAssertTrue(productionReadinessText.contains("Forum PDF publication records service-owned storage object ID, byte size, and SHA-256 provenance"))
+        XCTAssertTrue(productionReadinessText.contains("patching visible post status/provenance columns alone must not make a PDF downloadable"))
+        XCTAssertTrue(supabaseConfigText.contains("project_id = \"ichart\""))
+        XCTAssertTrue(supabaseConfigText.contains("site_url = \"https://useichart.com/verify.html\""))
+        XCTAssertTrue(supabaseConfigText.contains("\"ichart://auth-callback\""))
+        XCTAssertTrue(supabaseConfigText.contains("\"https://useichart.com/verify.html\""))
+        XCTAssertTrue(supabaseConfigText.contains("\"https://useichart.com/verify\""))
+        XCTAssertTrue(supabaseConfigText.contains("enable_confirmations = true"))
+        XCTAssertTrue(supabaseConfigText.contains("secure_password_change = true"))
+        XCTAssertTrue(supabaseConfigText.contains("max_frequency = \"1m\""))
+        XCTAssertTrue(supabaseConfigText.contains("otp_length = 6"))
+        XCTAssertTrue(supabaseConfigText.contains("[functions.account-deletion]"))
+        XCTAssertTrue(supabaseConfigText.contains("entrypoint = \"./functions/account-deletion/index.mjs\""))
+        XCTAssertTrue(accountDeletionMigrationText.contains("create or replace function public.prepare_account_deletion"))
+        XCTAssertTrue(accountDeletionMigrationText.contains("grant execute on function public.prepare_account_deletion(uuid) to service_role"))
+        XCTAssertTrue(runbookText.contains("account-deletion"))
+        XCTAssertTrue(productionReadinessScriptText.contains("account_deletion.test.mjs"))
+        XCTAssertTrue(rlsTestText.contains("inactive Basic user cannot insert own cloud chart document"))
+        XCTAssertTrue(rlsTestText.contains("active Pro can insert own cloud chart document"))
+        XCTAssertTrue(rlsTestText.contains("client cannot update subscription rows"))
+        XCTAssertTrue(rlsTestText.contains("owner can read server-owned subscription authority fields"))
+        XCTAssertTrue(rlsTestText.contains("client cannot update app store subscription authority fields"))
+        XCTAssertTrue(rlsTestText.contains("server accepts own forum post while overriding spoofed attribution"))
+        XCTAssertTrue(rlsTestText.contains("spoofed forum attribution is overwritten by locked profile name"))
+        XCTAssertTrue(rlsTestText.contains("forum comment attribution is derived from locked profile name"))
+        XCTAssertTrue(rlsTestText.contains("spoofed forum comment attribution is overwritten by locked profile name"))
+        XCTAssertTrue(rlsTestText.contains("another active Pro cannot read song metadata that only has pending posts"))
+        XCTAssertTrue(rlsTestText.contains("validated forum PDF metadata is downloadable for a published post"))
+        XCTAssertTrue(rlsTestText.contains("client cannot update stripe customer id on profile"))
+        XCTAssertTrue(rlsTestText.contains("latest snapshot pointer cannot reference a missing snapshot"))
+        XCTAssertTrue(integrationTestText.contains("ICHART_SUPABASE_INTEGRATION"))
+        XCTAssertTrue(integrationTestText.contains("SUPABASE_PUBLISHABLE_KEY"))
+        XCTAssertTrue(integrationTestText.contains("confirmLocalSignupEmail"))
+        XCTAssertTrue(integrationTestText.contains("over_email_send_rate_limit"))
+        XCTAssertTrue(integrationTestText.contains("latest_snapshot_id"))
+        XCTAssertTrue(integrationTestText.contains("SUPABASE_SERVICE_ROLE_KEY"))
+        XCTAssertTrue(integrationTestText.contains("adminCreateConfirmedUser"))
+        XCTAssertTrue(integrationTestText.contains("user_metadata"))
+        XCTAssertTrue(integrationTestText.contains("grantActiveProEntitlement"))
+        XCTAssertTrue(integrationTestText.contains("SUPABASE_SERVICE_ROLE_KEY is required for Pro cloud integration tests."))
+        XCTAssertTrue(integrationTestText.contains("testLiveSupabaseForumPublishVoteCommentReportAndStorageFlow"))
+        XCTAssertTrue(integrationTestText.contains("creator_display_name"))
+        XCTAssertTrue(integrationTestText.contains("pdf_provenance_status"))
+        XCTAssertTrue(integrationTestText.contains("rpc/finalize_forum_chart_post_pdf"))
+        XCTAssertTrue(integrationTestText.contains("iChartSHA256Hex"))
+        XCTAssertTrue(qaScriptText.contains("SUPABASE_CMD"))
+        XCTAssertTrue(qaScriptText.contains("npx --yes supabase"))
+        XCTAssertTrue(qaScriptText.contains("supabase_cli db reset"))
+        XCTAssertTrue(qaScriptText.contains("supabase_cli status -o env"))
+        XCTAssertTrue(qaScriptText.contains("API_URL"))
+        XCTAssertTrue(qaScriptText.contains("PUBLISHABLE_KEY"))
+        XCTAssertTrue(qaScriptText.contains("SERVICE_ROLE_KEY"))
+        XCTAssertTrue(qaScriptText.contains("supabase_cli db lint --local --fail-on error"))
+        XCTAssertTrue(qaScriptText.contains("supabase_cli db advisors --local --type security --level warn --fail-on warn"))
+        XCTAssertTrue(qaScriptText.contains("supabase_cli db advisors --local --type performance --level warn --fail-on warn"))
+        XCTAssertTrue(qaScriptText.contains("supabase_cli test db"))
+        XCTAssertTrue(qaScriptText.contains("--filter SupabaseIntegrationTests"))
+        XCTAssertTrue(productionReadinessScriptText.contains("git diff --check"))
+        XCTAssertTrue(productionReadinessScriptText.contains("scan_for_secrets"))
+        XCTAssertTrue(productionReadinessScriptText.contains("supabase/functions/_shared/app_store_subscription_authority.test.mjs"))
+        XCTAssertTrue(productionReadinessScriptText.contains("supabase/functions/_shared/app_store_verifier_config.test.mjs"))
+        XCTAssertTrue(productionReadinessScriptText.contains("supabase/functions/_shared/telemetry_ingest.test.mjs"))
+        XCTAssertTrue(productionReadinessScriptText.contains("ICHART_RUN_LOCAL_SUPABASE_QA"))
+        XCTAssertTrue(productionReadinessScriptText.contains("scripts/run_supabase_local_qa.sh"))
+        XCTAssertTrue(productionReadinessScriptText.contains("ProjectConfigurationTests|ChartCloudMergeTests|ChartLibraryStoreTests|SupabaseIntegrationTests"))
+        XCTAssertTrue(productionReadinessScriptText.contains("SUPABASE_SERVICE_ROLE_KEY"))
+        XCTAssertTrue(productionReadinessScriptText.contains("Manual simulator/cloud gate still required"))
+    }
+
+    func testForumCommunityLibraryInfrastructureIsProOnlyAndSnapshotBased() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let migrationDirectory = projectRoot.appendingPathComponent("supabase/migrations")
+        let forumMigrationText = try FileManager.default
+            .contentsOfDirectory(at: migrationDirectory, includingPropertiesForKeys: nil)
+            .filter {
+                $0.pathExtension == "sql"
+                    && (
+                        $0.lastPathComponent.contains("forum")
+                            || $0.lastPathComponent.contains("security_hardening")
+                    )
+            }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            .map { try String(contentsOf: $0) }
+            .joined(separator: "\n")
+        let rlsTestText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/tests/rls_smoke.sql")
+        )
+        let forumStoreText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/App/Forum/IChartForumStore.swift")
+        )
+        let libraryText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Library/LibraryView.swift")
+        )
+        let editorText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/EditorView.swift")
+        )
+        let exporterText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Services/ChartExporting.swift")
+        )
+        let pdfLibraryStoreText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Services/PDFLibraryStore.swift")
+        )
+        let appText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/App/IChartApp.swift")
+        )
+        let subscriptionText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Models/IChartSubscriptionEntitlement.swift")
+        )
+        let pdfPreviewText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Features/Editor/Components/PDFExportPreviewView.swift")
+        )
+        let forumCommunityText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("iChart/Models/ForumCommunity.swift")
+        )
+        let planPolicyText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("docs/ichart-plan-policy-source-of-truth.md")
+        )
+
+        XCTAssertTrue(forumMigrationText.contains("create table public.forum_songs"))
+        XCTAssertTrue(forumMigrationText.contains("create table public.forum_chart_posts"))
+        XCTAssertTrue(forumMigrationText.contains("create table public.forum_comments"))
+        XCTAssertTrue(forumMigrationText.contains("create table public.forum_votes"))
+        XCTAssertTrue(forumMigrationText.contains("create table public.forum_reports"))
+        XCTAssertTrue(forumMigrationText.contains("create table public.forum_author_badges"))
+        XCTAssertTrue(forumMigrationText.contains("public.current_user_has_active_pro()"))
+        XCTAssertTrue(forumMigrationText.contains("storage.buckets"))
+        XCTAssertTrue(forumMigrationText.contains("'forum_chart_pdfs'"))
+        XCTAssertTrue(forumMigrationText.contains("forum_chart_pdfs_insert_active_pro_owner_folder"))
+        XCTAssertTrue(forumMigrationText.contains("forum_chart_pdfs_select_active_pro_visible_post"))
+        XCTAssertTrue(forumMigrationText.contains("forum_chart_pdfs_delete_unattached_owner_upload"))
+        XCTAssertTrue(forumMigrationText.contains("drop policy if exists \"forum_votes_update_active_pro_own\""))
+        XCTAssertTrue(forumMigrationText.contains("drop policy if exists \"forum_votes_delete_active_pro_own\""))
+        XCTAssertTrue(forumMigrationText.contains("revoke all on schema private from public"))
+        XCTAssertTrue(forumMigrationText.contains("private.refresh_forum_chart_post_quality"))
+        XCTAssertTrue(forumMigrationText.contains("status in ('pending', 'published', 'flagged', 'hidden', 'removed')"))
+        XCTAssertTrue(forumMigrationText.contains("status = 'pending'"))
+        XCTAssertTrue(forumMigrationText.contains("grant insert (status)"))
+        XCTAssertTrue(forumMigrationText.contains("pdf_provenance_status"))
+        XCTAssertTrue(forumMigrationText.contains("forum_chart_posts_pdf_post_path_check"))
+        XCTAssertTrue(forumMigrationText.contains("private.forum_song_exists"))
+        XCTAssertTrue(forumMigrationText.contains("private.apply_forum_chart_post_server_fields"))
+        XCTAssertTrue(forumMigrationText.contains("private.apply_forum_comment_server_fields"))
+        XCTAssertTrue(forumMigrationText.contains("alter table public.forum_comments"))
+        XCTAssertTrue(forumMigrationText.contains("coalesce(private.profile_display_name(owner_id), 'iChart User')"))
+        XCTAssertTrue(forumMigrationText.contains("new.creator_display_name := profile_display_name"))
+        XCTAssertTrue(forumMigrationText.contains("upper(left(last_name, 1)) || '.'"))
+        XCTAssertTrue(forumMigrationText.contains("private.finalize_forum_chart_post_pdf"))
+        XCTAssertTrue(forumMigrationText.contains("private.forum_pdf_has_valid_provenance"))
+        XCTAssertTrue(forumMigrationText.contains("public.finalize_forum_chart_post_pdf"))
+        XCTAssertFalse(forumMigrationText.contains("chart_json"))
+        XCTAssertTrue(rlsTestText.contains("inactive Basic user cannot insert forum songs"))
+        XCTAssertTrue(rlsTestText.contains("active Pro can submit forum chart post metadata for review"))
+        XCTAssertTrue(rlsTestText.contains("new forum chart posts start pending review"))
+        XCTAssertTrue(rlsTestText.contains("another active Pro cannot read pending forum chart posts"))
+        XCTAssertTrue(rlsTestText.contains("another active Pro cannot read song metadata that only has pending posts"))
+        XCTAssertTrue(rlsTestText.contains("spoofed forum attribution is overwritten by locked profile name"))
+        XCTAssertTrue(rlsTestText.contains("unvalidated forum PDF metadata is not downloadable even when the post is published"))
+        XCTAssertTrue(rlsTestText.contains("validated forum PDF metadata is downloadable for a published post"))
+        XCTAssertTrue(rlsTestText.contains("active Pro cannot exceed the unattached forum PDF upload cap"))
+        XCTAssertTrue(rlsTestText.contains("forum PDF finalization records service-owned provenance metadata"))
+        XCTAssertTrue(rlsTestText.contains("client cannot update forum moderation status"))
+        XCTAssertTrue(rlsTestText.contains("client cannot self-award forum badges"))
+        XCTAssertTrue(forumMigrationText.contains("private.forum_chart_pdf_provenance"))
+        XCTAssertTrue(forumMigrationText.contains("private.current_user_unattached_forum_pdf_upload_count"))
+        XCTAssertTrue(forumMigrationText.contains("private.current_user_unattached_forum_pdf_upload_count() <= 3"))
+        XCTAssertTrue(forumStoreText.contains("static func live(clients:"))
+        XCTAssertTrue(forumStoreText.contains("IChartSupabaseSessionRefresher"))
+        XCTAssertTrue(forumStoreText.contains("Forum upload queued."))
+        XCTAssertTrue(forumStoreText.contains("Forum chart published."))
+        XCTAssertTrue(forumStoreText.contains("Sample forum charts loaded."))
+        XCTAssertTrue(forumStoreText.contains("Forum Sample.pdf"))
+        XCTAssertTrue(forumStoreText.contains("Late Night Pocket - Rhythm Section Roadmap"))
+        XCTAssertTrue(forumStoreText.contains("Combo Class Warmup - Student Set"))
+        XCTAssertTrue(forumStoreText.contains("Students losing the current chart used to be half the lesson."))
+        XCTAssertTrue(forumStoreText.contains("iChart Forum Sample"))
+        XCTAssertFalse(forumStoreText.contains("Forum QA samples loaded."))
+        XCTAssertFalse(forumStoreText.contains("QA Forum.pdf"))
+        XCTAssertFalse(forumStoreText.contains("iChart QA"))
+        XCTAssertFalse(forumStoreText.contains("QA example"))
+        XCTAssertFalse(forumStoreText.contains("iChart Forum QA Preview"))
+        XCTAssertTrue(forumStoreText.contains("ForumPostModerationStatus.pending.rawValue"))
+        XCTAssertTrue(forumStoreText.contains(".requiresPro"))
+        XCTAssertTrue(forumStoreText.contains("client.storage"))
+        XCTAssertTrue(forumStoreText.contains(".upload("))
+        XCTAssertTrue(forumStoreText.contains(".remove(paths:"))
+        XCTAssertTrue(forumStoreText.contains(".download(path:"))
+        XCTAssertTrue(forumStoreText.contains("ChartPDFExportContext("))
+        XCTAssertTrue(forumStoreText.contains("PDFChartExporter"))
+        XCTAssertFalse(forumStoreText.contains("chart_json"))
+        XCTAssertTrue(forumStoreText.contains("publicAuthorDisplayName(for: ownerID)"))
+        XCTAssertTrue(forumStoreText.contains("creatorDisplayName: creatorDisplayName"))
+        XCTAssertTrue(forumStoreText.contains("private static let currentUserDisplayName = \"Beni R.\""))
+        XCTAssertTrue(libraryText.contains("IChartForumHomeView"))
+        XCTAssertTrue(libraryText.contains("Share To Forum"))
+        XCTAssertFalse(libraryText.contains("Posted By"))
+        XCTAssertFalse(libraryText.contains("Loading account name..."))
+        XCTAssertFalse(libraryText.contains("applyProfileDisplayNameIfNeeded()"))
+        XCTAssertFalse(libraryText.contains("Account name required"))
+        XCTAssertTrue(libraryText.contains("Submit To Forum"))
+        XCTAssertTrue(libraryText.contains("pending an authenticity review"))
+        XCTAssertTrue(libraryText.contains("Tags (Optional)"))
+        XCTAssertTrue(libraryText.contains("Notes (Optional)"))
+        XCTAssertTrue(libraryText.contains("PDF Library"))
+        XCTAssertTrue(pdfLibraryStoreText.contains("Forum Downloads"))
+        XCTAssertTrue(libraryText.contains("Community Library Unavailable"))
+        XCTAssertTrue(libraryText.contains("Community Bandstand"))
+        XCTAssertTrue(libraryText.contains("iChart Pro"))
+        XCTAssertTrue(libraryText.contains("Find working chord and rhythm PDFs, shout out clean charts, and help other musicians get through rehearsal faster."))
+        XCTAssertTrue(libraryText.contains("Your Charts in View"))
+        XCTAssertTrue(libraryText.contains("Downloads"))
+        XCTAssertTrue(libraryText.contains("Upvotes in View"))
+        XCTAssertTrue(libraryText.contains("Your Badges"))
+        XCTAssertTrue(libraryText.contains("Downvote"))
+        XCTAssertFalse(libraryText.contains("Not For Me"))
+        XCTAssertTrue(forumCommunityText.contains("upvote"))
+        XCTAssertFalse(forumCommunityText.contains("up /"))
+        XCTAssertTrue(libraryText.contains("Top Rated"))
+        XCTAssertTrue(libraryText.contains("Top Charts"))
+        XCTAssertTrue(libraryText.contains("Top 10"))
+        XCTAssertTrue(libraryText.contains("Lead Chart"))
+        XCTAssertTrue(libraryText.contains("Today"))
+        XCTAssertTrue(libraryText.contains("This Week"))
+        XCTAssertTrue(libraryText.contains("This Month"))
+        XCTAssertTrue(libraryText.contains("All Time"))
+        XCTAssertTrue(libraryText.contains("No charts yet"))
+        XCTAssertTrue(libraryText.contains("Submit From Your Library"))
+        XCTAssertTrue(libraryText.contains("No Chart On This Tune Yet"))
+        XCTAssertTrue(libraryText.contains("Search songs, artists, arrangers, or tags"))
+        XCTAssertTrue(libraryText.contains("Search Results"))
+        XCTAssertTrue(libraryText.contains("Show \\("))
+        XCTAssertTrue(libraryText.contains("more"))
+        XCTAssertFalse(libraryText.contains("Bandstand Bulletin"))
+        XCTAssertFalse(libraryText.contains("Search Community Charts"))
+        XCTAssertFalse(libraryText.contains("Arrangement credit:"))
+        XCTAssertTrue(libraryText.contains("pdfLibraryStore.save(downloadedPDF, source: .forumDownload)"))
+        XCTAssertFalse(libraryText.contains("Forum Services Offline"))
+        XCTAssertFalse(libraryText.contains("Publish Chart"))
+        XCTAssertFalse(libraryText.contains("Local iChart charts only"))
+        XCTAssertFalse(libraryText.contains("PDF snapshots only"))
+        XCTAssertFalse(libraryText.contains("No editable chart files"))
+        XCTAssertFalse(libraryText.contains("Account names shown"))
+        XCTAssertFalse(libraryText.contains("The Bandstand Is Open"))
+        XCTAssertFalse(libraryText.contains("Shout Outs"))
+        XCTAssertFalse(libraryText.contains("Pro Community"))
+        XCTAssertFalse(libraryText.contains("Forum Credit"))
+        XCTAssertFalse(libraryText.contains("email: authStore.state.signedInSession?.email"))
+        XCTAssertFalse(libraryText.contains("LabeledContent(\"App chart\""))
+        XCTAssertFalse(libraryText.contains("LabeledContent(\"Upload source\""))
+        XCTAssertFalse(libraryText.contains("LabeledContent(\"Forum format\""))
+        XCTAssertFalse(libraryText.contains("forumTextField(\"Chart Title\""))
+        XCTAssertFalse(libraryText.contains("forumTextField(\"Creator Display\""))
+        XCTAssertFalse(libraryText.contains("fileImporter"))
+        XCTAssertFalse(libraryText.contains("UIDocumentPicker"))
+        XCTAssertFalse(libraryText.contains("PhotosPicker"))
+        XCTAssertTrue(libraryText.contains("Forums require Pro"))
+        XCTAssertTrue(libraryText.contains("This chart is no longer available in Forums."))
+        XCTAssertTrue(libraryText.contains("Discussion is closed for this chart."))
+        XCTAssertTrue(exporterText.contains("ForumPDFCredit"))
+        XCTAssertTrue(exporterText.contains("Shared from iChart Forums"))
+        XCTAssertTrue(pdfLibraryStoreText.contains("IChartPDFLibraryStore"))
+        XCTAssertTrue(pdfLibraryStoreText.contains(".applicationSupportDirectory"))
+        XCTAssertTrue(pdfLibraryStoreText.contains("pdf-library.json"))
+        XCTAssertTrue(pdfLibraryStoreText.contains("case chartExport"))
+        XCTAssertTrue(pdfLibraryStoreText.contains("case forumDownload"))
+        XCTAssertTrue(pdfLibraryStoreText.contains("func visibleItems("))
+        XCTAssertTrue(pdfLibraryStoreText.contains("func removeForumDownloadsIfInactive("))
+        XCTAssertTrue(pdfLibraryStoreText.contains("accessPolicy: IChartProductAccessPolicy = .current"))
+        XCTAssertTrue(appText.contains("for: resolvedEntitlement,"))
+        XCTAssertTrue(appText.contains("accessPolicy: store.entitlements.accessPolicy"))
+        XCTAssertTrue(libraryText.contains("pdfLibraryStore.visibleItems(for: store.subscriptionState, accessPolicy: store.entitlements.accessPolicy)"))
+        XCTAssertTrue(libraryText.contains("applyForumDownloadAccess(subscriptionPreview)"))
+        XCTAssertTrue(subscriptionText.contains("var allowsForumDownloadAccess"))
+        XCTAssertTrue(subscriptionText.contains("case .proActive:"))
+        XCTAssertTrue(subscriptionText.contains("var shouldRemoveForumDownloads"))
+        XCTAssertTrue(subscriptionText.contains("case .basic, .proExpired, .legacyLocalPro"))
+        XCTAssertFalse(pdfPreviewText.contains("PDF Library"))
+        XCTAssertFalse(pdfPreviewText.contains("Saved to " + "PDF Library"))
+        XCTAssertFalse(pdfPreviewText.contains("exportedAt.formatted"))
+        XCTAssertTrue(pdfPreviewText.contains("pdfView.document?.documentURL != url"))
+        XCTAssertFalse(libraryText.contains("title: \"Storage\""))
+        XCTAssertFalse(libraryText.contains("store.persistenceStatus.displayText"))
+        XCTAssertFalse(libraryText.contains("store.persistenceStatus.systemImageName"))
+        XCTAssertFalse(libraryText.contains("ChartLibraryPersistenceStatusBadge"))
+        XCTAssertFalse(libraryText.contains("item.createdAt.formatted"))
+        XCTAssertFalse(editorText.contains("ChartLibraryPersistenceStatusBadge"))
+        XCTAssertTrue(planPolicyText.contains("community chart library"))
+        XCTAssertTrue(planPolicyText.contains("Forum downloads save into the local in-app PDF Library"))
+        XCTAssertTrue(planPolicyText.contains("editable chart JSON, source ink, and local authoring state are not shared in V1"))
+        XCTAssertTrue(planPolicyText.contains("users cannot self-award badges"))
+    }
+}

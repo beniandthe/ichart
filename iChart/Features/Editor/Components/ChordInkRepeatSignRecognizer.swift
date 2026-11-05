@@ -1,0 +1,256 @@
+#if canImport(UIKit)
+import CoreGraphics
+import Foundation
+
+/// Geometry-only structural recognition. A complete bar/dot group owns its
+/// original input indices before ordinary barline deduplication or chord targeting.
+/// These thresholds are conservative shape gates, not recognition confidence.
+enum ChordDraftRepeatSignRecognizer {
+    /// One scale-relative drawing contract for every chart layout. These are
+    /// admission limits for a complete bar-and-dot construction, not plain
+    /// barline or chord thresholds. H is the full bar-group height.
+    enum DrawingStandard {
+        static let minimumLaneCoverage = 0.50
+        static let maximumHeightToLaneRatio = 1.35
+        static let maximumAngleDegreesFromVertical = 24.0
+        static let minimumStraightness = 0.70
+        static let maximumBarWidthRatio = 0.35
+        static let maximumBarSeparationRatio = 0.35
+        static let maximumIntentBarSeparationRatio = 0.50
+        static let minimumBarHeightRatio = 0.65
+        static let minimumBarOverlapRatio = 0.60
+        static let maximumBarCenterDifferenceRatio = 0.22
+        static let dotVerticalRange = 0.10...0.90
+        static let maximumDotDistanceRatio = 0.45
+        static let maximumDotSpanRatio = 0.20
+        static let maximumDotPathLengthRatio = 0.75
+        static let maximumDotAlignmentDifferenceRatio = 0.18
+        static let dotSeparationRange = 0.12...0.62
+        static let maximumDotPairCenterDifferenceRatio = 0.22
+        static let neighboringBodyClearanceRatio = 0.12
+        // Coordinate transforms can put an inclusive boundary a few floating
+        // point ulps outside its limit. This is numerical tolerance only.
+        static let numericalTolerance = 1e-8
+
+        static func contains(_ value: Double, in range: ClosedRange<Double>) -> Bool {
+            value >= range.lowerBound - numericalTolerance
+                && value <= range.upperBound + numericalTolerance
+        }
+    }
+
+    private struct Bar {
+        let index: Int
+        let stroke: InkStroke
+        let draft: DraftBarline
+
+        var centerX: Double { (stroke.bounds.minX + stroke.bounds.maxX) / 2 }
+        var centerY: Double { (stroke.bounds.minY + stroke.bounds.maxY) / 2 }
+    }
+
+    private struct Dot {
+        let index: Int
+        let bounds: InkBounds
+        var centerX: Double { (bounds.minX + bounds.maxX) / 2 }
+        var centerY: Double { (bounds.minY + bounds.maxY) / 2 }
+    }
+
+    static func recognize(
+        strokes: [InkStroke],
+        chordFrame: CGRect,
+        pageLayout: LeadSheetPageLayout?
+    ) -> ChordDraftBarlineRecognition {
+        guard let pageLayout,
+              chordFrame.minX.isFinite, chordFrame.minY.isFinite else {
+            return ChordDraftBarlineRecognition(barlines: [], strokeIndices: [])
+        }
+        let bars = strokes.enumerated().compactMap { index, stroke -> Bar? in
+            guard hasFiniteGeometry(stroke),
+                  let draft = ChordDraftBarlineRecognizer.repeatComponentCandidate(
+                    for: stroke, chordFrame: chordFrame, pageLayout: pageLayout
+                  ) else { return nil }
+            return Bar(index: index, stroke: stroke, draft: draft)
+        }
+        let groups = barGroups(bars)
+        let candidates = groups.compactMap { group in
+            repeatSign(group: group, strokes: strokes, chordFrame: chordFrame, pageLayout: pageLayout)
+        }
+        // Two distinct signs cannot both consume the same dot/stroke. Retain
+        // neither claim when their ownership overlaps, rather than picking one.
+        let claimCounts = candidates.reduce(into: [Int: Int]()) { counts, candidate in
+            for index in candidate.ownedSourceStrokeIndices { counts[index, default: 0] += 1 }
+        }
+        let accepted = candidates.filter { candidate in
+            candidate.ownedSourceStrokeIndices.allSatisfy { claimCounts[$0] == 1 }
+        }.sorted { $0.visualOrder < $1.visualOrder }
+        return ChordDraftBarlineRecognition(
+            barlines: accepted,
+            strokeIndices: accepted.reduce(into: Set<Int>()) { $0.formUnion($1.ownedSourceStrokeIndices) }
+        )
+    }
+
+    private static func barGroups(_ bars: [Bar]) -> [[Bar]] {
+        var remaining = bars.sorted { $0.centerX < $1.centerX }
+        var groups: [[Bar]] = []
+        while !remaining.isEmpty {
+            var group = [remaining.removeFirst()]
+            var foundNeighbor = true
+            while foundNeighbor {
+                foundNeighbor = false
+                for index in remaining.indices.reversed() {
+                    let next = remaining[index]
+                    if group.contains(where: { bar in
+                        guard bar.draft.laneLocation?.systemIndex == next.draft.laneLocation?.systemIndex else { return false }
+                        let height = bar.stroke.bounds.union(next.stroke.bounds).height
+                        let overlap = min(bar.stroke.bounds.maxY, next.stroke.bounds.maxY)
+                            - max(bar.stroke.bounds.minY, next.stroke.bounds.minY)
+                        return abs(bar.centerX - next.centerX) <= max(8, height * DrawingStandard.maximumIntentBarSeparationRatio)
+                            && overlap >= min(bar.stroke.bounds.height, next.stroke.bounds.height) * 0.65
+                    }) {
+                        group.append(remaining.remove(at: index))
+                        foundNeighbor = true
+                    }
+                }
+            }
+            groups.append(group.sorted { $0.centerX < $1.centerX })
+        }
+        return groups
+    }
+
+    private static func repeatSign(
+        group: [Bar],
+        strokes: [InkStroke],
+        chordFrame: CGRect,
+        pageLayout: LeadSheetPageLayout
+    ) -> DraftBarline? {
+        guard (1...2).contains(group.count), let anchor = group.first else { return nil }
+        let bounds = InkBounds.enclosing(group.map { $0.stroke.bounds })
+        let height = bounds.height
+        guard height > 0 else { return nil }
+        let tolerance = height * DrawingStandard.numericalTolerance
+        var barsAreComplete = true
+        if group.count == 2 {
+            let first = group[0], second = group[1]
+            let overlap = min(first.stroke.bounds.maxY, second.stroke.bounds.maxY)
+                - max(first.stroke.bounds.minY, second.stroke.bounds.minY)
+            let separation = second.centerX - first.centerX
+            barsAreComplete = separation >= max(1.5, height * 0.02) - tolerance
+                && separation <= height * DrawingStandard.maximumBarSeparationRatio + tolerance
+                && min(first.stroke.bounds.height, second.stroke.bounds.height) >= height * DrawingStandard.minimumBarHeightRatio - tolerance
+                && overlap >= height * DrawingStandard.minimumBarOverlapRatio - tolerance
+                && abs(first.centerY - second.centerY) <= height * DrawingStandard.maximumBarCenterDifferenceRatio + tolerance
+        }
+
+        let barIndices = Set(group.map(\.index))
+        let dots = strokes.enumerated().compactMap { index, stroke -> Dot? in
+            guard !barIndices.contains(index), isCompactDot(stroke, barHeight: height) else { return nil }
+            let dot = Dot(index: index, bounds: stroke.bounds)
+            let relativeY = (dot.centerY - bounds.minY) / height
+            guard DrawingStandard.contains(relativeY, in: DrawingStandard.dotVerticalRange) else { return nil }
+            return dot
+        }
+        let maximumDotDistance = max(10, height * DrawingStandard.maximumDotDistanceRatio)
+        let minimumClearance = max(1, height * 0.015)
+        let left = dots.filter {
+            $0.bounds.maxX <= bounds.minX - minimumClearance
+                && bounds.minX - $0.centerX <= maximumDotDistance
+        }
+        let right = dots.filter {
+            $0.bounds.minX >= bounds.maxX + minimumClearance
+                && $0.centerX - bounds.maxX <= maximumDotDistance
+        }
+        // Strong, isolated repeat intent stays structural even while one dot
+        // is missing or a pair needs rewriting. It must not fall through to
+        // chord recognition as B/bb or surrender its bars to plain splitting.
+        // Extra text and large/crossing marks still fail the interference gate.
+        guard !left.isEmpty || !right.isEmpty,
+              left.count <= 3, right.count <= 3 else { return nil }
+        let isComplete = barsAreComplete && (left.isEmpty || isDotPair(left, barBounds: bounds))
+            && (right.isEmpty || isDotPair(right, barBounds: bounds))
+        let members = barIndices.union(left.map(\.index)).union(right.map(\.index))
+        let signBounds = InkBounds.enclosing(members.map { strokes[$0].bounds })
+        guard !hasInterferingInk(strokes, members: members, barBounds: bounds, signBounds: signBounds) else { return nil }
+
+        // Locate the complete boundary at the center of its bars, not a dot or
+        // whichever pen-down stroke happened to be delivered first.
+        let boundaryX = group.map(\.centerX).reduce(0, +) / Double(group.count)
+        let centerLine = InkStroke(points: [
+            InkPoint(x: boundaryX, y: bounds.minY, timeOffset: nil),
+            InkPoint(x: boundaryX, y: bounds.maxY, timeOffset: nil)
+        ])
+        guard var draft = ChordDraftBarlineRecognizer.repeatComponentCandidate(
+            for: centerLine, chordFrame: chordFrame, pageLayout: pageLayout
+        ) else { return nil }
+        draft.kind = left.isEmpty ? .repeatStart : (right.isEmpty ? .repeatEnd : .repeatBoth)
+        if !isComplete { draft.ambiguity = .incompleteRepeat }
+        draft.metrics.width = bounds.width
+        draft.sourceStrokeIndex = anchor.index
+        draft.sourceStrokeIndices = members
+        draft.sourceStrokeGeometry = members.sorted().map { strokes[$0] }
+        return draft
+    }
+
+    private static func isDotPair(_ dots: [Dot], barBounds: InkBounds) -> Bool {
+        guard dots.count == 2 else { return false }
+        let ordered = dots.sorted { $0.centerY < $1.centerY }
+        let upper = ordered[0]
+        let lower = ordered[1]
+        let height = barBounds.height
+        let separation = lower.centerY - upper.centerY
+        let centerY = (upper.centerY + lower.centerY) / 2
+        let tolerance = height * DrawingStandard.numericalTolerance
+        return abs(upper.centerX - lower.centerX) <= max(2.5, height * DrawingStandard.maximumDotAlignmentDifferenceRatio) + tolerance
+            && DrawingStandard.contains(separation / height, in: DrawingStandard.dotSeparationRange)
+            && abs(centerY - (barBounds.minY + barBounds.maxY) / 2) <= height * DrawingStandard.maximumDotPairCenterDifferenceRatio + tolerance
+    }
+
+    private static func isCompactDot(_ stroke: InkStroke, barHeight: Double) -> Bool {
+        guard hasFiniteGeometry(stroke) else { return false }
+        let span = max(stroke.bounds.width, stroke.bounds.height)
+        guard span <= max(2, barHeight * DrawingStandard.maximumDotSpanRatio),
+              pathLength(of: stroke) <= max(4, barHeight * DrawingStandard.maximumDotPathLengthRatio) else { return false }
+        // Stationary PencilKit taps have nonempty point paths but zero bounds.
+        // Larger short lines/slashes must not be mistaken for repeat dots.
+        return span <= max(2, barHeight * 0.05)
+            || min(stroke.bounds.width, stroke.bounds.height) / max(0.001, span) >= 0.30
+    }
+
+    private static func hasInterferingInk(
+        _ strokes: [InkStroke], members: Set<Int>, barBounds: InkBounds, signBounds: InkBounds
+    ) -> Bool {
+        let height = barBounds.height
+        for (index, stroke) in strokes.enumerated() where !members.contains(index) {
+            guard hasFiniteGeometry(stroke) else { return true }
+            let other = stroke.bounds
+            let overlapsBarHeight = other.maxY >= barBounds.minY - height * 0.08
+                && other.minY <= barBounds.maxY + height * 0.08
+            guard overlapsBarHeight else { continue }
+            // A B/1 stem, accidental, or other connected construction cannot
+            // surrender its vertical stroke merely because nearby ink has dots.
+            let crossesBarNeighborhood = other.maxX >= barBounds.minX - height * 0.08
+                && other.minX <= barBounds.maxX + height * 0.08
+            if crossesBarNeighborhood { return true }
+            // A detached seventh can sit close to a complete repeat without
+            // belonging to it. Keep a clear margin around the actual sign,
+            // separately from the stronger connected-stem veto above.
+            let reachesSign = other.maxX >= signBounds.minX - height * DrawingStandard.neighboringBodyClearanceRatio
+                && other.minX <= signBounds.maxX + height * DrawingStandard.neighboringBodyClearanceRatio
+            let comparableBody = max(other.width, other.height) >= height * 0.22
+            if reachesSign && comparableBody { return true }
+        }
+        return false
+    }
+
+    private static func hasFiniteGeometry(_ stroke: InkStroke) -> Bool {
+        !stroke.points.isEmpty
+            && stroke.points.allSatisfy { $0.x.isFinite && $0.y.isFinite }
+            && [stroke.bounds.minX, stroke.bounds.minY, stroke.bounds.maxX, stroke.bounds.maxY].allSatisfy(\.isFinite)
+            && stroke.bounds.maxX >= stroke.bounds.minX && stroke.bounds.maxY >= stroke.bounds.minY
+    }
+
+    private static func pathLength(of stroke: InkStroke) -> Double {
+        zip(stroke.points, stroke.points.dropFirst()).reduce(0) { length, pair in
+            length + hypot(pair.1.x - pair.0.x, pair.1.y - pair.0.y)
+        }
+    }
+}
+#endif
