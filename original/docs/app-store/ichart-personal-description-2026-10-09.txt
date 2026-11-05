@@ -1,0 +1,25 @@
+Handwrite clear, reusable music charts on iPad, then edit, transpose, and export them for your next rehearsal or gig.
+
+Hi, I’m Beni—a gigging musician and software engineer. I built iChart because paper charts are fast to write, but making changes, transposing them, and keeping everything organized takes time. I wanted to keep the speed and freedom of handwriting while making those charts editable and reusable.
+
+My goal is simple: help musicians spend less time rewriting charts and more time making music. Whether you’re preparing for a gig, leading a rehearsal, or teaching a lesson, I want iChart to be a practical tool you can keep coming back to.
+
+Write, reuse, and share:
+- Create Simple Chord Sheet and Rhythm Section Sheet charts.
+- Handwrite chord symbols with Apple Pencil, review them, and place them on your chart.
+- Add repeats, form markings, text notes, meter, and handwritten rhythm cues.
+- Duplicate charts and transpose chord symbols for different keys or instruments.
+- Export readable PDFs while keeping your original chart editable.
+
+Start free and keep using it:
+iChart’s free Basic plan has no time limit and requires no purchase or subscription. It includes the core chart-writing tools, up to three saved local charts, and unlimited PDF exports. A free account is required for secure sign-in, password recovery, and support, and to connect any optional Pro access and cloud backups to the right person.
+
+Optional iChart Pro:
+Pro adds unlimited local charts, Projects, cloud backup and restore, and Forums for sharing reviewed community chart PDFs.
+
+Built with your feedback:
+I’m continuing to improve iChart with new features, workflow refinements, performance improvements, and fixes. Feedback from musicians helps shape what I work on next. If something feels awkward, a feature is missing, or you have an idea that would make your next gig easier, I’d love to hear from you.
+
+Send feedback or get help at support@useichart.com, or visit useichart.com/support.html.
+
+— Beni

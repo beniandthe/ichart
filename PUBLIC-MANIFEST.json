@@ -1,0 +1,197 @@
+{
+  "archive": "primary-working",
+  "purpose": "Selected non-ML original source-only working archive; not an active candidate.",
+  "source_base_commit": "ad6cbeeb0173f096f73c4f00b68e71498d7f5d51",
+  "source_branch": "codex/notation-readability",
+  "newer_integration_checkpoint": "42d423f2130295b9d41e16a55480a5a7523518ec",
+  "prepared_at_utc": "2026-11-05T17:28:35.150357+00:00",
+  "original_source_test_files": 13,
+  "original_document_guidance_files": 6,
+  "sanitized_derived_documents": 2,
+  "selected_text_screen_passed": true,
+  "private_inventory_included": false,
+  "source_files_changed": false,
+  "files": [
+    {
+      "archive_path": "original/AGENTS.md",
+      "repository_relative_path": "AGENTS.md",
+      "kind": "guidance_or_document",
+      "copy": "original_bytes",
+      "bytes": 4657,
+      "sha256": "a47763b16018570a0298779bcc2ea42473cad5ceab9aecd81f50eb96d49239e3"
+    },
+    {
+      "archive_path": "original/docs/app-store/ichart-personal-description-2026-10-09.txt",
+      "repository_relative_path": "docs/app-store/ichart-personal-description-2026-10-09.txt",
+      "kind": "guidance_or_document",
+      "copy": "original_bytes",
+      "bytes": 2019,
+      "sha256": "8cac43f5a6c0a5c195a8ec600b4aec265daf40fd53538886753c97d18c69af8f"
+    },
+    {
+      "archive_path": "original/docs/marketing/social-media/brief-sm-007-real-time-song-chart-build.md",
+      "repository_relative_path": "docs/marketing/social-media/brief-sm-007-real-time-song-chart-build.md",
+      "kind": "guidance_or_document",
+      "copy": "original_bytes",
+      "bytes": 9130,
+      "sha256": "1598f2ba6763567f1fff9c3d111c1babe3f74015215e5cd511d2d6014d1ab798"
+    },
+    {
+      "archive_path": "original/docs/marketing/social-media/content-calendar-template.csv",
+      "repository_relative_path": "docs/marketing/social-media/content-calendar-template.csv",
+      "kind": "guidance_or_document",
+      "copy": "original_bytes",
+      "bytes": 11300,
+      "sha256": "3d2220b54cf6334d1d50844215df11079a9fde70d6249f6e28a101015edab8c3"
+    },
+    {
+      "archive_path": "original/docs/marketing/social-media/publish-packet-sm-006-gig-week-push.md",
+      "repository_relative_path": "docs/marketing/social-media/publish-packet-sm-006-gig-week-push.md",
+      "kind": "guidance_or_document",
+      "copy": "original_bytes",
+      "bytes": 2692,
+      "sha256": "4ae43d058bb49788e79f789ff1c8f41c93b03869e6f300414c561db49c0ec91a"
+    },
+    {
+      "archive_path": "original/docs/marketing/social-media/social-listening-response-queue.md",
+      "repository_relative_path": "docs/marketing/social-media/social-listening-response-queue.md",
+      "kind": "guidance_or_document",
+      "copy": "original_bytes",
+      "bytes": 6425,
+      "sha256": "c5b4f50d53d110326c6a4f7b7b2f1aa6d9fd405c2f1e73deb6f9c116c8184ea8"
+    },
+    {
+      "archive_path": "original/iChart/Features/Editor/Components/ChartAppearanceSheetView.swift",
+      "repository_relative_path": "iChart/Features/Editor/Components/ChartAppearanceSheetView.swift",
+      "kind": "source_or_test",
+      "copy": "original_bytes",
+      "bytes": 12629,
+      "sha256": "8376d5ad17ceae70d1c2cb896156592bf7bc40d0c0c30fc9dee8fd0ee5d7cc19"
+    },
+    {
+      "archive_path": "original/iChart/Features/Editor/Components/LeadSheetMeasureResizeGeometry.swift",
+      "repository_relative_path": "iChart/Features/Editor/Components/LeadSheetMeasureResizeGeometry.swift",
+      "kind": "source_or_test",
+      "copy": "original_bytes",
+      "bytes": 32598,
+      "sha256": "558a5b11f7c8f1cdf5ad62b519960eb787350e224e4ad8f52e138dfcfe2eab06"
+    },
+    {
+      "archive_path": "original/iChart/Features/Editor/Components/LeadSheetNotationRenderer.swift",
+      "repository_relative_path": "iChart/Features/Editor/Components/LeadSheetNotationRenderer.swift",
+      "kind": "source_or_test",
+      "copy": "original_bytes",
+      "bytes": 76647,
+      "sha256": "4967df57a61e0a8baa3d9e6bb3ed81fefc33e287ed51dbf7a9ae45e11fb48458"
+    },
+    {
+      "archive_path": "original/iChart/Features/Editor/EditorView.swift",
+      "repository_relative_path": "iChart/Features/Editor/EditorView.swift",
+      "kind": "source_or_test",
+      "copy": "original_bytes",
+      "bytes": 247665,
+      "sha256": "6113f737b43726938c370ad0225b292d7806aa1ac4705b54a46191fd5fffe67f"
+    },
+    {
+      "archive_path": "original/iChart/Models/Chart.swift",
+      "repository_relative_path": "iChart/Models/Chart.swift",
+      "kind": "source_or_test",
+      "copy": "original_bytes",
+      "bytes": 38347,
+      "sha256": "9f71dbe7476157f7309b6886dd9b741c60fab5bc5fba8dd5fd159312e52c2f82"
+    },
+    {
+      "archive_path": "original/iChart/Models/ChartAppearance.swift",
+      "repository_relative_path": "iChart/Models/ChartAppearance.swift",
+      "kind": "source_or_test",
+      "copy": "original_bytes",
+      "bytes": 19910,
+      "sha256": "504186f477be3572b8e6ea41ff0540f6c418b8b00cdcca152851d061c131957e"
+    },
+    {
+      "archive_path": "original/iChart/Models/ChartEditing.swift",
+      "repository_relative_path": "iChart/Models/ChartEditing.swift",
+      "kind": "source_or_test",
+      "copy": "original_bytes",
+      "bytes": 121254,
+      "sha256": "a0ed6eea3357ee839fbcae159349740b294c67fa55ddcbded2f771beb6424d66"
+    },
+    {
+      "archive_path": "original/iChart/Services/LeadSheetChordPlacementGuidePolicy.swift",
+      "repository_relative_path": "iChart/Services/LeadSheetChordPlacementGuidePolicy.swift",
+      "kind": "source_or_test",
+      "copy": "original_bytes",
+      "bytes": 3123,
+      "sha256": "4035be0a41943db75ce882a3371d2ea06daced7a2d1989e5ce12fa4957d918ee"
+    },
+    {
+      "archive_path": "original/iChart/Services/LeadSheetPageLayout.swift",
+      "repository_relative_path": "iChart/Services/LeadSheetPageLayout.swift",
+      "kind": "source_or_test",
+      "copy": "original_bytes",
+      "bytes": 152798,
+      "sha256": "ee764a9db79226a1a37af09b3cd189e4313fec3a27b6deab8b70b18a7e3aa7a5"
+    },
+    {
+      "archive_path": "original/iChart/Services/LeadSheetRepeatReadabilityMetrics.swift",
+      "repository_relative_path": "iChart/Services/LeadSheetRepeatReadabilityMetrics.swift",
+      "kind": "source_or_test",
+      "copy": "original_bytes",
+      "bytes": 2019,
+      "sha256": "79fdf206c7859699cb371f490043690e35a8505f02d15650f8fa82141e85a864"
+    },
+    {
+      "archive_path": "original/iChartTests/NotationReadabilityLayoutTests.swift",
+      "repository_relative_path": "iChartTests/NotationReadabilityLayoutTests.swift",
+      "kind": "source_or_test",
+      "copy": "original_bytes",
+      "bytes": 12986,
+      "sha256": "7c787f0be9285ccb4167df387d8555f106cfc5c9648217e3983876af290d1e93"
+    },
+    {
+      "archive_path": "original/iChartTests/NotationReadabilityRendererTests.swift",
+      "repository_relative_path": "iChartTests/NotationReadabilityRendererTests.swift",
+      "kind": "source_or_test",
+      "copy": "original_bytes",
+      "bytes": 18053,
+      "sha256": "8159a8246aad6229b604fb8dfc9ed1fa6291c47538a1a308c894c63612e378a0"
+    },
+    {
+      "archive_path": "original/iChartTests/NotationReadabilitySettingsTests.swift",
+      "repository_relative_path": "iChartTests/NotationReadabilitySettingsTests.swift",
+      "kind": "source_or_test",
+      "copy": "original_bytes",
+      "bytes": 2586,
+      "sha256": "9fb3c64d72df076ab60d3a631439faba3aef8a8f04f6bf9a8832d212b167fd2e"
+    },
+    {
+      "archive_path": "derived-docs/docs/ichart-import-paper-scan-pro-scan-plan-2026-10-23.md",
+      "repository_relative_path": "docs/ichart-import-paper-scan-pro-scan-plan-2026-10-23.md",
+      "kind": "sanitized_dated_plan",
+      "copy": "derived_not_original_bytes",
+      "transformations": [
+        "One absolute local worktree path replaced with a generic placeholder."
+      ],
+      "bytes": 26301,
+      "sha256": "25f20eda97d88e80d55fb97dc82f2f0c3f473073863819146968b7cb8789e2f4"
+    },
+    {
+      "archive_path": "derived-docs/docs/ichart-next-patch-rhythm-ink-staff-persistence-2026-09-05.md",
+      "repository_relative_path": "docs/ichart-next-patch-rhythm-ink-staff-persistence-2026-09-05.md",
+      "kind": "sanitized_dated_plan",
+      "copy": "derived_not_original_bytes",
+      "transformations": [
+        "One device-identifying line replaced with a generic statement; no device name or identifier retained."
+      ],
+      "bytes": 29776,
+      "sha256": "487cb1dbcf2c6548cd191d13512c2a4c88016c780de576fd7ed4fc6ef78bb239"
+    },
+    {
+      "archive_path": "README.md",
+      "kind": "archive_guidance",
+      "copy": "new_public_archive_document",
+      "bytes": 2584,
+      "sha256": "b6174c8ab6691cf5439a6fb84018273e696adb31f1c2cd88e51b0ae62309b12e"
+    }
+  ]
+}
