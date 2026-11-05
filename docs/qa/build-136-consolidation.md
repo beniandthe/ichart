@@ -2,9 +2,16 @@
 
 Updated November 4, 2026.
 
-The installed iChart 1.2.4 (136) source is checkpointed at
+The historical iChart 1.2.4 (136) installation is checkpointed at
 `6ffeb1442a04ec020a036c7da653ff2051e70363`. This preserves the tested application,
 regressions, tool guidance, forum test utility and publication-boundary migration.
+Build 137, source `71491e50`, is now installed with saved-state preservation
+verified. Its keyboard review passed the user's checks in both chart styles,
+but physical Simple/Automatic repeat writing failed. Build 138 is the repair
+candidate. Its local native suite passes 3,373 / 0 failed / 119 skipped;
+current-head hosted CI/review is tracked in PR #95 and physical repeat acceptance
+remains pending.
+See the [Fix Docket](ichart-fix-docket.md) for current status.
 
 ## Integration and scope
 
@@ -40,7 +47,7 @@ These evidence lanes are separate; historical local results are not hosted CI.
 | Local database policies | 170 assertions passed. |
 | Edge handler unit tests | 56 passed. |
 | Integration configuration | 34 native project-configuration tests passed without a build-number override; no skips or failures. |
-| Physical iPad | Build 136 installed and relaunched after an authorized backup. Independent reads verified saved charts, original ink, PDFs, setlists and the rendering preference. User reports improved recognition; this is not an exhaustive physical style/mode matrix. |
+| Physical iPad, historical Build 136 | Build 136 installed and relaunched after an authorized backup. Independent reads verified saved charts, original ink, PDFs, setlists and the rendering preference. User reported improved recognition; this was not an exhaustive physical style/mode matrix. |
 
 The approved service-only forum publication repair is already deployed as
 `20261104151103_repair_forum_publication_gateway_boundary`. Readback verified its
@@ -56,22 +63,24 @@ for current ticket status and remaining checks.
 
 The actual forum app walkthrough in an isolated local environment is complete.
 It exposed browsing defects addressed by the separate
-[Build 137 candidate](forum-browse-followup-137.md), now included in the same
-draft PR after explicit user approval. That candidate passes 50
-focused native checks and three actual app walkthrough methods, with durable
-server readback and fixture cleanup. The installed baseline remains Build 136.
-The updated draft adds the tested forum follow-up while retaining the exact
-installed checkpoint.
+[Build 137 follow-up](forum-browse-followup-137.md), included in the same
+PR after explicit user approval. That follow-up passed 50 focused native checks
+and three actual app walkthrough methods, with durable server readback and
+fixture cleanup. Build 137 was subsequently installed from `71491e50`; its
+separate preservation receipt does not replace this historical Build 136 record.
 
 At the earlier Build 136 PR head, hosted backend contracts and Dependency Review
 passed. Hosted iOS, SwiftPM and
 CodeQL jobs were cancelled before execution because macOS runners were not
-acquired. Checks for the updated PR head remain a separate hosted gate.
+acquired. These earlier results do not describe the later Build 137 gates or
+the pending Build 138 repair gates.
 
 Fresh physical checks of the latest divider, engraving-preview and PDF-label
 changes remain open. The historical ink-integrity investigation still requires
 affected-chart evidence; successful installation preservation does not settle it.
 
-This consolidation is not an App Store release. Hosted CI and promotion to
-`main` remain pending. No further device installation or production deployment
-is implied by this source checkpoint.
+Issue #96 remains open with its historical mechanism unidentified. Build 138
+local source verification is complete; current-head hosted CI/review and fresh
+physical repeat acceptance are separate gates. No physical repeat repair is
+claimed complete here. Promotion to `main`, any further device
+installation and App Store release are separate from these historical receipts.

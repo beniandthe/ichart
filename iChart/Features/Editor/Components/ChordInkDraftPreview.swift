@@ -1375,6 +1375,33 @@ enum ChordDraftBarlineRecognizer {
         draftBarline(for: stroke, chordFrame: chordFrame, pageLayout: pageLayout)
     }
 
+    /// A provisional bar for a complete repeat. The repeat reader must still
+    /// validate its dots, neighboring ink and exclusive source ownership before
+    /// claiming anything; this does not relax ordinary separator recognition.
+    static func repeatComponentCandidate(
+        for stroke: InkStroke,
+        chordFrame: CGRect,
+        pageLayout: LeadSheetPageLayout
+    ) -> DraftBarline? {
+        draftBarline(for: stroke, chordFrame: chordFrame, pageLayout: pageLayout,
+            purpose: .repeatComponent)
+    }
+
+    private enum CandidatePurpose {
+        case separator
+        case repeatComponent
+
+        func minimumLaneCoverage(for layoutStyle: ChartLayoutStyle) -> Double {
+            if case .repeatComponent = self, layoutStyle == .simpleChordSheet {
+                // Simple's detector includes the whole row allocation around
+                // its printed grid. Complete repeat punctuation supplies the
+                // additional evidence for a shorter bar inside that grid.
+                return 0.50
+            }
+            return AcceptanceThresholds.minimumLaneCoverage
+        }
+    }
+
     private enum AcceptanceThresholds {
         static let minimumHeight: CGFloat = 22
         static let maximumHeightToLaneRatio: CGFloat = 1.35
@@ -1551,7 +1578,8 @@ enum ChordDraftBarlineRecognizer {
         for stroke: InkStroke,
         chordFrame: CGRect,
         pageLayout: LeadSheetPageLayout,
-        allowsSlantInRenderedChordGap: Bool = false
+        allowsSlantInRenderedChordGap: Bool = false,
+        purpose: CandidatePurpose = .separator
     ) -> DraftBarline? {
         guard stroke.points.count >= 2 else {
             return nil
@@ -1593,7 +1621,7 @@ enum ChordDraftBarlineRecognizer {
         ).first(where: { candidate in
             let coverage = Double(bounds.intersection(candidate.laneFrame).height / max(1, candidate.laneFrame.height))
             let heightRatio = bounds.height / max(1, candidate.laneFrame.height)
-            return coverage >= AcceptanceThresholds.minimumLaneCoverage
+            return coverage >= purpose.minimumLaneCoverage(for: candidate.system.layoutStyle)
                 && heightRatio <= AcceptanceThresholds.maximumHeightToLaneRatio
                 && (hasStandardBarlineShape || (
                     coverage >= AcceptanceThresholds.gapMinimumLaneCoverage
@@ -1606,7 +1634,7 @@ enum ChordDraftBarlineRecognizer {
         let laneFrame = target.laneFrame
         let laneCoverage = Double(bounds.intersection(laneFrame).height / max(1, laneFrame.height))
         let heightToLaneRatio = bounds.height / max(1, laneFrame.height)
-        guard laneCoverage >= AcceptanceThresholds.minimumLaneCoverage,
+        guard laneCoverage >= purpose.minimumLaneCoverage(for: target.system.layoutStyle),
               heightToLaneRatio <= AcceptanceThresholds.maximumHeightToLaneRatio else {
             return nil
         }

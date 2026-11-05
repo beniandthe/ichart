@@ -1,33 +1,46 @@
 # iChart Fix Docket
 
 Updated November 4, 2026. This is the source-controlled status summary for the
-Build 136 consolidation and approved Build 137 forum follow-up. Detailed device snapshots and handwriting archives
-remain local and are excluded from this document.
+Build 136 history, installed Build 137 and pending Build 138 repeat repair.
+Detailed device snapshots and handwriting archives remain local and are excluded
+from this document.
 
 ## Current checkpoint
 
-iChart 1.2.4 (136) is installed from checkpoint
-`6ffeb1442a04ec020a036c7da653ff2051e70363`. An authorized backup and independent
-postlaunch reads verified saved-state and preference preservation, with no QA
-launch overrides. The user reports improved recognition; a complete physical
-style/mode matrix was not specified.
+iChart 1.2.4 (137), source `71491e50`, is installed after an authorized
+backup, in-place update and normal launch. Independent stopped postlaunch
+readback verified all chart fields and source ink, 20 PDFs and one setlist with
+15 PDF references. The library changed only in deletion-record order. All
+preferences were byte-exact before launch; afterward 17 of 18 keys retained
+exact values and types, the rendering preference stayed unchanged, and one
+StoreKit last-checked timestamp advanced within the launch window.
 
-The cumulative installed-source native selection has 1,526 final passing cases
-and no remaining failures; seven optional replay methods were explicitly
-excluded. Portable recognition has 256 passes and two optional skips. Local
-forum verification has 25 actual HTTP gateway cases, 170 database-policy
-assertions and 56 Edge unit tests passing. Integration adds a default build-number
-update and 34 passing project-configuration tests. See
-[Build 136 source consolidation](build-136-consolidation.md) for the distinct
-evidence lanes. Hosted backend contracts and Dependency Review passed at the
-Build 136 PR head; iOS, SwiftPM and CodeQL were cancelled before execution due
-to runner acquisition. The hosted gate and promotion to `main` remain pending.
+The Build 136 checkpoint `6ffeb1442a04ec020a036c7da653ff2051e70363` and its
+validation receipts remain historical evidence. See
+[Build 136 source consolidation](build-136-consolidation.md) and the
+[Build 137 forum follow-up](forum-browse-followup-137.md) for their separate
+native, local-server and app-walkthrough lanes.
 
-The actual local forum app walkthrough is complete. It reproduced browsing
-defects and verified the [Build 137 forum follow-up](forum-browse-followup-137.md):
-50 focused native checks and all three real-app walkthrough methods pass.
-Build 136 remains installed. The follow-up is included in draft PR #95 after
-explicit user approval; device acceptance remains separate.
+The user passed the Build 137 keyboard review checks in both Simple Chord Sheet
+and Rhythm Section Sheet. A later physical Simple Chord Sheet check in Automatic
+mode failed: written repeat barlines became chords. Two saved-source replays
+fail on `71491e50` and pass with the Build 138 repair; the captured ink remains
+private. The correction permits shorter bars only within complete Simple repeat
+signs, while ordinary barlines and other chart styles retain their existing gates.
+Nine procedural public regressions include manual/automatic commitment and a
+coder round trip with prior chord sources retained. Full local native validation
+passed 3,373 cases with zero failures and 119 skips (3,492 total), without private
+replay code or ink in the project. Hosted CI/review results belong to the exact
+current PR #95 head; fresh physical repeat acceptance remains open.
+
+The affected Write & Render helper, How To and recovery wording were checked in
+Automatic and Manual contexts. Existing copy already describes complete bars and
+two dots, tall ordinary barlines and the applicable render/review actions; no
+instruction or control change is needed.
+
+Issue #96 remains open: the historical missing-telemetry-event mechanism is
+unidentified, and no production repair is claimed. Installation and preservation
+do not establish a complete physical workflow matrix or an App Store release.
 
 ## Write & Render contract
 
@@ -44,14 +57,14 @@ save and reopen. Preview, user edit, rendered result and saved data remain disti
 
 | Ticket | Implemented behavior | Status or remaining evidence |
 | --- | --- | --- |
-| FIX-001 / RHY-001 | Recognize barlines separately from chords; commit eligible Rhythm dividers and independent notation. | Both styles/modes pass. Unrepresentable cuts retain ink. |
+| FIX-001 / RHY-001 | Recognize barlines separately from chords; commit eligible Rhythm dividers and independent notation. | Prior native controls pass; the Build 137 physical Simple/Automatic repeat check failed. Build 138 local native validation passes; exact-head hosted CI/review is tracked in PR #95 and physical repeat acceptance is pending. Unrepresentable cuts retain ink. |
 | FIX-002 | Improve supported F roots; retain E, 7 and vertical controls. | Prior device acceptance retained; bounded reader/render/reopen controls pass. |
 | FIX-003 | Correct triangle/half-diminished ownership, candidate retention and same-root quality editing. | Native/portable controls pass; user reports improvement. Fresh-writing accuracy remains under observation. |
 | FIX-004 / FIX-014 | Render clear fermatas/accents with attachment/float, selection, smooth drag/guide, delete/undo and Restore Ink. | Both styles implemented; prior baseline accepted. Marcato remains parked. |
 | FIX-005 | Load author badges independently and show accurate profile statistics. | Local gateway and actual two-account app visibility checks pass. Awards/revokes remain operator actions; no production awards made. |
 | FIX-006 | Preserve comment drafts/history; support stable earlier-page chronology and retry. | Actual two-account publication/download, vote/comment, paging, badges and return checks pass. The 137 follow-up repairs narrow cards, persistent search/focus and submitted-query return/retry state. |
 | FIX-007 | Bind delayed saves by chart ID; reject duplicate identities before backup. | Persistence regressions pass. Historical incident still requires affected-chart evidence. |
-| FIX-008 | Keep review input focus/scroll stable while retaining editing/render actions. | Regression-tested and previously accepted on device; software-keyboard evidence remains separate. |
+| FIX-008 | Keep review input focus/scroll stable while retaining editing/render actions. | Native controls pass; the user passed Build 137 keyboard review checks in both chart styles. Repeat recognition and broader rendering acceptance remain separate. |
 | FIX-009 | Preserve following meter-change anchors across Simple measure splits. | Both render settings and file-backed source/range checks pass. |
 | FIX-010 | Export legacy Rhythm staff ink using the editor's chart-aware geometry. | Actual PDF, save/reopen and visual controls pass. |
 | FIX-011 | Preserve publisher-view PDF metadata; label unsupported legacy metadata Instrument view unknown. | Both styles/views pass. Download leaves printed notes and PDF bytes unchanged. |
@@ -70,7 +83,7 @@ save and reopen. Preview, user edit, rendered result and saved data remain disti
 | RHY-005 | Save failure retains rendering and the latest Retry Save state. Injected failure/reopen controls pass. |
 | RHY-006 | Reopened review uses current source and applicable edits; same-source render intent continues after recognition settles. |
 | RHY-007 | Ending blockers preserve ink/approvals; affected device render/reopen retest passed. |
-| RHY-008 | Boundary repeats preserve independent progress; original device acceptance and current controls retained. |
+| RHY-008 | Historical repeat acceptance remains prior evidence. Build 137 Simple/Automatic repeat writing failed and two replay controls reproduce it. Build 138 local native validation passes; exact-head hosted CI/review is tracked in PR #95 and physical repeat acceptance is pending. |
 
 ## Approved style boundaries
 
@@ -87,15 +100,17 @@ save and reopen. Preview, user edit, rendered result and saved data remain disti
 
 ## Remaining checks and parked work
 
-1. Review the Build 137 forum follow-up included in draft PR #95. The actual
-   local app walkthrough is complete, including both-style publication/download,
-   two-account participation and saved-server readback. Its disposable fixture
-   was removed. Physical device acceptance of that candidate remains separate.
+1. Validate the Build 138 repeat-repair candidate with PR #95. Require native
+   controls, hosted CI/review and a fresh Simple/Automatic physical repeat check
+   before closing the Build 137 failure. The earlier local forum walkthrough and
+   fixture cleanup are complete; physical forum acceptance remains separate.
 2. Confirm the latest eligible/protected Rhythm divider gestures, style previews
    and forum PDF labels on the physical iPad. Continue checking fresh major-
    seventh and genuine half-diminished writing during normal use.
-3. Complete hosted CI and review before promoting the consolidation to `main`.
-   Source consolidation is not an App Store release.
+3. Verify the exact Build 138 PR head's hosted CI/review before promoting the
+   consolidation to `main`. Source consolidation is not an App Store release.
+   Keep #96 open until its historical mechanism and any supported repair are
+   established.
 
 Marcato/new mark inputs, Graph/MyScript, ML-core and dedicated reader-retry work
 remain parked. The historical ink-integrity investigation requires affected-chart

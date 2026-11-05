@@ -33,7 +33,7 @@ enum ChordDraftRepeatSignRecognizer {
         }
         let bars = strokes.enumerated().compactMap { index, stroke -> Bar? in
             guard hasFiniteGeometry(stroke),
-                  let draft = ChordDraftBarlineRecognizer.candidate(
+                  let draft = ChordDraftBarlineRecognizer.repeatComponentCandidate(
                     for: stroke, chordFrame: chordFrame, pageLayout: pageLayout
                   ) else { return nil }
             return Bar(index: index, stroke: stroke, draft: draft)
@@ -139,7 +139,7 @@ enum ChordDraftRepeatSignRecognizer {
             InkPoint(x: boundaryX, y: bounds.minY, timeOffset: nil),
             InkPoint(x: boundaryX, y: bounds.maxY, timeOffset: nil)
         ])
-        guard var draft = ChordDraftBarlineRecognizer.candidate(
+        guard var draft = ChordDraftBarlineRecognizer.repeatComponentCandidate(
             for: centerLine, chordFrame: chordFrame, pageLayout: pageLayout
         ) else { return nil }
         draft.kind = left.isEmpty ? .repeatStart : (right.isEmpty ? .repeatEnd : .repeatBoth)

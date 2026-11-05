@@ -1,8 +1,12 @@
-# Forum browsing follow-up: Build 137 candidate
+# Forum browsing follow-up: Build 137
 
-Updated November 4, 2026. This tested follow-up is included in draft PR #95
-after the user approved public inclusion. Build 136 remains the installed
-device baseline; Build 137 is a source candidate.
+Updated November 4, 2026. This tested follow-up is included in PR #95 after
+the user approved public inclusion. Build 137, source `71491e50`, is now
+installed with saved-state preservation verified. Build 136 receipts below
+remain historical. The separate Build 138 repeat-repair candidate has passing
+local native validation; exact-head CI/review is tracked in PR #95 and physical
+repeat acceptance remains open. See the
+[Fix Docket](ichart-fix-docket.md).
 
 ## Observed problems and repair
 
@@ -23,8 +27,8 @@ The actual forum walkthrough exposed three related browsing defects:
   keystrokes add no requests.
 
 The visible entry helper, accessibility labels/hints and How To instructions
-change with the controls. The runtime patch is confined to LibraryView.swift.
-The project build default and its expectation advance to 137.
+change with the controls. The original browsing-only runtime patch is confined
+to LibraryView.swift. Its project build default and expectation advanced to 137.
 
 ## Verification
 
@@ -51,20 +55,26 @@ artifacts stay outside source control.
 Native Concert publication and seeded B-flat/legacy download checks are distinct
 lanes. This does not establish fresh Pencil gestures or physical iPad acceptance.
 No production test content was created and no production badges were awarded.
-No additional device installation is part of this follow-up. The two disposable accounts and their posts, songs,
-badges and stored PDFs were removed with zero remaining fixture records. Only
+The original isolated walkthrough did not install the physical app. Build 137
+was installed later through a separate authorized backup/preservation flow.
+The two disposable accounts and their posts, songs, badges and stored PDFs were
+removed with zero remaining fixture records. Only
 the isolated test server was stopped; the proof Simulator is shut down.
 
 ## Integration boundary
 
-The exact installed Build 136 checkpoint remains `6ffeb144`. The tested forum
-follow-up is checkpointed separately at `8c79e13a` and included in the same
-public draft PR #95 after explicit user approval. The integration documentation
-change leaves that tested runtime source unchanged.
+The historical Build 136 installation checkpoint remains `6ffeb144`. The
+original tested forum follow-up is checkpointed separately at `8c79e13a` and
+was included in PR #95 after explicit user approval. Installed Build 137 now
+uses `71491e50`, including the subsequent reviewed corrections. The user's
+keyboard checks passed in both chart styles; the later Simple/Automatic repeat
+failure is a separate open acceptance issue tracked by the Build 138 candidate.
 
 At the earlier Build 136 PR head `2607d8ed`, hosted backend contracts and
 Dependency Review passed. Hosted iOS, SwiftPM and CodeQL jobs were cancelled
 before execution because GitHub did not acquire macOS runners. Checks for the
-updated PR head are separate; the earlier results do not establish its hosted
-gate. Review, promotion to main, app release and device installation remain
-separate actions.
+Build 138 repair head are separate; the earlier results do not establish that
+hosted gate. Build 138 local native validation passes; the exact-head hosted
+CI/review and physical repeat acceptance are separate gates. Issue #96 remains open with no identified historical mechanism or
+production repair claim. Promotion to main, app release and any further device
+installation remain separate actions.
