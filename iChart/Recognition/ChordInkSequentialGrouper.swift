@@ -31,6 +31,55 @@ struct ChordInkSequentialGrouper {
         self.templates = templates
     }
 
+    /// Manual preview may already have shown the bare root when the writer
+    /// adds a raised quality and seventh. Require the actual suffix strokes,
+    /// rather than weakening the normal timing boundary between chords.
+    func isPausedSeventhSuffix(_ suffix: [InkStroke], of root: [InkStroke]) -> Bool {
+        guard (1...3).contains(root.count), (2...3).contains(suffix.count),
+              let rootEnd = root.compactMap(\.timelineEndTimeOffset).max(),
+              let suffixStart = suffix.compactMap(\.timelineStartTimeOffset).min(),
+              ChordInkSequentialTimingPolicy.supportsChordBoundary(suffixStart - rootEnd) else {
+            return false
+        }
+
+        let rootBounds = InkBounds.enclosing(root.map(\.bounds))
+        let suffixBounds = InkBounds.enclosing(suffix.map(\.bounds))
+        let gap = suffixBounds.minX - rootBounds.maxX
+        guard rootBounds.height >= 16,
+              gap >= 0, gap <= min(16, rootBounds.height * 0.50),
+              suffixBounds.height <= rootBounds.height * 0.85,
+              suffixBounds.maxY <= rootBounds.maxY - rootBounds.height * 0.18 else {
+            return false
+        }
+
+        let groups = clusterer.cluster(suffix)
+        guard groups.count == 2,
+              groups[1].strokes.count == 1,
+              groups[1].bounds.minX >= groups[0].bounds.maxX,
+              hasHeuristic("7", in: groups[1]) else {
+            return false
+        }
+        let quality = groups[0]
+        let isMajorTriangle = quality.strokes.count == 2
+            && InkSplitMajorTriangleGeometry.matches(quality.strokes[0], quality.strokes[1])
+        let isMinorDash = quality.strokes.count == 1 && hasHeuristic("-", in: quality)
+        guard isMajorTriangle || isMinorDash,
+              let symbol = ChordInkRecognizer(
+                clusterer: clusterer, glyphRecognizer: glyphRecognizer, templates: templates
+              ).recognize(strokes: root).match?.symbol else {
+            return false
+        }
+
+        return symbol.kind == .rooted && symbol.quality.isEmpty && symbol.extensions.isEmpty
+            && symbol.alterations.isEmpty && symbol.slashBass == nil
+    }
+
+    private func hasHeuristic(_ text: String, in cluster: InkCluster) -> Bool {
+        glyphRecognizer.rankedCandidates(for: cluster, templates: []).contains {
+            $0.text == text && $0.source == .heuristic
+        }
+    }
+
     func groups(for indexedStrokes: [(index: Int, stroke: InkStroke)]) -> [ChordInkSequentialGroup] {
         let temporalRuns = ownershipTemporalRuns(for: indexedStrokes)
         guard temporalRuns.count > 1,
@@ -114,6 +163,25 @@ struct ChordInkSequentialGrouper {
                 from: indexedStrokes
             )
         )
+    }
+
+    static func supportsLeadingFallbackBoundary(
+        _ leading: ChordInkSequentialGroup, _ trailing: ChordInkSequentialGroup,
+        in indexedStrokes: [(index: Int, stroke: InkStroke)]
+    ) -> Bool {
+        // A complete single-stroke root can pass the chord reader even when
+        // its first glyph looks like an accidental. Require a hard pause
+        // and a distinct following root before using that split.
+        guard leading.anchorReason == .fallbackGap, leading.rootText != nil,
+              leading.strokeIndices.count == 1,
+              trailing.anchorReason == .rootStart, (trailing.rootConfidence ?? 0) >= 0.90,
+              ChordInkSequentialRootStartDetector.isDetachedRootSizedGlyph(trailing.rootBounds, from: leading.bounds),
+              let leadingEnd = indexedStrokes.first(where: { leading.strokeIndices.contains($0.index) })?.stroke.timelineEndTimeOffset,
+              let trailingStart = indexedStrokes.filter({ trailing.strokeIndices.contains($0.index) })
+                  .compactMap({ $0.stroke.timelineStartTimeOffset }).min() else {
+            return false
+        }
+        return ChordInkSequentialTimingPolicy.supportsHardChordBoundary(trailingStart - leadingEnd)
     }
 
     /// Spatial glyph discovery is intentionally free to visit marks in layout

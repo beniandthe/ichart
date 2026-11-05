@@ -220,6 +220,133 @@ struct ChartCloudBackupStatus: Codable, Hashable {
     }
 }
 
+enum FreeInkArticulationKind: String, Codable, CaseIterable, Identifiable, Hashable {
+    case fermata
+    case accent
+    case marcato
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .fermata: "Fermata"
+        case .accent: "Accent"
+        case .marcato: "Marcato"
+        }
+    }
+}
+
+/// Position in paper points relative to the top-left of a zero-based page.
+struct FreeInkArticulationPagePoint: Codable, Hashable {
+    var pageIndex: Int
+    var x: Double
+    var y: Double
+}
+
+enum FreeInkArticulationAttachment: Codable, Hashable {
+    case chord(id: UUID)
+    case note(beat: Int, subdivision: Int)
+    case staff(xFraction: Double, yFraction: Double)
+}
+
+struct FreeInkArticulation: Identifiable, Codable, Hashable {
+    var id: UUID = UUID()
+    var kind: FreeInkArticulationKind
+    var measureID: UUID? = nil
+    /// Zero-based beat from charts saved before flexible placement.
+    var beatIndex: Int? = nil
+    var sourceInkData: Data
+    var sourceCoordinateSpace: PersistentInkCoordinateSpace? = nil
+    var attachment: FreeInkArticulationAttachment? = nil
+    /// Current floating position, or fallback when the attachment cannot be resolved.
+    var pagePoint: FreeInkArticulationPagePoint? = nil
+    /// Original paper position of the archived handwriting.
+    var sourcePagePoint: FreeInkArticulationPagePoint? = nil
+
+    var legacyBeatIndex: Int? {
+        guard attachment == nil, pagePoint == nil else { return nil }
+        return beatIndex
+    }
+}
+
+extension FreeInkArticulation {
+    // Build 112 requires both legacy fields. These placeholders let it read
+    // the record without placing a floating or flexibly attached mark on a beat.
+    private static let unassignedMeasureID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+    private static let unassignedBeatIndex = -1
+    // Older writers preserve this invalid beat even when they drop the extension.
+    private static let marcatoPlaceholderBeatIndex = -2
+
+    private enum CodingKeys: String, CodingKey {
+        case id, kind, measureID, beatIndex, sourceInkData, sourceCoordinateSpace
+        case attachment, pagePoint, sourcePagePoint, extendedArticulation
+    }
+
+    // Older releases can retain the source ink in a record with a known kind.
+    // Only readers that understand this field get the new kind and placement.
+    private struct ExtendedArticulation: Codable {
+        var kind: FreeInkArticulationKind
+        var measureID: UUID?
+        var beatIndex: Int?
+        var attachment: FreeInkArticulationAttachment?
+        var pagePoint: FreeInkArticulationPagePoint?
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        kind = try container.decode(FreeInkArticulationKind.self, forKey: .kind)
+        let encodedMeasureID = try container.decodeIfPresent(UUID.self, forKey: .measureID)
+        measureID = encodedMeasureID == Self.unassignedMeasureID ? nil : encodedMeasureID
+        let encodedBeatIndex = try container.decodeIfPresent(Int.self, forKey: .beatIndex)
+        beatIndex = encodedBeatIndex == Self.unassignedBeatIndex ? nil : encodedBeatIndex
+        sourceInkData = try container.decode(Data.self, forKey: .sourceInkData)
+        sourceCoordinateSpace = try container.decodeIfPresent(PersistentInkCoordinateSpace.self, forKey: .sourceCoordinateSpace)
+        attachment = try container.decodeIfPresent(FreeInkArticulationAttachment.self, forKey: .attachment)
+        pagePoint = try container.decodeIfPresent(FreeInkArticulationPagePoint.self, forKey: .pagePoint)
+        sourcePagePoint = try container.decodeIfPresent(FreeInkArticulationPagePoint.self, forKey: .sourcePagePoint)
+        if let extended = try container.decodeIfPresent(ExtendedArticulation.self, forKey: .extendedArticulation) {
+            kind = extended.kind
+            measureID = extended.measureID
+            beatIndex = extended.beatIndex
+            attachment = extended.attachment
+            pagePoint = extended.pagePoint
+        } else if kind == .accent, encodedMeasureID == Self.unassignedMeasureID,
+                  encodedBeatIndex == Self.marcatoPlaceholderBeatIndex {
+            kind = .marcato
+            beatIndex = nil
+            attachment = nil
+            pagePoint = sourcePagePoint
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(sourceInkData, forKey: .sourceInkData)
+        try container.encodeIfPresent(sourceCoordinateSpace, forKey: .sourceCoordinateSpace)
+        try container.encodeIfPresent(sourcePagePoint, forKey: .sourcePagePoint)
+        if kind == .marcato {
+            try container.encode(FreeInkArticulationKind.accent, forKey: .kind)
+            try container.encode(Self.unassignedMeasureID, forKey: .measureID)
+            try container.encode(Self.marcatoPlaceholderBeatIndex, forKey: .beatIndex)
+            try container.encode(ExtendedArticulation(
+                kind: kind,
+                measureID: measureID,
+                beatIndex: beatIndex,
+                attachment: attachment,
+                pagePoint: pagePoint
+            ), forKey: .extendedArticulation)
+        } else {
+            try container.encode(kind, forKey: .kind)
+            try container.encode(measureID ?? Self.unassignedMeasureID, forKey: .measureID)
+            try container.encode(beatIndex ?? Self.unassignedBeatIndex, forKey: .beatIndex)
+            try container.encodeIfPresent(attachment, forKey: .attachment)
+            try container.encodeIfPresent(pagePoint, forKey: .pagePoint)
+        }
+    }
+}
+
 struct Chart: Identifiable, Codable, Hashable {
     var id: UUID
     var title: String
@@ -254,6 +381,7 @@ struct Chart: Identifiable, Codable, Hashable {
     var repeatWings: Bool
     var pageHandwrittenNotationData: Data?
     var pageHandwrittenNotationCoordinateSpace: PersistentInkCoordinateSpace?
+    var freeInkArticulations: [FreeInkArticulation]
     var pageHandwrittenHeaderData: Data?
     var pageHandwrittenHeaderCoordinateSpace: PersistentInkCoordinateSpace?
     var pageHandwrittenChordData: Data?
@@ -308,6 +436,7 @@ struct Chart: Identifiable, Codable, Hashable {
         repeatWings: Bool = false,
         pageHandwrittenNotationData: Data? = nil,
         pageHandwrittenNotationCoordinateSpace: PersistentInkCoordinateSpace? = nil,
+        freeInkArticulations: [FreeInkArticulation] = [],
         pageHandwrittenHeaderData: Data? = nil,
         pageHandwrittenHeaderCoordinateSpace: PersistentInkCoordinateSpace? = nil,
         pageHandwrittenChordData: Data? = nil,
@@ -355,6 +484,7 @@ struct Chart: Identifiable, Codable, Hashable {
             pageHandwrittenNotationCoordinateSpace,
             for: self.pageHandwrittenNotationData
         )
+        self.freeInkArticulations = freeInkArticulations
         self.pageHandwrittenHeaderData = normalizedPersistentInkDrawingData(pageHandwrittenHeaderData)
         self.pageHandwrittenHeaderCoordinateSpace = Self.coordinateSpace(
             pageHandwrittenHeaderCoordinateSpace,
@@ -404,6 +534,7 @@ struct Chart: Identifiable, Codable, Hashable {
         case repeatWings
         case pageHandwrittenNotationData
         case pageHandwrittenNotationCoordinateSpace
+        case freeInkArticulations
         case pageHandwrittenHeaderData
         case pageHandwrittenHeaderCoordinateSpace
         case pageHandwrittenChordData
@@ -469,6 +600,7 @@ struct Chart: Identifiable, Codable, Hashable {
             try container.decodeIfPresent(PersistentInkCoordinateSpace.self, forKey: .pageHandwrittenNotationCoordinateSpace),
             for: pageHandwrittenNotationData
         )
+        freeInkArticulations = try container.decodeIfPresent([FreeInkArticulation].self, forKey: .freeInkArticulations) ?? []
         pageHandwrittenHeaderData = normalizedPersistentInkDrawingData(
             try container.decodeIfPresent(Data.self, forKey: .pageHandwrittenHeaderData)
         )

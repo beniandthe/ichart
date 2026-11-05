@@ -6,7 +6,7 @@ import UIKit
 struct ChordDraftEndingReviewSheet: View {
     private let request: PendingChordDraftEndingReview
     private let onApply: (String, EndingEndStyle, ClosedRange<Int>) -> Void
-    private let onCancel: () -> Void
+    private let onBackToWriting: (DraftBarline?) -> Void
     @State private var label: String
     @State private var endStyle: EndingEndStyle
     @State private var startMeasure: Int?
@@ -16,11 +16,11 @@ struct ChordDraftEndingReviewSheet: View {
     init(
         request: PendingChordDraftEndingReview,
         onApply: @escaping (String, EndingEndStyle, ClosedRange<Int>) -> Void,
-        onCancel: @escaping () -> Void
+        onBackToWriting: @escaping (DraftBarline?) -> Void
     ) {
         self.request = request
         self.onApply = onApply
-        self.onCancel = onCancel
+        self.onBackToWriting = onBackToWriting
         _label = State(initialValue: request.ending.label)
         _endStyle = State(initialValue: request.ending.endStyle)
         _startMeasure = State(initialValue: request.measureRange?.lowerBound)
@@ -53,13 +53,14 @@ struct ChordDraftEndingReviewSheet: View {
                         Text("Based on the existing and drawn barlines.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
+                    } else if !request.blockingBarlines.isEmpty {
+                        Label("Fix the marks below to choose measures", systemImage: "exclamationmark.triangle")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.orange)
                     } else {
                         Label("Measure range needs review", systemImage: "exclamationmark.triangle")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.orange)
-                        Text("Choose the measures below. If measure choices are unavailable, finish reviewing the drawn barlines and repeat signs first.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
                     }
                     if let image = sourceImage {
                         Image(uiImage: image)
@@ -69,9 +70,11 @@ struct ChordDraftEndingReviewSheet: View {
                             .padding(.vertical, 8)
                             .accessibilityLabel("Original handwritten ending bracket and label")
                     }
-                    Text("The bracket suggests a range. You can correct its start and end measures below without redrawing the ink.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    if request.availableMeasureCount > 0 {
+                        Text("The bracket suggests a range. You can correct its start and end measures below without redrawing the ink.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 } header: {
                     Text("Your ending")
                 }
@@ -92,54 +95,70 @@ struct ChordDraftEndingReviewSheet: View {
                                 .font(.footnote)
                                 .foregroundStyle(.red)
                         }
+                    } else if !request.blockingBarlines.isEmpty {
+                        ForEach(request.blockingBarlines) { barline in
+                            Button {
+                                returnToWriting(focusing: barline)
+                            } label: {
+                                Label(blockerTitle(barline), systemImage: "location.viewfinder")
+                            }
+                            .accessibilityIdentifier("draft-ending-review-blocker-\(barline.id.uuidString)")
+                            .accessibilityHint("Returns to writing and highlights this mark")
+                        }
                     } else {
-                        Text("Finish reviewing the drawn barlines and repeat signs, then review this ending again.")
+                        Text("The measure range is unavailable. Tap Back to Writing and review the bracket again.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
                 } header: {
-                    Text("Measures")
+                    Text(request.blockingBarlines.isEmpty ? "Measures" : "Marks blocking the range")
                 } footer: {
-                    Text("Measure numbers include the barlines in the current draft.")
+                    if !request.blockingBarlines.isEmpty {
+                        Text("Tap a mark or Back to Writing to find it on the chart. Your ending ink stays on the chart.")
+                    } else if request.availableMeasureCount > 0 {
+                        Text("Measure numbers include the barlines in the current draft.")
+                    }
                 }
 
-                Section {
-                    IChartTypedTextField(
-                        placeholder: "Ending label",
-                        text: $label,
-                        isFocused: $isLabelFocused,
-                        borderStyle: .none
-                    )
-                    .frame(minHeight: 56)
-                    .accessibilityLabel("Ending label")
-                    .accessibilityIdentifier("draft-ending-review-label")
-                    .accessibilityHint("Write with Scribble, or tap the keyboard icon to type")
-                    .background(IChartTypedSheetScrollSupport(monitorsKeyboardReachability: true))
-                    HStack(spacing: 12) {
-                        ForEach(["1.", "2.", "3."], id: \.self) { preset in
-                            Button(preset) { label = preset }
-                                .buttonStyle(.bordered)
-                                .accessibilityLabel("Use ending label \(preset)")
+                if request.availableMeasureCount > 0 {
+                    Section {
+                        IChartTypedTextField(
+                            placeholder: "Ending label",
+                            text: $label,
+                            isFocused: $isLabelFocused,
+                            borderStyle: .none
+                        )
+                        .frame(minHeight: 56)
+                        .accessibilityLabel("Ending label")
+                        .accessibilityIdentifier("draft-ending-review-label")
+                        .accessibilityHint("Write with Scribble, or tap the keyboard icon to type")
+                        .background(IChartTypedSheetScrollSupport(monitorsKeyboardReachability: true))
+                        HStack(spacing: 12) {
+                            ForEach(["1.", "2.", "3."], id: \.self) { preset in
+                                Button(preset) { label = preset }
+                                    .buttonStyle(.bordered)
+                                    .accessibilityLabel("Use ending label \(preset)")
+                            }
                         }
+                    } header: {
+                        Text("Ending label")
+                    } footer: {
+                        Text("Write or type any label, such as 1–3, 5; Last time; or On cue. Labels from the chart ink are shown above for you to review.")
                     }
-                } header: {
-                    Text("Ending label")
-                } footer: {
-                    Text("Write or type any label, such as 1–3, 5; Last time; or On cue. Labels from the chart ink are shown above for you to review.")
-                }
 
-                Section {
-                    Picker("Right edge", selection: $endStyle) {
-                        ForEach(EndingEndStyle.allCases) { style in
-                            Text(style.displayText).tag(style)
+                    Section {
+                        Picker("Right edge", selection: $endStyle) {
+                            ForEach(EndingEndStyle.allCases) { style in
+                                Text(style.displayText).tag(style)
+                            }
                         }
+                        .pickerStyle(.segmented)
+                        .accessibilityIdentifier("draft-ending-review-right-edge")
+                    } header: {
+                        Text("Right edge")
+                    } footer: {
+                        Text("Closed adds a downward hook. Open leaves the bracket open at its end.")
                     }
-                    .pickerStyle(.segmented)
-                    .accessibilityIdentifier("draft-ending-review-right-edge")
-                } header: {
-                    Text("Right edge")
-                } footer: {
-                    Text("Closed adds a downward hook. Open leaves the bracket open at its end.")
                 }
             }
             .scrollDismissesKeyboard(.interactively)
@@ -147,12 +166,14 @@ struct ChordDraftEndingReviewSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    PencilOnlyActionButton(title: "Back to Ink", style: .plain, acceptsDirectTouches: true) {
-                        isLabelFocused = false
-                        onCancel()
+                    PencilOnlyActionButton(title: "Back to Writing", style: .plain, acceptsDirectTouches: true) {
+                        returnToWriting(focusing: request.blockingBarlines.first)
                     }
-                    .frame(width: 100, height: 44)
+                    .frame(width: 134, height: 44)
                     .accessibilityIdentifier("draft-ending-review-cancel")
+                    .accessibilityHint(request.blockingBarlines.isEmpty
+                        ? "Keep the ending ink and return to the chart"
+                        : "Return to the chart and highlight the first blocking mark")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     PencilOnlyActionButton(
@@ -171,6 +192,21 @@ struct ChordDraftEndingReviewSheet: View {
             }
         }
         .presentationDetents([.large])
+    }
+
+    private func returnToWriting(focusing barline: DraftBarline?) {
+        isLabelFocused = false
+        onBackToWriting(barline)
+    }
+
+    private func blockerTitle(_ barline: DraftBarline) -> String {
+        if let index = request.measureIDs.firstIndex(of: barline.measureID) {
+            return "\(barline.kind.displayName) near measure \(index + 1)"
+        }
+        if let lane = barline.laneLocation {
+            return "\(barline.kind.displayName) on row \(lane.systemIndex + 1)"
+        }
+        return barline.kind.displayName
     }
 
     private var sourceImage: UIImage? {

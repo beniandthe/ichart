@@ -18,7 +18,12 @@ final class ChordInkAutomaticRenderTests: XCTestCase {
             let state = state(chart, drawing, texts: ["D/F#", "Cmaj7"])
             let outcome = try XCTUnwrap(prepare(chart, state, drawing, elapsed: 1.2))
             XCTAssertEqual(outcome.result.renderedChordCount, 2)
-            XCTAssertEqual(Set(outcome.chart.measures.flatMap(\.chordEvents).compactMap(\.rawInput)), Set(["D/F#", "Cmaj7"]))
+            let events = outcome.chart.measures.flatMap(\.chordEvents)
+            XCTAssertEqual(events.compactMap(\.rawInput), ["D/F#", "Cmaj7"])
+            if style == .rhythmSectionSheet {
+                XCTAssertEqual(events.first?.startPosition.displayText, "1")
+                XCTAssertNil(events.first?.manualVisualLaneFraction)
+            }
             XCTAssertTrue(outcome.drawing.strokes.isEmpty)
             XCTAssertTrue(outcome.remainingState.isEmpty)
             XCTAssertNil(outcome.chart.pageHandwrittenChordData)
@@ -90,8 +95,8 @@ final class ChordInkAutomaticRenderTests: XCTestCase {
         let chart = chart()
         let snapshot = normalized([stroke(10)])
         let state = state(chart, snapshot)
-        // Geometry alone cannot decide whether this is a next chord or a
-        // widely spaced slash bass. Neither source may be consumed yet.
+        // A wide slash bass or extension can still belong to the same measure.
+        // Raw source needs a separate measure or row before it is independent.
         for added in [normalized([stroke(150)]), normalized([stroke(70, y: 45)])] {
             let current = PKDrawing(strokes: snapshot.strokes + added.strokes)
             XCTAssertNil(prepare(chart, state, current, elapsed: 0.4))
@@ -157,7 +162,7 @@ final class ChordInkAutomaticRenderTests: XCTestCase {
         XCTAssertNil(prepare(chart, unresolvedState, adjacent, elapsed: 3))
     }
 
-    func testPendingRepeatConfirmationCannotBeBypassedByAutomaticNeighborCommit() async throws {
+    func testUnmatchedRepeatStartCannotConsumeSharedNeighborChordSource() async throws {
         let chart = chart()
         let drawing = normalized([stroke(10)])
         var state = state(chart, drawing)
@@ -165,8 +170,8 @@ final class ChordInkAutomaticRenderTests: XCTestCase {
             fraction: 0.9, sourceStrokeIndex: 0,
             metrics: DraftBarlineGestureMetrics(height: 50, width: 0,
                 angleDegreesFromVertical: 0, straightness: 1, laneCoverage: 0.9),
-            kind: .repeatEnd)]
-        XCTAssertNotNil(ChordDraftRepeatReviewPolicy.confirmation(for: chart, state: state))
+            kind: .repeatStart)]
+        XCTAssertNotNil(ChordDraftRepeatReviewPolicy.blockingMessage(for: state))
         XCTAssertNil(prepare(chart, state, drawing, elapsed: 3))
     }
 

@@ -3,7 +3,7 @@ import Foundation
 enum ChordInkRecognitionPipelineIdentity {
     /// Bump whenever a device trace or committed ink chord must be
     /// distinguishable from a materially different recognition pipeline.
-    static let version = "maximum-trust-v35-chord-only-scored-candidates-2026-10-05"
+    static let version = "maximum-trust-v44-triangle-quality-ownership-2026-11-04"
 }
 
 protocol ChordInkRecognizing {
@@ -107,11 +107,17 @@ struct ChordInkRecognizer: ChordInkRecognizing {
             clusters: clusters
         )
         let chordRepeatCandidate = ChordRepeatInkDetector.candidate(from: recognitionStrokes)
+        let requiresTriangleQualityReview = chordRepeatCandidate == nil
+            && Self.hasUnclearMajorTriangle(clusters: clusters, glyphGroups: contextualGlyphCandidateGroups)
         let chordCandidates: [ChordInkCandidate]
         if let chordRepeatCandidate {
             chordCandidates = [chordRepeatCandidate] + candidateResult.candidates.filter {
                 $0.text != chordRepeatCandidate.text
             }
+        } else if requiresTriangleQualityReview {
+            // A contextual quality guess would replace the user's ink with
+            // a different chord. Keep glyph evidence but offer no chord guess.
+            chordCandidates = []
         } else {
             chordCandidates = candidateResult.candidates
         }
@@ -175,6 +181,19 @@ struct ChordInkRecognizer: ChordInkRecognizing {
         let symbolLedgerAssessment = symbolLedgerSnapshot?.assessment(
             primaryDisplayText: match?.displayText
         )
+        // Joining the more open triangle restores its chord candidate while
+        // keeping the recovery out of the trusted recognition path.
+        let containsOffsetTriangle = match != nil && clusters.contains { cluster in
+            cluster.strokes.count == 2
+                && InkSplitMajorTriangleGeometry.match(cluster.strokes[0], cluster.strokes[1]) == .offsetJoin
+        }
+        let trustEvidence: ChordInkTrustEvidence? = containsOffsetTriangle ? .init(
+            outcome: .insufficientCapturedFamilyEvidence,
+            symbolSupportCount: symbolLedgerAssessment?.supportCount ?? 0,
+            completedProbeCount: 0,
+            requiredProbeCount: 0,
+            validationMilliseconds: 0
+        ) : nil
 
         return ChordInkRecognitionResult(
             rawCandidates: rawCandidates,
@@ -187,6 +206,8 @@ struct ChordInkRecognizer: ChordInkRecognizing {
             reviewCandidateScores: reviewCandidateScores,
             symbolLedger: symbolLedgerSnapshot,
             symbolLedgerAssessment: symbolLedgerAssessment,
+            trustEvidence: trustEvidence,
+            requiresTriangleQualityReview: requiresTriangleQualityReview,
             metrics: ChordInkRecognitionMetrics(
                 clusterMilliseconds: clusterMilliseconds,
                 glyphMilliseconds: glyphMilliseconds,
@@ -203,6 +224,27 @@ struct ChordInkRecognizer: ChordInkRecognizing {
                 compositionMetrics: candidateResult.compositionMetrics
             )
         )
+    }
+
+    private static func hasUnclearMajorTriangle(clusters: [InkCluster], glyphGroups: [[GlyphCandidate]]) -> Bool {
+        guard let rootGroup = glyphGroups.first,
+              rootGroup.contains(where: { $0.confidence >= 0.55 && ["A", "B", "C", "D", "E", "F", "G"].contains($0.text) }) else {
+            return false
+        }
+
+        let qualityIndices = [1, 2]
+        return qualityIndices.contains { index in
+            guard glyphGroups.indices.contains(index + 1),
+                  index == 1 || glyphGroups[1].contains(where: {
+                      $0.confidence >= 0.50 && ($0.text == "b" || $0.text == "#")
+                  }),
+                  glyphGroups[index + 1].contains(where: { $0.text == "7" && $0.confidence >= 0.55 }),
+                  !glyphGroups[index].contains(where: { $0.text == "ø" && $0.confidence >= 0.55 }) else {
+                return false
+            }
+            let quality = clusters[index].strokes
+            return quality.count == 2 && InkSplitMajorTriangleGeometry.isAmbiguous(quality[0], quality[1])
+        }
     }
 
     private static func elapsedMilliseconds(since start: Date) -> Double {
@@ -684,6 +726,9 @@ struct ChordInkMaximumTrustRecognizer: ChordInkRecognizing {
         strokes: [InkStroke],
         options: ChordInkRecognitionOptions
     ) -> ChordInkRecognitionResult {
+        guard !result.requiresTriangleQualityReview else {
+            return hidingInternalLedgerIfNeeded(result, options: options)
+        }
         let augmentedResult: ChordInkRecognitionResult
         if ChordInkRecognitionPolicy.decision(for: result).action == .confirm {
             augmentedResult = addingScaleRecoverySuggestions(

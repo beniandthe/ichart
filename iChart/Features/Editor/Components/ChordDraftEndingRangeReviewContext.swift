@@ -50,6 +50,9 @@ struct ChordDraftEndingRangeReviewContext: Hashable {
         canonical.pageHandwrittenChordData = nil
         canonical.pageHandwrittenChordCoordinateSpace = nil
         canonical.updatedAt = Date(timeIntervalSince1970: 0)
+        // A backup acknowledgement can arrive while the ending sheet is open.
+        // It has no effect on the chart geometry or the source ink.
+        canonical.cloudBackupStatus = .included
         return Self(
             canonicalChart: canonical,
             approvedSourceDrawingData: sourceData,

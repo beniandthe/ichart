@@ -87,6 +87,8 @@ struct IChartPDFLibraryItem: Identifiable, Codable, Equatable {
     let fileSizeBytes: Int
     let createdAt: Date
     let relativePath: String
+    // Absent in older manifests whose forum instrument hint was guessed.
+    var forumInstrumentSnapshotVersion: Int? = nil
 
     var fileSizeText: String {
         ByteCountFormatter.string(
@@ -100,7 +102,12 @@ struct IChartPDFLibraryItem: Identifiable, Codable, Equatable {
     }
 
     var transpositionText: String? {
-        guard let transpositionView, let chordTranspositionSemitones else { return nil }
+        if source == .forumDownload, forumInstrumentSnapshotVersion != ForumPDFInstrumentSnapshot.currentVersion {
+            return ForumPDFInstrumentSnapshot.unknownViewText
+        }
+        guard let transpositionView, let chordTranspositionSemitones else {
+            return source == .forumDownload ? ForumPDFInstrumentSnapshot.unknownViewText : nil
+        }
         guard chordTranspositionSemitones != 0 else {
             return transpositionView.displayText
         }
@@ -113,12 +120,14 @@ struct IChartPDFLibraryItem: Identifiable, Codable, Equatable {
     }
 
     func exportedPDF(relativeTo baseDirectory: URL) -> ExportedPDF {
-        ExportedPDF(
+        let hasKnownView = source != .forumDownload
+            || forumInstrumentSnapshotVersion == ForumPDFInstrumentSnapshot.currentVersion
+        return ExportedPDF(
             url: url(relativeTo: baseDirectory),
             chartTitle: displayTitle,
             layoutStyle: layoutStyle,
-            transpositionView: transpositionView,
-            chordTranspositionSemitones: chordTranspositionSemitones,
+            transpositionView: hasKnownView ? transpositionView : nil,
+            chordTranspositionSemitones: hasKnownView ? chordTranspositionSemitones : nil,
             pageCount: pageCount,
             fileSizeBytes: fileSizeBytes,
             exportedAt: createdAt
@@ -278,6 +287,15 @@ final class IChartPDFLibraryStore: ObservableObject {
         try copyPDF(from: exportedPDF.url, to: destinationURL)
 
         let relativePath = source.directoryName + "/" + fileName
+        let snapshot = source == .forumDownload
+            ? (try? Data(contentsOf: destinationURL)).flatMap {
+                ForumPDFInstrumentSnapshot.validated(in: $0, layoutStyle: exportedPDF.layoutStyle)
+            } : nil
+        let snapshotVersion = snapshot.flatMap { snapshot -> Int? in
+            guard snapshot.transpositionView == exportedPDF.transpositionView,
+                  snapshot.chordTranspositionSemitones == exportedPDF.chordTranspositionSemitones else { return nil }
+            return snapshot.version
+        }
         let item = IChartPDFLibraryItem(
             id: UUID(),
             source: source,
@@ -289,7 +307,8 @@ final class IChartPDFLibraryStore: ObservableObject {
             pageCount: exportedPDF.pageCount,
             fileSizeBytes: exportedPDF.fileSizeBytes,
             createdAt: Date(),
-            relativePath: relativePath
+            relativePath: relativePath,
+            forumInstrumentSnapshotVersion: snapshotVersion
         )
 
         items.insert(item, at: 0)

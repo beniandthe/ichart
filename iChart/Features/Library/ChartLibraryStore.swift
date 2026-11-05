@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import SwiftUI
 
 enum ChartLibraryPersistenceStatus: Equatable {
     case notTracking
@@ -28,6 +29,9 @@ final class ChartLibraryStore: ObservableObject {
         didSet { persistIfNeeded() }
     }
     @Published private(set) var persistenceStatus: ChartLibraryPersistenceStatus = .notTracking
+    // Updated before persistenceStatus publishes so observers can tell a
+    // failed write from a failed startup load, even for a repeated error.
+    private(set) var retryableSaveFailureMessage: String?
 
     var onSnapshotSaved: ((ChartLibrarySnapshot) -> Void)?
 
@@ -135,6 +139,27 @@ final class ChartLibraryStore: ObservableObject {
 
     var projectChartIDSet: Set<Chart.ID> {
         Set(projects.flatMap(\.chartIDs))
+    }
+
+    func editorBinding(for chartID: Chart.ID) -> Binding<Chart>? {
+        guard let initialChart = charts.first(where: { $0.id == chartID }) else {
+            return nil
+        }
+
+        // PencilKit callbacks can outlive a library refresh or chart reorder.
+        // Resolve the chart again on each access so a late edit cannot hit a different row.
+        return Binding(
+            get: { self.charts.first(where: { $0.id == chartID }) ?? initialChart },
+            set: { updatedChart in
+                guard updatedChart.id == chartID,
+                      let index = self.charts.firstIndex(where: { $0.id == chartID }),
+                      self.charts.lastIndex(where: { $0.id == chartID }) == index else {
+                    return
+                }
+
+                self.charts[index] = updatedChart
+            }
+        )
     }
 
     func setPlan(_ plan: IChartPlan) {
@@ -489,11 +514,15 @@ final class ChartLibraryStore: ObservableObject {
             return
         }
 
-        let uploadedChartsByID = Dictionary(uniqueKeysWithValues: uploadedSnapshot.charts.map { ($0.id, $0) })
+        let uploadedChartsByID = Dictionary(grouping: uploadedSnapshot.charts, by: \.id)
+        let currentChartCounts = Dictionary(grouping: charts, by: \.id).mapValues(\.count)
         let matchingChartIndices = charts.indices.filter { chartIndex in
             let chartID = charts[chartIndex].id
             guard chartIDs.contains(chartID),
-                  let uploadedChart = uploadedChartsByID[chartID] else {
+                  currentChartCounts[chartID] == 1,
+                  let uploadedCharts = uploadedChartsByID[chartID],
+                  uploadedCharts.count == 1,
+                  let uploadedChart = uploadedCharts.first else {
                 return false
             }
 
@@ -598,12 +627,18 @@ final class ChartLibraryStore: ObservableObject {
         ChartLibraryStore(snapshot: .preview)
     }
 
+    func retrySavingCurrentSnapshot() {
+        guard retryableSaveFailureMessage != nil else { return }
+        persistIfNeeded()
+    }
+
     @discardableResult
     private func persistIfNeeded() -> Bool {
         guard persistenceEnabled else {
             return true
         }
         guard let repository else {
+            retryableSaveFailureMessage = nil
             persistenceStatus = .notTracking
             return true
         }
@@ -657,14 +692,14 @@ final class ChartLibraryStore: ObservableObject {
                 switch result {
                 case .success:
                     if pendingPersistence.generation == self.persistenceGeneration {
-                        self.persistenceStatus = .saved(at: .now)
+                        self.markSaveSucceeded()
                         if pendingPersistence.notifyCloudSync {
                             self.onSnapshotSaved?(pendingPersistence.snapshot)
                         }
                     }
                 case let .failure(error):
                     if pendingPersistence.generation == self.persistenceGeneration {
-                        self.persistenceStatus = .failed(message: error.localizedDescription)
+                        self.markSaveFailed(error)
                     }
                 }
 
@@ -690,7 +725,7 @@ final class ChartLibraryStore: ObservableObject {
         let saveStartedAt = ProcessInfo.processInfo.systemUptime
         do {
             try repository.saveSnapshot(snapshot)
-            persistenceStatus = .saved(at: .now)
+            markSaveSucceeded()
             if notifyCloudSync {
                 onSnapshotSaved?(snapshot)
             }
@@ -700,13 +735,24 @@ final class ChartLibraryStore: ObservableObject {
             )
             return true
         } catch {
-            persistenceStatus = .failed(message: error.localizedDescription)
+            markSaveFailed(error)
             persistenceDiagnostics?.didSave(
                 snapshot, repository: repository, error: error,
                 durationMilliseconds: (ProcessInfo.processInfo.systemUptime - saveStartedAt) * 1_000
             )
             return false
         }
+    }
+
+    private func markSaveSucceeded() {
+        retryableSaveFailureMessage = nil
+        persistenceStatus = .saved(at: .now)
+    }
+
+    private func markSaveFailed(_ error: Error) {
+        let message = error.localizedDescription
+        retryableSaveFailureMessage = message
+        persistenceStatus = .failed(message: message)
     }
 
     @discardableResult

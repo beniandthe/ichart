@@ -649,6 +649,255 @@ final class GestureTemplateRecognizerTests: XCTestCase {
         XCTAssertLessThan(candidateRank(of: "E", in: candidates), candidateRank(of: "F", in: candidates), candidateSummary)
     }
 
+    func testRootFRecognizesReversedBarsAndLeaningStems() {
+        let reader = ChordInkMaximumTrustRecognizer()
+        let top = [InkPoint(x: 10, y: 12, timeOffset: nil), InkPoint(x: 42, y: 12, timeOffset: nil)]
+
+        for stemEndX in [10.0, 32.0] {
+            let stem = InkStroke(points: [top[0], InkPoint(x: stemEndX, y: 60, timeOffset: nil)])
+            let middle = [
+                InkPoint(x: (10 + stemEndX) / 2, y: 35, timeOffset: nil),
+                InkPoint(x: 36, y: 35, timeOffset: nil)
+            ]
+            for reverseBars in [false, true] {
+                let bars = [top, middle].map { points in
+                    InkStroke(points: reverseBars ? Array(points.reversed()) : points)
+                }
+                let result = reader.recognize(strokes: [stem] + bars)
+                XCTAssertEqual(result.match?.displayText, "F", "stemEndX=\(stemEndX), reverseBars=\(reverseBars)")
+            }
+        }
+    }
+
+    func testRootERecognizesReversedBarsWithJoinedBottomStroke() {
+        let strokes = [
+            InkStroke(points: [
+                InkPoint(x: 10, y: 12, timeOffset: nil),
+                InkPoint(x: 10, y: 60, timeOffset: nil),
+                InkPoint(x: 31, y: 60, timeOffset: nil)
+            ]),
+            InkStroke(points: [
+                InkPoint(x: 42, y: 12, timeOffset: nil),
+                InkPoint(x: 10, y: 12, timeOffset: nil)
+            ]),
+            InkStroke(points: [
+                InkPoint(x: 34, y: 35, timeOffset: nil),
+                InkPoint(x: 10, y: 35, timeOffset: nil)
+            ])
+        ]
+
+        let result = ChordInkMaximumTrustRecognizer().recognize(strokes: strokes)
+
+        XCTAssertEqual(result.match?.displayText, "E")
+    }
+
+    func testRootEShortJoinedLowerArmTakesPrecedenceOverF() {
+        // Procedural roots only: the lower arm is 4-10 points on a
+        // 48-point stem, independently of the much wider top bar.
+        for armLength in [4.0, 6.0, 10.0] {
+            for topWidth in [32.0, 44.0] {
+                assertEFRoot("E", paths: [
+                    [(10, 12), (10, 60), (10 + armLength, 60)],
+                    [(10, 12), (10 + topWidth, 12)],
+                    [(10, 35), (34, 35)]
+                ], context: "joined arm=\(armLength), top width=\(topWidth)")
+            }
+        }
+    }
+
+    func testRootEShortCurvedLowerArmTakesPrecedenceOverF() {
+        for armLength in [6.0, 10.0] {
+            for middleY in [35.0, 48.0] {
+                assertEFRoot("E", paths: [
+                    [(10, 12), (8, 27), (6, 45), (6, 53),
+                     (7, 57), (9, 59), (6 + armLength, 60)],
+                    [(10, 12), (42, 12)],
+                    [(8, middleY), (32, middleY)]
+                ], context: "curved arm=\(armLength), middle y=\(middleY)")
+            }
+        }
+    }
+
+    func testRootEShortSeparateLowerArmTakesPrecedenceOverF() {
+        for armLength in [4.0, 6.0, 10.0] {
+            assertEFRoot("E", paths: [
+                [(10, 12), (10, 60)],
+                [(10, 12), (42, 12)],
+                [(10, 35), (34, 35)],
+                [(10, 60), (10 + armLength, 60)]
+            ], context: "separate arm=\(armLength)")
+        }
+    }
+
+    func testRootETwoStrokeFrameWithShortLowerArmTakesPrecedenceOverF() {
+        for armLength in [4.0, 6.0, 10.0] {
+            for middleY in [35.0, 48.0] {
+                assertEFRoot("E", paths: [
+                    [(42, 12), (10, 12), (10, 60), (10 + armLength, 60)],
+                    [(10, middleY), (34, middleY)]
+                ], context: "joined top/stem/foot arm=\(armLength), middle y=\(middleY)")
+            }
+        }
+    }
+
+    func testRootFStraightLeaningAndTinyHookStemsDoNotSupplyELowerArm() {
+        let stems: [[(Double, Double)]] = [
+            [(10, 12), (10, 60)],
+            [(10, 12), (21, 36), (32, 60)],
+            [(10, 12), (10, 58), (10.5, 59.5), (11, 60)],
+            [(10, 12), (10, 58), (10.5, 59.5), (12, 60)]
+        ]
+        for (index, stem) in stems.enumerated() {
+            for middleY in index == 1 ? [35.0] : [35.0, 48.0] {
+                let middleStartX = index == 1 ? 21.0 : 10.0
+                assertEFRoot("F", paths: [
+                    stem,
+                    [(10, 12), (42, 12)],
+                    [(middleStartX, middleY), (34, middleY)]
+                ], context: "F stem=\(index), middle y=\(middleY)")
+            }
+        }
+    }
+
+    func testRootFTwoStrokeFrameWithTinyTerminalHookKeepsF() {
+        for hookLength in [0.0, 1.0, 2.0] {
+            for middleY in [35.0, 48.0] {
+                assertEFRoot("F", paths: [
+                    [(42, 12), (10, 12), (10, 58), (10 + hookLength, 60)],
+                    [(10, middleY), (34, middleY)]
+                ], context: "joined F frame hook=\(hookLength), middle y=\(middleY)")
+            }
+        }
+    }
+
+    func testCapturedFRootWithShortDiagonalTerminalKeepsFAheadOfE() throws {
+        let fixture = try InkFixtureLoader.load("FSharpHalfDiminished7Captured02", file: #filePath)
+        let root = Array(fixture.strokes.prefix(3))
+        XCTAssertEqual(root.count, 3)
+        assertEFRoot("F", paths: root.map { stroke in
+            stroke.points.map { ($0.x, $0.y) }
+        }, context: fixture.name)
+    }
+
+    func testProvidedExactRootRanksEAheadOfF() throws {
+        guard let path = ProcessInfo.processInfo.environment["ICHART_EF_ROOT_STROKES_PATH"] else {
+            throw XCTSkip("Set ICHART_EF_ROOT_STROKES_PATH to an authorized exact-root stroke JSON file.")
+        }
+        let strokes = try JSONDecoder().decode([InkStroke].self,
+            from: Data(contentsOf: URL(fileURLWithPath: path)))
+        XCTAssertFalse(strokes.isEmpty, "Exact-root input must contain strokes")
+        let candidates = recognizer.rankedCandidates(for: InkCluster(strokes: strokes),
+            templates: ChordGlyphTemplateLibrary.initialTemplates, limit: 8)
+        XCTAssertEqual(candidates.first?.text, "E", "\(candidates)")
+        XCTAssertLessThan(candidateRank(of: "E", in: candidates),
+            candidateRank(of: "F", in: candidates), "\(candidates)")
+    }
+
+    func testRootFRecognizesJoinedTopAndStemWithEitherPenDirectionAndStrokeOrder() {
+        let reader = ChordInkMaximumTrustRecognizer()
+        let frame = [InkPoint(x: 42, y: 12, timeOffset: nil),
+            InkPoint(x: 10, y: 12, timeOffset: nil), InkPoint(x: 10, y: 60, timeOffset: nil)]
+        for middleY in [35.0, 48.0] {
+            let middle = [InkPoint(x: 10, y: middleY, timeOffset: nil),
+                InkPoint(x: 34, y: middleY, timeOffset: nil)]
+            for reverseFrame in [false, true] {
+                for reverseMiddle in [false, true] {
+                    let strokes = [
+                        InkStroke(points: reverseFrame ? Array(frame.reversed()) : frame),
+                        InkStroke(points: reverseMiddle ? Array(middle.reversed()) : middle)
+                    ]
+                    for middleFirst in [false, true] {
+                        let input = middleFirst ? Array(strokes.reversed()) : strokes
+                        let candidates = recognizer.rankedCandidates(for: InkCluster(strokes: input),
+                            templates: ChordGlyphTemplateLibrary.initialTemplates, limit: 5)
+                        let context = "middleY=\(middleY), frame reversed=\(reverseFrame), middle reversed=\(reverseMiddle), middle first=\(middleFirst)"
+                        XCTAssertEqual(candidates.first?.text, "F", context)
+                        let result = reader.recognize(strokes: input)
+                        XCTAssertEqual(result.match?.displayText, "F",
+                            "\(context), groups=\(clusterer.indexedClusters(input).map(\.originalIndexes)), glyphs=\(result.glyphCandidates.map { $0.prefix(3) }), raw=\(result.rawCandidates.prefix(3))")
+                    }
+                }
+            }
+        }
+    }
+
+    func testRootFRecognizesShortLowMiddleBarWhileKeepingItsLowerStem() {
+        let reader = ChordInkMaximumTrustRecognizer()
+        for middleY in [47.0, 49.0] {
+            let segments = [
+                [InkPoint(x: 10, y: 12, timeOffset: nil), InkPoint(x: 10, y: 60, timeOffset: nil)],
+                [InkPoint(x: 10, y: 12, timeOffset: nil), InkPoint(x: 42, y: 12, timeOffset: nil)],
+                [InkPoint(x: 10, y: middleY, timeOffset: nil), InkPoint(x: 32, y: middleY, timeOffset: nil)]
+            ]
+            for reverse in [false, true] {
+                for scale in [0.70, 1.0, 1.60] {
+                    let strokes = segments.map { points in
+                        InkStroke(points: (reverse ? Array(points.reversed()) : points).map {
+                            InkPoint(x: $0.x * scale, y: $0.y * scale, timeOffset: $0.timeOffset)
+                        })
+                    }
+                    let context = "middleY=\(middleY), reversed=\(reverse), scale=\(scale)"
+                    let candidates = recognizer.rankedCandidates(for: InkCluster(strokes: strokes),
+                        templates: ChordGlyphTemplateLibrary.initialTemplates, limit: 5)
+                    XCTAssertEqual(candidates.first?.text, "F", context)
+                    XCTAssertEqual(reader.recognize(strokes: strokes).match?.displayText, "F", context)
+                }
+            }
+        }
+    }
+
+    func testConnectedFAllowanceKeepsBottomArmESevenAndVerticalControls() throws {
+        let reader = ChordInkMaximumTrustRecognizer()
+        let e = [
+            InkStroke(points: [InkPoint(x: 10, y: 12, timeOffset: nil),
+                InkPoint(x: 10, y: 60, timeOffset: nil), InkPoint(x: 40, y: 60, timeOffset: nil)]),
+            InkStroke(points: [InkPoint(x: 42, y: 12, timeOffset: nil), InkPoint(x: 10, y: 12, timeOffset: nil)]),
+            InkStroke(points: [InkPoint(x: 32, y: 48, timeOffset: nil), InkPoint(x: 10, y: 48, timeOffset: nil)])
+        ]
+        XCTAssertEqual(reader.recognize(strokes: e).match?.displayText, "E")
+        let templates = ChordGlyphTemplateLibrary.initialTemplates
+        let seven = try XCTUnwrap(templates.first { $0.text == "7" })
+        let sevenCandidates = recognizer.rankedCandidates(for: InkCluster(strokes: seven.strokes),
+            templates: templates, limit: 5)
+        XCTAssertEqual(sevenCandidates.first?.text, "7")
+
+        let vertical = InkStroke(points: [InkPoint(x: 10, y: 12, timeOffset: nil),
+            InkPoint(x: 10, y: 60, timeOffset: nil)])
+        for strokes in [[vertical], [vertical, vertical]] {
+            let candidates = recognizer.rankedCandidates(for: InkCluster(strokes: strokes),
+                templates: ChordGlyphTemplateLibrary.initialTemplates, limit: 5)
+            XCTAssertNotEqual(candidates.first?.text, "F")
+            XCTAssertFalse(candidates.contains { $0.text == "F" && $0.source == .heuristic })
+        }
+    }
+
+    func testJoinedFRootKeepsItsSeparateSeventhAndDoesNotMergeARealSevenWithMinus() throws {
+        let templates = ChordGlyphTemplateLibrary.initialTemplates
+        let seven = try XCTUnwrap(templates.first { $0.text == "7" })
+            .strokes.map { $0.transformed(scale: 1, translateX: -24, translateY: 0) }
+        let f = [
+            InkStroke(points: [InkPoint(x: 42, y: 12, timeOffset: nil),
+                InkPoint(x: 10, y: 12, timeOffset: nil), InkPoint(x: 10, y: 60, timeOffset: nil)]),
+            InkStroke(points: [InkPoint(x: 10, y: 35, timeOffset: nil), InkPoint(x: 34, y: 35, timeOffset: nil)])
+        ]
+        let input = f + seven
+        XCTAssertEqual(clusterer.indexedClusters(input).map(\.originalIndexes), [[0, 1], [2]])
+        XCTAssertEqual(ChordInkMaximumTrustRecognizer().recognize(strokes: input).match?.displayText, "F7")
+
+        let actualSeven = try XCTUnwrap(templates.first { $0.text == "7" }).strokes
+        let minus = InkStroke(points: [InkPoint(x: 120, y: 36, timeOffset: nil),
+            InkPoint(x: 137, y: 36, timeOffset: nil)])
+        XCTAssertFalse(GestureTemplateRecognizer.matchesJoinedFRoot(strokes: actualSeven + [minus]))
+        XCTAssertEqual(clusterer.indexedClusters(actualSeven + [minus]).map(\.originalIndexes), [[0], [1]])
+
+        let crossbar = InkStroke(points: [InkPoint(x: 89, y: 35, timeOffset: nil),
+            InkPoint(x: 106, y: 35, timeOffset: nil)])
+        XCTAssertFalse(GestureTemplateRecognizer.matchesJoinedFRoot(strokes: actualSeven + [crossbar]))
+        let crossedSeven = recognizer.rankedCandidates(for: InkCluster(strokes: actualSeven + [crossbar]),
+            templates: templates, limit: 8)
+        XCTAssertFalse(crossedSeven.contains { $0.text == "F" && $0.source == .heuristic })
+    }
+
     func testCapturedBaseLetterFamiliesRankExpectedGlyphFirst() throws {
         let templates = ChordGlyphTemplateLibrary.initialTemplates
 
@@ -971,6 +1220,40 @@ final class GestureTemplateRecognizerTests: XCTestCase {
             XCTAssertFalse(expected.isEmpty)
             XCTAssertEqual(actual, expected)
             XCTAssertTrue(actual.allSatisfy { ChordRecognitionDomain.isAllowedGlyphToken($0.text) })
+        }
+    }
+
+    private func assertEFRoot(
+        _ expected: String,
+        paths: [[(Double, Double)]],
+        context: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        for scale in [0.70, 1.0, 1.60] {
+            for directionMask in 0..<(1 << paths.count) {
+                let strokes = paths.enumerated().map { index, path in
+                    let ordered = directionMask & (1 << index) == 0 ? path : Array(path.reversed())
+                    return InkStroke(points: ordered.map { x, y in
+                        InkPoint(x: 120 + x * scale, y: -42 + y * scale, timeOffset: nil)
+                    })
+                }
+                for reverseOrder in [false, true] {
+                    let input = reverseOrder ? Array(strokes.reversed()) : strokes
+                    let candidates = recognizer.rankedCandidates(
+                        for: InkCluster(strokes: input),
+                        templates: ChordGlyphTemplateLibrary.initialTemplates,
+                        limit: 8
+                    )
+                    let evidence = "\(context), scale=\(scale), directions=\(directionMask), reversed order=\(reverseOrder), candidates=\(candidates)"
+                    XCTAssertEqual(candidates.first?.text, expected, evidence, file: file, line: line)
+                    XCTAssertTrue(candidates.contains { $0.text == expected && $0.source == .heuristic },
+                        evidence, file: file, line: line)
+                    let otherRoot = expected == "E" ? "F" : "E"
+                    XCTAssertLessThan(candidateRank(of: expected, in: candidates),
+                        candidateRank(of: otherRoot, in: candidates), evidence, file: file, line: line)
+                }
+            }
         }
     }
 

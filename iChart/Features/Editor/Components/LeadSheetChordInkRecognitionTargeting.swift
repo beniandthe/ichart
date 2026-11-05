@@ -26,6 +26,7 @@ struct LeadSheetChordInkRecognitionBatchTargetingResult {
 
 enum LeadSheetChordInkBoundaryHypothesisRoute: String, Hashable {
     case editContinuity = "edit_continuity"
+    case pausedSuffixContinuation = "paused_suffix_continuation"
     case draftBarlineLane = "draft_barline_lane"
     case laneRootSequence = "lane_root_sequence"
     case measureLaneRootSequence = "measure_lane_root_sequence"
@@ -248,6 +249,53 @@ enum LeadSheetChordInkRecognitionTargeting {
         ).targets
     }
 
+    static func mergingPausedSeventhSuffixes(
+        in targets: [LeadSheetChordInkRecognitionBatchTarget],
+        recognitionDrawing: PKDrawing,
+        chordFrame: CGRect,
+        pageLayout: LeadSheetPageLayout?
+    ) -> [LeadSheetChordInkRecognitionBatchTarget] {
+        guard targets.count > 1 else { return targets }
+        let grouper = ChordInkSequentialGrouper()
+        let pencilStrokes = recognitionDrawing.strokes
+        var resolved = [LeadSheetChordInkRecognitionBatchTarget]()
+        for suffix in targets {
+            guard var root = resolved.last,
+                  root.measureID == suffix.measureID,
+                  let rootLane = root.laneLocation?.systemIndex,
+                  suffix.laneLocation?.systemIndex == rootLane,
+                  !root.requiresEditReview, !suffix.requiresEditReview,
+                  let firstIndex = root.recognitionStrokeIndices.first,
+                  let lastIndex = suffix.recognitionStrokeIndices.last,
+                  firstIndex <= lastIndex,
+                  pencilStrokes.indices.contains(firstIndex), pencilStrokes.indices.contains(lastIndex),
+                  root.recognitionStrokeIndices + suffix.recognitionStrokeIndices == Array(firstIndex...lastIndex),
+                  grouper.isPausedSeventhSuffix(suffix.strokes, of: root.strokes) else {
+                resolved.append(suffix)
+                continue
+            }
+
+            let drawing = PKDrawing(strokes: Array(pencilStrokes[firstIndex...lastIndex]))
+            guard let anchor = target(for: drawing, chordFrame: chordFrame, pageLayout: pageLayout),
+                  anchor.measureID == root.measureID,
+                  let lane = laneLocation(for: drawing, chordFrame: chordFrame, pageLayout: pageLayout),
+                  lane.systemIndex == rootLane else {
+                resolved.append(suffix)
+                continue
+            }
+
+            root.fraction = anchor.fraction
+            root.visualOrder = lane.visualOrder
+            root.laneLocation = lane
+            root.recognitionStrokeIndices.append(contentsOf: suffix.recognitionStrokeIndices)
+            root.strokes.append(contentsOf: suffix.strokes)
+            root.drawing = drawing
+            root.drawingData = drawing.dataRepresentation()
+            resolved[resolved.count - 1] = root
+        }
+        return resolved
+    }
+
     static func batchTargetingResult(
         for drawing: PKDrawing,
         chordFrame: CGRect,
@@ -341,6 +389,17 @@ enum LeadSheetChordInkRecognitionTargeting {
             selectedRoute = "draft_barline_lane"
         } else if laneSequentialClusters.count > 1,
                   laneSequentialClusters.count <= maximumBatchTargetCount {
+            clusters = laneSequentialClusters
+            requiresFragmentCollapseCheck = false
+            selectedRoute = "lane_root_sequence"
+        } else if draftBarlines.isEmpty,
+                  preservesRootStemAcrossMeasureDivider(
+                      measureClusters: measureLaneClusters,
+                      laneClusters: laneSequentialClusters,
+                      gapClusters: fallbackClusters,
+                      strokes: inkStrokes,
+                      context: targetingContext
+                  ) {
             clusters = laneSequentialClusters
             requiresFragmentCollapseCheck = false
             selectedRoute = "lane_root_sequence"
@@ -1095,8 +1154,13 @@ enum LeadSheetChordInkRecognitionTargeting {
         allowsSingleRoot: Bool = false
     ) -> [ChordInkBatchCluster] {
         let groups = ChordInkSequentialGrouper().groups(for: orderedStrokes)
-        guard !groups.isEmpty, (allowsSingleRoot || groups.count > 1),
-              groups.first?.rootConfidence != nil else {
+        guard let leading = groups.first, allowsSingleRoot || groups.count > 1 else {
+            return []
+        }
+        let hasSupportedLeadingFallback = groups.dropFirst().first.map {
+            ChordInkSequentialGrouper.supportsLeadingFallbackBoundary(leading, $0, in: orderedStrokes)
+        } ?? false
+        guard leading.rootConfidence != nil || hasSupportedLeadingFallback else {
             return []
         }
 
@@ -1110,6 +1174,43 @@ enum LeadSheetChordInkRecognitionTargeting {
                 bounds: group.bounds
             )
         }
+    }
+
+    /// A printed divider can assign a root's stem and body to different
+    /// measures. Keep the complete in-lane root when the alternative routes
+    /// both own all of the ink and glyph clustering joins those two strokes.
+    private static func preservesRootStemAcrossMeasureDivider(
+        measureClusters: [ChordInkBatchCluster],
+        laneClusters: [ChordInkBatchCluster],
+        gapClusters: [ChordInkBatchCluster],
+        strokes: [InkStroke],
+        context: ChordInkTargetingContext
+    ) -> Bool {
+        guard strokes.count <= ChordInkDraftPreviewPolicy.maximumSingleTargetStrokeCount,
+              measureClusters.count == 2, laneClusters.count == 1, gapClusters.count == 1 else {
+            return false
+        }
+        let allIndices = Set(strokes.indices)
+        let standaloneIndices = Set(measureClusters.compactMap { cluster in
+            cluster.strokeIndices.count == 1 ? cluster.strokeIndices.first : nil
+        })
+        guard !standaloneIndices.isEmpty,
+              Set(laneClusters[0].strokeIndices) == allIndices,
+              Set(gapClusters[0].strokeIndices) == allIndices,
+              let root = StrokeClusterer(wrapperPolicy: .preserveOriginalInk).indexedClusters(strokes).first,
+              root.originalIndexes.count == 2, let stemIndex = root.originalIndexes.first(where: {
+                  standaloneIndices.contains($0)
+                      && MutableInkCluster(strokes: [strokes[$0]], originalIndexes: [$0])
+                          .hasRootConstructionVerticalStem
+              }),
+              let bodyIndex = root.originalIndexes.first(where: { $0 != stemIndex }),
+              let stemTarget = target(forInkBounds: strokes[stemIndex].bounds.cgRect, context: context),
+              let bodyTarget = target(forInkBounds: strokes[bodyIndex].bounds.cgRect, context: context),
+              stemTarget.measureID != bodyTarget.measureID else {
+            return false
+        }
+        return MutableInkCluster(strokes: [strokes[bodyIndex]], originalIndexes: [bodyIndex])
+            .hasRootConstructionBody
     }
 }
 

@@ -70,7 +70,8 @@ struct PDFExportPreviewView: View {
                 if let layoutStyle = exportedPDF.layoutStyle {
                     metadataPill(layoutStyle.displayText)
                 }
-                if let transpositionText = exportedPDF.transpositionText {
+                if let transpositionText = exportedPDF.transpositionText
+                    ?? (source == .forumDownload ? ForumPDFInstrumentSnapshot.unknownViewText : nil) {
                     metadataPill(transpositionText)
                 }
                 metadataPill(exportedPDF.pageCountText)
@@ -86,8 +87,8 @@ struct PDFExportPreviewView: View {
 
     private func metadataPill(_ text: String) -> some View {
         Text(text)
-            .lineLimit(1)
-            .minimumScaleFactor(0.75)
+            .fixedSize(horizontal: false, vertical: true)
+            .multilineTextAlignment(.center)
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .background(Color(uiColor: .systemBackground))

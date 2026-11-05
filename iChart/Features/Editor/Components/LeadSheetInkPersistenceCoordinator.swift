@@ -118,6 +118,10 @@ struct LeadSheetInkPersistenceCoordinator {
         )
     }
 
+    mutating func discardPendingPersistedInk(for scopeIdentity: LeadSheetActiveInkScope.Identity) {
+        pendingPersistedInkByScopeIdentity[scopeIdentity] = nil
+    }
+
     mutating func recordPersistedSnapshot(
         activeInkScope: LeadSheetActiveInkScope,
         inkSnapshot: LeadSheetInkDrawingSnapshot?,

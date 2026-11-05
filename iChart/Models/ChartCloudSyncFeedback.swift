@@ -9,6 +9,7 @@ enum ChartCloudSyncOperation: String, Equatable, Sendable {
 
 /// Fixed stage names are safe for diagnostics; never include chart/account data.
 enum ChartCloudSyncStage: String, CaseIterable, Equatable, Sendable {
+    case validatingLocalCharts = "validating_local_charts"
     case preparingSession = "preparing_session"
     case readingDocuments = "reading_documents"
     case readingSnapshots = "reading_snapshots"
@@ -25,6 +26,7 @@ enum ChartCloudSyncStage: String, CaseIterable, Equatable, Sendable {
 
     var detailText: String {
         switch self {
+        case .validatingLocalCharts: "Checking charts on this iPad…"
         case .preparingSession: "Connecting to your cloud account…"
         case .readingDocuments: "Checking your cloud charts…"
         case .readingSnapshots, .decodingCharts: "Downloading charts…"
@@ -97,6 +99,7 @@ enum ChartCloudSyncFailureCategory: String, CaseIterable, Equatable, Sendable {
     case sessionRequired = "session_required"
     case permissionDenied = "permission_denied"
     case localStorage = "local_storage"
+    case invalidLocalLibrary = "invalid_local_library"
     case encoding
     case decoding
     case authentication
@@ -158,6 +161,8 @@ struct ChartCloudSyncFailure: Equatable, Sendable {
             return "Cloud permissions blocked \(operation.displayName). Retry, or contact support if it continues."
         case .localStorage:
             return "This iPad could not prepare local storage for \(operation.displayName). Retry, or contact support if it continues."
+        case .invalidLocalLibrary:
+            return "This iPad has charts with conflicting identities. Contact support before syncing. Your local charts were kept."
         case .encoding:
             return "A chart could not be prepared for \(operation.displayName). Retry, or contact support if it continues."
         case .decoding:

@@ -750,9 +750,7 @@ enum LeadSheetPageLayoutEngine {
         // Old archives can describe paper outside today's responsive minimum
         // or lead-sheet cap. At their canonical document width, retain that
         // original paper rather than clipping or silently enlarging its ink.
-        if chart.pageHandwrittenNotationData?.isEmpty == false,
-           let source = chart.pageHandwrittenNotationCoordinateSpace,
-           source.height.isFinite, source.height > 0,
+        if let source = LeadSheetFreeInkDocumentLayoutPolicy.savedPageCoordinateSpace(for: chart),
            let canonicalWidth = canvasWidth(
                forPageWritingWidth: CGFloat(source.width), layoutStyle: chart.layoutStyle),
            abs(canonicalWidth - resolvedPageWidth) < 0.001 {
@@ -800,13 +798,20 @@ enum LeadSheetPageLayoutEngine {
             visualPolicy: visualPolicy
         )
         let metrics = visualPolicy.metrics
-        let planPages = pagedSystemPlans(
+        var planPages = pagedSystemPlans(
             plans,
             chart: chart,
             paperHeight: minimumPaperHeight,
             firstPageSystemTopOffset: firstPageSystemTopOffset,
             metrics: metrics
         )
+        let retainedPaperCount = retainedInkPaperCount(for: chart,
+            paperWidth: paperWidth, paperHeight: minimumPaperHeight)
+        while planPages.count < retainedPaperCount {
+            // A deleted final measure must not move a floating mark or its
+            // recoverable handwriting onto an earlier sheet of paper.
+            planPages.append([])
+        }
         var paperPages = [LeadSheetPaperPageLayout]()
         var systemFrames = [LeadSheetSystemLayout]()
         var nextPaperY = paperTopMargin
@@ -904,13 +909,57 @@ enum LeadSheetPageLayoutEngine {
             firstPageSystemTopOffset: resolvedHeaderFrame.maxY + 24 - paperFrame.minY,
             metrics: metrics
         )
-        let pageHeights = Array(repeating: minimumPaperHeight, count: planPages.count)
+        let paperCount = max(planPages.count, retainedInkPaperCount(for: chart,
+            paperWidth: paperWidth, paperHeight: minimumPaperHeight))
+        let pageHeights = Array(repeating: minimumPaperHeight, count: paperCount)
         let totalPaperHeight = pageHeights.reduce(0, +)
         let gapHeight = CGFloat(max(0, pageHeights.count - 1)) * paperPageGap
         return max(
             resolvedPageSize.height,
             paperTopMargin + totalPaperHeight + gapHeight + paperBottomMargin
         )
+    }
+
+    private static func retainedInkPaperCount(
+        for chart: Chart, paperWidth: CGFloat, paperHeight: CGFloat
+    ) -> Int {
+        guard chart.layoutStyle == .simpleChordSheet || chart.layoutStyle == .rhythmSectionSheet else { return 1 }
+        // Reject unbounded imported page indices before allocating paper.
+        let maximumRetainedPaperCount = 1_024
+        var count = 1
+        let paperInkBounds: CGRect?
+        if chart.layoutStyle == .simpleChordSheet {
+            paperInkBounds = LeadSheetFreeInkDocumentLayoutPolicy.savedPageInkBounds(for: chart)
+        } else {
+            #if canImport(UIKit)
+            // Staff-owned ink still follows its measures. Only connected raw
+            // groups already classified as unowned tail paper retain a page.
+            paperInkBounds = LeadSheetPersistentInkCoordinateSpacePolicy.unownedTailPaperInkBounds(
+                from: chart.pageHandwrittenNotationData,
+                sourceCoordinateSpace: chart.pageHandwrittenNotationCoordinateSpace)
+            #else
+            paperInkBounds = nil
+            #endif
+        }
+        if let bounds = paperInkBounds,
+           !bounds.isEmpty, bounds.maxY.isFinite {
+            // Scope dimensions describe capacity, not occupied paper. Only
+            // actual restored/raw handwriting can keep a trailing page alive.
+            let lastPaper = floor(max(0, bounds.maxY + pageInkWritingInset) / (paperHeight + paperPageGap))
+            if lastPaper >= 0, lastPaper < CGFloat(maximumRetainedPaperCount) {
+                count = max(count, Int(lastPaper) + 1)
+            }
+        }
+        for mark in chart.freeInkArticulations {
+            for point in [mark.pagePoint, mark.sourcePagePoint].compactMap({ $0 }) {
+                guard point.pageIndex >= 0, point.pageIndex < maximumRetainedPaperCount,
+                      point.x.isFinite, point.y.isFinite,
+                      point.x >= 0, point.x <= Double(paperWidth),
+                      point.y >= 0, point.y <= Double(paperHeight) else { continue }
+                count = max(count, point.pageIndex + 1)
+            }
+        }
+        return count
     }
 
     static func estimatedSystemCount(for chart: Chart, pageWidth: CGFloat) -> Int {
@@ -1814,7 +1863,8 @@ enum LeadSheetPageLayoutEngine {
             return plans
         }
 
-        return standardizedRhythmSectionSystemPlans(plans, maxSystemWidth: maxSystemWidth)
+        return standardizedRhythmSectionSystemPlans(plans, maxSystemWidth: maxSystemWidth,
+            measureWidthScale: metrics.measureWidthScale)
     }
 
     private static func forcedSystemBreakStartIDs(for chart: Chart) -> Set<UUID> {
@@ -1828,20 +1878,40 @@ enum LeadSheetPageLayoutEngine {
 
     private static func standardizedRhythmSectionSystemPlans(
         _ plans: [PackedLeadSheetSystemPlan],
-        maxSystemWidth: CGFloat
+        maxSystemWidth: CGFloat,
+        measureWidthScale: CGFloat
     ) -> [PackedLeadSheetSystemPlan] {
         guard let firstPlan = plans.first,
               let firstMeasure = firstPlan.measures.first else {
             return plans
         }
 
+        func originalMeasureWidths(in plan: PackedLeadSheetSystemPlan) -> [CGFloat] {
+            var seenGroups = Set<UUID>()
+            return plan.measures.compactMap { measurePlan in
+                guard let source = measurePlan.measure?.rhythmSectionSplitLayoutSource else { return measurePlan.width }
+                guard seenGroups.insert(source.groupID).inserted else { return nil }
+                if let width = source.manualLayoutWidth {
+                    return Measure.clampedManualLayoutWidth(CGFloat(width))
+                }
+                // Narrow drawn segments represent one original sizing unit.
+                // Counting each as a full measure would shrink automatic
+                // measures in unrelated rows.
+                return (source.authoringState == .open ? mediumOpenMeasureWidth : preferredCommittedMeasureWidth)
+                    * measureWidthScale
+            }
+        }
+        let hasSplitSources = plans.contains { $0.measures.contains { $0.measure?.rhythmSectionSplitLayoutSource != nil } }
+        let originalFirstWidths = hasSplitSources ? originalMeasureWidths(in: firstPlan) : firstPlan.measures.map(\.width)
         let firstBodyWidth = max(1, maxSystemWidth - firstPlan.leadingSignatureWidth - systemTrailingPadding)
-        let firstPreferredBodyWidth = firstPlan.measures.map(\.width).reduce(0, +)
+        let firstPreferredBodyWidth = originalFirstWidths.reduce(0, +)
         guard firstPreferredBodyWidth > 0 else {
             return plans
         }
 
-        let maxMeasureCount = max(1, plans.map(\.measures.count).max() ?? 1)
+        let maxMeasureCount = max(1, plans.map {
+            hasSplitSources ? originalMeasureWidths(in: $0).count : $0.measures.count
+        }.max() ?? 1)
         let largestBodyWidth = max(
             1,
             plans
@@ -1849,7 +1919,7 @@ enum LeadSheetPageLayoutEngine {
                 .min() ?? firstBodyWidth
         )
         let firstScale = firstBodyWidth / firstPreferredBodyWidth
-        let firstSystemMeasureWidth = firstMeasure.width * firstScale
+        let firstSystemMeasureWidth = (originalFirstWidths.first ?? firstMeasure.width) * firstScale
         let standardMeasureWidth = min(
             firstSystemMeasureWidth,
             largestBodyWidth / CGFloat(maxMeasureCount)
@@ -1877,6 +1947,7 @@ enum LeadSheetPageLayoutEngine {
         }
         let isPersistentlyEqualizedRow = plan.measures.count > 1
             && manualWidths.count == plan.measures.count
+            && !plan.measures.contains(where: { $0.measure?.drawnRhythmTailLayoutWidth != nil })
             && (manualWidths.max() ?? 0) - (manualWidths.min() ?? 0) <= 0.001
         let responsiveEqualWidth = max(
             1,
@@ -1890,6 +1961,8 @@ enum LeadSheetPageLayoutEngine {
                 // Resolve that intent against the current paper width so the
                 // row stays even and keeps both margins after rotation.
                 width = responsiveEqualWidth
+            } else if let drawnWidth = measurePlan.measure?.drawnRhythmTailLayoutWidth {
+                width = drawnWidth
             } else if let manualLayoutWidth = measurePlan.measure?.manualLayoutWidth {
                 width = Measure.clampedManualLayoutWidth(CGFloat(manualLayoutWidth))
             } else {
@@ -2166,6 +2239,9 @@ enum LeadSheetPageLayoutEngine {
     }
 
     private static func preferredWidth(for measure: Measure, chart: Chart) -> CGFloat {
+        if chart.layoutStyle == .rhythmSectionSheet, let drawnWidth = measure.drawnRhythmTailLayoutWidth {
+            return drawnWidth
+        }
         let metrics = chart.engravingPreset.layoutMetrics
         let defaultWidth = measure.authoringState == .open
             ? mediumOpenMeasureWidth * metrics.measureWidthScale

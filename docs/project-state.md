@@ -1,5 +1,38 @@
 # Project state and next Apple build
 
+## Non-ML source consolidation — November 5, 2026
+
+[PR #95](https://github.com/beniandthe/ichart/pull/95) is the integration lane
+for the current non-ML application work. The user explicitly authorized
+publishing committed and uncommitted work and merging the PRs. The current
+working-source snapshot uses matching **1.2.4 (140)** project/test metadata and
+adds the logical-dot repeat and E/F/triangle changes to the existing chart,
+Forum, persistence and keyboard integration.
+
+See the [current-work coverage and publication boundary](current-work-integration-2026-11-05.md).
+The final PR checks and merge records determine its GitHub state. They do not
+establish App Store release or fresh physical acceptance. [Issue #99](https://github.com/beniandthe/ichart/issues/99)
+retains the reported physical repeat failure; [issue #96](https://github.com/beniandthe/ichart/issues/96)
+retains the unexplained historical telemetry failure.
+
+Older primary/readability and committed donor changes are covered or superseded
+without replacing newer files. The project guidance and dated description draft
+are retained. Parked reader-retry and manual-selection source is published as
+reviewed source-only archives without activating it. ML/Graph/MyScript, private
+case history, handwriting, device backups and generated outputs remain excluded.
+
+The [November 4 maintenance record](repository-maintenance-2026-11-04.md) is
+historical provenance. The November 5 cleanup retired 14 local aliases into
+recovery refs, retained five exact detached checkout snapshots, and preserved
+dirty work and all original refs in a verified private bundle. The maintenance
+PR is being included at the user's subsequent explicit integration request.
+
+The build-108 record below is a historical source-preparation snapshot. No
+application installation, backend deployment or Apple publication is part of
+this repository consolidation.
+
+## Historical source-preparation checkpoint — November 2, 2026
+
 Updated: 2026-11-02. The current isolated integration candidate is **1.2.4 (108)**
 on `codex/next-app-store-20261102`, based on main `31e16ea5`. The
 [November 2 consolidation inventory](release-consolidation-2026-11-02.md) and

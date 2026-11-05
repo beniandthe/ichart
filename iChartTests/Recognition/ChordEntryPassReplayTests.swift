@@ -6,6 +6,431 @@ import XCTest
 @testable import iChart
 
 final class ChordEntryPassReplayTests: XCTestCase {
+    @MainActor
+    func testReplayCommittedBarlineBetweenExistingChordsInBothRenderModes() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["ICHART_REPLAY_COMMITTED_BARLINE"] == "1",
+              let statePath = environment["ICHART_STATE"] else {
+            throw XCTSkip("Provide the authorized saved committed-barline chart locally.")
+        }
+        let originalFile = URL(fileURLWithPath: statePath)
+        let originalBytes = try Data(contentsOf: originalFile)
+        defer { XCTAssertEqual(try? Data(contentsOf: originalFile), originalBytes) }
+        let snapshot = try XCTUnwrap(try FileChartRepository(url: originalFile).loadSnapshot())
+        let selectedID = try XCTUnwrap(snapshot.selectedChartID)
+        var chart = try XCTUnwrap(snapshot.charts.first { $0.id == selectedID })
+        XCTAssertEqual(chart.layoutStyle, .rhythmSectionSheet)
+        let first = try XCTUnwrap(chart.measures.first)
+        XCTAssertEqual(first.authoringState, .committed)
+        XCTAssertEqual(first.chordEvents.map(\.rawInput), ["C", "G7"])
+        // The capture's own performance trace records this exact viewport.
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: CGSize(width: 932, height: 1_200),
+            includesChordInkContinuationLanes: true)
+        let region = LeadSheetActiveInkScope.chordWritingRegion(for: layout)
+        let legacy = LeadSheetActiveInkScope.legacyChordWritingRegion(for: layout)
+        let savedSpace = try XCTUnwrap(chart.pageHandwrittenChordCoordinateSpace)
+        XCTAssertEqual(legacy.frame.width, savedSpace.size.width, accuracy: 0.001)
+        XCTAssertEqual(legacy.frame.height, savedSpace.size.height, accuracy: 0.001)
+        let originalSource = try PKDrawing(data: XCTUnwrap(chart.pageHandwrittenChordData))
+        let scope = LeadSheetActiveInkScope.chords(frame: region.frame, inputFrames: region.inputFrames)
+        let space = try XCTUnwrap(LeadSheetPersistentInkCoordinateSpacePolicy.coordinateSpace(for: scope,
+            pageLayout: layout))
+        let source = LeadSheetPersistentInkCoordinateSpacePolicy.migratingLegacyChordScopeDrawing(
+            from: chart.pageHandwrittenChordData, sourceCoordinateSpace: savedSpace,
+            activeInkScope: scope, pageLayout: layout) ?? originalSource
+        let oldPaper = originalSource.transformed(using: CGAffineTransform(
+            translationX: legacy.frame.minX, y: legacy.frame.minY))
+        let currentPaper = source.transformed(using: CGAffineTransform(
+            translationX: region.frame.minX, y: region.frame.minY))
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: oldPaper, current: currentPaper))
+        _ = chart.setPageHandwrittenChordDrawing(source.dataRepresentation(), coordinateSpace: space)
+        XCTAssertEqual(source.strokes.count, 1)
+        let prepared = ChordInkRecognitionPreparation.prepare(.init(requestID: UUID(), scheduledAt: .now,
+            requestedDelay: 0, drawingData: source.dataRepresentation(), chordFrame: region.frame,
+            pageLayout: layout, flow: .draftPreview, options: .live, layoutStyle: chart.layoutStyle))
+        XCTAssertEqual(prepared.barlines.count, 1)
+        XCTAssertEqual(prepared.recognitionStrokeCount, 0)
+        let state = ChordPreviewState(draftBarlines: prepared.barlines, layoutPageSize: layout.pageBounds.size)
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasCompleteCoverage(chart: chart, state: state))
+        for automatic in [false, true] {
+            let result: ChordInkDraftRenderCoordinator.Outcome
+            if automatic {
+                let inputAt = Date(timeIntervalSinceReferenceDate: 100)
+                let attempt = ChordInkDraftRenderCoordinator.prepareAutomaticAttempt(chart: chart, state: state,
+                    currentDrawing: source, coordinateSpace: space, now: inputAt.addingTimeInterval(4),
+                    lastInputAt: inputAt, isUsingTool: false, sourcePageLayout: layout, sourceChordFrame: region.frame)
+                result = ChordInkDraftRenderCoordinator.explicitOutcome(try XCTUnwrap(attempt.outcome,
+                    "The accepted preview must render in Automatic. Feedback \(attempt.feedback)"))
+            } else {
+                result = ChordInkDraftRenderCoordinator.prepareManual(chart: chart, state: state,
+                    currentDrawing: source, coordinateSpace: space, sourcePageLayout: layout,
+                    sourceChordFrame: region.frame)
+            }
+            XCTAssertTrue(result.canConsumeSource)
+            XCTAssertNil(result.retainedDraft)
+            XCTAssertEqual(result.result.renderedBarlineCount, 1)
+            XCTAssertEqual(result.result.renderedChordCount, 0)
+            XCTAssertEqual(result.chart.measures.count, chart.measures.count + 1)
+            XCTAssertEqual(result.chart.measures[0].id, first.id)
+            XCTAssertEqual(result.chart.measures[0].chordEvents.map(\.id), [first.chordEvents[0].id])
+            XCTAssertEqual(result.chart.measures[1].chordEvents.map(\.id), [first.chordEvents[1].id])
+            for original in chart.measures.flatMap(\.chordEvents) {
+                let saved = try XCTUnwrap(result.chart.chordEvent(id: original.id))
+                XCTAssertEqual(saved.rawInput, original.rawInput)
+                XCTAssertEqual(saved.symbol, original.symbol)
+                XCTAssertEqual(saved.sourceInkData, original.sourceInkData)
+                XCTAssertEqual(saved.duration, original.duration)
+                XCTAssertEqual(saved.tieOut, original.tieOut)
+            }
+            XCTAssertNil(result.chart.pageHandwrittenChordData)
+            XCTAssertNil(result.chart.pageHandwrittenChordCoordinateSpace)
+            XCTAssertEqual(result.chart.pageHandwrittenNotationData, chart.pageHandwrittenNotationData)
+            XCTAssertEqual(result.chart.pageHandwrittenNotationCoordinateSpace, chart.pageHandwrittenNotationCoordinateSpace)
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let repository = FileChartRepository(url: directory.appendingPathComponent("library-state.json"))
+            try repository.saveSnapshot(.init(charts: [result.chart], selectedChartID: chart.id, entitlements: .free))
+            let reopened = try XCTUnwrap(try repository.loadSnapshot()?.charts.first)
+            XCTAssertEqual(reopened, result.chart)
+            let renderedLayout = LeadSheetPageLayoutEngine.pageLayout(for: reopened,
+                pageSize: layout.pageBounds.size, includesChordInkContinuationLanes: true)
+            let renderedFirst = try XCTUnwrap(renderedLayout.systems.flatMap(\.measures).first {
+                $0.sourceMeasureID == first.id
+            })
+            for originalMeasure in layout.systems.flatMap(\.measures) where originalMeasure.sourceMeasureID != first.id {
+                guard let id = originalMeasure.sourceMeasureID else { continue }
+                let current = try XCTUnwrap(renderedLayout.systems.flatMap(\.measures).first {
+                    $0.sourceMeasureID == id
+                })
+                XCTAssertEqual(current.staffFrame.minX, originalMeasure.staffFrame.minX, accuracy: 0.01)
+                XCTAssertEqual(current.staffFrame.minY, originalMeasure.staffFrame.minY, accuracy: 0.01)
+                XCTAssertEqual(current.staffFrame.width, originalMeasure.staffFrame.width, accuracy: 0.01)
+            }
+            let oldGlyphs = layout.systems.flatMap(\.measures).flatMap(\.chordLayouts)
+            let newGlyphs = renderedLayout.systems.flatMap(\.measures).flatMap(\.chordLayouts)
+            for glyph in oldGlyphs {
+                let current = try XCTUnwrap(newGlyphs.first { $0.id == glyph.id })
+                XCTAssertEqual(current.naturalFrame.minX, glyph.naturalFrame.minX, accuracy: 0.01)
+                XCTAssertEqual(current.naturalFrame.minY, glyph.naturalFrame.minY, accuracy: 0.01)
+            }
+            let drawnX = source.bounds.midX + region.frame.minX
+            XCTAssertEqual(renderedFirst.trailingBarlineFrame.midX, drawnX, accuracy: 1,
+                "The rendered divider must match the preview location")
+            print("committed_barline_saved_replay automatic=\(automatic) rendered=1 chord_archives_preserved=true draft_clear=true")
+        }
+    }
+
+    @MainActor
+    func testReplayBuild124PausedSuffixesThroughManualReviewAndRender() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["ICHART_REPLAY_PAUSED_SUFFIXES"] == "1",
+              let statePath = environment["ICHART_STATE"] else {
+            throw XCTSkip("Set ICHART_REPLAY_PAUSED_SUFFIXES=1 and ICHART_STATE to the captured Build 124 chart.")
+        }
+        let snapshot = try XCTUnwrap(try FileChartRepository(url: URL(fileURLWithPath: statePath)).loadSnapshot())
+        let chart = try XCTUnwrap(selectedChart(in: snapshot))
+        let savedInk = try XCTUnwrap(chart.pageHandwrittenChordData)
+        let pageLayout = try XCTUnwrap(inferredStoredPageLayout(for: chart))
+        let region = LeadSheetActiveInkScope.chordWritingRegion(for: pageLayout)
+        let scope = LeadSheetActiveInkScope.chords(frame: region.frame, inputFrames: region.inputFrames)
+        let sourceSpace = LeadSheetPersistentInkCoordinateSpacePolicy.sourceCoordinateSpace(
+            chart.pageHandwrittenChordCoordinateSpace, for: scope, chart: chart
+        )
+        let coordinateSpace = LeadSheetPersistentInkCoordinateSpacePolicy.coordinateSpace(for: scope, pageLayout: pageLayout)
+        let drawing = try XCTUnwrap(LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
+            from: savedInk, sourceCoordinateSpace: sourceSpace, targetCoordinateSpace: coordinateSpace
+        ))
+        XCTAssertEqual(drawing.strokes.count, 16)
+
+        let recognizer = ChordInkMaximumTrustRecognizer()
+        var state = ChordPreviewState()
+        var editOwnership = ChordInkEditedTargetOwnership()
+        var finalGroups: [[Int]] = []
+        var finalReads: [String?] = []
+        for count in [3, 6, 9, 12, 14, 16] {
+            let prefix = PKDrawing(strokes: Array(drawing.strokes.prefix(count)))
+            let request = ChordInkRecognitionPreparationRequest(
+                requestID: UUID(), scheduledAt: Date(), requestedDelay: 0,
+                drawingData: prefix.dataRepresentation(), chordFrame: region.frame,
+                pageLayout: pageLayout, flow: .draftPreview, options: .includingSymbolLedgerDiagnostics,
+                layoutStyle: chart.layoutStyle, editOwnership: editOwnership,
+                allowsPausedSuffixContinuation: true
+            )
+            let prepared = ChordInkRecognitionPreparation.prepare(request)
+            guard case .ready(let requests, _) = prepared.outcome else {
+                return XCTFail("The manual preview produced no targets after \(count) strokes: \(prepared.outcome)")
+            }
+            let ownership = try XCTUnwrap(prepared.ownershipSnapshot)
+            XCTAssertTrue(ownership.unassignedVisibleFragmentIndices.isEmpty)
+            XCTAssertTrue(ownership.barlineVisibleFragmentIndices.isEmpty)
+            finalGroups = ownership.targetGroups.map(\.visibleFragmentIndices)
+            XCTAssertEqual(finalGroups.flatMap { $0 }.sorted(), Array(0..<count))
+            if let next = prepared.nextEditOwnership { editOwnership = next }
+            let reads = requests.map { recognizer.recognize(strokes: $0.strokes, options: $0.options) }
+            finalReads = reads.map { $0.match?.displayText }
+            print("build124_manual_prefix=\(count) groups=\(finalGroups) reads=\(finalReads)")
+            let inputs = try zip(requests, reads).map { request, result in
+                let measure = try XCTUnwrap(chart.measure(id: request.target.measureID))
+                let resolution = ChordInkRenderResolutionPolicy.resolution(
+                    for: result, drawingData: request.drawingData, correctionMemory: .init()
+                )
+                return ChordInkDraftInput(
+                    measureID: measure.id, measureIndex: measure.index, targetFraction: request.target.fraction,
+                    visualOrder: request.visualOrder, laneLocation: request.laneLocation,
+                    layoutPageSize: request.layoutPageSize, drawingData: request.drawingData,
+                    candidateTexts: resolution.candidateTexts, bestCandidateText: resolution.bestCandidateText,
+                    confidence: result.confidence, strokeCount: request.strokes.count, recognitionResult: result,
+                    primaryDecision: resolution.primaryDecision, recognitionDecision: resolution.decision,
+                    targetLifecycle: request.collectingTargetLifecycle.advanced(to: .stable),
+                    requiresManualReviewOnly: request.requiresManualReviewOnly
+                )
+            }
+            state.replaceDraftChords(with: inputs)
+        }
+
+        let expectedGroups = [Array(0..<6), Array(6..<12), Array(12..<16)]
+        let expected = ["Bb△7", "Bb△7", "A-7"]
+        XCTAssertEqual(finalGroups, expectedGroups)
+        XCTAssertEqual(finalReads, expected.map(Optional.some))
+        XCTAssertEqual(state.draftChords.map(\.previewText), expected.map(Optional.some))
+        let batch = try XCTUnwrap(ChordInkDraftReviewPolicy.batch(for: state))
+        guard batch.confirmations.count == expected.count else {
+            return XCTFail("Expected one review row per written chord, got \(batch.confirmations.count)")
+        }
+        let entries = Dictionary(uniqueKeysWithValues: zip(batch.confirmations.map(\.id), expected))
+        let reviewed = try XCTUnwrap(ChordInkDraftReviewPolicy.reviewedState(
+            from: state, batch: batch, candidateTextByDraftID: entries
+        ))
+        let outcome = ChordInkDraftRenderCoordinator.prepare(
+            chart: chart, state: reviewed, currentDrawing: drawing, coordinateSpace: coordinateSpace
+        )
+        XCTAssertTrue(outcome.canConsumeSource)
+        XCTAssertEqual(outcome.result.renderedChordCount, expected.count)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("library-state.json")
+        try FileChartRepository(url: url).saveSnapshot(ChartLibrarySnapshot(
+            charts: [outcome.chart], selectedChartID: chart.id, entitlements: .free
+        ))
+        let reopened = try XCTUnwrap(try FileChartRepository(url: url).loadSnapshot()?.charts.first)
+        XCTAssertEqual(reopened.id, chart.id)
+        XCTAssertNil(reopened.pageHandwrittenChordData)
+        XCTAssertEqual(reopened.measures.map(\.id), chart.measures.map(\.id))
+        XCTAssertEqual(reopened.roadmapObjects, chart.roadmapObjects)
+        XCTAssertEqual(reopened.pageHandwrittenNotationData, chart.pageHandwrittenNotationData)
+        XCTAssertEqual(reopened.pageHandwrittenNotationCoordinateSpace, chart.pageHandwrittenNotationCoordinateSpace)
+        let saved = try outcome.result.renderedChordIDs.map { try XCTUnwrap(reopened.chordEvent(id: $0)) }
+        XCTAssertEqual(saved.map { $0.symbol.displayText }, expected)
+        for (event, indices) in zip(saved, expectedGroups) {
+            let source = try PKDrawing(data: XCTUnwrap(event.sourceInkData))
+            let expectedSource = PKDrawing(strokes: indices.map { drawing.strokes[$0] })
+            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: expectedSource, current: source))
+        }
+        let newIDs = Set(outcome.result.renderedChordIDs)
+        for measure in chart.measures {
+            XCTAssertEqual(reopened.measure(id: measure.id)?.chordEvents.filter { !newIDs.contains($0.id) },
+                           measure.chordEvents)
+        }
+    }
+
+    @MainActor
+    func testReplayBuild128SameMeasureChordsThroughManualReviewAndRender() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["ICHART_REPLAY_BUILD128_SAME_MEASURE"] == "1",
+              let statePath = environment["ICHART_STATE"] else {
+            throw XCTSkip("Set ICHART_REPLAY_BUILD128_SAME_MEASURE=1 and ICHART_STATE to the captured Build 128 chart.")
+        }
+        let snapshot = try XCTUnwrap(try FileChartRepository(url: URL(fileURLWithPath: statePath)).loadSnapshot())
+        let chart = try XCTUnwrap(selectedChart(in: snapshot))
+        XCTAssertEqual(chart.layoutStyle, .rhythmSectionSheet)
+        let measure = try XCTUnwrap(chart.measures.first)
+        XCTAssertTrue(measure.chordEvents.isEmpty)
+        let pageLayout = try XCTUnwrap(inferredStoredPageLayout(for: chart))
+        let region = LeadSheetActiveInkScope.chordWritingRegion(for: pageLayout)
+        let scope = LeadSheetActiveInkScope.chords(frame: region.frame, inputFrames: region.inputFrames)
+        let sourceSpace = LeadSheetPersistentInkCoordinateSpacePolicy.sourceCoordinateSpace(
+            chart.pageHandwrittenChordCoordinateSpace, for: scope, chart: chart)
+        let coordinateSpace = LeadSheetPersistentInkCoordinateSpacePolicy.coordinateSpace(for: scope, pageLayout: pageLayout)
+        let drawing = try XCTUnwrap(LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
+            from: try XCTUnwrap(chart.pageHandwrittenChordData),
+            sourceCoordinateSpace: sourceSpace, targetCoordinateSpace: coordinateSpace))
+        XCTAssertEqual(drawing.strokes.count, 3)
+
+        let recognizer = ChordInkMaximumTrustRecognizer()
+        let strokes = PencilKitInkAdapter.inkStrokes(from: drawing)
+        let sequentialGroups = ChordInkSequentialGrouper().groups(for: strokes.enumerated().map { ($0.offset, $0.element) })
+        for group in sequentialGroups {
+            print("build128_sequential strokes=\(group.strokeIndices) root=\(group.rootText ?? "nil") "
+                + "confidence=\(String(describing: group.rootConfidence)) reason=\(group.anchorReason) bounds=\(group.rootBounds)")
+        }
+        let glyphRecognizer = GestureTemplateRecognizer()
+        for cluster in StrokeClusterer().indexedClusters(strokes) {
+            let candidates = glyphRecognizer.rankedCandidates(for: cluster.cluster,
+                templates: ChordGlyphTemplateLibrary.initialTemplates, limit: 5)
+            print("build128_glyph strokes=\(cluster.originalIndexes) bounds=\(cluster.bounds) "
+                + "candidates=\(candidates.map { "\($0.text):\($0.confidence)" })")
+        }
+
+        let expectedGroups = [[0], [1, 2]]
+        let expectedReads = ["C", "G7"]
+        var state = ChordPreviewState()
+        var editOwnership = ChordInkEditedTargetOwnership()
+        for count in [1, 3] {
+            let prefix = PKDrawing(strokes: Array(drawing.strokes.prefix(count)))
+            let request = ChordInkRecognitionPreparationRequest(
+                requestID: UUID(), scheduledAt: Date(), requestedDelay: 0,
+                drawingData: prefix.dataRepresentation(), chordFrame: region.frame,
+                pageLayout: pageLayout, flow: .draftPreview, options: .includingSymbolLedgerDiagnostics,
+                layoutStyle: chart.layoutStyle, editOwnership: editOwnership, allowsPausedSuffixContinuation: true)
+            let prepared = ChordInkRecognitionPreparation.prepare(request)
+            guard case .ready(let requests, _) = prepared.outcome else {
+                return XCTFail("Expected manual preview targets after \(count) strokes, got \(prepared.outcome)")
+            }
+            let ownership = try XCTUnwrap(prepared.ownershipSnapshot)
+            let groups = ownership.targetGroups.map(\.visibleFragmentIndices)
+            let reads = requests.map { recognizer.recognize(strokes: $0.strokes, options: $0.options) }
+            let symbols = reads.map { $0.match?.displayText }
+            print("build128_manual_prefix=\(count) groups=\(groups) reads=\(symbols) "
+                + "fractions=\(requests.map { $0.target.fraction })")
+            XCTAssertTrue(ownership.unassignedVisibleFragmentIndices.isEmpty)
+            XCTAssertTrue(ownership.barlineVisibleFragmentIndices.isEmpty)
+            let expectedPrefixGroups = count == 1 ? [[0]] : expectedGroups
+            guard groups == expectedPrefixGroups else {
+                return XCTFail("Expected independent chord ownership after \(count) strokes: \(expectedPrefixGroups), got \(groups)")
+            }
+            XCTAssertEqual(symbols, expectedReads.prefix(groups.count).map(Optional.some))
+            XCTAssertTrue(requests.allSatisfy { $0.target.measureID == measure.id })
+            if let next = prepared.nextEditOwnership { editOwnership = next }
+            let inputs = zip(requests, reads).map { request, result in
+                let resolution = ChordInkRenderResolutionPolicy.resolution(
+                    for: result, drawingData: request.drawingData, correctionMemory: .init())
+                return ChordInkDraftInput(measureID: request.target.measureID, measureIndex: measure.index,
+                    targetFraction: request.target.fraction, visualOrder: request.visualOrder,
+                    laneLocation: request.laneLocation, layoutPageSize: request.layoutPageSize,
+                    drawingData: request.drawingData, candidateTexts: resolution.candidateTexts,
+                    bestCandidateText: resolution.bestCandidateText, confidence: result.confidence,
+                    strokeCount: request.strokes.count, recognitionResult: result,
+                    primaryDecision: resolution.primaryDecision, recognitionDecision: resolution.decision,
+                    targetLifecycle: request.collectingTargetLifecycle.advanced(to: .stable),
+                    requiresManualReviewOnly: request.requiresManualReviewOnly)
+            }
+            state.replaceDraftChords(with: inputs)
+        }
+
+        XCTAssertFalse(state.draftChords.contains(where: \.requiresSeparatedChordInk))
+        XCTAssertEqual(state.draftChords.map(\.previewText), expectedReads.map(Optional.some))
+        let batch = try XCTUnwrap(ChordInkDraftReviewPolicy.batch(for: state))
+        XCTAssertEqual(batch.confirmations.count, 2)
+        let entries = Dictionary(uniqueKeysWithValues: zip(batch.confirmations.map(\.id), expectedReads))
+        let reviewed = try XCTUnwrap(ChordInkDraftReviewPolicy.reviewedState(
+            from: state, batch: batch, candidateTextByDraftID: entries))
+        let outcome = ChordInkDraftRenderCoordinator.prepare(
+            chart: chart, state: reviewed, currentDrawing: drawing, coordinateSpace: coordinateSpace)
+        XCTAssertTrue(outcome.canConsumeSource)
+        XCTAssertEqual(outcome.result.renderedChordCount, 2)
+
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let repository = FileChartRepository(url: directory.appendingPathComponent("library-state.json"))
+        try repository.saveSnapshot(ChartLibrarySnapshot(charts: [outcome.chart],
+            selectedChartID: chart.id, entitlements: .free))
+        let reopenedSnapshot = try XCTUnwrap(try repository.loadSnapshot())
+        let reopened = try XCTUnwrap(selectedChart(in: reopenedSnapshot))
+        XCTAssertEqual(reopened.id, chart.id)
+        XCTAssertEqual(reopened.measures.map(\.id), chart.measures.map(\.id))
+        XCTAssertNil(reopened.pageHandwrittenChordData)
+        let saved = try XCTUnwrap(reopened.measure(id: measure.id)).chordEvents
+        XCTAssertEqual(saved.map { $0.symbol.displayText }, expectedReads)
+        // The captured G7 sits near the right edge, on the eighth-note grid at 4&.
+        let laterBeat = environment["ICHART_REPLAY_BUILD128_EXPECTED_LATER_BEAT"] ?? "4&"
+        XCTAssertEqual(saved.map { $0.startPosition.displayText }, ["1", laterBeat])
+        for (event, indices) in zip(saved, expectedGroups) {
+            let archive = try PKDrawing(data: XCTUnwrap(event.sourceInkData))
+            let expectedSource = PKDrawing(strokes: indices.map { drawing.strokes[$0] })
+            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: expectedSource, current: archive))
+        }
+    }
+
+    @MainActor
+    func testReplayCommittedChordInkThroughAutomaticWriteAndRender() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let statePath = environment["ICHART_STATE"],
+              let eventList = environment["ICHART_REPLAY_AUTOMATIC_EVENT_IDS"],
+              let expectedText = environment["ICHART_REPLAY_AUTOMATIC_EXPECTED_TEXT"] else {
+            throw XCTSkip("Set ICHART_STATE, ICHART_REPLAY_AUTOMATIC_EVENT_IDS and ICHART_REPLAY_AUTOMATIC_EXPECTED_TEXT.")
+        }
+        let tokens = eventList.split(separator: ",")
+        let eventIDs = tokens.compactMap { UUID(uuidString: String($0)) }
+        XCTAssertFalse(eventIDs.isEmpty)
+        XCTAssertEqual(eventIDs.count, tokens.count)
+        let repository = FileChartRepository(url: URL(fileURLWithPath: statePath))
+        let snapshot = try XCTUnwrap(try repository.loadSnapshot())
+        let chart = try XCTUnwrap(selectedChart(in: snapshot))
+        let layout = try XCTUnwrap(inferredStoredPageLayout(for: chart))
+        let region = LeadSheetActiveInkScope.chordWritingRegion(for: layout)
+        let scope = LeadSheetActiveInkScope.chords(frame: region.frame, inputFrames: region.inputFrames)
+        let coordinateSpace = LeadSheetPersistentInkCoordinateSpacePolicy.coordinateSpace(for: scope, pageLayout: layout)
+
+        // Each event is one real writing attempt. Replay it in an in-memory
+        // chart copy so nearby committed chords and layout remain in place.
+        for eventID in eventIDs {
+            let event = try XCTUnwrap(chart.chordEvent(id: eventID))
+            let drawingData = try XCTUnwrap(event.sourceInkData)
+            var replayChart = chart
+            XCTAssertTrue(replayChart.deleteChordEvent(eventID))
+            XCTAssertTrue(replayChart.setPageHandwrittenChordDrawing(drawingData, coordinateSpace: coordinateSpace))
+            print("Replaying committed event \(eventID), originally rendered as \(event.symbol.displayText).")
+            try auditProductionPreparation(chart: replayChart, drawingData: drawingData,
+                expectedSequence: [expectedText], minimumY: nil, maximumY: nil, checksAutomaticCommit: true)
+        }
+    }
+
+    @MainActor
+    func testReplayAutomaticRhythmRowBarlinesFromSavedState() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let statePath = environment["ICHART_STATE"],
+              let expectedCount = environment["ICHART_REPLAY_EXPECTED_BARLINES"].flatMap(Int.init) else {
+            throw XCTSkip("Set ICHART_STATE and ICHART_REPLAY_EXPECTED_BARLINES for the captured row.")
+        }
+        let snapshot = try XCTUnwrap(try FileChartRepository(url: URL(fileURLWithPath: statePath)).loadSnapshot())
+        let chart = try XCTUnwrap(selectedChart(in: snapshot))
+        let drawingData = try XCTUnwrap(chart.pageHandwrittenChordData)
+        let drawing = try PKDrawing(data: drawingData)
+        let layout = try XCTUnwrap(inferredStoredPageLayout(for: chart))
+        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let inputAt = Date(timeIntervalSinceReferenceDate: 100)
+        let preparation = ChordInkRecognitionPreparation.prepare(.init(
+            requestID: UUID(), scheduledAt: inputAt, requestedDelay: 0,
+            drawingData: drawingData, chordFrame: chordFrame, pageLayout: layout,
+            flow: .draftPreview, options: .live, layoutStyle: chart.layoutStyle
+        ))
+        XCTAssertEqual(preparation.barlines.map(\.kind), Array(repeating: .single, count: expectedCount))
+        XCTAssertEqual(Set(preparation.barlines.flatMap(\.ownedSourceStrokeIndices)), Set(drawing.strokes.indices))
+        var state = ChordPreviewState()
+        state.replaceDraftBarlines(with: preparation.barlines)
+        state.layoutPageSize = layout.pageBounds.size
+
+        let attempt = ChordInkDraftRenderCoordinator.prepareAutomaticAttempt(chart: chart, state: state,
+            currentDrawing: drawing, coordinateSpace: chart.pageHandwrittenChordCoordinateSpace,
+            now: inputAt.addingTimeInterval(3), lastInputAt: inputAt, isUsingTool: false,
+            sourcePageLayout: layout, sourceChordFrame: chordFrame)
+        let outcome = try XCTUnwrap(attempt.outcome, "Render refused: \(String(describing: attempt.feedback.globalReason))")
+        XCTAssertEqual(outcome.result.renderedBarlineCount, expectedCount)
+        XCTAssertEqual(outcome.result.renderedChordCount, 0)
+        XCTAssertTrue(outcome.drawing.strokes.isEmpty)
+        let saved = try ChartPersistenceCoders.encoder.encode(outcome.chart)
+        let reopened = try ChartPersistenceCoders.decoder.decode(Chart.self, from: saved)
+        XCTAssertEqual(reopened.measures.count, chart.measures.count + expectedCount)
+        XCTAssertNil(reopened.pageHandwrittenChordData)
+        XCTAssertEqual(reopened.pageHandwrittenNotationData, chart.pageHandwrittenNotationData)
+        XCTAssertEqual(reopened.pageHandwrittenNotationCoordinateSpace, chart.pageHandwrittenNotationCoordinateSpace)
+        for measure in chart.measures {
+            XCTAssertEqual(reopened.measure(id: measure.id)?.chordEvents, measure.chordEvents)
+        }
+    }
+
     func testStoredChordOnlyLayoutInferencePreservesCanvasSizeInBothStyles() throws {
         for style in [ChartLayoutStyle.rhythmSectionSheet, .simpleChordSheet] {
             for width in [760.0, 800.0, 852.0] {
@@ -313,6 +738,7 @@ final class ChordEntryPassReplayTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testReplayPendingChordInkFromSavedState() throws {
         guard ProcessInfo.processInfo.environment["ICHART_REPLAY_PENDING_CHORD_INK"] == "1" else {
             throw XCTSkip("Set ICHART_REPLAY_PENDING_CHORD_INK=1 to replay pending page chord ink.")
@@ -543,7 +969,7 @@ final class ChordEntryPassReplayTests: XCTestCase {
             XCTAssertEqual(sequentialResults.compactMap { $0.match?.displayText }, expectedSequence)
 
             if environment["ICHART_REPLAY_PRODUCTION_PREPARATION"] == "1" {
-                auditProductionPreparation(
+                try auditProductionPreparation(
                     chart: chart,
                     drawingData: drawingData,
                     expectedSequence: expectedSequence,
@@ -566,13 +992,15 @@ final class ChordEntryPassReplayTests: XCTestCase {
     /// bounded-target -> maximum-trust path used by the live editor. Directly
     /// replaying final sequential groups proves recognition, but cannot prove
     /// that the production preparation layer will actually deliver each group.
+    @MainActor
     private func auditProductionPreparation(
         chart: Chart,
         drawingData: Data,
         expectedSequence: [String],
         minimumY: Double?,
-        maximumY: Double?
-    ) {
+        maximumY: Double?,
+        checksAutomaticCommit: Bool = ProcessInfo.processInfo.environment["ICHART_REPLAY_AUTOMATIC_COMMIT"] == "1"
+    ) throws {
         guard let pageLayout = inferredStoredPageLayout(for: chart) else {
             XCTFail("Production preparation replay requires a stored page coordinate space.")
             return
@@ -646,7 +1074,7 @@ final class ChordEntryPassReplayTests: XCTestCase {
             return
         }
 
-        XCTAssertTrue(usesBatch)
+        if expectedSequence.count > 1 { XCTAssertTrue(usesBatch) }
         XCTAssertEqual(preparation.rawBatchTargetCount, preparation.boundedBatchTargetCount)
 
         let selectedRequests = requests.filter { request in
@@ -658,6 +1086,8 @@ final class ChordEntryPassReplayTests: XCTestCase {
             },
             "Production grouping must not merge the captured row with ink from another system."
         )
+        XCTAssertEqual(Set(selectedRequests.flatMap(\.strokes)), selectedLoadedStrokes)
+        XCTAssertEqual(selectedRequests.flatMap(\.strokes).count, selectedSourceStrokeIndexes.count)
         let recognizer = ChordInkMaximumTrustRecognizer()
         let results = selectedRequests.map { request in
             recognizer.recognize(strokes: request.strokes, options: request.options)
@@ -682,6 +1112,77 @@ final class ChordEntryPassReplayTests: XCTestCase {
                 choices.contains(expectedText),
                 "The live confirmation UI hid \(expectedText) behind choices \(choices)."
             )
+        }
+        if checksAutomaticCommit {
+            XCTAssertEqual(selectedSourceStrokeIndexes.count, loadedStrokes.count)
+            try auditAutomaticCommit(
+                chart: chart, drawing: loadedDrawing, coordinateSpace: targetCoordinateSpace,
+                pageLayout: pageLayout, chordFrame: chordRegion.frame,
+                requests: selectedRequests, results: results, expectedSequence: expectedSequence
+            )
+        }
+    }
+
+    @MainActor
+    private func auditAutomaticCommit(
+        chart: Chart, drawing: PKDrawing, coordinateSpace: PersistentInkCoordinateSpace?,
+        pageLayout: LeadSheetPageLayout, chordFrame: CGRect, requests: [ChordInkRecognitionSessionRequest],
+        results: [ChordInkRecognitionResult], expectedSequence: [String]
+    ) throws {
+        let inputAt = Date(timeIntervalSinceReferenceDate: 100)
+        let inputs = try zip(requests, results).map { request, result in
+            let measure = try XCTUnwrap(chart.measure(id: request.target.measureID))
+            let resolution = ChordInkRenderResolutionPolicy.resolution(
+                for: result, drawingData: request.drawingData, correctionMemory: .init()
+            )
+            return ChordInkDraftInput(
+                measureID: measure.id, measureIndex: measure.index, targetFraction: request.target.fraction,
+                visualOrder: request.visualOrder, laneLocation: request.laneLocation,
+                layoutPageSize: request.layoutPageSize, drawingData: request.drawingData,
+                candidateTexts: resolution.candidateTexts, bestCandidateText: resolution.bestCandidateText,
+                confidence: result.confidence, strokeCount: request.strokes.count, recognitionResult: result,
+                primaryDecision: resolution.primaryDecision, recognitionDecision: resolution.decision,
+                targetLifecycle: request.collectingTargetLifecycle.advanced(to: .stable),
+                requiresManualReviewOnly: request.requiresManualReviewOnly
+            )
+        }
+        var state = ChordPreviewState()
+        state.replaceDraftChords(with: inputs, updatedAt: inputAt)
+        let attempt = ChordInkDraftRenderCoordinator.prepareAutomaticAttempt(
+            chart: chart, state: state, currentDrawing: drawing, coordinateSpace: coordinateSpace,
+            now: inputAt.addingTimeInterval(4), lastInputAt: inputAt, isUsingTool: false,
+            sourcePageLayout: pageLayout, sourceChordFrame: chordFrame
+        )
+        let outcome = try XCTUnwrap(attempt.outcome, "Automatic render refused: \(attempt.feedback)")
+        XCTAssertEqual(outcome.result.renderedChordCount, expectedSequence.count)
+        XCTAssertTrue(outcome.drawing.strokes.isEmpty)
+        let reopened = try ChartPersistenceCoders.decoder.decode(Chart.self,
+            from: ChartPersistenceCoders.encoder.encode(outcome.chart))
+        XCTAssertEqual(reopened.id, chart.id)
+        XCTAssertNil(reopened.pageHandwrittenChordData)
+        XCTAssertNil(reopened.pageHandwrittenChordCoordinateSpace)
+        let newIDs = Set(outcome.result.renderedChordIDs)
+        let events = reopened.measures.flatMap(\.chordEvents).filter { newIDs.contains($0.id) }
+        XCTAssertEqual(events.map { $0.symbol.displayText }, expectedSequence)
+        let sourceCount = try events.reduce(0) { count, event in
+            try count + PKDrawing(data: XCTUnwrap(event.sourceInkData)).strokes.count
+        }
+        XCTAssertEqual(sourceCount, drawing.strokes.count)
+        if let onlyEvent = events.first, events.count == 1 {
+            let archived = try PKDrawing(data: XCTUnwrap(onlyEvent.sourceInkData))
+            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: drawing, current: archived))
+        }
+        XCTAssertEqual(reopened.measures.map(\.id), chart.measures.map(\.id))
+        XCTAssertEqual(reopened.roadmapObjects, chart.roadmapObjects)
+        XCTAssertEqual(reopened.pageHandwrittenNotationData, chart.pageHandwrittenNotationData)
+        XCTAssertEqual(reopened.pageHandwrittenNotationCoordinateSpace, chart.pageHandwrittenNotationCoordinateSpace)
+        for measure in chart.measures {
+            let reopenedMeasure = try XCTUnwrap(reopened.measure(id: measure.id))
+            XCTAssertEqual(reopenedMeasure.chordEvents.filter { !newIDs.contains($0.id) }, measure.chordEvents)
+            XCTAssertEqual(reopenedMeasure.roadmapObjectIDs, measure.roadmapObjectIDs)
+            XCTAssertEqual(reopenedMeasure.handwrittenRhythmicNotationData, measure.handwrittenRhythmicNotationData)
+            XCTAssertEqual(reopenedMeasure.handwrittenRhythmicNotationCoordinateSpace,
+                           measure.handwrittenRhythmicNotationCoordinateSpace)
         }
     }
 
@@ -893,10 +1394,9 @@ final class ChordEntryPassReplayTests: XCTestCase {
     }
 
     private func selectedChart(in snapshot: ChartLibrarySnapshot) -> Chart? {
-        if let chartIDText = ProcessInfo.processInfo.environment["ICHART_REPLAY_CHART_ID"],
-           let chartID = UUID(uuidString: chartIDText),
-           let chart = snapshot.charts.first(where: { $0.id == chartID }) {
-            return chart
+        if let chartIDText = ProcessInfo.processInfo.environment["ICHART_REPLAY_CHART_ID"] {
+            guard let chartID = UUID(uuidString: chartIDText) else { return nil }
+            return snapshot.charts.first { $0.id == chartID }
         }
 
         let title = ProcessInfo.processInfo.environment["ICHART_REPLAY_CHART_TITLE"]

@@ -16,13 +16,14 @@ final class ChordDraftRepeatReviewUITests: XCTestCase {
         XCTAssertTrue(confirmed.draftBarlines[0].repeatFromBeginningConfirmed)
         XCTAssertFalse(confirmed.draftBarlines[1].repeatFromBeginningConfirmed)
         XCTAssertEqual(confirmed.draftBarlines.map(\.id), state.draftBarlines.map(\.id))
-        XCTAssertEqual(ChordInkRepeatSignPairingPolicy.review(state: confirmed).unconfirmedEndIDs, [second.id])
+        XCTAssertTrue(ChordInkRepeatSignPairingPolicy.review(state: state).canRender)
+        XCTAssertTrue(ChordInkRepeatSignPairingPolicy.review(state: confirmed).canRender)
         XCTAssertEqual(ChordDraftRepeatReviewPolicy.confirmation(for: chart, state: confirmed)?.draftID, second.id)
         XCTAssertFalse(state.draftBarlines[0].repeatFromBeginningConfirmed)
         XCTAssertEqual(chart.pageHandwrittenChordData, request.sourceDrawingData)
     }
 
-    func testDecliningReviewLeavesCurrentInkAndDraftsUnchangedAndUnrenderable() throws {
+    func testDecliningOptionalReviewLeavesInkAndConventionalRepeatAvailable() throws {
         let chart = chartWithInk()
         let state = preview([sign(in: chart)])
         let originalChart = chart
@@ -32,7 +33,7 @@ final class ChordDraftRepeatReviewUITests: XCTestCase {
         XCTAssertEqual(request.state, originalState)
         XCTAssertEqual(chart, originalChart)
         XCTAssertEqual(state, originalState)
-        XCTAssertFalse(ChordInkRepeatSignPairingPolicy.review(state: state).canRender)
+        XCTAssertTrue(ChordInkRepeatSignPairingPolicy.review(state: state).canRender)
         XCTAssertNotNil(chart.pageHandwrittenChordData)
         XCTAssertEqual(try PKDrawing(data: XCTUnwrap(chart.pageHandwrittenChordData)).strokes.count, 2)
     }
@@ -97,6 +98,29 @@ final class ChordDraftRepeatReviewUITests: XCTestCase {
         XCTAssertNil(ChordDraftRepeatReviewPolicy.blockingMessage(for: paired))
         XCTAssertNil(ChordDraftRepeatReviewPolicy.confirmation(for: chart, state: paired))
         XCTAssertTrue(ChordInkRepeatSignPairingPolicy.review(state: paired).canRender)
+    }
+
+    @MainActor
+    func testIncompleteRepeatExplainsItsDotsBeforePairingAndCannotConfirmOrRender() throws {
+        let chart = chartWithInk()
+        for kind in [DraftBarlineKind.repeatStart, .repeatEnd, .repeatBoth] {
+            var unfinished = sign(in: chart, kind: kind)
+            unfinished.ambiguity = .incompleteRepeat
+            let state = preview([unfinished])
+            let original = state
+
+            let message = try XCTUnwrap(ChordDraftRepeatReviewPolicy.blockingMessage(for: state))
+            XCTAssertTrue(message.contains("two dots beside the bar"))
+            XCTAssertTrue(message.contains("Dots on the right start a repeat"))
+            XCTAssertTrue(message.contains("dots on the left end it"))
+            XCTAssertTrue(message.contains("ink is still on the page"))
+            XCTAssertFalse(message.contains("needs an end repeat"), "Finish this sign before reviewing the repeat range")
+            XCTAssertFalse(unfinished.isRenderable)
+            XCTAssertEqual(state.unresolvedBarlineCount, 1)
+            XCTAssertTrue(ChordInkDraftRenderCoordinator.independentlyRenderableStructuralIDs(in: state).isEmpty)
+            XCTAssertNil(ChordDraftRepeatReviewPolicy.confirmation(for: chart, state: state))
+            XCTAssertEqual(state, original)
+        }
     }
 
     func testDetectionPublicationIncludesKindGroupingAndGeometryButIgnoresReviewOnlyChanges() {

@@ -47,7 +47,8 @@ enum ChordInkRenderResolutionPolicy {
         }
 
         let personalSelection = personalSelection(for: result)
-        if personalSelection.prefersPersonal, let text = personalSelection.text {
+        if !result.requiresTriangleQualityReview,
+           personalSelection.prefersPersonal, let text = personalSelection.text {
             decision = ChordInkRecognitionDecision(
                 action: .confirm,
                 acceptedText: text,
@@ -80,6 +81,7 @@ enum ChordInkRenderResolutionPolicy {
     }
 
     static func candidateTexts(for result: ChordInkRecognitionResult) -> [String] {
+        guard !result.requiresTriangleQualityReview else { return [] }
         if let personal = result.personalSuggestion {
             var baseline = result
             baseline.personalSuggestion = nil

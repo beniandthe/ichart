@@ -241,18 +241,54 @@ extension Measure {
             return []
         }
 
-        let validIndices = Set(slots.indices.filter { slots[$0].isPlayable })
-        return Set(
-            chordEvents.compactMap { event in
-                guard event.id != chordEventID,
-                      let mappedRhythmSlotIndex = event.mappedRhythmSlotIndex,
-                      validIndices.contains(mappedRhythmSlotIndex) else {
-                    return nil
-                }
+        return Set(chordEvents.compactMap { event in
+            guard event.id != chordEventID else { return nil }
+            return assignedRhythmSlotIndex(for: event, in: slots)
+        })
+    }
 
-                return mappedRhythmSlotIndex
-            }
+    private func assignedRhythmSlotIndex(for event: ChordEvent, in slots: [MeasureRhythmSlot]) -> Int? {
+        let index = event.anchorsToMeasureStart
+            ? playableMeasureStartSlot(in: slots)?.index
+            : event.mappedRhythmSlotIndex
+        guard let index, slots[safe: index]?.isPlayable == true else { return nil }
+        return index
+    }
+
+    private func playableMeasureStartSlot(in slots: [MeasureRhythmSlot]) -> MeasureRhythmSlot? {
+        slots.first { $0.startPosition.beat == 1 && $0.startPosition.subdivision == 0 && $0.isPlayable }
+    }
+
+    func suggestedChordInsertionAtMeasureStart(defaultMeter: Meter) -> MeasureChordInsertionSuggestion {
+        suggestedChordInsertionAtMeasureStart(in: resolvedRhythmSlots(defaultMeter: defaultMeter) ?? [])
+    }
+
+    private func suggestedChordInsertionAtMeasureStart(in slots: [MeasureRhythmSlot]) -> MeasureChordInsertionSuggestion {
+        if let slot = playableMeasureStartSlot(in: slots) {
+            return MeasureChordInsertionSuggestion(
+                startPosition: slot.startPosition,
+                duration: slot.duration,
+                mappedRhythmSlotIndex: slot.index
+            )
+        }
+
+        return MeasureChordInsertionSuggestion(
+            startPosition: BeatPosition(beat: 1, subdivision: 0, subdivisionsPerBeat: 1),
+            duration: unmappedMeasureStartDuration(in: slots),
+            mappedRhythmSlotIndex: nil
         )
+    }
+
+    private func unmappedMeasureStartDuration(in slots: [MeasureRhythmSlot]) -> RhythmValue {
+        let openingDuration = slots.first { $0.duration != .tiedContinuation }?.duration
+        switch openingDuration {
+        case .sixteenthRest: return .sixteenth
+        case .eighthRest: return .eighth
+        case .dottedQuarterRest: return .dottedQuarter
+        case .halfRest: return .half
+        case .wholeRest: return .whole
+        default: return .quarter
+        }
     }
 
     func nextUnoccupiedRhythmSlotIndex(defaultMeter: Meter) -> Int? {
@@ -386,6 +422,7 @@ extension Measure {
         rawInput: String?,
         suggestion: MeasureChordInsertionSuggestion,
         hitStyle: HitStyle = .none,
+        anchorsToMeasureStart: Bool = false,
         sourceInkData: Data? = nil,
         sourceCandidateSignature: [String] = [],
         sourceRecognitionPipelineVersion: String? = nil
@@ -400,6 +437,7 @@ extension Measure {
                 duration: suggestion.duration,
                 rhythmPlacement: suggestion.isRhythmMapped ? .aboveChord : .inline,
                 mappedRhythmSlotIndex: suggestion.mappedRhythmSlotIndex,
+                anchorsToMeasureStart: anchorsToMeasureStart,
                 tieOut: false,
                 hitStyle: hitStyle,
                 rawInput: rawInput,
@@ -453,9 +491,7 @@ extension Measure {
             }
 
             return chordEvents.map { event in
-                if let mappedRhythmSlotIndex = event.mappedRhythmSlotIndex,
-                   slots.indices.contains(mappedRhythmSlotIndex),
-                   slots[mappedRhythmSlotIndex].isPlayable {
+                if let mappedRhythmSlotIndex = assignedRhythmSlotIndex(for: event, in: slots) {
                     return mappedPlacement(
                         for: event,
                         in: slots[mappedRhythmSlotIndex],
@@ -463,6 +499,12 @@ extension Measure {
                         slotIndex: mappedRhythmSlotIndex,
                         isExplicit: true
                     )
+                }
+
+                // The chord may sit above a leading rest. Leave the next
+                // playable slot free for another chord.
+                if event.anchorsToMeasureStart {
+                    return rawPlacement(for: event, meter: meter)
                 }
 
                 if let nextAutomaticSlotIndex = automaticallyAvailableSlotIndices.first {
@@ -533,6 +575,13 @@ extension Measure {
         } ?? []
 
         chordEvents = chordEvents.map { chordEvent in
+            if chordEvent.anchorsToMeasureStart {
+                var chordEvent = chordEvent
+                chordEvent.apply(suggestion: suggestedChordInsertionAtMeasureStart(in: slots ?? []),
+                    anchorsToMeasureStart: true)
+                return chordEvent
+            }
+
             guard let mappedRhythmSlotIndex = chordEvent.mappedRhythmSlotIndex,
                   !playableIndices.contains(mappedRhythmSlotIndex) else {
                 return chordEvent

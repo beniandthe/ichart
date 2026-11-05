@@ -52,7 +52,7 @@ final class ChordDraftEndingReviewVisualTests: XCTestCase {
         var didApply = false
         var didCancel = false
         let sheet = ChordDraftEndingReviewSheet(request: request,
-            onApply: { _, _, _ in didApply = true }, onCancel: { didCancel = true })
+            onApply: { _, _, _ in didApply = true }, onBackToWriting: { _ in didCancel = true })
         let host = UIHostingController(rootView: sheet)
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive })

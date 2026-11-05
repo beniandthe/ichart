@@ -5,6 +5,12 @@ struct IChartTelemetryConsentSnapshot: Equatable, Sendable {
     fileprivate let generation: UInt64
 }
 
+enum IChartTelemetryConsentAdmissionDenial: String, Sendable {
+    case preferenceProjectionInProgress
+    case capturedConsentNotGranted
+    case consentChanged
+}
+
 /// Only the current, explicitly selected consent value enables diagnostics.
 /// The generation also distinguishes withdrawal followed by another opt-in.
 final class IChartTelemetryConsentStore: @unchecked Sendable {
@@ -224,13 +230,29 @@ final class IChartTelemetryConsentStore: @unchecked Sendable {
     /// Keep queue changes and request starts atomic with respect to withdrawal.
     func performIfGranted<Value>(
         matching consent: IChartTelemetryConsentSnapshot,
+        onDenied: ((IChartTelemetryConsentAdmissionDenial) -> Void)? = nil,
         _ operation: () throws -> Value
     ) rethrows -> Value? {
         refreshPersistedState()
         lock.lock()
+        let denial: IChartTelemetryConsentAdmissionDenial?
+        if preferenceAuthorizationBlockDepth != 0 {
+            denial = .preferenceProjectionInProgress
+        } else if !consent.isGranted {
+            denial = .capturedConsentNotGranted
+        } else if snapshotLocked() != consent {
+            denial = .consentChanged
+        } else {
+            denial = nil
+        }
+        if let denial {
+            lock.unlock()
+            // Capture the reason atomically, but permit a diagnostic callback
+            // to read this store without reentering its authoritative lock.
+            onDenied?(denial)
+            return nil
+        }
         defer { lock.unlock() }
-        guard preferenceAuthorizationBlockDepth == 0, consent.isGranted,
-              snapshotLocked() == consent else { return nil }
         return try operation()
     }
 

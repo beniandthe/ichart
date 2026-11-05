@@ -55,9 +55,8 @@ Source of truth: `docs/ichart-sprint-source-of-truth.md`
 ## Chord Lane
 
 - Chords stay above the staff.
-- If a measure has a rhythm map, chords snap to playable rhythm slots.
-- Rest slots remain non-playable snap targets.
-- If a measure has no rhythm map, the first chord falls back to beat 1 and later chords use the beat grid.
+- The first handwritten chord in an empty measure renders on beat 1 in Automatic and Manual Render with Preview. An opening rest stays on the staff beneath the chord.
+- Later chords snap to playable rhythm slots when the measure has a rhythm map, or to the beat grid otherwise.
 - Moving a chord reuses the same snap target map instead of creating a second placement authority.
 - The active move interaction draws a guide from the chord box to the resolved beat/rhythm attack target.
 

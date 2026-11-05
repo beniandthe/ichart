@@ -1295,6 +1295,90 @@ select is(
     'hidden forum post keeps existing vote row frozen'
 );
 
+-- Exercise the operator workflow against the same read path as the app.
+select lives_ok(
+    $$
+    insert into public.forum_author_badges (id, owner_id, badge_type)
+    values
+        ('90000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'verifiedContributor'),
+        ('90000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'trustedArranger')
+    on conflict (owner_id, badge_type) do nothing
+    $$,
+    'database operator can award badges'
+);
+
+insert into public.forum_author_badges (id, owner_id, badge_type)
+values ('90000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', 'verifiedContributor')
+on conflict (owner_id, badge_type) do nothing;
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', true);
+
+select is(
+    (select id from public.forum_author_badges
+     where owner_id = auth.uid() and badge_type = 'verifiedContributor'),
+    '90000000-0000-0000-0000-000000000001'::uuid,
+    'author reads original badge after repeated award'
+);
+
+select throws_ok(
+    $$ update public.forum_author_badges set badge_type = 'communityExpert' where owner_id = auth.uid() $$,
+    '42501',
+    null,
+    'author cannot update their own badges'
+);
+
+select throws_ok(
+    $$ delete from public.forum_author_badges where owner_id = auth.uid() $$,
+    '42501',
+    null,
+    'author cannot revoke their own badges'
+);
+
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000002', true);
+
+select is(
+    (select count(*)::integer from public.forum_author_badges
+     where owner_id = '00000000-0000-0000-0000-000000000001'),
+    2,
+    'second active Pro reads the author badges'
+);
+
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000003', true);
+
+select is(
+    (select count(*)::integer from public.forum_author_badges
+     where owner_id = '00000000-0000-0000-0000-000000000001'),
+    0,
+    'inactive Basic cannot read author badges'
+);
+
+reset role;
+set local role anon;
+select throws_ok(
+    $$ select id from public.forum_author_badges $$,
+    '42501',
+    null,
+    'signed-out viewer has no badge read grant'
+);
+
+reset role;
+delete from public.forum_author_badges
+where id = '90000000-0000-0000-0000-000000000001'
+  and owner_id = '00000000-0000-0000-0000-000000000001'
+  and badge_type = 'verifiedContributor';
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000002', true);
+
+select is(
+    (select array_agg(badge_type order by badge_type) from public.forum_author_badges
+     where owner_id = '00000000-0000-0000-0000-000000000001'),
+    array['trustedArranger'],
+    'viewer refresh shows other badges after the operator revokes one'
+);
+
+reset role;
 select * from finish();
 
 rollback;

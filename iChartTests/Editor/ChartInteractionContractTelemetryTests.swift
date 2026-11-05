@@ -245,7 +245,8 @@ final class ChartInteractionContractTelemetryTests: XCTestCase {
         let controller = UIViewController(); window.rootViewController = controller
         let trace = InteractionWindowNotificationTrace(window: window)
         window.makeKeyAndVisible()
-        let fixture = try makeService()
+        let recordingTrace = InteractionRecordingTraceRecorder()
+        let fixture = try makeService(recordingObserver: { recordingTrace.record($0) })
         IChartTelemetry.configure(fixture.service)
         var expectedAuthorization = try XCTUnwrap(IChartTelemetry.diagnosticAuthorization())
         let scroll = UIScrollView(frame: CGRect(x: 0, y: 50, width: 700, height: 400))
@@ -316,7 +317,7 @@ final class ChartInteractionContractTelemetryTests: XCTestCase {
             }
         }
         let diagnostics = {
-            "app=\(UIApplication.shared.applicationState.rawValue), scene=\(scene.activationState.rawValue), key=\(window.isKeyWindow), window=\(window.bounds), scroll=\(scroll.bounds), offset=\(scroll.contentOffset), field=\(field.convert(field.bounds, to: window)), focused=\(field.isFirstResponder), authorization=\(IChartTelemetry.diagnosticAuthorization() != nil)\nNotifications:\n\(trace.entries.joined(separator: "\n"))\nProbe snapshots:\n\(probeSnapshots.joined(separator: "\n"))"
+            "app=\(UIApplication.shared.applicationState.rawValue), scene=\(scene.activationState.rawValue), key=\(window.isKeyWindow), window=\(window.bounds), scroll=\(scroll.bounds), offset=\(scroll.contentOffset), field=\(field.convert(field.bounds, to: window)), focused=\(field.isFirstResponder), authorization=\(IChartTelemetry.diagnosticAuthorization() != nil)\nNotifications:\n\(trace.entries.joined(separator: "\n"))\nProbe snapshots:\n\(probeSnapshots.joined(separator: "\n"))\nDeferred recording:\n\(recordingTrace.entries.joined(separator: "\n"))"
         }
         addTeardownBlock { @MainActor in
             let attachment = XCTAttachment(string: diagnostics())
@@ -434,7 +435,8 @@ final class ChartInteractionContractTelemetryTests: XCTestCase {
     }
 
     @MainActor
-    private func makeService() throws -> (service: IChartTelemetryService, consent: IChartTelemetryConsentStore,
+    private func makeService(recordingObserver: (@Sendable (IChartTelemetryRecordingTrace) -> Void)? = nil) throws
+        -> (service: IChartTelemetryService, consent: IChartTelemetryConsentStore,
         queue: IChartTelemetryQueueStore, session: URLSession, directory: URL, suite: String) {
         let suite = "interaction-telemetry-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -446,7 +448,8 @@ final class ChartInteractionContractTelemetryTests: XCTestCase {
         config.protocolClasses = [InteractionTelemetryOfflineProtocol.self]
         let session = URLSession(configuration: config)
         let service = IChartTelemetryService(endpointURL: URL(string: "https://telemetry.invalid/ingest")!,
-            publishableKey: "synthetic", sessionStore: nil, queueStore: queue, consentStore: consent, urlSession: session)
+            publishableKey: "synthetic", sessionStore: nil, queueStore: queue, consentStore: consent,
+            urlSession: session, recordingObserver: recordingObserver)
         return (service, consent, queue, session, directory, suite)
     }
 
@@ -544,6 +547,31 @@ private enum InteractionFixtureError: Error {
     case unstableWindow
     case keyboardUnavailable
     case eventNotRecorded
+}
+
+private final class InteractionRecordingTraceRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [String] = []
+
+    var entries: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
+    }
+
+    func record(_ trace: IChartTelemetryRecordingTrace) {
+        var value = "\(ProcessInfo.processInfo.systemUptime) call=\(trace.callID.uuidString.prefix(8)) event=\(trace.eventName) stage=\(trace.stage.rawValue) main=\(Thread.isMainThread)"
+        if let domain = trace.errorDomain, let code = trace.errorCode {
+            value += " error=\(domain):\(code)"
+        }
+        if let denial = trace.admissionDenial {
+            value += " admission=\(denial.rawValue)"
+        }
+        lock.lock()
+        recorded.append(value)
+        if recorded.count > 100 { recorded.removeFirst(recorded.count - 100) }
+        lock.unlock()
+    }
 }
 
 @MainActor private final class InteractionWindowNotificationTrace: NSObject {

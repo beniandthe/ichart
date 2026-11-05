@@ -165,6 +165,25 @@ enum LeadSheetInkFeatureContract {
             }
             receiptStrokes.append(contentsOf: indices.sorted().map { sourceDrawing.strokes[$0] })
         }
+        if let retained = outcome.retainedDraft {
+            let combined = PKDrawing(strokes: receiptStrokes + retained.drawing.strokes)
+            let partitionMatches = receiptsValid && ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+                expected: sourceDrawing, current: combined)
+            let retainedMatches = ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+                expected: retained.drawing, current: remainingCanvasDrawing)
+            let saved = outcome.chart.pageHandwrittenChordData.flatMap { try? PKDrawing(data: $0) }
+            let savedMatches = saved.map {
+                ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: retained.drawing, current: $0)
+            } ?? false
+            let matches = partitionMatches && retainedMatches && savedMatches
+            return Assessment(
+                outcome: matches ? "passed" : "violated",
+                reason: matches ? "render_partial_complete" : "render_partial_source_mismatch",
+                expectedCount: expectedCount,
+                actualCount: receiptStrokes.count + remainingCanvasDrawing.strokes.count,
+                contentMatches: matches
+            )
+        }
         let sourceTransferred = receiptsValid && containsVisibleSource(
             sourceDrawing, in: PKDrawing(strokes: receiptStrokes)
         )

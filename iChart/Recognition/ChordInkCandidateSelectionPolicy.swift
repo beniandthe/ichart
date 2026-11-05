@@ -67,6 +67,15 @@ struct ChordInkCandidateSelectionPolicy {
             promoteCandidate("4", minimumConfidence: 0.84, fallbackConfidence: 0.72)
         }
 
+        if let triangle = triangleCandidateProtectedFromRoundRecovery(at: index, in: sortedColumns),
+           !selected.contains(where: { $0.text == triangle.text }) {
+            // Vetoing an invented quality must not also discard the actual
+            // triangle because three letter lookalikes occupied its beam.
+            // Keep the original confidence/source; this is an alternative,
+            // not a confidence promotion or a forced major-seventh result.
+            selected.append(triangle)
+        }
+
         if shouldExposeHalfDiminishedLookalikeCandidate(at: index, in: sortedColumns) {
             promoteCandidate("ø", minimumConfidence: 0.82, fallbackConfidence: 0.76)
         }
@@ -349,6 +358,21 @@ struct ChordInkCandidateSelectionPolicy {
             && (!currentHasStrongQualityConflict || currentHasContextualFour)
     }
 
+    private func triangleCandidateProtectedFromRoundRecovery(
+        at index: Int,
+        in sortedColumns: [[GlyphCandidate]]
+    ) -> GlyphCandidate? {
+        guard sortedColumns.indices.contains(index),
+              let triangle = sortedColumns[index].first(where: { $0.text == "△" && $0.confidence >= 0.42 }),
+              !sortedColumns[index].contains(where: { $0.text == "ø" && $0.confidence >= 0.50 }) else { return nil }
+
+        // Reuse the exact root/seven, round-body, accidental and hard-quality
+        // checks of the recovery being vetoed. Other glyph beams stay intact.
+        var withoutTriangle = sortedColumns
+        withoutTriangle[index].removeAll { $0.text == "△" }
+        return shouldExposeHalfDiminishedLookalikeCandidate(at: index, in: withoutTriangle) ? triangle : nil
+    }
+
     private func shouldExposeHalfDiminishedLookalikeCandidate(
         at index: Int,
         in sortedColumns: [[GlyphCandidate]]
@@ -375,10 +399,17 @@ struct ChordInkCandidateSelectionPolicy {
         let triangleConfidence = currentColumn.first { candidate in
             candidate.text == "△"
         }?.confidence ?? 0
-        let triangleOwnsLookalikeBody = triangleConfidence >= 0.55
+        // A round-looking letter is not positive evidence of a slashed circle.
+        // When the same cluster carries a plausible triangle at the minimum
+        // confidence used for the round fallback, keep that actual alternative
+        // instead of manufacturing a stronger, unrelated half-diminished read.
+        // Explicit half-diminished evidence retains its existing recovery path.
+        let minimumRoundLookalikeConfidence = 0.42
+        let triangleOwnsLookalikeBody = triangleConfidence >= minimumRoundLookalikeConfidence
             && explicitHalfDiminishedConfidence < 0.50
         let currentLooksLikeRoundHalfDiminishedBody = currentColumn.contains { candidate in
-            candidate.confidence >= 0.42 && ["ø", "B", "D", "G", "O", "0", "3", "8"].contains(candidate.text)
+            candidate.confidence >= minimumRoundLookalikeConfidence
+                && ["ø", "B", "D", "G", "O", "0", "3", "8"].contains(candidate.text)
         }
         let currentIsRootAccidental = currentColumn.contains { candidate in
             candidate.confidence >= 0.70 && (candidate.text == "b" || candidate.text == "#")

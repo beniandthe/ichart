@@ -137,28 +137,56 @@ enum EditorCanvasMode: Hashable {
             && self != .noteEdit
     }
 
-    var activeToolInstruction: String? {
+    func activeToolInstruction(
+        layoutStyle: ChartLayoutStyle,
+        manualRenderWithPreview: Bool,
+        hasFreeInkArticulations: Bool = false
+    ) -> String {
         switch self {
         case .browse:
-            return nil
+            let dividerGuidance = layoutStyle == .simpleChordSheet || layoutStyle == .rhythmSectionSheet
+                ? " Tap an eligible divider, then its red X to merge the measures."
+                : ""
+            if (layoutStyle == .simpleChordSheet || layoutStyle == .rhythmSectionSheet) && hasFreeInkArticulations {
+                return "Tap an item for actions. Double-tap a chord to correct it. Tap a converted mark, then drag to move it. Release to attach when the line is visible. Tap its red X to delete." + dividerGuidance
+            }
+            return "Tap a measure, chord, or cue to see its actions. Double-tap a chord to correct it." + dividerGuidance
         case .measureEdit:
-            return "Tap a measure, then choose an action."
+            return "Tap a measure, then use Add, Layout, or Delete to change the chart. Layout includes Merge with Next Measure when the boundary can be removed safely."
         case .repeatEdit:
-            return "Tap measures to build or remove repeats."
+            return "Select a measure, then choose a repeat or ending. Use One Bar for a single measure or Manage for existing marks."
         case .timeSignatureEdit:
-            return "Tap the measure where the new meter begins."
+            return "Tap the measure where the new time signature starts, then choose the meter and how far it applies."
         case .rhythmicNotationEdit:
-            return "Write rhythm inside the selected measure."
+            return "Tap a measure, then write rhythms inside it and check the preview."
         case .headerEntry:
-            return "Write in the page header."
+            return "Write or erase in the page header. Tap Typed to enter header text."
         case .chordEntry:
-            return "Write chords, barlines, and endings in the blue lanes."
+            let writing = switch layoutStyle {
+            case .simpleChordSheet:
+                "Write chords, repeat signs, and ending brackets in the blue lanes. Draw tall barlines between chords. A lone rendered chord moves to beat 1 when barlines form its measure."
+            case .rhythmSectionSheet:
+                "Write chords, repeats, and endings in the blue lanes. The first chord in each measure renders on beat 1. Draw a tall barline to split at a rhythmic boundary. A lone rendered chord moves to beat 1 when barlines form its measure. If a note crosses the cut, the line stays as ink. Draw barlines on their own at the empty row end to add measures. Use Measures for other form edits."
+            case .leadSheet:
+                "Write chords, repeat signs, and ending brackets in the blue lanes."
+            }
+            let repeats = "Repeats: use 1–2 upright bars at least half a lane tall, with stacked dots beside the middle. Right dots start; left dots end."
+            let rendering = manualRenderWithPreview
+                ? "Keep suffixes close to their roots. Tap Render Chords for ready ink. Use Review & Render for chord corrections or ending review. Unplaced ink stays on the page."
+                : "Leave space between chords and pause to render. Use Fix Writing for unclear ink or Review Ending for brackets. Unplaced ink stays on the page."
+            return writing + " " + repeats + " " + rendering
         case .noteEdit:
-            return "Select a rendered rhythm note."
+            return "Tap a rendered rhythm note to see its editing actions."
         case .freeHand:
-            return "Draw notes and marks that stay as handwriting."
+            if layoutStyle == .simpleChordSheet {
+                return "Draw a fermata or accent anywhere. Lift the Pencil and pause to convert. Marks near a rendered chord attach; others float. Use Select to move or delete them."
+            }
+            if layoutStyle == .rhythmSectionSheet {
+                return "Draw a fermata or accent anywhere, or a marcato (^) near a chord, note, or staff ink. Lift the Pencil and pause to convert."
+            }
+            return "Write or erase notes and marks that stay as handwriting."
         case .textEdit:
-            return "Tap a measure, then add text above or below."
+            return "Tap a measure, then choose Above or Below to add a text cue."
         }
     }
 

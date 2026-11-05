@@ -5,6 +5,45 @@ import XCTest
 @testable import iChart
 
 final class LeadSheetChordInkRecognitionTargetingTests: XCTestCase {
+    func testPrintedMeasureDividerDoesNotDetachAChordRootStem() throws {
+        let context = try chordContext(style: .rhythmSectionSheet, startingMeasureCount: 4)
+        let lane = try XCTUnwrap(context.inputFrames.first)
+        let measure = try XCTUnwrap(context.layout.systems.first?.measures.first)
+        let dividerX = measure.trailingBarlineFrame.midX
+        let fixture = try InkFixtureLoader.load("BFlatMajor7SplitTriangleDevice02", file: #filePath)
+        let drawing = PKDrawing(strokes: fixture.strokes.map { stroke in
+            pkStroke(points: stroke.points.map { point in
+                CGPoint(
+                    x: dividerX - 1 + CGFloat(point.x - 28.43) * 0.74 - context.chordFrame.minX,
+                    y: lane.midY + CGFloat(point.y - 54) * 0.74 - context.chordFrame.minY
+                )
+            })
+        })
+
+        let result = targets(drawing, context: context)
+        XCTAssertEqual(result.diagnostics.measureLaneClusterCount, 2, diagnostics(result))
+        XCTAssertEqual(result.diagnostics.selectedRoute, "lane_root_sequence", diagnostics(result))
+        XCTAssertTrue(result.targets.isEmpty, "The complete chord must use single-target preparation.")
+
+        let prepared = ChordInkRecognitionPreparation.prepare(ChordInkRecognitionPreparationRequest(
+            requestID: UUID(), scheduledAt: Date(), requestedDelay: 0,
+            drawingData: drawing.dataRepresentation(), chordFrame: context.chordFrame,
+            pageLayout: context.layout, flow: .draftPreview, options: .live,
+            layoutStyle: .rhythmSectionSheet
+        ))
+        guard case .ready(let requests, let usesBatch) = prepared.outcome else {
+            return XCTFail("The complete chord was not prepared: \(prepared.outcome)")
+        }
+        XCTAssertFalse(usesBatch)
+        let request = try XCTUnwrap(requests.first)
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(request.strokes.count, fixture.strokes.count)
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+            expected: drawing, current: try PKDrawing(data: request.drawingData)
+        ))
+        XCTAssertEqual(ChordInkMaximumTrustRecognizer().recognize(strokes: request.strokes).match?.displayText, "Bb△7")
+    }
+
     func testAccumulatedRepeatRetainsVisiblePointDotInBothChartStyles() throws {
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
             let context = try chordContext(style: style)
@@ -111,14 +150,16 @@ final class LeadSheetChordInkRecognitionTargetingTests: XCTestCase {
         var inputFrames: [CGRect]
     }
 
-    private func chordContext(style: ChartLayoutStyle = .simpleChordSheet) throws -> Context {
+    private func chordContext(
+        style: ChartLayoutStyle = .simpleChordSheet, startingMeasureCount: Int = 1
+    ) throws -> Context {
         var chart = Chart.draft(title: "Accumulating Chord Targets", layoutStyle: style)
         chart.completeInitialSetup(
             title: "Accumulating Chord Targets",
             key: .cMajor,
             meter: Meter(numerator: 4, denominator: 4),
             staffStyle: .fiveLine,
-            startingMeasureCount: 1
+            startingMeasureCount: startingMeasureCount
         )
         let layout = LeadSheetPageLayoutEngine.pageLayout(
             for: chart,

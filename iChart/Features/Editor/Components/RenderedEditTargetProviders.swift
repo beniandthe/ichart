@@ -172,7 +172,7 @@ struct CommittedChordBarlineRenderedEditHitTargetProvider: RenderedEditHitTarget
             }
 
             let objectID = RenderedEditObjectID.committedChordBarline(afterMeasureID: measureID)
-            let lineFrame = LeadSheetCommittedChordBarlineOverlayGeometry.lineFrame(for: measure)
+            let lineFrame = LeadSheetCommittedChordBarlineOverlayGeometry.lineFrame(for: measure, layoutStyle: context.layoutStyle)
                 .insetBy(dx: 3, dy: 8)
             var targets = [
                 RenderedEditHitTarget(
@@ -189,7 +189,7 @@ struct CommittedChordBarlineRenderedEditHitTargetProvider: RenderedEditHitTarget
                 return targets
             }
 
-            let controlFrames = LeadSheetCommittedChordBarlineOverlayGeometry.controlFrames(for: measure)
+            let controlFrames = LeadSheetCommittedChordBarlineOverlayGeometry.controlFrames(for: measure, layoutStyle: context.layoutStyle)
             targets.append(
                 RenderedEditHitTarget(
                     objectID: objectID,

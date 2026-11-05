@@ -236,6 +236,9 @@ struct ChordInkRecognitionResult: Hashable {
     /// Request-local ownership context, never part of the recognizer cache.
     /// A partial erase cannot establish that the remaining root is complete.
     var requiresEditReview: Bool = false
+    /// A plausible open triangle has no reliable quality read. Keep the
+    /// source for review even if another provider can supply a legal chord.
+    var requiresTriangleQualityReview: Bool = false
     var fallbackEvidence: [ChordInkRecognitionFallbackEvidence] = []
     var metrics: ChordInkRecognitionMetrics = ChordInkRecognitionMetrics()
 
@@ -369,6 +372,16 @@ enum ChordInkRecognitionPolicy {
     }
 
     static func decision(for result: ChordInkRecognitionResult) -> ChordInkRecognitionDecision {
+        if result.requiresTriangleQualityReview {
+            return ChordInkRecognitionDecision(
+                action: .confirm,
+                acceptedText: nil,
+                reason: "The triangle is unclear. Type the chord you meant or rewrite it.",
+                isCloseRace: false,
+                competingCandidateText: nil,
+                confidenceGap: nil
+            )
+        }
         if result.requiresEditReview {
             return ChordInkRecognitionDecision(
                 action: .confirm,

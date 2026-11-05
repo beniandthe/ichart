@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 @testable import iChart
 
@@ -444,6 +445,44 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertTrue(message.contains("Could not write saved library"))
     }
 
+    func testRetryAfterRepeatedEditorSaveFailureWritesLatestSnapshot() throws {
+        let repository = RecordingChartRepository()
+        repository.saveError = RecordingRepositoryError.save
+        let chart = Chart.blank(title: "Original", layoutStyle: .rhythmSectionSheet)
+        let store = ChartLibraryStore(charts: [chart], selectedChartID: chart.id, repository: repository)
+        let binding = try XCTUnwrap(store.editorBinding(for: chart.id))
+        var observedFailures = [String?]()
+        let observation = store.$persistenceStatus.sink { status in
+            if case .failed = status {
+                observedFailures.append(store.retryableSaveFailureMessage)
+            }
+        }
+        defer { observation.cancel() }
+
+        var edited = binding.wrappedValue
+        edited.title = "First edit"
+        binding.wrappedValue = edited
+        edited.title = "Latest edit"
+        edited.pageHandwrittenNotationData = Data([1, 2, 3])
+        binding.wrappedValue = edited
+
+        let latestSnapshot = store.snapshot
+        XCTAssertEqual(binding.wrappedValue, edited)
+        XCTAssertEqual(observedFailures, ["Could not write saved library.", "Could not write saved library."])
+        XCTAssertTrue(repository.savedSnapshots.isEmpty)
+
+        repository.saveError = nil
+        store.retrySavingCurrentSnapshot()
+
+        XCTAssertEqual(repository.saveAttemptCount, 3)
+        XCTAssertEqual(repository.savedSnapshots, [latestSnapshot])
+        XCTAssertEqual(store.snapshot, latestSnapshot)
+        XCTAssertNil(store.retryableSaveFailureMessage)
+        guard case .saved = store.persistenceStatus else {
+            return XCTFail("Expected the retry to report a saved snapshot")
+        }
+    }
+
     func testLiveStoreMarksLoadedSnapshotAsSaved() {
         let chart = Chart.blank(title: "Saved Chart")
         let tombstone = ChartDeletionTombstone(chartID: UUID(), deletedAt: Date(timeIntervalSince1970: 100))
@@ -497,6 +536,12 @@ final class ChartLibraryStoreTests: XCTestCase {
             return XCTFail("Expected load failure status, got \(store.persistenceStatus)")
         }
         XCTAssertTrue(message.contains("Could not read saved library"))
+        XCTAssertNil(store.retryableSaveFailureMessage)
+
+        store.retrySavingCurrentSnapshot()
+
+        XCTAssertEqual(repository.saveAttemptCount, 0, "Retry must not persist the fallback over an unread library")
+        XCTAssertEqual(store.persistenceStatus, .failed(message: message))
     }
 
     func testMutatingChartElementPersistsEditedChartSnapshot() throws {
@@ -1138,6 +1183,63 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertNil(updatedChart.cloudBackupStatus.firstBackedUpAt)
         XCTAssertNil(updatedChart.cloudBackupStatus.lastBackedUpAt)
         XCTAssertEqual(updatedChart.cloudBackupStatus.intent, .included)
+    }
+
+    func testDelayedEditorInkWriteUsesChartIDAfterLibraryReorders() throws {
+        let repository = RecordingChartRepository()
+        let editing = Chart.blank(title: "Open editor")
+        let other = Chart.blank(title: "Other chart")
+        let store = ChartLibraryStore(
+            charts: [other, editing], selectedChartID: editing.id, repository: repository
+        )
+        let binding = try XCTUnwrap(store.editorBinding(for: editing.id))
+        var pendingEdit = binding.wrappedValue
+        pendingEdit.pageHandwrittenNotationData = Data([1, 2, 3])
+        var reordered = store.snapshot
+        reordered.charts = [editing, other]
+        store.applySyncedSnapshot(reordered)
+
+        XCTAssertEqual(binding.wrappedValue.id, editing.id)
+        binding.wrappedValue = pendingEdit
+
+        XCTAssertEqual(store.charts, [pendingEdit, other])
+        XCTAssertEqual(repository.savedSnapshots.last?.charts, [pendingEdit, other])
+    }
+
+    func testDelayedEditorWriteCannotReplaceAnotherChartAfterDeletion() throws {
+        let repository = RecordingChartRepository()
+        let editing = Chart.blank(title: "Open editor")
+        let other = Chart.blank(title: "Other chart")
+        let store = ChartLibraryStore(
+            charts: [editing, other], selectedChartID: editing.id, repository: repository
+        )
+        let binding = try XCTUnwrap(store.editorBinding(for: editing.id))
+        XCTAssertTrue(store.deleteChart(id: editing.id))
+        let saveCount = repository.saveAttemptCount
+
+        binding.wrappedValue = editing
+
+        XCTAssertEqual(store.charts, [other])
+        XCTAssertEqual(repository.saveAttemptCount, saveCount)
+    }
+
+    func testCloudBackupAcknowledgmentSkipsDuplicateChartIDs() {
+        let duplicate = Chart.blank(title: "Duplicate")
+        var conflicting = duplicate
+        conflicting.pageHandwrittenNotationData = Data([1, 2, 3])
+        let valid = Chart.blank(title: "Valid")
+        let store = ChartLibraryStore(charts: [duplicate, conflicting, valid])
+        let ownerID = UUID()
+
+        store.markChartsBackedUpToCloud(
+            chartIDs: [duplicate.id, valid.id],
+            ownerID: ownerID,
+            backedUpAt: Date(),
+            from: store.snapshot
+        )
+
+        XCTAssertEqual(Array(store.charts.prefix(2)), [duplicate, conflicting])
+        XCTAssertEqual(store.charts.last?.cloudBackupStatus.ownerID, ownerID)
     }
 
     func testGuardedSyncedSnapshotAppliesWhenLocalLibraryIsUnchanged() throws {

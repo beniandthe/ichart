@@ -142,6 +142,17 @@ enum ForumAuthorBadgeType: String, Codable, CaseIterable, Hashable, Identifiable
             return "Community Expert"
         }
     }
+
+    var explanation: String {
+        switch self {
+        case .verifiedContributor:
+            return "An iChart operator reviewed this contributor’s published chart work."
+        case .trustedArranger:
+            return "Recognized for consistently accurate, usable arrangements."
+        case .communityExpert:
+            return "Recognized for sharing subject expertise in forum discussions."
+        }
+    }
 }
 
 struct ForumSong: Identifiable, Codable, Equatable, Hashable {
@@ -191,13 +202,55 @@ struct ForumChartPost: Identifiable, Codable, Equatable, Hashable {
     }
 }
 
-struct ForumComment: Identifiable, Codable, Equatable, Hashable {
+struct ForumComment: Identifiable, Codable, Equatable, Hashable, Sendable {
     let id: UUID
     var postID: UUID
     var ownerID: UUID
     var creatorDisplayName: String?
     var body: String
     var createdAt: Date
+    // Preserve the database timestamp precision for keyset pagination.
+    var paginationTimestamp: String? = nil
+}
+
+struct ForumCommentCursor: Equatable, Sendable {
+    let createdAt: Date
+    let id: UUID
+    let timestamp: String
+
+    init(_ comment: ForumComment) {
+        createdAt = comment.createdAt
+        id = comment.id
+        timestamp = comment.paginationTimestamp
+            ?? comment.createdAt.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true))
+    }
+
+    func includesEarlier(_ comment: ForumComment) -> Bool {
+        comment.createdAt < createdAt || (comment.createdAt == createdAt && comment.id.uuidString < id.uuidString)
+    }
+
+    var postgrestFilter: String {
+        "created_at.lt.\(timestamp),and(created_at.eq.\(timestamp),id.lt.\(id.uuidString))"
+    }
+}
+
+struct ForumCommentPage: Equatable, Sendable {
+    let comments: [ForumComment]
+    let earlierCursor: ForumCommentCursor?
+
+    init(descendingComments: [ForumComment], limit: Int = 80) {
+        let shown = Array(descendingComments.prefix(limit).reversed())
+        comments = shown
+        earlierCursor = descendingComments.count > limit ? shown.first.map(ForumCommentCursor.init) : nil
+    }
+
+    static func merging(_ existing: [ForumComment], with incoming: [ForumComment]) -> [ForumComment] {
+        var byID = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
+        for comment in incoming { byID[comment.id] = comment }
+        return byID.values.sorted {
+            $0.createdAt == $1.createdAt ? $0.id.uuidString < $1.id.uuidString : $0.createdAt < $1.createdAt
+        }
+    }
 }
 
 struct ForumAuthorBadge: Identifiable, Codable, Equatable, Hashable {

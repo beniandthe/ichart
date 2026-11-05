@@ -981,6 +981,40 @@ struct LeadSheetNotationRenderer {
         }
     }
 
+    func drawFreeInkArticulations(
+        for paperPage: LeadSheetPaperPageLayout,
+        pageLayout: LeadSheetPageLayout,
+        in context: CGContext,
+        excludingMarkID: UUID? = nil
+    ) {
+        guard !chart.freeInkArticulations.isEmpty else { return }
+        context.saveGState()
+        context.clip(to: paperPage.frame)
+        defer { context.restoreGState() }
+        for mark in chart.freeInkArticulations where mark.id != excludingMarkID {
+            guard let target = FreeInkArticulationPlacement.target(for: mark, chart: chart, pageLayout: pageLayout),
+                  paperPage.frame.contains(target.center) else { continue }
+            drawFreeInkArticulation(mark.kind, at: target)
+        }
+    }
+
+    func drawFreeInkArticulation(_ kind: FreeInkArticulationKind, at target: FreeInkArticulationPlacement.Target) {
+        let symbol: NotationGlyphCatalog.Symbol
+        switch kind {
+        case .fermata: symbol = target.isBelowStaff ? .fermataBelow : .fermataAbove
+        case .accent: symbol = target.isBelowStaff ? .accentBelow : .accentAbove
+        case .marcato: symbol = target.isBelowStaff ? .marcatoBelow : .marcatoAbove
+        }
+        var displayStaffSpace = target.staffSpace * 0.72
+        if let box = style.glyphMetrics(for: symbol)?.boundingBox, box.width > 0, box.height > 0 {
+            let glyphScale = CGFloat(chart.engravingPreset.glyphScale)
+            displayStaffSpace = min(displayStaffSpace,
+                                    target.markFrame.width / (CGFloat(box.width) * glyphScale),
+                                    target.markFrame.height / (CGFloat(box.height) * glyphScale))
+        }
+        drawNotationSymbol(symbol, centeredAt: target.center, staffSpace: displayStaffSpace)
+    }
+
     func drawClef(in frame: CGRect) {
         let symbol: NotationGlyphCatalog.Symbol = chart.renderedClef == .bass ? .bassClef : .trebleClef
         drawNotationSymbol(

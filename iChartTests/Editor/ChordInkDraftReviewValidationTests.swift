@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import UIKit
+import PencilKit
 import XCTest
 @testable import iChart
 
@@ -51,22 +52,119 @@ final class ChordInkDraftReviewValidationTests: XCTestCase {
         assertRejected(.draftCountChanged, state: state, batch: fewerConfirmations, entries: labels(for: state))
     }
 
-    func testEntireDraftEqualityStillProtectsInkIDsOrderingAndRecognitionMetadata() throws {
+    func testDraftEqualityProtectsInkIDsOrderingOwnershipAndPlacement() throws {
         let state = fixture()
         let batch = try XCTUnwrap(ChordInkDraftReviewPolicy.batch(for: state))
         let edits: [(inout ChordPreviewState) -> Void] = [
             { $0.draftChords[0].id = UUID() },
             { $0.draftChords[0].drawingData.append(99) },
             { $0.draftChords.reverse() },
-            { $0.draftChords[0].confidence += 0.01 },
-            { $0.draftChords[0].recognitionResult?.metrics.totalMilliseconds += 1 },
-            { $0.draftChords[0].targetLifecycle?.generationID = UUID() },
+            { $0.draftChords[0].targetFraction = 0.6 },
+            { $0.draftChords[0].targetLifecycle?.ownership.preparedStrokes.removeLast() },
+            { $0.draftChords[0].strokeCount += 1 },
+            { $0.draftChords[0].isStale = true },
             { $0.draftChords[0].selectedText = "C9" }
         ]
         for edit in edits {
             var changed = state
             edit(&changed)
             assertRejected(.draftsChanged, state: changed, batch: batch, entries: labels(for: changed))
+        }
+    }
+
+    func testRepeatedComputeTimingsDoNotInvalidateTheSameReviewedInk() throws {
+        var state = fixture()
+        state.draftChords[0].recognitionResult?.trustEvidence = .init(outcome: .corroborated,
+            symbolSupportCount: 2, completedProbeCount: 3, requiredProbeCount: 3, validationMilliseconds: 2)
+        state.draftChords[0].recognitionResult?.fallbackEvidence = [.init(engineIdentifier: "fixture",
+            engineVersion: "1", candidateTexts: ["C7"], durationMilliseconds: 3)]
+        let batch = try XCTUnwrap(ChordInkDraftReviewPolicy.batch(for: state))
+        var current = state
+        current.draftChords[0].recognitionResult?.metrics.totalMilliseconds += 1
+        current.draftChords[0].recognitionResult?.metrics.glyphMilliseconds += 0.5
+        current.draftChords[0].recognitionResult?.trustEvidence?.validationMilliseconds += 1
+        current.draftChords[0].recognitionResult?.fallbackEvidence[0].durationMilliseconds += 1
+        let reviewed = try ChordInkDraftReviewPolicy.validation(from: current, batch: batch,
+            candidateTextByDraftID: labels(for: current)).get()
+        XCTAssertEqual(reviewed.draftChords[0].drawingData, state.draftChords[0].drawingData)
+        XCTAssertEqual(reviewed.draftChords[0].targetLifecycle, state.draftChords[0].targetLifecycle)
+        XCTAssertEqual(reviewed.draftChords[0].recognitionResult?.metrics,
+            current.draftChords[0].recognitionResult?.metrics)
+
+        current.draftChords[0].strokeCount += 1
+        assertRejected(.draftsChanged, state: current, batch: batch, entries: labels(for: current))
+    }
+
+    @MainActor
+    func testSubmittedChordTextSurvivesSameInkRereadAndDiskReopen() throws {
+        var chart = Chart.blank(title: "Explicit reviewed text", measureCount: 2, layoutStyle: .simpleChordSheet)
+        let pageSize = CGSize(width: 900, height: 1400)
+        let strokes = [30.0, 230.0].enumerated().map { index, x in
+            PKStroke(ink: PKInk(.pen, color: LeadSheetPersistentInkColorPolicy.inkColor),
+                path: PKStrokePath(controlPoints: [CGPoint(x: x, y: 20), CGPoint(x: x + 18, y: 42)]
+                    .enumerated().map { pointIndex, point in
+                        PKStrokePoint(location: point, timeOffset: Double(pointIndex) * 0.1,
+                            size: CGSize(width: 3, height: 3), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+                    }, creationDate: Date(timeIntervalSinceReferenceDate: Double(index))),
+                transform: .identity, mask: nil, randomSeed: UInt32(index))
+        }
+        let source = PKDrawing(strokes: strokes)
+        let coordinateSpace = PersistentInkCoordinateSpace(size: pageSize)
+        XCTAssertTrue(chart.setPageHandwrittenChordDrawing(source.dataRepresentation(), coordinateSpace: coordinateSpace))
+        var state = ChordPreviewState(layoutPageSize: pageSize)
+        state.replaceDraftChords(with: ["C7", "D7"].enumerated().map { index, text in
+            let ink = PKDrawing(strokes: [strokes[index]])
+            let preparedStrokes = PencilKitInkAdapter.inkStrokes(from: ink)
+            let result = ChordInkRecognitionResult(rawCandidates: [text], glyphCandidates: [],
+                match: ChordRecognitionCompendium.match(text), confidence: 0.7)
+            let input = ChordInkDraftInput(measureID: chart.measures[index].id, measureIndex: index,
+                targetFraction: 0.25, layoutPageSize: pageSize, drawingData: ink.dataRepresentation(),
+                candidateTexts: [text], bestCandidateText: text, confidence: result.confidence,
+                strokeCount: 1, recognitionResult: result,
+                targetLifecycle: .init(generationID: UUID(),
+                    anchor: .init(measureID: chart.measures[index].id,
+                        laneLocation: nil, visualOrder: nil, fraction: 0.25),
+                    ownership: .init(preparedStrokes: preparedStrokes), stage: .frozen))
+            return input
+        })
+        let batch = try XCTUnwrap(ChordInkDraftReviewPolicy.batch(for: state))
+        let entries = labels(for: state, first: "Cmaj7", second: "D7")
+        var current = state
+        for index in current.draftChords.indices {
+            let guess = index == 0 ? "F7" : "G7"
+            let result = ChordInkRecognitionResult(rawCandidates: [guess], glyphCandidates: [],
+                match: ChordRecognitionCompendium.match(guess), confidence: 0.2)
+            current.draftChords[index].candidateTexts = [guess]
+            current.draftChords[index].bestCandidateText = guess
+            current.draftChords[index].confidence = result.confidence
+            current.draftChords[index].recognitionResult = result
+            current.draftChords[index].primaryDecision = ChordInkRecognitionPolicy.decision(for: result)
+            current.draftChords[index].recognitionDecision = ChordInkRecognitionPolicy.decision(for: result)
+            current.draftChords[index].targetLifecycle?.generationID = UUID()
+        }
+        let reviewed = try ChordInkDraftReviewPolicy.validation(from: current, batch: batch,
+            candidateTextByDraftID: entries).get()
+        XCTAssertEqual(reviewed.draftChords.map(\.selectedText), ["Cmaj7", "D7"])
+        XCTAssertEqual(reviewed.draftChords.map(\.recognitionResult), current.draftChords.map(\.recognitionResult))
+        let outcome = ChordInkDraftRenderCoordinator.prepare(chart: chart, state: reviewed,
+            currentDrawing: source, coordinateSpace: coordinateSpace)
+        XCTAssertTrue(outcome.canConsumeSource)
+        XCTAssertEqual(outcome.result.renderedChordCount, 2)
+
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let repository = FileChartRepository(url: directory.appendingPathComponent("library-state.json"))
+        try repository.saveSnapshot(.init(charts: [outcome.chart], selectedChartID: chart.id, entitlements: .free))
+        let reopened = try XCTUnwrap(try repository.loadSnapshot()?.charts.first)
+        XCTAssertEqual(reopened.id, chart.id)
+        XCTAssertEqual(reopened.measures.map(\.id), chart.measures.map(\.id))
+        XCTAssertNil(reopened.pageHandwrittenChordData)
+        let events = reopened.measures.flatMap(\.chordEvents)
+        XCTAssertEqual(events.map(\.rawInput), ["Cmaj7", "D7"])
+        for (event, stroke) in zip(events, strokes) {
+            let archived = try PKDrawing(data: XCTUnwrap(event.sourceInkData))
+            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+                expected: PKDrawing(strokes: [stroke]), current: archived))
         }
     }
 

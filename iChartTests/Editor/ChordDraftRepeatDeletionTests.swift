@@ -29,6 +29,82 @@ final class ChordDraftRepeatDeletionTests: XCTestCase {
         }
     }
 
+    func testFreshIncompleteRepeatCanBeDeletedWithoutRenderingOrRemovingUnrelatedInk() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let fixture = try Fixture(style: style)
+            let unrelated = fixture.stroke(points: [
+                CGPoint(x: fixture.lane.minX + 24 - fixture.chordFrame.minX, y: fixture.lane.midY - 6 - fixture.chordFrame.minY),
+                CGPoint(x: fixture.lane.minX + 34 - fixture.chordFrame.minX, y: fixture.lane.midY + 6 - fixture.chordFrame.minY)
+            ])
+            let drawing = PKDrawing(strokes: [unrelated] + Array(fixture.repeatEndStrokes().dropLast()))
+            let state = fixture.state(for: drawing)
+            let sign = try XCTUnwrap(state.draftBarlines.first { $0.ambiguity == .incompleteRepeat }, style.rawValue)
+            let before = drawing.dataRepresentation()
+            let indices = try XCTUnwrap(ChordDraftBarlineDeletionPolicy.validatedSourceIndices(
+                for: sign, state: state, chart: fixture.chart, currentDrawing: drawing, pageLayout: fixture.layout), style.rawValue)
+
+            XCTAssertFalse(sign.isRenderable)
+            XCTAssertEqual(indices, [1, 2, 3], style.rawValue)
+            let removal = drawing.removingStrokesAndSummarizing(at: indices)
+            XCTAssertEqual(removal.strokeCount, 1)
+            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+                expected: PKDrawing(strokes: [unrelated]), current: removal.drawing))
+            XCTAssertEqual(drawing.dataRepresentation(), before)
+
+            var overlappingState = state
+            var overlapping = sign
+            overlapping.id = UUID()
+            overlappingState.draftBarlines.append(overlapping)
+            XCTAssertNil(ChordDraftBarlineDeletionPolicy.validatedSourceIndices(
+                for: sign, state: overlappingState, chart: fixture.chart, currentDrawing: drawing, pageLayout: fixture.layout),
+                "An incomplete-repeat delete still requires exclusive source ownership.")
+        }
+    }
+
+    func testIncompleteRepeatDeleteRejectsChangedDotOrNewCompletionStroke() throws {
+        let fixture = try Fixture()
+        let strokes = fixture.repeatEndStrokes()
+        let drawing = PKDrawing(strokes: Array(strokes.dropLast()))
+        let state = fixture.state(for: drawing)
+        let sign = try XCTUnwrap(state.draftBarlines.first { $0.ambiguity == .incompleteRepeat })
+        var movedStrokes = drawing.strokes
+        let dot = movedStrokes[2]
+        movedStrokes[2] = PKStroke(ink: dot.ink, path: dot.path,
+            transform: dot.transform.translatedBy(x: 2, y: 0), mask: dot.mask, randomSeed: dot.randomSeed)
+        let variants = [PKDrawing(strokes: movedStrokes), PKDrawing(strokes: strokes)]
+
+        for current in variants {
+            let before = current.dataRepresentation()
+            XCTAssertNil(ChordDraftBarlineDeletionPolicy.validatedSourceIndices(
+                for: sign, state: state, chart: fixture.chart, currentDrawing: current, pageLayout: fixture.layout))
+            XCTAssertEqual(current.dataRepresentation(), before,
+                "An earlier incomplete preview cannot delete moved or newly completed source ink.")
+        }
+    }
+
+    func testIncompleteRepeatDeleteRejectsBarWithMultipleVisibleMaskFragments() throws {
+        let fixture = try Fixture()
+        let drawing = PKDrawing(strokes: Array(fixture.repeatEndStrokes().dropLast()))
+        let state = fixture.state(for: drawing)
+        let sign = try XCTUnwrap(state.draftBarlines.first { $0.ambiguity == .incompleteRepeat })
+        let original = drawing.strokes[0]
+        let bounds = original.renderBounds
+        let mask = UIBezierPath(rect: CGRect(x: bounds.minX - 2, y: bounds.minY - 2,
+            width: bounds.width + 4, height: bounds.height * 0.3))
+        mask.append(UIBezierPath(rect: CGRect(x: bounds.minX - 2, y: bounds.maxY - bounds.height * 0.3,
+            width: bounds.width + 4, height: bounds.height * 0.3 + 2)))
+        var strokes = drawing.strokes
+        strokes[0] = PKStroke(ink: original.ink, path: original.path, transform: original.transform,
+            mask: mask, randomSeed: original.randomSeed)
+        XCTAssertGreaterThan(PencilKitInkAdapter.visibleStrokeFragments(from: strokes[0]).count, 1)
+        let masked = PKDrawing(strokes: strokes)
+        let before = masked.dataRepresentation()
+
+        XCTAssertNil(ChordDraftBarlineDeletionPolicy.validatedSourceIndices(
+            for: sign, state: state, chart: fixture.chart, currentDrawing: masked, pageLayout: fixture.layout))
+        XCTAssertEqual(masked.dataRepresentation(), before)
+    }
+
     func testMovingOnlyADotRejectsOldGroupedDeleteWithoutChangingSource() throws {
         let fixture = try Fixture()
         let drawing = PKDrawing(strokes: fixture.repeatEndStrokes())

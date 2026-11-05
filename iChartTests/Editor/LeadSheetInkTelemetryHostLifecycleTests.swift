@@ -1,5 +1,6 @@
 #if canImport(UIKit) && canImport(PencilKit)
 import Foundation
+import CryptoKit
 import PencilKit
 import UIKit
 import XCTest
@@ -29,7 +30,7 @@ final class LeadSheetInkTelemetryHostLifecycleTests: XCTestCase {
         XCTAssertEqual(integrity.properties["expected_count"], .int(1))
         XCTAssertEqual(integrity.properties["actual_count"], .int(1))
         XCTAssertEqual(responsiveness.properties["scope"], .string("page"))
-        if case .double(let duration) = responsiveness.properties["duration_ms"] {
+        if let duration = numericDurationMilliseconds(responsiveness.properties["duration_ms"]) {
             XCTAssertTrue(duration.isFinite)
             XCTAssertGreaterThanOrEqual(duration, 0)
         } else { XCTFail("A real observed callback must retain its measured duration") }
@@ -61,27 +62,100 @@ final class LeadSheetInkTelemetryHostLifecycleTests: XCTestCase {
     }
 
     func testRepeatedIdenticalHostLayoutsDoNotStarveStableCanvasVisibility() async throws {
-        let fixture = try makeFixture()
+        let recordingTrace = InkLifecycleRecordingTraceProbe()
+        let fixture = try makeFixture(recordingObserver: { recordingTrace.record($0) })
         defer { fixture.close() }
+        let chartID = fixture.host.chart.id
+        XCTAssertTrue(recordingTrace.snapshot().scheduledCallIDs.isEmpty,
+            "The layout observation must begin before any deferred producer handoff")
         for _ in 0..<10 {
             fixture.host.setNeedsLayout()
             fixture.host.layoutIfNeeded()
             try await Task.sleep(nanoseconds: 100_000_000)
         }
-        let visible = try XCTUnwrap(try fixture.queue.loadEvents().first {
-            $0.properties["contract_id"] == .string("ink.live_canvas_visibility")
-        })
+        // Preserve the original producer deadline. A queue wait by itself would
+        // let a starved timer run only after these repeated layouts stop.
+        let scheduledCallIDs = recordingTrace.snapshot().scheduledCallIDs
+        XCTAssertEqual(scheduledCallIDs.count, 1,
+            "Stable visibility must hand off while identical layouts continue. \(recordingTrace.failureMessage())")
+
+        // The detached recorder and disk append are asynchronous to that handoff.
+        // Await their actual completion rather than sampling an in-flight queue.
+        let events = try await waitForEvents(fixture.queue) { events in
+            events.contains { isFixtureVisibilityEvent($0, chartID: chartID) }
+                && recordingTrace.snapshot().appendedCallIDs == scheduledCallIDs
+        }
+        let visible = try XCTUnwrap(events.first {
+            isFixtureVisibilityEvent($0, chartID: chartID)
+        }, recordingTrace.failureMessage())
         XCTAssertEqual(visible.properties["outcome"], .string("passed"))
         XCTAssertEqual(visible.properties["scope"], .string("page"))
         XCTAssertEqual(visible.properties["source_stroke_count"], .int(2))
         XCTAssertEqual(visible.properties["expected_count"], .int(1))
         XCTAssertEqual(visible.properties["actual_count"], .int(1))
-        if case .double(let duration) = visible.properties["duration_ms"] {
+        if let duration = numericDurationMilliseconds(visible.properties["duration_ms"]) {
+            XCTAssertTrue(duration.isFinite)
             XCTAssertGreaterThanOrEqual(duration, 599.999)
-        } else { XCTFail("Visibility duration must be the actual stable observation span") }
+        } else {
+            XCTFail("Visibility duration must be numeric; \(recordingTrace.failureMessage())")
+        }
         XCTAssertEqual(try fixture.queue.loadEvents().filter {
             $0.properties["contract_id"] == .string("ink.live_canvas_visibility")
         }.count, 1)
+        let completed = recordingTrace.snapshot()
+        XCTAssertFalse(completed.isTruncated, "The bounded fixture trace must retain every producer")
+        XCTAssertEqual(completed.scheduledCallIDs, scheduledCallIDs,
+            "An ambient or post-loop producer must not satisfy the original handoff deadline")
+        XCTAssertEqual(completed.appendedCallIDs, scheduledCallIDs,
+            "The delivered visibility event must complete the same sole deferred producer")
+    }
+
+    func testSameScopeModelReloadInvalidatesSettlingIntegrityButNextUnannouncedDeletionStillReports() async throws {
+        let fixture = try makeFixture(installsDrawingThroughDelegate: false)
+        defer { fixture.close() }
+        let baseline = fixture.canvas.drawing
+        XCTAssertEqual(baseline.strokes.count, 2)
+        let chartID = fixture.host.chart.id
+        let canvasFrame = fixture.canvas.frame
+
+        fixture.host.canvasViewDidBeginUsingTool(fixture.canvas)
+        fixture.host.canvasViewDidEndUsingTool(fixture.canvas)
+        // Replace the clean resident canvas through its real model sync while
+        // the pen observation is settling. The chart, scope and frame stay put.
+        let replacement = PKDrawing(strokes: Array(baseline.strokes.dropFirst()) + [stroke(150), stroke(220)])
+        var updatedChart = fixture.host.chart
+        XCTAssertTrue(updatedChart.setPageHandwrittenNotationDrawing(replacement.dataRepresentation(),
+            coordinateSpace: updatedChart.pageHandwrittenNotationCoordinateSpace))
+        fixture.host.chart = updatedChart
+        fixture.host.layoutIfNeeded()
+        let reloaded = fixture.canvas.drawing
+        XCTAssertEqual(fixture.host.chart.id, chartID)
+        XCTAssertEqual(fixture.canvas.frame, canvasFrame)
+        XCTAssertEqual(reloaded.strokes.count, 3, "The model reload must reach the resident canvas")
+
+        // Starting the next stroke closes any uncancelled prior observation.
+        // This time remove completed source without a model, undo or erase.
+        fixture.host.canvasViewDidBeginUsingTool(fixture.canvas)
+        fixture.canvas.drawing = PKDrawing(strokes: Array(reloaded.strokes.dropFirst()))
+        fixture.host.canvasViewDrawingDidChange(fixture.canvas)
+        fixture.host.canvasViewDidEndUsingTool(fixture.canvas)
+
+        let events = try await waitForEvents(fixture.queue) { events in
+            events.contains {
+                $0.properties["contract_id"] == .string("ink.authoring_integrity")
+                    && $0.properties["outcome"] == .string("violated")
+                    && $0.properties["expected_count"] == .int(2)
+                    && $0.properties["actual_count"] == .int(1)
+            }
+        }
+        let violations = events.filter {
+            $0.properties["contract_id"] == .string("ink.authoring_integrity")
+                && $0.properties["reason"] == .string("authoring_completed_source_missing")
+        }
+        XCTAssertEqual(violations.count, 1, "Only the unannounced deletion should emit a violation")
+        XCTAssertEqual(violations.last?.properties["scope"], .string("page"))
+        XCTAssertEqual(violations.last?.properties["expected_count"], .int(2))
+        XCTAssertEqual(violations.last?.properties["actual_count"], .int(1))
     }
 
     func testConsentWithdrawalAndRegrantCannotPublishPendingOldPenOperation() async throws {
@@ -109,7 +183,9 @@ final class LeadSheetInkTelemetryHostLifecycleTests: XCTestCase {
         }.count, 1, "Only the new consent-bound pen operation may publish")
     }
 
-    private func makeFixture() throws -> Fixture {
+    private func makeFixture(installsDrawingThroughDelegate: Bool = true,
+        recordingObserver: (@Sendable (IChartTelemetryRecordingTrace) -> Void)? = nil
+    ) throws -> Fixture {
         let suiteName = "iChart-authoring-host-lifecycle-\(UUID().uuidString)"
         let preferences = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -122,7 +198,7 @@ final class LeadSheetInkTelemetryHostLifecycleTests: XCTestCase {
         let session = URLSession(configuration: configuration)
         let service = IChartTelemetryService(endpointURL: URL(string: "https://telemetry.invalid/lifecycle")!,
             publishableKey: "synthetic-client-key", sessionStore: nil, queueStore: queue,
-            consentStore: consent, urlSession: session)
+            consentStore: consent, urlSession: session, recordingObserver: recordingObserver)
         IChartTelemetry.configure(service)
 
         var chart = Chart.draft(title: "Synthetic local lifecycle source", layoutStyle: .simpleChordSheet)
@@ -146,14 +222,37 @@ final class LeadSheetInkTelemetryHostLifecycleTests: XCTestCase {
         host.setNeedsLayout()
         host.layoutIfNeeded()
         let canvas = try XCTUnwrap(host.subviews.compactMap { $0 as? PKCanvasView }.last)
-        canvas.drawing = source
-        host.canvasViewDrawingDidChange(canvas)
+        if installsDrawingThroughDelegate {
+            canvas.drawing = source
+            host.canvasViewDrawingDidChange(canvas)
+        }
         XCTAssertFalse(canvas.isHidden)
         XCTAssertTrue(canvas.tool is PKInkingTool)
         XCTAssertGreaterThan(canvas.bounds.width, 0)
         return Fixture(host: host, canvas: canvas, window: window, previousWindow: previousWindow,
             directory: directory, suiteName: suiteName, preferences: preferences,
             queue: queue, consent: consent, service: service, session: session)
+    }
+
+    private func numericDurationMilliseconds(_ value: IChartTelemetryValue?) -> Double? {
+        // Queue JSON has scalar numbers, not enum tags: an integral measured
+        // Double can legitimately reload as Int without changing its value.
+        switch value {
+        case .double(let value)?: return value
+        case .int(let value)?: return Double(value)
+        default: return nil
+        }
+    }
+
+    private func isFixtureVisibilityEvent(_ event: IChartTelemetryEvent, chartID: UUID) -> Bool {
+        guard event.properties["contract_id"] == .string("ink.live_canvas_visibility"),
+              case .string(let reference)? = event.properties["chart_reference"] else { return false }
+        // Match the opaque per-installation reference; never log either raw ID.
+        let key = SymmetricKey(data: Data(event.installationID.uuidString.lowercased().utf8))
+        let message = Data(("ichart-chart-reference-v1:" + chartID.uuidString.lowercased()).utf8)
+        let expected = HMAC<SHA256>.authenticationCode(for: message, using: key)
+            .map { String(format: "%02x", $0) }.joined()
+        return reference == expected
     }
 
     private func waitForEvents(_ queue: IChartTelemetryQueueStore,
@@ -204,6 +303,69 @@ final class LeadSheetInkTelemetryHostLifecycleTests: XCTestCase {
             preferences.removePersistentDomain(forName: suiteName)
             try? FileManager.default.removeItem(at: directory)
         }
+    }
+}
+
+/// Test-only bounded metadata; never captures an event payload or source values.
+/// Defined outside the MainActor test class so the Sendable observer stays synchronous.
+private final class InkLifecycleRecordingTraceProbe: @unchecked Sendable {
+    private struct Entry {
+        let elapsedMilliseconds: Double
+        let callID: UUID
+        let eventName: String
+        let stage: IChartTelemetryRecordingTrace.Stage
+        let admissionDenial: IChartTelemetryConsentAdmissionDenial?
+    }
+
+    private let lock = NSLock()
+    private let startedAt = ProcessInfo.processInfo.systemUptime
+    private var entries: [Entry] = []
+    private var truncated = false
+
+    func record(_ trace: IChartTelemetryRecordingTrace) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard entries.count < 64 else {
+            truncated = true
+            return
+        }
+        entries.append(Entry(
+            elapsedMilliseconds: (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000,
+            callID: trace.callID, eventName: trace.eventName,
+            stage: trace.stage, admissionDenial: trace.admissionDenial))
+    }
+
+    struct Snapshot {
+        let scheduledCallIDs: Set<UUID>
+        let appendedCallIDs: Set<UUID>
+        let isTruncated: Bool
+    }
+
+    func snapshot() -> Snapshot {
+        lock.lock()
+        defer { lock.unlock() }
+        let featureCalls = entries.filter { $0.eventName == "feature.contract_checked" }
+        let scheduled = Set(featureCalls.filter { $0.stage == .deferredScheduled }.map(\.callID))
+        return Snapshot(
+            scheduledCallIDs: scheduled,
+            appendedCallIDs: Set(featureCalls.filter {
+                $0.stage == .queueAppended && scheduled.contains($0.callID)
+            }.map(\.callID)),
+            isTruncated: truncated)
+    }
+
+    func failureMessage() -> String {
+        lock.lock()
+        let snapshot = entries
+        let wasTruncated = truncated
+        let elapsedMilliseconds = (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
+        lock.unlock()
+        let header = "Visibility queue read failed; trace snapshot at +\(String(format: "%.3f", elapsedMilliseconds))ms; recording traces=\(snapshot.count), truncated=\(wasTruncated)"
+        let rows = snapshot.map { entry in
+            let denial = entry.admissionDenial?.rawValue ?? "none"
+            return "+\(String(format: "%.3f", entry.elapsedMilliseconds))ms call=\(entry.callID.uuidString.lowercased()) stage=\(entry.stage.rawValue) admission=\(denial)"
+        }
+        return ([header] + rows).joined(separator: "\n")
     }
 }
 

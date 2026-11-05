@@ -31,6 +31,94 @@ final class ChordInkStructuralAutomaticRenderTests: XCTestCase {
         }
     }
 
+    func testPlainBarlinesExtendShortRhythmRowWithoutMovingItsChordsOrStaffInk() throws {
+        var chart = makeChart(.rhythmSectionSheet, startingMeasureCount: 8)
+        chart.setEngravingPreset(.bold)
+        let originalIDs = chart.measures.map(\.id)
+        let tailID = originalIDs[3]
+        XCTAssertTrue(chart.insertSystemBreak(before: tailID))
+        XCTAssertTrue(chart.insertSystemBreak(before: originalIDs[4]))
+        for id in originalIDs.prefix(4) { _ = chart.setMeasureManualLayoutWidth(184, for: id) }
+        _ = chart.setMeasureManualLayoutWidth(147.2, for: originalIDs[4])
+
+        let source = PKDrawing(strokes: [stroke([CGPoint(x: 12, y: 12), CGPoint(x: 24, y: 35)])])
+        for (text, fraction) in [("C", 0.08), ("G", 0.48), ("F", 0.96)] {
+            let match = try XCTUnwrap(ChordRecognitionCompendium.match(text))
+            let id = try XCTUnwrap(chart.appendRecognizedChordEvent(match.symbol, rawInput: text,
+                to: tailID, atFraction: fraction, sourceInkData: source.dataRepresentation()))
+            XCTAssertTrue(chart.moveChordEventInCommittedChordLane(id, to: tailID, atFraction: nil,
+                visualFraction: fraction, preserveMusicalPlacement: true))
+        }
+        let originalTail = try XCTUnwrap(chart.measure(id: tailID))
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize,
+            includesChordInkContinuationLanes: true)
+        let row = try XCTUnwrap(layout.systems.first { $0.measures.last?.sourceMeasureID == tailID })
+        let tail = try XCTUnwrap(row.measures.last)
+        XCTAssertEqual(row.measures.compactMap(\.sourceMeasureID), [tailID])
+        let lane = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
+            for: row, paperFrame: layout.paperFrame(for: row)))
+        let fixture = Fixture(layout: layout, system: row,
+            chordFrame: LeadSheetActiveInkScope.chordWritingFrame(for: layout), lane: lane)
+        let pageFrame = LeadSheetActiveInkScope.pageWritingFrame(for: layout)
+        let staff = try XCTUnwrap(layout.systems.first?.measures.first?.staffFrame)
+        let staffStroke = stroke([
+            CGPoint(x: staff.minX + 20 - pageFrame.minX, y: staff.midY - pageFrame.minY),
+            CGPoint(x: staff.minX + 28 - pageFrame.minX, y: staff.midY - 15 - pageFrame.minY)
+        ])
+        let staffSpace = LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(for: layout, relativeTo: pageFrame)
+        XCTAssertTrue(chart.setPageHandwrittenNotationDrawing(
+            PKDrawing(strokes: [staffStroke]).dataRepresentation(), coordinateSpace: staffSpace))
+        let staffInk = try XCTUnwrap(chart.pageHandwrittenNotationData)
+
+        // The iPad wrote three vertical separators beyond the existing row,
+        // out of chronological order and closer than the manual resize floor.
+        let positions = [50.5, 108.0, 181.5].map { tail.trailingBarlineFrame.midX + $0 }
+        let drawing = PKDrawing(strokes: [positions[0], positions[2], positions[1]].flatMap {
+            strokes(.single, x: $0, fixture: fixture)
+        })
+        let input = try prepareBarline(drawing, chart: &chart, fixture: fixture, expectedCount: 3)
+        XCTAssertEqual(input.state.draftBarlines.map(\.kind), [.single, .single, .single])
+        XCTAssertEqual(input.state.draftBarlines.map(\.measureID), [tailID, tailID, tailID])
+        let manual = ChordInkDraftRenderCoordinator.prepare(chart: chart, state: input.state,
+            currentDrawing: input.drawing, coordinateSpace: .init(size: fixture.chordFrame.size))
+        XCTAssertTrue(manual.canConsumeSource)
+        XCTAssertEqual(manual.result.renderedBarlineCount, 3)
+        let result = try XCTUnwrap(attempt(chart, input, elapsed: 4).outcome)
+        XCTAssertEqual(result.result.renderedBarlineCount, 3)
+        XCTAssertTrue(result.drawing.strokes.isEmpty)
+        XCTAssertNil(result.chart.pageHandwrittenChordData)
+        XCTAssertEqual(result.chart.measure(id: tailID), originalTail)
+        XCTAssertEqual(result.chart.pageHandwrittenNotationData, staffInk)
+        XCTAssertEqual(result.chart.pageHandwrittenNotationCoordinateSpace, staffSpace)
+        XCTAssertEqual(result.chart.measures.filter { originalIDs.contains($0.id) }.map(\.id), originalIDs)
+        XCTAssertEqual(result.chart.measures.filter { $0.authoringState == .open }.map(\.id), [originalIDs[7]])
+        XCTAssertTrue(result.chart.systems.contains {
+            $0.lineBreakRule == .forced && $0.measures.first?.id == originalIDs[4]
+        })
+
+        let reopened = try ChartPersistenceCoders.decoder.decode(Chart.self,
+            from: ChartPersistenceCoders.encoder.encode(result.chart))
+        XCTAssertEqual(reopened, result.chart)
+        let reopenedLayout = LeadSheetPageLayoutEngine.pageLayout(for: reopened, pageSize: pageSize,
+            includesChordInkContinuationLanes: true)
+        let reopenedRow = try XCTUnwrap(reopenedLayout.systems.first { $0.index == row.index })
+        XCTAssertEqual(reopenedRow.measures.first?.sourceMeasureID, tailID)
+        XCTAssertEqual(reopenedRow.measures.first?.chordLayouts, tail.chordLayouts)
+        XCTAssertEqual(reopenedRow.measures.count, 4)
+        for (new, expected) in zip(reopenedRow.measures.dropFirst(), positions) {
+            XCTAssertEqual(new.trailingBarlineFrame.midX, expected, accuracy: 0.01)
+        }
+
+        var dividerChart = chart
+        let dividerInput = try prepareBarline(PKDrawing(strokes: strokes(.single,
+            x: tail.trailingBarlineFrame.midX + 1, fixture: fixture)), chart: &dividerChart, fixture: fixture)
+        XCTAssertNil(attempt(dividerChart, dividerInput, elapsed: 4).outcome)
+        let refused = ChordInkDraftRenderCoordinator.prepare(chart: dividerChart, state: dividerInput.state,
+            currentDrawing: dividerInput.drawing, coordinateSpace: .init(size: fixture.chordFrame.size))
+        XCTAssertFalse(refused.canConsumeSource)
+        XCTAssertEqual(refused.chart, dividerChart)
+    }
+
     func testStructuralGraceCannotBeShortenedBySpatialCompletionAndResetsForNewInput() throws {
         var chart = makeChart()
         let fixture = try fixture(chart)
@@ -89,7 +177,7 @@ final class ChordInkStructuralAutomaticRenderTests: XCTestCase {
         XCTAssertEqual(reopened, rendered.chart)
     }
 
-    func testStructuralCommitPreservesExistingRenderedChordSources() throws {
+    func testSlantedBarlineBetweenRenderedChordsRoutesToStructureAndPreservesChords() throws {
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
             var chart = makeChart(style)
             let firstID = try XCTUnwrap(chart.measures.first?.id)
@@ -109,24 +197,49 @@ final class ChordInkStructuralAutomaticRenderTests: XCTestCase {
             chart.systems[0].measures[0].chordEvents[gIndex].tieOut = true
             let originalEvents = Dictionary(uniqueKeysWithValues: chart.measures.flatMap(\.chordEvents).map { ($0.id, $0) })
             let fixture = try fixture(chart)
-            let drawing = PKDrawing(strokes: strokes(.single, x: fixture.lane.midX, fixture: fixture))
-            let source = try install(drawing, in: &chart, fixture: fixture)
+            let chordFrames = fixture.system.measures.flatMap(\.chordLayouts)
+                .map { $0.frame.union($0.naturalFrame) }
+                .sorted { $0.minX < $1.minX }
+            XCTAssertEqual(chordFrames.count, 2)
+            let left = try XCTUnwrap(chordFrames.first)
+            let right = try XCTUnwrap(chordFrames.last)
+            let gapX = (left.maxX + right.minX) / 2
+            let drawing = slantedBarline(at: gapX, fixture: fixture)
+            let overlapping = slantedBarline(at: left.midX, fixture: fixture)
+            let overlappingResult = ChordDraftBarlineRecognizer.recognize(
+                strokes: PencilKitInkAdapter.inkStrokes(from: overlapping), chordFrame: fixture.chordFrame,
+                pageLayout: fixture.layout)
+            XCTAssertTrue(overlappingResult.barlines.isEmpty, "The relaxed shape must fit between rendered chords")
+            let source = try prepareBarline(drawing, chart: &chart, fixture: fixture)
             let beforeFrames = Dictionary(uniqueKeysWithValues: fixture.layout.systems.flatMap(\.measures)
                 .flatMap(\.chordLayouts).map { ($0.id, $0.naturalFrame) })
 
+            let manual = ChordInkDraftRenderCoordinator.prepare(chart: chart, state: source.state,
+                currentDrawing: source.drawing, coordinateSpace: .init(size: fixture.chordFrame.size))
+            XCTAssertTrue(manual.canConsumeSource, style.rawValue)
+            XCTAssertEqual(manual.result.renderedBarlineCount, 1)
+            XCTAssertEqual(manual.result.renderedChordCount, 0)
+            XCTAssertEqual(manual.chart.measures.flatMap(\.chordEvents).map(\.id), [cID, gID])
+
             let rendered = try XCTUnwrap(attempt(chart, source, elapsed: 4).outcome)
+            XCTAssertEqual(rendered.result.renderedBarlineCount, 1)
+            XCTAssertEqual(rendered.result.renderedChordCount, 0)
             let events = Dictionary(uniqueKeysWithValues: rendered.chart.measures.flatMap(\.chordEvents).map { ($0.id, $0) })
             XCTAssertEqual(Set(events.keys), Set([cID, gID]))
             for id in [cID, gID] {
                 XCTAssertEqual(events[id]?.sourceInkData, originalEvents[id]?.sourceInkData)
                 XCTAssertEqual(events[id]?.rawInput, originalEvents[id]?.rawInput)
                 XCTAssertEqual(events[id]?.symbol, originalEvents[id]?.symbol)
-                XCTAssertEqual(events[id]?.startPosition, originalEvents[id]?.startPosition)
+                XCTAssertEqual(events[id]?.startPosition, BeatPosition(beat: 1, subdivision: 0, subdivisionsPerBeat: 1))
                 XCTAssertEqual(events[id]?.duration, originalEvents[id]?.duration)
                 XCTAssertEqual(events[id]?.rhythmPlacement, originalEvents[id]?.rhythmPlacement)
                 var expected = try XCTUnwrap(originalEvents[id])
-                expected.manualVisualLaneFraction = events[id]?.manualVisualLaneFraction
-                XCTAssertEqual(events[id], expected, "Only the visual fraction may change within the redistributed event")
+                expected.startPosition = BeatPosition(beat: 1, subdivision: 0, subdivisionsPerBeat: 1)
+                expected.anchorsToMeasureStart = true
+                expected.mappedRhythmSlotIndex = nil
+                expected.manualLaneFraction = nil
+                expected.manualVisualLaneFraction = nil
+                XCTAssertEqual(events[id], expected, "A resulting singleton moves to beat 1 with every other receipt intact")
             }
             XCTAssertEqual(rendered.chart.measures.count, 2)
             XCTAssertEqual(rendered.chart.measures[0].chordEvents.map(\.id), [cID])
@@ -137,12 +250,57 @@ final class ChordInkStructuralAutomaticRenderTests: XCTestCase {
             let afterFrames = Dictionary(uniqueKeysWithValues: afterLayout.systems.flatMap(\.measures)
                 .flatMap(\.chordLayouts).map { ($0.id, $0.naturalFrame) })
             for id in [cID, gID] {
-                XCTAssertEqual(try XCTUnwrap(afterFrames[id]).minX, try XCTUnwrap(beforeFrames[id]).minX, accuracy: 0.01)
+                XCTAssertLessThan(try XCTUnwrap(afterFrames[id]).minX, try XCTUnwrap(beforeFrames[id]).minX)
             }
             XCTAssertEqual(try ChartPersistenceCoders.decoder.decode(Chart.self,
                 from: ChartPersistenceCoders.encoder.encode(rendered.chart)), rendered.chart)
             XCTAssertTrue(rendered.drawing.strokes.isEmpty)
         }
+    }
+
+    private func slantedBarline(at x: CGFloat, fixture: Fixture) -> PKDrawing {
+        let center = CGPoint(x: x - fixture.chordFrame.minX, y: fixture.lane.midY - fixture.chordFrame.minY)
+        let halfHeight = fixture.lane.height * 0.42
+        let halfWidth = halfHeight * 0.38
+        return PKDrawing(strokes: [stroke([
+            CGPoint(x: center.x - halfWidth, y: center.y - halfHeight),
+            CGPoint(x: center.x + halfWidth, y: center.y + halfHeight)
+        ])])
+    }
+
+    func testSlantedBarlineToleranceDoesNotCreateSplitAtExistingMeasureBoundary() throws {
+        var chart = makeChart(startingMeasureCount: 2)
+        let c = try XCTUnwrap(ChordRecognitionCompendium.match("C"))
+        let g = try XCTUnwrap(ChordRecognitionCompendium.match("G7"))
+        let firstID = chart.measures[0].id
+        let secondID = chart.measures[1].id
+        _ = try XCTUnwrap(chart.appendRecognizedChordEvent(c.symbol, rawInput: "C", to: firstID, atFraction: 0.25))
+        _ = try XCTUnwrap(chart.appendRecognizedChordEvent(g.symbol, rawInput: "G7", to: secondID, atFraction: 0.75))
+        let fixture = try fixture(chart)
+        let first = try XCTUnwrap(fixture.system.measures.first { $0.id == firstID })
+        let drawing = slantedBarline(at: first.trailingBarlineFrame.midX, fixture: fixture)
+
+        let result = ChordDraftBarlineRecognizer.recognize(
+            strokes: PencilKitInkAdapter.inkStrokes(from: drawing), chordFrame: fixture.chordFrame,
+            pageLayout: fixture.layout)
+
+        XCTAssertTrue(result.barlines.isEmpty)
+    }
+
+    private func prepareBarline(
+        _ drawing: PKDrawing, chart: inout Chart, fixture: Fixture, expectedCount: Int = 1
+    ) throws -> Input {
+        _ = chart.setPageHandwrittenChordDrawing(drawing.dataRepresentation())
+        let data = try XCTUnwrap(chart.pageHandwrittenChordData)
+        let prepared = ChordInkRecognitionPreparation.prepare(ChordInkRecognitionPreparationRequest(
+            requestID: UUID(), scheduledAt: inputAt, requestedDelay: 0, drawingData: data,
+            chordFrame: fixture.chordFrame, pageLayout: fixture.layout, flow: .draftPreview,
+            options: .live, layoutStyle: chart.layoutStyle))
+        XCTAssertEqual(prepared.recognitionStrokeCount, 0, "Barline ink must stay out of chord recognition")
+        XCTAssertEqual(prepared.barlines.count, expectedCount)
+        XCTAssertEqual(Set(prepared.barlines.flatMap(\.ownedSourceStrokeIndices)), Set(0..<expectedCount))
+        let state = ChordPreviewState(draftBarlines: prepared.barlines, layoutPageSize: pageSize)
+        return Input(drawing: try PKDrawing(data: data), state: state, fixture: fixture)
     }
     func testExistingRepeatReceiptIsUnchangedWhenAnotherPairRenders() throws {
         var chart = makeChart(startingMeasureCount: 2)
@@ -196,22 +354,37 @@ final class ChordInkStructuralAutomaticRenderTests: XCTestCase {
         XCTAssertEqual(chart, original)
     }
 
-    func testUnpairedRepeatSignsRemainExplicitChoicesAfterGrace() throws {
+    func testUnmatchedStartStaysInkWhileStandaloneEndUsesTheChartBeginningAfterGrace() throws {
         for kind in [DraftBarlineKind.repeatStart, .repeatEnd] {
             var chart = makeChart()
             let fixture = try fixture(chart)
             let source = try install(PKDrawing(strokes: strokes(kind, x: fixture.lane.midX, fixture: fixture)),
                 in: &chart, fixture: fixture)
             let original = chart
-            let outcome = attempt(chart, source, elapsed: 4)
-            XCTAssertNil(outcome.outcome)
-            XCTAssertEqual(outcome.feedback.globalReason, .repeatReview)
+            let result = attempt(chart, source, elapsed: 4)
+            if kind == .repeatStart {
+                XCTAssertNil(result.outcome)
+                XCTAssertEqual(result.feedback.globalReason, .repeatReview)
+            } else {
+                let outcome = try XCTUnwrap(result.outcome)
+                XCTAssertEqual(outcome.result.renderedBarlineCount, 1)
+                XCTAssertTrue(outcome.drawing.strokes.isEmpty)
+                XCTAssertTrue(outcome.remainingState.isEmpty)
+                let reopened = try ChartPersistenceCoders.decoder.decode(Chart.self,
+                    from: ChartPersistenceCoders.encoder.encode(outcome.chart))
+                let span = try XCTUnwrap(reopened.roadmapObjects.first { $0.type == .repeatSpan })
+                XCTAssertEqual(span.startMeasureID, chart.measures.first?.id)
+                let archive = try PKDrawing(data: XCTUnwrap(span.sourceInkData))
+                XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+                    expected: source.drawing, current: archive))
+                XCTAssertNil(reopened.pageHandwrittenChordData)
+            }
             XCTAssertEqual(chart, original)
             XCTAssertEqual(source.drawing.strokes.count, 3)
         }
     }
 
-    func testSplitBoundaryAssignsPinnedChordToRightWithoutDuplicatingSourceOrTiming() throws {
+    func testSplitBoundaryAssignsPinnedChordToRightAndAnchorsItWithoutDuplicatingSource() throws {
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
             var chart = makeChart(style)
             let measureID = chart.measures[0].id
@@ -230,7 +403,11 @@ final class ChordInkStructuralAutomaticRenderTests: XCTestCase {
             let right = try XCTUnwrap(chart.measure(id: rightID))
             XCTAssertEqual(right.chordEvents.count, 1)
             var expected = original
-            expected.manualVisualLaneFraction = 0
+            expected.startPosition = BeatPosition(beat: 1, subdivision: 0, subdivisionsPerBeat: 1)
+            expected.anchorsToMeasureStart = true
+            expected.mappedRhythmSlotIndex = nil
+            expected.manualLaneFraction = nil
+            expected.manualVisualLaneFraction = nil
             XCTAssertEqual(right.chordEvents.first, expected)
             XCTAssertEqual(chart.measure(id: measureID)?.manualLayoutWidth, 150)
             XCTAssertEqual(right.manualLayoutWidth, 150)

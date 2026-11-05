@@ -7,19 +7,15 @@ struct PendingChordDraftEndingReview: Identifiable {
     let chartID: UUID
     let endingID: UUID
     let sourceDrawingData: Data?
-    let sourceCoordinateSpace: PersistentInkCoordinateSpace?
     let measureIDs: [UUID]
-    let layoutStyle: ChartLayoutStyle
     let state: ChordPreviewState
     let continuesRendering: Bool
     let ending: DraftEnding
     let sourceEndingDrawingData: Data
     let measureRange: ClosedRange<Int>?
     let availableMeasureCount: Int
+    let blockingBarlines: [DraftBarline]
     let rangeContext: ChordDraftEndingRangeReviewContext
-    /// Range geometry and existing notation may change without replacing a
-    /// measure ID. A label approval belongs to this complete chart snapshot.
-    let chartSnapshot: Chart
 }
 
 /// Reviewing a label changes only a temporary ending draft. The live canvas
@@ -54,18 +50,17 @@ enum ChordDraftEndingReviewPolicy {
               ending.sourceStrokeIndices.allSatisfy({ drawing.strokes.indices.contains($0) }),
               let rangeContext = ChordDraftEndingRangeReviewContext.capture(chart: chart, state: state) else { return nil }
         let source = PKDrawing(strokes: ending.sourceStrokeIndices.sorted().map { drawing.strokes[$0] })
+        let placement = chart.draftEndingReviewPlacement(for: ending, state: state)
         return PendingChordDraftEndingReview(
             chartID: chart.id, endingID: ending.id,
             sourceDrawingData: sourceDrawingData,
-            sourceCoordinateSpace: chart.pageHandwrittenChordCoordinateSpace,
-            measureIDs: chart.measures.map(\.id), layoutStyle: chart.layoutStyle,
+            measureIDs: chart.measures.map(\.id),
             state: state, continuesRendering: continuesRendering,
             ending: ending, sourceEndingDrawingData: source.dataRepresentation(),
-            measureRange: chart.draftEndingMeasureRange(for: ending, state: state)
-                ?? chart.draftEndingMeasureRange(for: ending, state: state, ignoringReviewedRange: true),
-            availableMeasureCount: chart.draftEndingReviewMeasureCount(state: state) ?? 0,
-            rangeContext: rangeContext,
-            chartSnapshot: chart
+            measureRange: placement.measureRange,
+            availableMeasureCount: placement.availableMeasureCount,
+            blockingBarlines: placement.blockingBarlines,
+            rangeContext: rangeContext
         )
     }
 
@@ -81,16 +76,10 @@ enum ChordDraftEndingReviewPolicy {
               let chosenRange = measureRange ?? request.measureRange,
               chosenRange.lowerBound >= 1,
               chosenRange.upperBound <= request.availableMeasureCount,
-              chart.id == request.chartID,
-              chart == request.chartSnapshot,
-              chart.pageHandwrittenChordData == request.sourceDrawingData,
-              chart.pageHandwrittenChordCoordinateSpace == request.sourceCoordinateSpace,
-              chart.measures.map(\.id) == request.measureIDs,
-              chart.layoutStyle == request.layoutStyle,
               currentState.draftChords == request.state.draftChords,
               currentState.draftBarlines == request.state.draftBarlines,
               currentState.draftEndings == request.state.draftEndings,
-              currentState.layoutPageSize == request.state.layoutPageSize,
+              request.rangeContext.matches(chart: chart, state: currentState),
               currentState.draftEndings.filter({ $0.id == request.endingID }).count == 1,
               let index = currentState.draftEndings.firstIndex(where: { $0.id == request.endingID }) else { return nil }
         var reviewed = currentState

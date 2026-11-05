@@ -21,7 +21,7 @@ private enum IChartSupportLinks {
     static let supportEmail = "support@useichart.com"
 }
 
-private enum IChartHomeAppearanceMode: String, CaseIterable, Identifiable {
+enum IChartHomeAppearanceMode: String, CaseIterable, Identifiable {
     case light
     case dark
 
@@ -46,7 +46,7 @@ private enum IChartHomeAppearanceMode: String, CaseIterable, Identifiable {
     }
 }
 
-private struct IChartHomeTheme {
+struct IChartHomeTheme {
     let mode: IChartHomeAppearanceMode
 
     var isDark: Bool {
@@ -342,6 +342,11 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Tap Done to leave the current tool and return to Select.",
                 "You can switch directly between Write & Render, Free Ink, Measures, and Tools without returning to Select first.",
                 "Tap a chord, barline, text label, marker, or measure to show its buttons.",
+                "In either chart style, tap an eligible divider, then its red X or Delete to merge the two measures. Rhythm divider deletion is limited to chord-only measures; notes, attached marks or a merge that could move staff handwriting keep the boundary protected.",
+                "On a Simple Chord Sheet or Rhythm Section Sheet, tap a converted mark to select it. Drag to move it or tap the red X to delete it.",
+                "While you drag, a line points to a nearby chord. On a Rhythm Section Sheet, it can also point to a rhythm note or staff ink. Release to attach when the line is visible.",
+                "Drag out of range and the line disappears. Release in open space to leave the mark floating.",
+                "Tap Undo Delete to bring back the last deleted converted mark.",
                 "Use the buttons to correct, move, resize, delete, or clean up what you selected."
             ]
         ),
@@ -352,12 +357,55 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Use Write & Render to turn handwritten chords, barlines, and repeat signs into chart notation.",
             bullets: [
                 "Write in the highlighted Corridor Lane above the staff.",
-                "Chords render automatically after a pause. Leave space between chords so each chord can be read separately.",
+                "On a Rhythm Section Sheet, the first chord in each measure renders on beat 1 wherever you write it in that measure.",
+                "Chords render automatically after a pause. Keep the symbols for each chord together, with space before the next chord.",
+                "If a triangle is unclear, the ink stays on the chart. Tap Review Chord in Automatic, or Review & Render in Manual, to enter the intended chord.",
                 "Turn on Manual Render with Preview in app Settings to check the small preview text before tapping Render Chords or Review & Render.",
-                "Draw a barline in the same lane when you want it placed with the chords.",
-                "Draw repeat bars with two dots on the right to start a repeat, on the left to end one, or on both sides to end one repeat and start another.",
-                "Complete each start repeat with an end repeat. If an end repeat has no matching start, Render asks whether to repeat from the beginning.",
-                "When review opens, correct the chord text or choose a suggestion before rendering. Erasing just that writing and rewriting it is another option."
+                "On a Simple Chord Sheet or Rhythm Section Sheet, draw a tall, nearly vertical barline in the highlighted lane with space on either side.",
+                "When barlines form measures around rendered chords in either style, each resulting measure with just one chord moves that chord to beat 1. Measures with multiple chords keep their relative placement.",
+                "On a Rhythm Section Sheet, a handwritten barline can split a measure at a rhythmic boundary in Automatic or Manual Render with Preview. If a note crosses that boundary, the line stays as draft ink and the tool shows feedback above the controls. Use Measures for other form edits.",
+                "Draw the line near an existing note onset when splitting a measure that already has rhythms. Both new measures use the current meter. Written notes keep their lengths, and rests fill the unused beats.",
+                "To add measures at the end of a short row, draw tall barlines on their own in the empty lane and leave space between them.",
+                "If a barline cannot be placed, it stays on the page while chords that can be placed independently render. Keep writing, or use Erase to remove the line and redraw it.",
+                "Splits in Simple measures and supported splits in committed Rhythm measures keep converted marks and their original handwriting. An open Rhythm measure may require Restore Ink in Free Ink before splitting when it holds a converted mark or its original writing.",
+                "When Review Chords opens, check each Recognition guess. Type a correction or choose a suggestion to mark the row Your edit. You can also rewrite just that chord.",
+                "In Edit Chord, choose a saved alternative or use Change quality for a supported chord quality on the same root. Quality choices are editing options, not new recognition guesses. Save applies the chord shown in Change to.",
+                "If you see Chart not saved, keep the chart open and tap Retry Save above the tools."
+            ]
+        ),
+        IChartHelpArticleSection(
+            id: "editor-writing-repeat-signs",
+            title: "Writing Repeat Signs",
+            systemImageName: "repeat",
+            body: "Use the same repeat-sign drawing rules in Automatic and Manual Render with Preview on every sheet layout.",
+            bullets: [
+                "Draw one or two upright bars in the blue lane, at least half as tall as the lane. A little overshoot is allowed; the bars do not need different thicknesses.",
+                "Place two small, stacked dots beside the middle of the bars, with a clear gap between the dots and the bars.",
+                "You can tap, loop, fill, or retrace each dot. Keep two separate, compact dot areas. A third separate dot or dots that run into a bar still need correction.",
+                "Dots on the right start a repeat. Dots on the left end a repeat. A pair on each side ends one repeat and starts the next.",
+                "Draw the bars and dots in any order, upward or downward. Keep the sign separate from nearby chords and other marks.",
+                "Complete each start repeat with an end repeat. A complete end repeat with no earlier start repeats from the beginning of the chart. Nested or conflicting starts stay as draft ink until corrected.",
+                "In Automatic, finish both the bars and dots before pausing. A bare barline that has already rendered cannot gain repeat dots from later dot strokes; use Tools > Repeats to mark the intended measures. While the sign is still draft ink, you can erase the whole sign and redraw it.",
+                "To retry saved repeat ink in Automatic, open the chart, tap Write & Render, and pause. You do not need to add a stroke. If Fix Writing is already showing, tap Select, then Write & Render to check that ink again.",
+                "In Manual Render with Preview, check the repeat preview, then use Render Chords or Review & Render when offered.",
+                "If a repeat is shown as a chord, return to writing and erase just that sign before redrawing it. Correcting chord text does not turn it into a repeat sign.",
+                "Use Tools > Repeats to place repeat marks by selecting measures. Free Ink keeps handwritten repeat signs as ink."
+            ]
+        ),
+        IChartHelpArticleSection(
+            id: "editor-writing-ending-brackets",
+            title: "Writing Ending Brackets",
+            systemImageName: "rectangle.topthird.inset.filled",
+            body: "Draw the bracket in the blue lane, then use Review Ending to enter its label and choose its measures.",
+            bullets: [
+                "Draw a long roof near the top of the lane across the intended measures, with a short downward hook at the left. Add a right hook for a closed ending, or leave that edge open.",
+                "The roof and hooks can be one stroke or separate strokes. Put the label just below the roof, between the hooks, with chords lower in the lane.",
+                "Tap the ending preview to open Review Ending. In Automatic, use Review Ending when offered. In Manual Render with Preview, use Review & Render when the ending needs review.",
+                "The handwritten label is shown for reference. Enter the intended label in Review Ending, such as 1., 2., 1–3, Last time, or On cue.",
+                "Check Start measure and End measure, choose Open or Closed under Right edge, then tap Use Ending. You can correct the measure range without redrawing the bracket.",
+                "Use Ending confirms the draft. Rendering replaces the bracket and label ink with the reviewed notation. Back to Writing keeps the ink; changed writing may need another review.",
+                "If a mark blocks Review Ending, tap its name or Back to Writing to highlight it. Correct the highlighted mark, then review the same ending bracket again.",
+                "Clear Draft Ink removes all unrendered chords, barlines, repeat signs, and endings after confirmation. Use Erase to change only the mark you are fixing."
             ]
         ),
         IChartHelpArticleSection(
@@ -366,11 +414,15 @@ private struct IChartHelpArticleSection: Identifiable {
             systemImageName: "checkmark.circle",
             body: "Turn on Manual Render with Preview in app Settings when you want to review your writing before it becomes notation.",
             bullets: [
-                "Tap Render Chords when the previews are ready. If review is needed, the button says Review & Render and opens Confirm Chords.",
-                "Add chord means a chord needs an entry. You can still open review; type the chord or choose a suggestion.",
-                "In Confirm Chords, correct the text or choose a suggestion, then tap Render Chord or Render All. Each entry needs a supported chord before the final render is available.",
+                "Tap Render Chords to render ready ink. Use Review & Render to check chord guesses or enter missing chords. You can keep writing while unplaced ink stays on the page.",
+                "Tap an ending preview to review its label and measures. When only an unreviewed repeat or ending remains, use Review & Render.",
+                "When adding △7 or −7 after a preview appears, write it close to its root and check the updated preview before rendering. Leave space between separate chords.",
+                "If a preview says Add chord, tap Review & Render and type the intended chord.",
+                "After Back to Writing, your corrections stay with the same handwriting. Check the updated rows if you return to review.",
+                "If new strokes make a chord unreadable, Add chord marks the combined writing. If you see Separate chords, go back to writing and rewrite those chords with more space between them.",
+                "In Review Chords, Recognition guess marks a prefilled read and Your edit marks text you typed or chose. Fill in any missing chords and check the guesses. Render All uses the text shown in every row. Ink that cannot be placed stays on the page.",
                 "Turn the setting off to return to automatic chord rendering after a pause.",
-                "Clear Draft Ink removes all unrendered chord and barline writing after confirmation. Rendered notation and Free Ink stay unchanged."
+                "Clear Draft Ink removes all unrendered chords, barlines, repeat signs, and endings after confirmation."
             ]
         ),
         IChartHelpArticleSection(
@@ -383,7 +435,7 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Drag a selected chord to move it. The right handle adjusts its width only.",
                 "If a selected chord has a custom width, Reset Width returns it to 100% width without changing its placement.",
                 "Tap text or roadmap markers in Select to move, resize, edit, or delete them.",
-                "Tap a chord barline in Select when you want to remove it."
+                "To remove an eligible chord-only divider, choose Select, tap the divider, then its red X or Delete. Protected Rhythm boundaries keep their content and remain in place."
             ]
         ),
         IChartHelpArticleSection(
@@ -393,7 +445,7 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Measures stays one tap away; less-frequent structure and annotation commands live under Tools.",
             bullets: [
                 "Measures groups Add, Layout, and Delete actions for the selected measure.",
-                "Open Layout for Start New Row, Join Row Above, Move to Row Below, or Even Row Widths.",
+                "Open Layout for Start New Row, Join Row Above, Move to Row Below, Even Row Widths, or an eligible Merge with Next Measure.",
                 "Tools > Repeats adds one-bar repeats, repeat starts and ends, endings, and removal actions.",
                 "Tools > Time Signature, Text, and Form Markers use the selected measure as their target."
             ]
@@ -413,10 +465,14 @@ private struct IChartHelpArticleSection: Identifiable {
             id: "editor-free-write",
             title: "Free Ink",
             systemImageName: "pencil.and.scribble",
-            body: "Free Ink keeps your notes and marks exactly as you draw them.",
+            body: "Use Free Ink to write or erase notes and marks directly on the page.",
             bullets: [
-                "Use it for rhythm notes, reminders, and marks iChart should not turn into chords.",
-                "iChart never reads or interprets Free Ink; it remains persistent handwriting.",
+                "Use it for handwritten rhythm notes and reminders.",
+                "On a Simple Chord Sheet or Rhythm Section Sheet, draw a fermata or accent anywhere on the page. Lift the Pencil and pause. iChart converts clear marks into notation and leaves unclear marks as handwriting.",
+                "On a Simple Chord Sheet, a converted mark attaches above a nearby rendered chord. Other marks float where you drew them. Drag near a chord to attach; drag away to float. Deleting a chord keeps its mark floating.",
+                "On a Rhythm Section Sheet, draw a marcato (^) near a chord, rhythm note, or staff ink, then lift the Pencil and pause. In open space, the caret stays handwritten.",
+                "On a Rhythm Section Sheet, a converted mark attaches above a nearby chord, rhythm note, or staff ink. Fermatas and accents drawn in open space stay where you drew them. Use Select to move or delete a converted mark.",
+                "Use Restore Ink to bring the handwriting back. In Simple, measure splits, merges and deletions keep converted marks and their original handwriting. In Rhythm, a converted mark can require restoration before merging or deleting measures; supported splits of committed measures keep the marks.",
                 "Switch directly to another tool, or tap Done to return to Select."
             ]
         ),
@@ -427,7 +483,9 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Tap the chart title for document settings; Export PDF stays visible in the navigation bar.",
             bullets: [
                 "The chart-title menu has header, key, instrument view, transposition, style, fonts, and engraving.",
+                "Engraving previews use the chart's Simple Chord Sheet or Rhythm Section Sheet layout. Preset changes apply to the chart and its exported PDF.",
                 "Export PDF creates the finished file. Your editable chart stays in Charts.",
+                "Personal PDF exports include rendered notation and saved Free Ink. Unresolved Write & Render ink stays in the editable chart.",
                 "If Export PDF is unavailable, tap Done and finish setup first."
             ]
         )
@@ -441,8 +499,12 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Forums are an account-based space for sharing useful chart PDFs with other musicians, included in free Pro access.",
             bullets: [
                 "A forum upload starts from a chart you made in iChart.",
+                "Use the search field at the top of Forums, then tap Search to find songs, artists, arrangers, or tags. Your search text stays available while results load or if you need to retry.",
+                "Forum PDFs keep the publisher's instrument view and transposition at submission. Change the view in the chart before Submit To Forum if needed.",
+                "Older downloads without reliable view metadata show Instrument view unknown. Downloading never changes the notes printed in the PDF.",
                 "iChart checks that the PDF and chart details belong to that upload before it appears publicly.",
-                "Members can browse, download, vote, comment, report concerns, and block contributors they no longer want to see."
+                "Members can browse, download, vote, comment, report concerns, and block contributors they no longer want to see.",
+                "Author badges appear beside chart contributors. Open a chart to read what its author’s badges mean."
             ]
         ),
         IChartHelpArticleSection(
@@ -532,6 +594,8 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Treat the community library like a shared music stand.",
             bullets: [
                 "Use comments for helpful corrections, version notes, and respectful discussion.",
+                "If posting a comment fails, your draft stays in the discussion. Check the message and tap Post comment to try again.",
+                "Discussion opens with recent comments. Tap Load Earlier Comments to read more while keeping the comments already shown.",
                 "Use Safety to report charts or comments that look inaccurate, miscredited, abusive, or unsafe. You can also block a contributor to hide their forum posts and comments from your account.",
                 "Voting is for chart quality, not personal pile-ons. Repeated bad-faith behavior may limit forum access."
             ]
@@ -751,6 +815,7 @@ struct LibraryView: View {
     @State private var addChartsRequest: ChartProjectAddChartsRequest?
     @State private var duplicateVariantRequest: ChartProjectDuplicateVariantRequest?
     @State private var forumSearchText = ""
+    @State private var forumSubmittedSearchText = ""
     @State private var forumPublishRequest: IChartForumPublishRequest?
     @State private var selectedPDFLibraryItem: IChartPDFLibraryItem?
     @State private var activeLibraryOperation: IChartLibraryOperation?
@@ -1024,7 +1089,9 @@ struct LibraryView: View {
                     detail: detail,
                     currentUserID: authStore.state.signedInSession?.id,
                     downloadedPDF: forumStore.downloadedPDF,
-                    isWorking: forumStore.isWorking,
+                    isWorking: forumStore.isWorking || forumStore.isLoadingEarlierComments,
+                    isLoadingEarlierComments: forumStore.isLoadingEarlierComments,
+                    errorMessage: forumStore.errorMessage,
                     theme: homeTheme,
                     onVote: { vote in
                         Task {
@@ -1032,10 +1099,9 @@ struct LibraryView: View {
                         }
                     },
                     onComment: { body in
-                        Task {
-                            await forumStore.addComment(body, to: detail)
-                        }
+                        await forumStore.addComment(body, to: detail)
                     },
+                    onLoadEarlierComments: { await forumStore.loadEarlierComments() },
                     onReportPost: { reason in
                         Task {
                             await forumStore.reportPost(reason, detailText: nil, detail: detail)
@@ -1367,8 +1433,10 @@ struct LibraryView: View {
                     IChartForumHomeView(
                         state: forumStore.state,
                         searchText: $forumSearchText,
+                        submittedSearchText: $forumSubmittedSearchText,
                         charts: store.charts,
                         currentUserID: authStore.state.signedInSession?.id,
+                        currentUserBadges: forumStore.currentUserBadges,
                         uploadQueue: forumStore.uploadQueue.filter { item in
                             guard let currentUserID = authStore.state.signedInSession?.id,
                                   let ownerID = item.ownerID else {
@@ -1381,22 +1449,10 @@ struct LibraryView: View {
                         errorMessage: forumStore.errorMessage,
                         theme: homeTheme,
                         onSearch: { query in
-                            Task {
-                                await forumStore.refresh(
-                                    authState: authStore.state,
-                                    entitlements: store.entitlements,
-                                    query: query
-                                )
-                            }
+                            refreshForumHome(query: query)
                         },
                         onRefresh: {
-                            Task {
-                                await forumStore.refresh(
-                                    authState: authStore.state,
-                                    entitlements: store.entitlements,
-                                    query: forumSearchText
-                                )
-                            }
+                            refreshForumHome(query: forumSearchText)
                         },
                         onPublishChart: { chart in
                             forumPublishRequest = IChartForumPublishRequest(chart: chart)
@@ -1464,7 +1520,7 @@ struct LibraryView: View {
                             .tint(IChartHomeBrand.blue)
                             .foregroundStyle(homeTheme.panelTitle)
                             .accessibilityIdentifier("manual-render-with-preview-toggle")
-                            .accessibilityHint("Off uses automatic rendering. On shows previews and waits for you to tap Render.")
+                            .accessibilityHint("Off uses automatic rendering. On shows previews before you tap Render Chords or Review & Render.")
 
                         Text(manualRenderWithPreview
                             ? ChordInkWorkflowSettings.manualRenderingDescription
@@ -1851,11 +1907,23 @@ struct LibraryView: View {
             return
         }
 
+        refreshForumHome(query: forumSearchText, authState: authState, entitlements: entitlements)
+    }
+
+    private func refreshForumHome(
+        query: String,
+        authState: IChartAuthState? = nil,
+        entitlements: AppEntitlements? = nil
+    ) {
+        // This belongs to the library, which survives tab changes. Track the
+        // actual requested query rather than reseeding from an unsubmitted
+        // field draft when the forum view appears or a refresh completes.
+        forumSubmittedSearchText = query.trimmingCharacters(in: .whitespacesAndNewlines)
         Task {
             await forumStore.refresh(
                 authState: authState ?? authStore.state,
                 entitlements: entitlements ?? store.entitlements,
-                query: forumSearchText
+                query: query
             )
         }
     }
@@ -2636,7 +2704,7 @@ private struct IChartLockedFeatureView: View {
     }
 }
 
-private struct IChartForumPublishRequest: Identifiable {
+struct IChartForumPublishRequest: Identifiable {
     let chart: Chart
 
     var id: Chart.ID { chart.id }
@@ -2851,11 +2919,14 @@ private struct IChartPDFLibraryRow: View {
     }
 }
 
-private struct IChartForumHomeView: View {
+struct IChartForumHomeView: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let state: IChartForumState
     @Binding var searchText: String
+    @Binding var submittedSearchText: String
     let charts: [Chart]
     let currentUserID: UUID?
+    let currentUserBadges: [ForumAuthorBadgeType]?
     let uploadQueue: [ForumUploadQueueItem]
     let statusMessage: String?
     let errorMessage: String?
@@ -2868,14 +2939,24 @@ private struct IChartForumHomeView: View {
     let onDismissUpload: (ForumUploadQueueItem) -> Void
     let onOpenPost: (ForumSong, ForumChartPost) -> Void
 
-    @State private var submittedSearchText = ""
-
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
+            if showsSearchControls {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Search for a song, artist, arranger, or tag, then tap Search. Open a chart to preview its PDF or join the discussion.")
+                        .font(.subheadline)
+                        .foregroundStyle(theme.panelSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("forum.search.instructions")
+                    searchAndPublishRow
+                }
+            }
+
             if let summaries = loadedSummaries {
                 IChartForumCommunityHero(
                     featuredPosts: featuredPosts(from: summaries),
                     currentUserID: currentUserID,
+                    currentUserBadges: currentUserBadges,
                     theme: theme
                 )
             }
@@ -2911,6 +2992,15 @@ private struct IChartForumHomeView: View {
         return summaries
     }
 
+    private var showsSearchControls: Bool {
+        switch state {
+        case .loading, .loaded, .failed:
+            true
+        case .unconfigured, .signedOut, .requiresPro:
+            false
+        }
+    }
+
     private var trimmedSearchText: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -2920,7 +3010,10 @@ private struct IChartForumHomeView: View {
     }
 
     private var searchAndPublishRow: some View {
-        HStack(alignment: .center, spacing: 12) {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 12))
+        return layout {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(theme.panelSecondary)
@@ -2934,6 +3027,9 @@ private struct IChartForumHomeView: View {
                     .submitLabel(.search)
                     .foregroundStyle(theme.panelTitle)
                     .tint(IChartHomeBrand.logoBlue)
+                    .accessibilityLabel("Forum search")
+                    .accessibilityIdentifier("forum.search")
+                    .accessibilityHint("Search song titles, artists, arrangers, or tags, then tap Search.")
                     .onSubmit {
                         submitSearch()
                     }
@@ -2958,6 +3054,8 @@ private struct IChartForumHomeView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
             .tint(IChartHomeBrand.blue)
+            .accessibilityIdentifier("forum.search.submit")
+            .accessibilityHint("Show charts matching the search text.")
         }
     }
 
@@ -3024,8 +3122,6 @@ private struct IChartForumHomeView: View {
                     onPublishChart: onPublishChart
                 )
 
-                searchAndPublishRow
-
                 if isShowingSearchResults {
                     if summaries.isEmpty {
                         IChartForumInlineEmptyRow(
@@ -3080,7 +3176,7 @@ private struct IChartForumHomeView: View {
         summaries
             .flatMap { summary in
                 summary.topPosts.map { post in
-                    IChartForumFeaturedPost(song: summary.song, post: post)
+                    IChartForumFeaturedPost(song: summary.song, post: post, authorBadges: summary.badges(for: post))
                 }
             }
             .sorted { lhs, rhs in
@@ -3096,6 +3192,7 @@ private struct IChartForumHomeView: View {
 private struct IChartForumFeaturedPost: Identifiable {
     let song: ForumSong
     let post: ForumChartPost
+    let authorBadges: [ForumAuthorBadgeType]
 
     var id: UUID { post.id }
 }
@@ -3119,8 +3216,10 @@ private enum IChartForumPalette {
 }
 
 private struct IChartForumCommunityHero: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let featuredPosts: [IChartForumFeaturedPost]
     let currentUserID: UUID?
+    let currentUserBadges: [ForumAuthorBadgeType]?
     let theme: IChartHomeTheme
 
     private var userPosts: [IChartForumFeaturedPost] {
@@ -3142,8 +3241,11 @@ private struct IChartForumCommunityHero: View {
     }
 
     var body: some View {
+        let headerLayout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: 16))
         VStack(alignment: .leading, spacing: 15) {
-            HStack(alignment: .top, spacing: 16) {
+            headerLayout {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Community Bandstand")
                         .font(.title2.weight(.bold))
@@ -3155,7 +3257,9 @@ private struct IChartForumCommunityHero: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                Spacer(minLength: 12)
+                if !dynamicTypeSize.isAccessibilitySize {
+                    Spacer(minLength: 12)
+                }
 
                 Label("iChart Pro", systemImage: "checkmark.seal.fill")
                     .font(.caption.weight(.semibold))
@@ -3173,15 +3277,23 @@ private struct IChartForumCommunityHero: View {
                         )
                     )
                     .clipShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
+                    .fixedSize(horizontal: true, vertical: false)
             }
 
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 118), spacing: 10)], spacing: 10) {
-                statPill(value: "\(userPosts.count)", label: "Contributions", systemImageName: "square.and.arrow.up")
-                statPill(value: "0", label: "Downloads", systemImageName: "tray.and.arrow.down")
-                statPill(value: "\(userUpvoteCount)", label: "Upvotes", systemImageName: "hand.thumbsup")
-                statPill(value: "0", label: "Badges", systemImageName: "checkmark.seal")
-                statPill(value: "\(userTopRatedCount)", label: "Top Rated", systemImageName: "star.fill")
+            LazyVGrid(columns: dynamicTypeSize.isAccessibilitySize
+                ? [GridItem(.flexible(minimum: 0))]
+                : [GridItem(.adaptive(minimum: 118), spacing: 10)], spacing: 10) {
+                statPill(value: "\(userPosts.count)", label: "Your Charts in View", systemImageName: "square.and.arrow.up")
+                statPill(value: "\(userUpvoteCount)", label: "Upvotes in View", systemImageName: "hand.thumbsup")
+                if let currentUserBadges {
+                    statPill(value: "\(Set(currentUserBadges).count)", label: "Your Badges", systemImageName: "checkmark.seal")
+                }
+                statPill(value: "\(userTopRatedCount)", label: "Top Rated in View", systemImageName: "star.fill")
             }
+            Text("Chart counts reflect your charts shown below. Badges reflect your account.")
+                .font(.caption)
+                .foregroundStyle(theme.panelSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
         .background(
@@ -3222,7 +3334,7 @@ private struct IChartForumCommunityHero: View {
                 Text(label)
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(theme.panelSecondary)
-                    .lineLimit(1)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -3248,20 +3360,31 @@ private struct IChartForumCommunityHero: View {
 }
 
 private struct IChartForumTopChartsBoard: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let featuredPosts: [IChartForumFeaturedPost]
     let isSearching: Bool
     let theme: IChartHomeTheme
     let onOpenPost: (ForumSong, ForumChartPost) -> Void
 
     @State private var expandedPeriod: IChartForumTopChartPeriod?
+    @State private var gridWidth: CGFloat = 0
 
     private var columns: [GridItem] {
-        Array(repeating: GridItem(.flexible(minimum: 132), spacing: 10, alignment: .top), count: 4)
+        // A forum card needs room for its title, contributor and badge names.
+        // Measure the grid itself so sidebar and panel padding count toward
+        // the available width. Flexible columns can still shrink on a narrow
+        // window; their minimum must not force the board past its bounds.
+        let count = dynamicTypeSize.isAccessibilitySize
+            ? 1 : min(4, max(1, Int((gridWidth + 10) / 230)))
+        return Array(repeating: GridItem(.flexible(minimum: 0), spacing: 10, alignment: .top), count: count)
     }
 
     var body: some View {
+        let headerLayout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+            : AnyLayout(HStackLayout(alignment: .lastTextBaseline, spacing: 12))
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .lastTextBaseline, spacing: 12) {
+            headerLayout {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Top Charts")
                         .font(.title2.weight(.black))
@@ -3272,7 +3395,9 @@ private struct IChartForumTopChartsBoard: View {
                         .foregroundStyle(theme.panelSecondary)
                 }
 
-                Spacer(minLength: 12)
+                if !dynamicTypeSize.isAccessibilitySize {
+                    Spacer(minLength: 12)
+                }
 
                 Text("Top 10")
                     .font(.caption.weight(.black))
@@ -3281,6 +3406,7 @@ private struct IChartForumTopChartsBoard: View {
                     .padding(.vertical, 6)
                     .background(IChartHomeBrand.blue)
                     .clipShape(Capsule())
+                    .fixedSize(horizontal: true, vertical: false)
             }
 
             LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
@@ -3297,6 +3423,13 @@ private struct IChartForumTopChartsBoard: View {
                         },
                         onOpenPost: onOpenPost
                     )
+                }
+            }
+            .background {
+                GeometryReader { geometry in
+                    Color.clear
+                        .onAppear { updateGridWidth(geometry.size.width) }
+                        .onChange(of: geometry.size.width) { _, width in updateGridWidth(width) }
                 }
             }
         }
@@ -3327,6 +3460,11 @@ private struct IChartForumTopChartsBoard: View {
             RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous)
                 .stroke(theme.panelBorder.opacity(0.72), lineWidth: 1)
         }
+    }
+
+    private func updateGridWidth(_ width: CGFloat) {
+        guard width.isFinite, width >= 0, abs(gridWidth - width) > 0.5 else { return }
+        gridWidth = width
     }
 }
 
@@ -3542,6 +3680,8 @@ private struct IChartForumTopHeadlineRow: View {
                     .foregroundStyle(theme.panelSecondary)
                     .lineLimit(1)
 
+                IChartForumBadgeLabels(badges: featuredPost.authorBadges)
+
                 HStack(spacing: 8) {
                     Label("\(max(0, featuredPost.post.voteUpCount))", systemImage: "hand.thumbsup")
                     Text(featuredPost.post.qualityStatus.displayText)
@@ -3571,6 +3711,7 @@ private struct IChartForumTopHeadlineRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Open lead chart \(featuredPost.post.chartTitle)")
+        .accessibilityValue(featuredPost.authorBadges.map(\.displayText).joined(separator: ", "))
     }
 }
 
@@ -3599,6 +3740,8 @@ private struct IChartForumTopChartRow: View {
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(theme.panelSecondary)
                         .lineLimit(1)
+
+                    IChartForumBadgeLabels(badges: featuredPost.authorBadges)
                 }
 
                 Spacer(minLength: 4)
@@ -3616,6 +3759,7 @@ private struct IChartForumTopChartRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Open \(featuredPost.post.chartTitle)")
+        .accessibilityValue(featuredPost.authorBadges.map(\.displayText).joined(separator: ", "))
     }
 }
 
@@ -3844,7 +3988,7 @@ private struct IChartForumSongCard: View {
 
             VStack(spacing: 8) {
                 ForEach(summary.topPosts) { post in
-                    IChartForumPostRow(post: post, theme: theme) {
+                    IChartForumPostRow(post: post, authorBadges: summary.badges(for: post), theme: theme) {
                         onOpenPost(post)
                     }
                 }
@@ -3863,6 +4007,7 @@ private struct IChartForumSongCard: View {
 
 private struct IChartForumPostRow: View {
     let post: ForumChartPost
+    let authorBadges: [ForumAuthorBadgeType]
     let theme: IChartHomeTheme
     let onOpen: () -> Void
 
@@ -3883,6 +4028,8 @@ private struct IChartForumPostRow: View {
                         .font(.caption)
                         .foregroundStyle(theme.panelSecondary)
                         .lineLimit(1)
+
+                    IChartForumBadgeLabels(badges: authorBadges)
 
                     if !post.tags.isEmpty {
                         Text(post.tags.joined(separator: " · "))
@@ -3910,6 +4057,32 @@ private struct IChartForumPostRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Open \(post.chartTitle)")
+        .accessibilityValue(authorBadges.map(\.displayText).joined(separator: ", "))
+    }
+}
+
+struct IChartForumBadgeLabels: View {
+    let badges: [ForumAuthorBadgeType]
+    var showsExplanations = false
+
+    var body: some View {
+        if !badges.isEmpty {
+            VStack(alignment: .leading, spacing: showsExplanations ? 8 : 3) {
+                ForEach(badges) { badge in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label(badge.displayText, systemImage: "checkmark.seal.fill")
+                            .font((showsExplanations ? Font.caption : .caption2).weight(.semibold))
+                            .foregroundStyle(IChartHomeBrand.blue)
+                        if showsExplanations {
+                            Text(badge.explanation)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
     }
 }
 
@@ -4075,7 +4248,7 @@ private struct IChartForumQualityPill: View {
     }
 }
 
-private struct IChartForumPublishSheet: View {
+struct IChartForumPublishSheet: View {
     @Environment(\.dismiss) private var dismiss
     let request: IChartForumPublishRequest
     let theme: IChartHomeTheme
@@ -4096,6 +4269,13 @@ private struct IChartForumPublishSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    Text("The PDF keeps this chart's current instrument view and transposition. To change them, return to the chart before submitting.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("Forum instrument view guidance")
+                }
                 Section("Metadata") {
                     forumTextField("Song Title", text: $draft.songTitle, field: .song)
                     forumTextField("Artist", text: $draft.artistName, field: .artist)
@@ -4207,9 +4387,12 @@ private struct IChartForumPostDetailView: View {
     let currentUserID: UUID?
     let downloadedPDF: ExportedPDF?
     let isWorking: Bool
+    let isLoadingEarlierComments: Bool
+    let errorMessage: String?
     let theme: IChartHomeTheme
     let onVote: (ForumVoteValue) -> Void
-    let onComment: (String) -> Void
+    let onComment: (String) async -> Bool
+    let onLoadEarlierComments: () async -> Void
     let onReportPost: (ForumReportReason) -> Void
     let onReportComment: (ForumComment, ForumReportReason) -> Void
     let onBlockUser: (UUID, String) -> Void
@@ -4219,6 +4402,7 @@ private struct IChartForumPostDetailView: View {
     let onRemovePost: () -> Void
 
     @State private var commentText = ""
+    @State private var isSubmittingComment = false
     @State private var blockConfirmationRequest: ForumBlockConfirmationRequest?
     @FocusState private var isCommentFocused: Bool
 
@@ -4233,6 +4417,19 @@ private struct IChartForumPostDetailView: View {
                     comments
                 }
                 .padding(22)
+            }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if let errorMessage {
+                    IChartForumStatusBanner(
+                        text: errorMessage,
+                        systemImageName: "exclamationmark.triangle.fill",
+                        color: .orange,
+                        theme: theme
+                    )
+                    .padding(.horizontal, 22)
+                    .padding(.top, 8)
+                    .background(theme.panelBackground)
+                }
             }
             .background(IChartLibraryBackground(mode: theme.mode).ignoresSafeArea())
             .navigationTitle(detail.post.chartTitle)
@@ -4298,15 +4495,7 @@ private struct IChartForumPostDetailView: View {
                 .font(.subheadline)
                 .foregroundStyle(theme.panelSecondary)
 
-            if !detail.authorBadges.isEmpty {
-                HStack(spacing: 8) {
-                    ForEach(detail.authorBadges) { badge in
-                        Label(badge.badgeType.displayText, systemImage: "checkmark.seal.fill")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(IChartHomeBrand.blue)
-                    }
-                }
-            }
+            IChartForumBadgeLabels(badges: detail.authorBadges.map(\.badgeType), showsExplanations: true)
 
             if !detail.post.tags.isEmpty {
                 Text(detail.post.tags.joined(separator: " · "))
@@ -4418,6 +4607,12 @@ private struct IChartForumPostDetailView: View {
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(theme.panelTitle)
 
+            if detail.earlierCommentCursor != nil {
+                Text("Showing \(detail.comments.count) recent comments. Load earlier comments to read more.")
+                    .font(.subheadline)
+                    .foregroundStyle(theme.panelSecondary)
+            }
+
             if detail.post.acceptsCommunityActions {
                 HStack(alignment: .top, spacing: 8) {
                     TextField("Add a comment", text: $commentText, axis: .vertical)
@@ -4430,17 +4625,22 @@ private struct IChartForumPostDetailView: View {
                     }
 
                     Button {
-                        let body = ForumPublishDraft.normalizedDisplayText(commentText)
-                        guard !body.isEmpty else {
-                            return
+                        let submittedDraft = commentText
+                        let body = ForumPublishDraft.normalizedDisplayText(submittedDraft)
+                        guard !body.isEmpty, !isSubmittingComment else { return }
+                        isSubmittingComment = true
+                        Task {
+                            let posted = await onComment(body)
+                            if posted, commentText == submittedDraft {
+                                commentText = ""
+                            }
+                            isSubmittingComment = false
                         }
-                        commentText = ""
-                        onComment(body)
                     } label: {
                         Image(systemName: "arrow.up.circle.fill")
                             .font(.title2)
                     }
-                    .disabled(isWorking)
+                    .disabled(isWorking || isSubmittingComment)
                     .accessibilityLabel("Post comment")
                 }
             } else {
@@ -4448,6 +4648,21 @@ private struct IChartForumPostDetailView: View {
                     .font(.subheadline)
                     .foregroundStyle(theme.panelSecondary)
                     .padding(.vertical, 8)
+            }
+
+            if detail.earlierCommentCursor != nil {
+                Button {
+                    Task { await onLoadEarlierComments() }
+                } label: {
+                    if isLoadingEarlierComments {
+                        ProgressView("Loading earlier comments…")
+                    } else {
+                        Label("Load Earlier Comments", systemImage: "arrow.up.bubble")
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(isWorking || isLoadingEarlierComments)
+                .accessibilityHint("Adds earlier discussion above the comments already shown.")
             }
 
             if detail.comments.isEmpty {

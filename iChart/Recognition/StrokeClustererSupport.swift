@@ -1,5 +1,226 @@
 import Foundation
 
+enum InkSplitMajorTriangleGeometry {
+    enum Match {
+        case standard
+        case offsetJoin
+    }
+
+    private enum Geometry {
+        case matched(Match)
+        case ambiguous
+    }
+
+    static func matches(_ first: InkStroke, _ second: InkStroke) -> Bool {
+        match(first, second) != nil
+    }
+
+    static func match(_ first: InkStroke, _ second: InkStroke) -> Match? {
+        guard case let .matched(match)? = classify(first, second) else { return nil }
+        return match
+    }
+
+    static func isAmbiguous(_ first: InkStroke, _ second: InkStroke) -> Bool {
+        guard case .ambiguous? = classify(first, second) else { return false }
+        return true
+    }
+
+    private static func classify(_ first: InkStroke, _ second: InkStroke) -> Geometry? {
+        let bounds = first.bounds.union(second.bounds)
+        return classifyAtWrittenScale(first, second, in: bounds)
+            ?? classifyCaretAndBase(first, second, in: bounds)
+            ?? classifyCompactTriangle(first, second, in: bounds)
+    }
+
+    private static func classifyCaretAndBase(
+        _ first: InkStroke, _ second: InkStroke, in bounds: InkBounds
+    ) -> Geometry? {
+        guard (8...28).contains(bounds.width), (8...28).contains(bounds.height),
+              (0.55...1.75).contains(bounds.width / bounds.height) else { return nil }
+        let matches = matchesCaretWithBase(caret: first, base: second, in: bounds)
+            || matchesCaretWithBase(caret: second, base: first, in: bounds)
+        return matches ? .matched(.standard) : nil
+    }
+
+    private static func matchesCaretWithBase(caret: InkStroke, base: InkStroke, in bounds: InkBounds) -> Bool {
+        guard let firstFoot = caret.points.first, let lastFoot = caret.points.last,
+              let baseStart = base.points.first, let baseEnd = base.points.last,
+              let apexIndex = caret.points.indices.min(by: { caret.points[$0].y < caret.points[$1].y }),
+              apexIndex > 0, apexIndex < caret.points.count - 1,
+              caret.bounds.width >= bounds.width * 0.80,
+              yRatio(firstFoot, in: bounds) >= 0.82, yRatio(lastFoot, in: bounds) >= 0.82,
+              base.bounds.height <= max(1.25, bounds.height * 0.12),
+              base.straightness >= 0.94, base.diagonalAngleMagnitude <= 12 else { return false }
+        let apex = caret.points[apexIndex]
+        let leftFoot = firstFoot.x < lastFoot.x ? firstFoot : lastFoot
+        let rightFoot = firstFoot.x < lastFoot.x ? lastFoot : firstFoot
+        let leftBase = baseStart.x < baseEnd.x ? baseStart : baseEnd
+        let rightBase = baseStart.x < baseEnd.x ? baseEnd : baseStart
+        let closureLimit = max(1.25, min(bounds.width, bounds.height) * 0.10)
+        // A major triangle closes at both feet. An A crossbar or a following
+        // minus sign cannot supply this base, even when it overlaps the caret.
+        guard (0.22...0.78).contains(xRatio(apex, in: bounds)),
+              apex.x - leftFoot.x >= bounds.width * 0.22,
+              rightFoot.x - apex.x >= bounds.width * 0.22,
+              leftFoot.clusterDistance(to: leftBase) <= closureLimit,
+              rightFoot.clusterDistance(to: rightBase) <= closureLimit else { return false }
+        let firstLeg = InkStroke(points: Array(caret.points[...apexIndex]))
+        let secondLeg = InkStroke(points: Array(caret.points[apexIndex...]))
+        return firstLeg.straightness >= 0.93 && secondLeg.straightness >= 0.93
+    }
+
+    private static func classifyAtWrittenScale(
+        _ first: InkStroke, _ second: InkStroke, in bounds: InkBounds
+    ) -> Geometry? {
+        let aspectRatio = bounds.width / max(bounds.height, 1)
+        let smallerHeight = max(min(first.bounds.height, second.bounds.height), 1)
+        guard (8...28).contains(bounds.width),
+              (8...28).contains(bounds.height),
+              (0.55...1.75).contains(aspectRatio),
+              first.bounds.horizontalGap(to: second.bounds) <= max(3, bounds.width * 0.20),
+              first.bounds.verticalOverlap(with: second.bounds) >= smallerHeight * 0.35 else {
+            return nil
+        }
+
+        // The base can extend just past the left leg. Assign roles by
+        // shape, with either pen direction, instead of sorting by minX.
+        if matchesRoles(left: first, right: second, in: bounds, apexLimit: 0.58, baseLimit: 0.26)
+            || matchesRoles(left: second, right: first, in: bounds, apexLimit: 0.58, baseLimit: 0.26) {
+            return .matched(.standard)
+        }
+        guard let firstEnds = endpointsFromTop(first),
+              let secondEnds = endpointsFromTop(second) else {
+            return nil
+        }
+        let apexGap = hypot(firstEnds.top.x - secondEnds.top.x, firstEnds.top.y - secondEnds.top.y)
+        let usualApexGapLimit = max(3, bounds.width * 0.25)
+        let smallerDimension = min(bounds.width, bounds.height)
+        let compactApexGapLimit = min(3.25, smallerDimension * 0.38)
+        let matchesApex = apexGap <= max(usualApexGapLimit, compactApexGapLimit)
+        guard matchesApex || apexGap <= min(4.5, smallerDimension * 0.50) else { return nil }
+
+        // Require a fuller base when allowing extra space between the tips of a small triangle.
+        let baseLimit = apexGap <= usualApexGapLimit ? 0.34 : 0.20
+        if matchesRoles(left: first, right: second, in: bounds, apexLimit: 0.66, baseLimit: baseLimit)
+            || matchesRoles(left: second, right: first, in: bounds, apexLimit: 0.66, baseLimit: baseLimit) {
+            // If the tip is open, the legs must still meet at the other end of the base.
+            let baseGap = hypot(firstEnds.bottom.x - secondEnds.bottom.x, firstEnds.bottom.y - secondEnds.bottom.y)
+            let joinsAtBase = baseGap <= min(1.25, smallerDimension * 0.09)
+            return matchesApex || joinsAtBase ? .matched(.offsetJoin) : .ambiguous
+        }
+        // Nearby staggered tips and a full base support a slightly rightward
+        // left-leg apex. Keep the wider allowance out of open/short-base reads.
+        if apexGap <= min(3, smallerDimension * 0.20),
+           matchesRoles(left: first, right: second, in: bounds, apexLimit: 0.70, baseLimit: 0.20)
+            || matchesRoles(left: second, right: first, in: bounds, apexLimit: 0.70, baseLimit: 0.20) {
+            return .matched(.offsetJoin)
+        }
+        return nil
+    }
+
+    private static func classifyCompactTriangle(
+        _ first: InkStroke, _ second: InkStroke, in bounds: InkBounds
+    ) -> Geometry? {
+        guard (6.4...10).contains(bounds.width), bounds.height >= 6.4 else { return nil }
+        if bounds.width < 9,
+           let match = classifyNormalizedTriangle(first, second, in: bounds, scale: 9.25 / bounds.width) {
+            return match
+        }
+
+        // A shallow triangle can meet the same shape checks at a reference
+        // height. Bound the aspect so an unusually flat mark stays unresolved.
+        guard bounds.height < 8, (1.1...1.35).contains(bounds.width / bounds.height) else { return nil }
+        return classifyNormalizedTriangle(first, second, in: bounds, scale: 8.25 / bounds.height)
+    }
+
+    private static func classifyNormalizedTriangle(
+        _ first: InkStroke, _ second: InkStroke, in bounds: InkBounds, scale: Double
+    ) -> Geometry? {
+        // Reuse the usual role checks at a reference size for small glyphs.
+        // The original ink stays in place and must still have a close apex.
+        guard let firstTop = endpointsFromTop(first)?.top,
+              let secondTop = endpointsFromTop(second)?.top else {
+            return nil
+        }
+        let apexGap = hypot(firstTop.x - secondTop.x, firstTop.y - secondTop.y)
+        guard apexGap * scale <= 3 else { return nil }
+
+        func normalized(_ stroke: InkStroke) -> InkStroke {
+            InkStroke(points: stroke.points.map { point in
+                InkPoint(
+                    x: (point.x - bounds.minX) * scale,
+                    y: (point.y - bounds.minY) * scale,
+                    timeOffset: point.timeOffset
+                )
+            }, creationTimeOffset: stroke.creationTimeOffset)
+        }
+        let normalizedFirst = normalized(first)
+        let normalizedSecond = normalized(second)
+        let normalizedBounds = normalizedFirst.bounds.union(normalizedSecond.bounds)
+        guard case .matched? = classifyAtWrittenScale(normalizedFirst, normalizedSecond, in: normalizedBounds) else {
+            return nil
+        }
+        return .matched(.offsetJoin)
+    }
+
+    private static func matchesRoles(
+        left: InkStroke, right: InkStroke, in bounds: InkBounds, apexLimit: Double, baseLimit: Double
+    ) -> Bool {
+        isLeftLeg(left, in: bounds, apexLimit: apexLimit)
+            && isRightLegWithBase(right, in: bounds, baseLimit: baseLimit)
+    }
+
+    private static func isLeftLeg(_ stroke: InkStroke, in bounds: InkBounds, apexLimit: Double) -> Bool {
+        guard let endpoints = endpointsFromTop(stroke) else { return false }
+        let startX = xRatio(endpoints.top, in: bounds)
+        let endX = xRatio(endpoints.bottom, in: bounds)
+
+        return stroke.points.count >= 3
+            && stroke.bounds.height >= 6
+            && stroke.bounds.width <= max(8, stroke.bounds.height * 0.85)
+            && stroke.straightness >= 0.50
+            && (45...82).contains(stroke.diagonalAngleMagnitude)
+            && endpoints.top.x >= endpoints.bottom.x + max(2, bounds.width * 0.12)
+            && endpoints.bottom.y >= endpoints.top.y + max(5, bounds.height * 0.35)
+            && (0.08...apexLimit).contains(startX)
+            && yRatio(endpoints.top, in: bounds) <= 0.36
+            && endX <= startX - 0.08
+            && yRatio(endpoints.bottom, in: bounds) >= 0.62
+    }
+
+    private static func isRightLegWithBase(_ stroke: InkStroke, in bounds: InkBounds, baseLimit: Double) -> Bool {
+        guard let endpoints = endpointsFromTop(stroke),
+              stroke.points.count >= 8,
+              stroke.bounds.width >= 7,
+              stroke.bounds.height >= 7,
+              (0.08...0.62).contains(xRatio(endpoints.top, in: bounds)),
+              yRatio(endpoints.top, in: bounds) <= 0.34,
+              xRatio(endpoints.bottom, in: bounds) <= baseLimit,
+              yRatio(endpoints.bottom, in: bounds) >= 0.62 else {
+            return false
+        }
+
+        // Reaching both ends of the lower base with both endpoints left of
+        // its right corner proves the turn even when every sample step is small.
+        let lowerPoints = stroke.points.filter { yRatio($0, in: bounds) >= 0.68 }
+        return lowerPoints.contains { xRatio($0, in: bounds) <= baseLimit }
+            && lowerPoints.contains { xRatio($0, in: bounds) >= 0.72 }
+    }
+
+    private static func endpointsFromTop(_ stroke: InkStroke) -> (top: InkPoint, bottom: InkPoint)? {
+        guard let first = stroke.points.first, let last = stroke.points.last else { return nil }
+        return first.y <= last.y ? (first, last) : (last, first)
+    }
+
+    private static func xRatio(_ point: InkPoint, in bounds: InkBounds) -> Double {
+        (point.x - bounds.minX) / max(bounds.width, 1)
+    }
+
+    private static func yRatio(_ point: InkPoint, in bounds: InkBounds) -> Double {
+        (point.y - bounds.minY) / max(bounds.height, 1)
+    }
+}
+
 struct MutableInkCluster: Hashable {
     var strokes: [InkStroke]
     var originalIndexes: [Int]
@@ -740,24 +961,20 @@ extension InkStroke {
     }
 
     var isSevenCandidate: Bool {
-        let standardSeven = points.count >= 7
-            && bounds.width >= 5
-            && bounds.height >= 8
-            && aspectRatio >= 0.25
-            && aspectRatio <= 1.65
-            && angleDegrees >= 35
-            && angleDegrees <= 105
-            && hasEarlyTopHorizontalRun
-        let trailingSeven = points.count >= 7
-            && bounds.width >= 5
-            && bounds.height >= 8
-            && aspectRatio >= 0.25
-            && aspectRatio <= 1.65
-            && angleDegrees >= 35
-            && angleDegrees <= 105
-            && points.last.map { $0.y >= bounds.minY + bounds.height * 0.70 } == true
+        isSevenCandidate(minimumHeight: 8)
+    }
 
-        return standardSeven || trailingSeven
+    func isSevenCandidate(minimumHeight: Double) -> Bool {
+        guard points.count >= 7,
+              bounds.width >= 5,
+              bounds.height >= minimumHeight,
+              (0.25...1.65).contains(aspectRatio),
+              (35...105).contains(angleDegrees) else {
+            return false
+        }
+
+        return hasEarlyTopHorizontalRun
+            || points.last.map { $0.y >= bounds.minY + bounds.height * 0.70 } == true
     }
 
     var isOneGlyphCandidate: Bool {

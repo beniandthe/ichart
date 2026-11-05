@@ -27,6 +27,8 @@ struct ChordEvent: Identifiable, Codable, Hashable {
     var duration: RhythmValue
     var rhythmPlacement: RhythmPlacement
     var mappedRhythmSlotIndex: Int? = nil
+    // A handwritten downbeat chord can sit above a rest in the rhythm map.
+    var anchorsToMeasureStart: Bool = false
     var tieOut: Bool
     var hitStyle: HitStyle
     var rawInput: String?
@@ -51,6 +53,7 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         duration: RhythmValue,
         rhythmPlacement: RhythmPlacement,
         mappedRhythmSlotIndex: Int? = nil,
+        anchorsToMeasureStart: Bool = false,
         tieOut: Bool,
         hitStyle: HitStyle,
         rawInput: String?,
@@ -73,6 +76,7 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         self.duration = duration
         self.rhythmPlacement = rhythmPlacement
         self.mappedRhythmSlotIndex = mappedRhythmSlotIndex
+        self.anchorsToMeasureStart = anchorsToMeasureStart
         self.tieOut = tieOut
         self.hitStyle = hitStyle
         self.rawInput = rawInput
@@ -95,6 +99,7 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         case duration
         case rhythmPlacement
         case mappedRhythmSlotIndex
+        case anchorsToMeasureStart
         case tieOut
         case hitStyle
         case rawInput
@@ -129,6 +134,7 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         duration = try container.decode(RhythmValue.self, forKey: .duration)
         rhythmPlacement = try container.decode(RhythmPlacement.self, forKey: .rhythmPlacement)
         mappedRhythmSlotIndex = try container.decodeIfPresent(Int.self, forKey: .mappedRhythmSlotIndex)
+        anchorsToMeasureStart = try container.decodeIfPresent(Bool.self, forKey: .anchorsToMeasureStart) ?? false
         tieOut = try container.decode(Bool.self, forKey: .tieOut)
         hitStyle = try container.decode(HitStyle.self, forKey: .hitStyle)
         rawInput = try container.decodeIfPresent(String.self, forKey: .rawInput)
@@ -164,6 +170,9 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         try container.encode(duration, forKey: .duration)
         try container.encode(rhythmPlacement, forKey: .rhythmPlacement)
         try container.encodeIfPresent(mappedRhythmSlotIndex, forKey: .mappedRhythmSlotIndex)
+        if anchorsToMeasureStart {
+            try container.encode(true, forKey: .anchorsToMeasureStart)
+        }
         try container.encode(tieOut, forKey: .tieOut)
         try container.encode(hitStyle, forKey: .hitStyle)
         try container.encodeIfPresent(rawInput, forKey: .rawInput)
@@ -206,11 +215,12 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         return copy
     }
 
-    mutating func apply(suggestion: MeasureChordInsertionSuggestion) {
+    mutating func apply(suggestion: MeasureChordInsertionSuggestion, anchorsToMeasureStart: Bool = false) {
         startPosition = suggestion.startPosition
         duration = suggestion.duration
         rhythmPlacement = suggestion.isRhythmMapped ? .aboveChord : .inline
         mappedRhythmSlotIndex = suggestion.mappedRhythmSlotIndex
+        self.anchorsToMeasureStart = anchorsToMeasureStart
     }
 
     static func clampedManualDisplayWidth(_ width: Double) -> Double {

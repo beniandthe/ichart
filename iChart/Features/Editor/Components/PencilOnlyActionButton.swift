@@ -38,8 +38,8 @@ struct PencilOnlyActionButton: UIViewRepresentable {
 
     func updateUIView(_ button: PencilOnlyUIButton, context: Context) {
         context.coordinator.action = action
+        button.isEnabled = isEnabled && context.environment.isEnabled
         button.configuration = configuration
-        button.isEnabled = isEnabled
         button.accessibilityLabel = accessibilityLabel ?? title
         button.acceptsDirectTouches = acceptsDirectTouches
     }

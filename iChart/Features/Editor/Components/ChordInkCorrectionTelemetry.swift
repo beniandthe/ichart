@@ -16,10 +16,10 @@ enum ChordInkCorrectionTelemetry {
         // format may cross this diagnostic boundary, never arbitrary content.
         if hasSourceInk, let version = sourceRecognitionPipelineVersion,
            version.utf8.count <= 64,
-           version.range(
+           (version == ChordInkRecognitionPipelineIdentity.version || version.range(
                of: #"\Amaximum-trust-v[1-9][0-9]{0,3}(?:-(?:chord-domain-v1|chord-only-scored-candidates))?-[0-9]{4}-[0-9]{2}-[0-9]{2}\z"#,
                options: .regularExpression
-           ) != nil {
+           ) != nil) {
             properties["recognition_pipeline_version"] = .string(version)
         }
         return properties

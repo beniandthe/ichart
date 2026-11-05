@@ -34,7 +34,9 @@ struct ExportedPDF: Identifiable, Hashable {
     }
 
     var transpositionText: String? {
-        guard let transpositionView, let chordTranspositionSemitones else { return nil }
+        guard let transpositionView, let chordTranspositionSemitones else {
+            return layoutStyle == nil ? nil : ForumPDFInstrumentSnapshot.unknownViewText
+        }
         guard chordTranspositionSemitones != 0 else {
             return transpositionView.displayText
         }
@@ -179,6 +181,10 @@ private struct ChartPDFRenderer {
             kCGPDFContextCreator as String: "iChart",
             kCGPDFContextTitle as String: chart.title
         ]
+        if let forumCredit = exportContext.forumCredit {
+            format.documentInfo[kCGPDFContextSubject as String] = ForumPDFInstrumentSnapshot(
+                chart: chart, forumPostID: forumCredit.forumPostID).subjectText
+        }
 
         let renderer = UIGraphicsPDFRenderer(bounds: firstPageRect, format: format)
 
@@ -252,12 +258,14 @@ private struct ChartPDFRenderer {
         for system in pageSystems {
             drawSystem(system, paperFrame: paperPage.frame, using: renderer)
         }
+        renderer.drawFreeInkArticulations(for: paperPage, pageLayout: pageLayout, in: context)
 
         context.saveGState()
         UIBezierPath(rect: paperPage.frame).addClip()
         LeadSheetSavedInkRenderer.drawPageInk(
             chart.pageHandwrittenNotationData,
             coordinateSpace: chart.pageHandwrittenNotationCoordinateSpace,
+            chart: chart,
             in: pageLayout
         )
         context.restoreGState()

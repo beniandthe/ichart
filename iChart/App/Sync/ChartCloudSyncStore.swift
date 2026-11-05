@@ -109,9 +109,12 @@ final class ChartCloudSyncStore: ObservableObject {
             return
         }
 
+        let currentSnapshot = libraryStore.snapshot
+        guard validateLocalCharts(in: currentSnapshot, for: .backup) else { return }
+
         let snapshot = enrollLocalCharts
             ? libraryStore.enrollLocalChartsForCloudBackup()
-            : libraryStore.snapshot
+            : currentSnapshot
         queuedUploadTask?.cancel()
         syncTask?.cancel()
         syncTask = Task { [weak self] in
@@ -132,9 +135,11 @@ final class ChartCloudSyncStore: ObservableObject {
             return
         }
 
+        let snapshot = libraryStore.snapshot
+        guard validateLocalCharts(in: snapshot, for: .restore) else { return }
+
         queuedUploadTask?.cancel()
         syncTask?.cancel()
-        let snapshot = libraryStore.snapshot
         syncTask = Task { [weak self] in
             await self?.runRestore(snapshot: snapshot, service: service)
         }
@@ -151,7 +156,8 @@ final class ChartCloudSyncStore: ObservableObject {
             return
         }
 
-        guard allowsAutomaticUpload(snapshot, at: Date()) else {
+        guard validateLocalCharts(in: snapshot, for: .backup),
+              allowsAutomaticUpload(snapshot, at: Date()) else {
             return
         }
 
@@ -171,6 +177,21 @@ final class ChartCloudSyncStore: ObservableObject {
     private func beginQueuedAutomaticUpload(_ snapshot: ChartLibrarySnapshot) -> Bool {
         queuedUploadTask = nil
         return allowsAutomaticUpload(snapshot, at: Date())
+    }
+
+    private func validateLocalCharts(in snapshot: ChartLibrarySnapshot, for operation: ChartCloudSyncOperation) -> Bool {
+        guard Set(snapshot.charts.map(\.id)).count == snapshot.charts.count else {
+            queuedUploadTask?.cancel()
+            queuedUploadTask = nil
+            let failure = ChartCloudSyncFailure(
+                operation: operation, stage: .validatingLocalCharts, category: .invalidLocalLibrary
+            )
+            let feedbackID = beginOperationFeedback(operation)
+            state = .failed(failure.detailText)
+            failOperationFeedback(failure, feedbackID: feedbackID)
+            return false
+        }
+        return true
     }
 
     private func allowsAutomaticUpload(_ snapshot: ChartLibrarySnapshot, at date: Date) -> Bool {

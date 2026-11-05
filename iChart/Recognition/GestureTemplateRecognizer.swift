@@ -145,6 +145,16 @@ struct GestureTemplateRecognizer {
         return candidates
     }
 
+    static func matchesJoinedFRoot(strokes: [InkStroke]) -> Bool {
+        guard strokes.count == 2 else { return false }
+        let bounds = InkBounds.enclosing(strokes.map(\.bounds))
+        guard hasJoinedFFrameBounds(bounds),
+              strokes.contains(where: { hasJoinedFMiddleBounds($0.bounds, in: bounds) }) else {
+            return false
+        }
+        return hasJoinedTopAndStemFRoot(RootGlyphFeatures(cluster: InkCluster(strokes: strokes)))
+    }
+
     /// Raw sampling only, so invariant tests can distinguish ink from pen-up geometry.
     static func normalizationSamplesForTesting(
         strokes: [InkStroke],
@@ -411,7 +421,7 @@ struct GestureTemplateRecognizer {
     private func heuristicCandidates(for cluster: InkCluster) -> [GlyphCandidate] {
         let features = RootGlyphFeatures(cluster: cluster)
         var candidates = accidentalCandidates(features)
-        candidates += qualityAndExtensionCandidates(features)
+        candidates += qualityAndExtensionCandidates(features, sourceStrokes: cluster.strokes)
 
         if isConstructedRootALike(features) {
             candidates.append(heuristicCandidate("A", confidence: 0.998))
@@ -433,7 +443,10 @@ struct GestureTemplateRecognizer {
         return candidates
     }
 
-    private func qualityAndExtensionCandidates(_ features: RootGlyphFeatures) -> [GlyphCandidate] {
+    private func qualityAndExtensionCandidates(
+        _ features: RootGlyphFeatures,
+        sourceStrokes: [InkStroke]
+    ) -> [GlyphCandidate] {
         var candidates: [GlyphCandidate] = []
 
         if isDashMinorLike(features) {
@@ -453,11 +466,16 @@ struct GestureTemplateRecognizer {
             candidates.append(heuristicCandidate("+", confidence: 0.999))
         }
 
-        if isHalfDiminishedLike(features) {
+        let isMajorTriangle = isTriangleMajorLike(features, sourceStrokes: sourceStrokes)
+        // The complete pair's positive triangle geometry owns the quality.
+        // A retraced triangle base can look loop-like in isolation, with the
+        // other leg satisfying the slash heuristic. Do not give that same pair
+        // an equally strong half-diminished heuristic and break the tie by text.
+        if !isMajorTriangle, isHalfDiminishedLike(features) {
             candidates.append(heuristicCandidate("ø", confidence: 0.999))
         }
 
-        if isTriangleMajorLike(features) {
+        if isMajorTriangle {
             candidates.append(heuristicCandidate("△", confidence: 0.999))
         }
 
@@ -560,9 +578,9 @@ struct GestureTemplateRecognizer {
             && !stroke.hasEarlyTopHorizontalRun
     }
 
-    private func isTriangleMajorLike(_ features: RootGlyphFeatures) -> Bool {
-        if isTwoStrokeOpenTriangleMajorLike(features) {
-            return true
+    private func isTriangleMajorLike(_ features: RootGlyphFeatures, sourceStrokes: [InkStroke]) -> Bool {
+        if sourceStrokes.count == 2 {
+            return InkSplitMajorTriangleGeometry.matches(sourceStrokes[0], sourceStrokes[1])
         }
 
         guard features.strokeCount == 1,
@@ -592,36 +610,6 @@ struct GestureTemplateRecognizer {
             && stroke.aspectRatio <= 1.10
             && !stroke.hasEarlyTopHorizontalRun
             && (compactClosedTriangle || handwrittenTriangle)
-    }
-
-    private func isTwoStrokeOpenTriangleMajorLike(_ features: RootGlyphFeatures) -> Bool {
-        guard features.strokeCount == 2 else {
-            return false
-        }
-
-        let orderedStrokes = features.strokes.sorted { lhs, rhs in
-            lhs.bounds.minX < rhs.bounds.minX
-        }
-        let leftStroke = orderedStrokes[0]
-        let rightStroke = orderedStrokes[1]
-        let bounds = features.bounds
-        let horizontalGap = leftStroke.bounds.horizontalGap(to: rightStroke.bounds)
-        let verticalOverlap = leftStroke.bounds.verticalOverlap(with: rightStroke.bounds)
-        let smallerHeight = max(min(leftStroke.bounds.height, rightStroke.bounds.height), 1)
-
-        guard bounds.width >= 8,
-              bounds.width <= 28,
-              bounds.height >= 8,
-              bounds.height <= 28,
-              features.aspectRatio >= 0.55,
-              features.aspectRatio <= 1.75,
-              horizontalGap <= max(3, bounds.width * 0.20),
-              verticalOverlap >= smallerHeight * 0.35 else {
-            return false
-        }
-
-        return isTriangleMajorLeftLeg(leftStroke, in: bounds)
-            && isTriangleMajorRightLegWithBase(rightStroke, in: bounds)
     }
 
     /// Closure alone cannot separate a major triangle from a diminished
@@ -706,64 +694,6 @@ struct GestureTemplateRecognizer {
             previous = next
         }
         return abs(doubledArea) / 2
-    }
-
-    private func isTriangleMajorLeftLeg(_ stroke: RootStrokeFeatures, in bounds: InkBounds) -> Bool {
-        let startX = normalizedXRatio(of: stroke.startPoint, in: bounds)
-        let startY = normalizedYRatio(of: stroke.startPoint, in: bounds)
-        let endX = normalizedXRatio(of: stroke.endPoint, in: bounds)
-        let endY = normalizedYRatio(of: stroke.endPoint, in: bounds)
-
-        return stroke.pointCount >= 3
-            && stroke.bounds.height >= 6
-            && stroke.bounds.width <= max(8, stroke.bounds.height * 0.85)
-            && stroke.straightness >= 0.50
-            && stroke.diagonalAngleMagnitude >= 45
-            && stroke.diagonalAngleMagnitude <= 82
-            && stroke.startPoint.x >= stroke.endPoint.x + max(2, bounds.width * 0.12)
-            && stroke.endPoint.y >= stroke.startPoint.y + max(5, bounds.height * 0.35)
-            && startX >= 0.08
-            && startX <= 0.58
-            && startY <= 0.36
-            && endX <= startX - 0.08
-            && endY >= 0.62
-    }
-
-    private func isTriangleMajorRightLegWithBase(_ stroke: RootStrokeFeatures, in bounds: InkBounds) -> Bool {
-        let startX = normalizedXRatio(of: stroke.startPoint, in: bounds)
-        let startY = normalizedYRatio(of: stroke.startPoint, in: bounds)
-        let endX = normalizedXRatio(of: stroke.endPoint, in: bounds)
-        let endY = normalizedYRatio(of: stroke.endPoint, in: bounds)
-        let lowerPoints = stroke.points.filter { point in
-            normalizedYRatio(of: point, in: bounds) >= 0.68
-        }
-        let lowerMinX = lowerPoints.map { normalizedXRatio(of: $0, in: bounds) }.min() ?? endX
-        let lowerMaxX = lowerPoints.map { normalizedXRatio(of: $0, in: bounds) }.max() ?? endX
-        let reachesRightCorner = stroke.points.contains { point in
-            normalizedXRatio(of: point, in: bounds) >= 0.72
-                && normalizedYRatio(of: point, in: bounds) >= 0.50
-        }
-
-        return stroke.pointCount >= 8
-            && stroke.bounds.width >= 7
-            && stroke.bounds.height >= 7
-            && stroke.horizontalDirectionChangeCount >= 1
-            && startX >= 0.08
-            && startX <= 0.62
-            && startY <= 0.34
-            && endX <= 0.26
-            && endY >= 0.62
-            && reachesRightCorner
-            && lowerMinX <= 0.26
-            && lowerMaxX >= 0.72
-    }
-
-    private func normalizedXRatio(of point: InkPoint, in bounds: InkBounds) -> Double {
-        (point.x - bounds.minX) / max(bounds.width, 1)
-    }
-
-    private func normalizedYRatio(of point: InkPoint, in bounds: InkBounds) -> Double {
-        (point.y - bounds.minY) / max(bounds.height, 1)
     }
 
     private func isDiminishedCircleLike(_ features: RootGlyphFeatures) -> Bool {
@@ -948,14 +878,31 @@ struct GestureTemplateRecognizer {
             && stroke.hasEarlyTopHorizontalRun
         let compactSeven = stroke.pointCount >= 5
             && stroke.bounds.width >= 5
-            && stroke.bounds.height >= 6.5
             && stroke.bounds.height <= 18
             && stroke.aspectRatio >= 0.55
             && stroke.aspectRatio <= 1.65
             && stroke.endPoint.y >= stroke.startPoint.y + stroke.bounds.height * 0.45
             && stroke.hasEarlyTopHorizontalRun
+            && (stroke.bounds.height >= 6.5 || hasSmallSevenShape(stroke))
 
         return standardSeven || compactSeven
+    }
+
+    private func hasSmallSevenShape(_ stroke: RootStrokeFeatures) -> Bool {
+        let endX = stroke.normalizedXRatio(of: stroke.endPoint)
+        // A small raised 7 still travels left to right across the top and
+        // bends back from that corner into its descending tail.
+        return stroke.pointCount >= 7
+            && stroke.bounds.height >= 5.5
+            && stroke.aspectRatio >= 0.9
+            && stroke.normalizedXRatio(of: stroke.startPoint) <= 0.28
+            && stroke.normalizedYRatio(of: stroke.startPoint) <= 0.24
+            && endX >= 0.60
+            && stroke.normalizedYRatio(of: stroke.endPoint) >= 0.88
+            && stroke.points.contains { point in
+                stroke.normalizedXRatio(of: point) >= max(0.94, endX + 0.06)
+                    && stroke.normalizedYRatio(of: point) <= 0.40
+            }
     }
 
     private func isNineLike(_ features: RootGlyphFeatures) -> Bool {
@@ -1298,8 +1245,19 @@ struct GestureTemplateRecognizer {
     ) -> Bool {
         let centerYRatio = features.normalizedYCenter(of: stroke)
         let widthCoverage = stroke.bounds.width / max(features.bounds.width, 1)
+        let centerXRatio = (stroke.bounds.recognitionMidX - features.bounds.minX) / features.bounds.width
+        // Only a centered, straight short mark can serve as the second
+        // stroke of a root A. Its other stroke must still pass the frame check.
+        let compactBar = features.strokeCount == 2
+            && (5..<6).contains(stroke.bounds.width)
+            && widthCoverage >= 0.30
+            && centerXRatio >= 0.32
+            && centerXRatio <= 0.68
+            && stroke.straightness >= 0.82
+            && stroke.aspectRatio >= 1.65
+            && abs(stroke.angleDegrees) <= 20
 
-        return stroke.isLooseHorizontal
+        return (stroke.isLooseHorizontal || compactBar)
             && centerYRatio >= 0.36
             && centerYRatio <= 0.72
             && widthCoverage >= 0.18
@@ -1688,6 +1646,14 @@ struct GestureTemplateRecognizer {
     }
 
     private func twoStrokeRootCandidates(_ features: RootGlyphFeatures) -> [GlyphCandidate] {
+        if Self.hasJoinedTopStemAndLowerArmERoot(features) {
+            return [heuristicCandidate("E", confidence: 0.996)]
+        }
+
+        if Self.hasJoinedTopAndStemFRoot(features) {
+            return [heuristicCandidate("F", confidence: 0.996)]
+        }
+
         if features.hasHorizontalStroke,
            !features.hasVerticalStem,
            let mainStroke = features.strokes.max(by: { $0.pathLength < $1.pathLength }),
@@ -1969,6 +1935,14 @@ struct GestureTemplateRecognizer {
         let hasMiddle = hasMiddleRootHorizontalEvidence(in: features)
         let hasBottom = hasBottomRootEvidence(in: features)
 
+        if hasTop && Self.hasBaselineLowerArmEvidence(in: features) {
+            return [heuristicCandidate("E", confidence: 0.996)]
+        }
+
+        if hasShortLowMiddleFRoot(features) {
+            return [heuristicCandidate("F", confidence: 0.996)]
+        }
+
         if hasTop && hasBottom {
             return [heuristicCandidate("E", confidence: 0.996)]
         }
@@ -1984,6 +1958,176 @@ struct GestureTemplateRecognizer {
         return []
     }
 
+    private static func hasJoinedTopAndStemFRoot(_ features: RootGlyphFeatures) -> Bool {
+        guard features.strokeCount == 2,
+              hasJoinedFFrameBounds(features.bounds) else { return false }
+
+        for middleIndex in features.strokes.indices {
+            let middle = features.strokes[middleIndex]
+            let frame = features.strokes[1 - middleIndex]
+            guard hasJoinedFMiddleBounds(middle.bounds, in: features.bounds),
+                  middle.isLooseHorizontalInEitherDirection,
+                  middle.straightness >= 0.85,
+                  frame.pointCount >= 3 else { continue }
+
+            func isLowerStemEnd(_ point: InkPoint) -> Bool {
+                point.x <= features.bounds.minX + features.bounds.width * 0.20
+                    && point.y >= features.bounds.minY + features.bounds.height * 0.90
+            }
+            func isTopRightEnd(_ point: InkPoint) -> Bool {
+                point.x >= features.bounds.minX + features.bounds.width * 0.85
+                    && point.y <= features.bounds.minY + features.bounds.height * 0.12
+            }
+            let hasFrameEnds = isLowerStemEnd(frame.startPoint) && isTopRightEnd(frame.endPoint)
+                || isTopRightEnd(frame.startPoint) && isLowerStemEnd(frame.endPoint)
+            let hasTopLeftCorner = frame.points.contains { point in
+                point.x <= features.bounds.minX + features.bounds.width * 0.20
+                    && point.y <= features.bounds.minY + features.bounds.height * 0.12
+            }
+            // A descending 7 or a curved letter cannot supply both a top
+            // shelf and a full left stem beside the independent middle bar.
+            let followsTopAndStem = frame.points.allSatisfy { point in
+                point.x <= features.bounds.minX + features.bounds.width * 0.20
+                    || point.y <= features.bounds.minY + features.bounds.height * 0.12
+            }
+            if hasFrameEnds && hasTopLeftCorner && followsTopAndStem { return true }
+        }
+        return false
+    }
+
+    private static func hasJoinedFFrameBounds(_ bounds: InkBounds) -> Bool {
+        bounds.height >= 16 && (0.40...1.05).contains(max(bounds.width, 1) / max(bounds.height, 1))
+    }
+
+    private static func hasJoinedFMiddleBounds(_ middle: InkBounds, in bounds: InkBounds) -> Bool {
+        middle.width >= 6
+            && middle.width / max(middle.height, 1) >= 1.65
+            && (0.30...0.78).contains((middle.recognitionMidY - bounds.minY) / max(bounds.height, 1))
+            && middle.width >= bounds.width * 0.35
+            && middle.width <= bounds.width * 0.90
+            && middle.minX <= bounds.minX + bounds.width * 0.20
+    }
+
+    private static func hasJoinedTopStemAndLowerArmERoot(_ features: RootGlyphFeatures) -> Bool {
+        guard features.strokeCount == 2,
+              hasJoinedFFrameBounds(features.bounds),
+              hasBaselineLowerArmEvidence(in: features) else { return false }
+
+        for middleIndex in features.strokes.indices {
+            let middle = features.strokes[middleIndex]
+            let frame = features.strokes[1 - middleIndex]
+            guard hasJoinedFMiddleBounds(middle.bounds, in: features.bounds),
+                  middle.isLooseHorizontalInEitherDirection,
+                  middle.straightness >= 0.85,
+                  frame.pointCount >= 4 else { continue }
+
+            let leftLimit = features.bounds.minX + features.bounds.width * 0.20
+            let topLimit = features.bounds.minY + features.bounds.height * 0.12
+            let lowerLimit = features.bounds.maxY - features.bounds.height * 0.16
+            func isTopRightEnd(_ point: InkPoint) -> Bool {
+                point.x >= features.bounds.minX + features.bounds.width * 0.85
+                    && point.y <= topLimit
+            }
+            let hasFrameEnds = isTopRightEnd(frame.startPoint) && frame.endPoint.y >= lowerLimit
+                || isTopRightEnd(frame.endPoint) && frame.startPoint.y >= lowerLimit
+            let hasTopLeftCorner = frame.points.contains { $0.x <= leftLimit && $0.y <= topLimit }
+            let hasLowerStem = frame.points.contains { $0.x <= leftLimit && $0.y >= lowerLimit }
+            let followsFrame = frame.points.allSatisfy {
+                $0.x <= leftLimit || $0.y <= topLimit || $0.y >= lowerLimit
+            }
+            if hasFrameEnds && hasTopLeftCorner && hasLowerStem && followsFrame { return true }
+        }
+        return false
+    }
+
+    /// A lower arm belongs to the baseline and extends right beyond pen-slip
+    /// noise. Its size is measured against the stem height, never the top bar.
+    /// A joined arm must turn toward horizontal; a straight leaning F stem
+    /// cannot supply that turn merely by reaching farther to the right.
+    private static func hasBaselineLowerArmEvidence(in features: RootGlyphFeatures) -> Bool {
+        let height = features.bounds.height
+        let minimumAdvance = max(1.25, height * 0.06)
+        let baselineStart = features.bounds.maxY - height * 0.20
+        let terminalBand = height * 0.16
+        let noise = max(0.5, height * 0.03)
+
+        for stroke in features.strokes {
+            guard stroke.bounds.maxY >= baselineStart else { continue }
+
+            // A separate short lower bar still counts when the top bar is
+            // much wider, provided it actually meets the bottom of the stem.
+            if stroke.bounds.width >= minimumAdvance,
+               stroke.bounds.height <= height * 0.12,
+               stroke.straightness >= 0.65,
+               let left = stroke.points.min(by: { $0.x < $1.x }),
+               let right = stroke.points.max(by: { $0.x < $1.x }),
+               min(left.y, right.y) >= baselineStart,
+               right.x - left.x >= abs(right.y - left.y) * 1.5,
+               features.strokes.contains(where: { stem in
+                   stem.bounds.height >= height * 0.50 && stem.points.contains { point in
+                       point.y >= baselineStart
+                           && abs(point.x - left.x) <= minimumAdvance * 0.50
+                           && abs(point.y - left.y) <= height * 0.12
+                   }
+               }) {
+                return true
+            }
+
+            guard stroke.bounds.height >= height * 0.50 else { continue }
+            let points = stroke.startPoint.y <= stroke.endPoint.y ? stroke.points : Array(stroke.points.reversed())
+            guard let end = points.last,
+                  end.y >= features.bounds.maxY - terminalBand else { continue }
+
+            for hingeIndex in points.indices.dropLast() {
+                let hinge = points[hingeIndex]
+                let advance = end.x - hinge.x
+                let rise = abs(end.y - hinge.y)
+                // A short diagonal stem flare is not another arm. The joined
+                // terminal must run at least twice as far right as it rises.
+                guard hinge.y >= baselineStart,
+                      advance >= minimumAdvance,
+                      advance >= rise * 2,
+                      rise <= terminalBand,
+                      points[..<hingeIndex].contains(where: { $0.y <= hinge.y - height * 0.50 }) else {
+                    continue
+                }
+                let tail = points[hingeIndex...]
+                guard tail.allSatisfy({ $0.x >= hinge.x - noise && $0.y >= baselineStart - noise }) else {
+                    continue
+                }
+                let pathLength = zip(tail, tail.dropFirst()).reduce(0.0) { length, pair in
+                    length + pair.0.distance(to: pair.1)
+                }
+                if pathLength > 0, hinge.distance(to: end) / pathLength >= 0.65 { return true }
+            }
+        }
+        return false
+    }
+
+    private func hasShortLowMiddleFRoot(_ features: RootGlyphFeatures) -> Bool {
+        guard features.strokeCount == 3,
+              let stem = features.strokes.first(where: { $0.isVerticalStem && $0.straightness >= 0.90 }),
+              stem.bounds.height >= features.bounds.height * 0.95,
+              stem.bounds.maxX <= features.bounds.minX + features.bounds.width * 0.20,
+              let top = features.strokes.first(where: {
+                  $0.isLooseHorizontalInEitherDirection && $0.straightness >= 0.85
+                      && features.normalizedYCenter(of: $0) <= 0.15
+                      && $0.bounds.width >= features.bounds.width * 0.80
+              }) else { return false }
+
+        // Keep a visible lower stem below the short arm. A true bottom bar
+        // or a stem joined to a bottom arm continues through the E checks.
+        return features.strokes.contains { middle in
+            let middleY = features.normalizedYCenter(of: middle)
+            return middle.isLooseHorizontalInEitherDirection
+                && middle.straightness >= 0.85
+                && (0.70...0.78).contains(middleY)
+                && middle.bounds.minX <= features.bounds.minX + features.bounds.width * 0.20
+                && middle.bounds.width >= top.bounds.width * 0.40
+                && middle.bounds.width <= top.bounds.width * 0.82
+        }
+    }
+
     private func fourStrokeRootCandidates(_ features: RootGlyphFeatures) -> [GlyphCandidate] {
         guard features.aspectRatio >= 0.45,
               features.aspectRatio <= 1.15 else {
@@ -1992,7 +2136,7 @@ struct GestureTemplateRecognizer {
 
         let hasTop = hasTopRootHorizontalEvidence(in: features)
         let hasMiddle = hasMiddleRootHorizontalEvidence(in: features)
-        let hasBottom = hasBottomRootEvidence(in: features)
+        let hasBottom = hasBottomRootEvidence(in: features) || Self.hasBaselineLowerArmEvidence(in: features)
 
         if features.hasVerticalStem && hasTop && hasMiddle && hasBottom {
             return [heuristicCandidate("E", confidence: 0.997)]
@@ -2003,7 +2147,7 @@ struct GestureTemplateRecognizer {
 
     private func hasTopRootHorizontalEvidence(in features: RootGlyphFeatures) -> Bool {
         features.strokes.contains { stroke in
-            guard stroke.isLooseHorizontal else {
+            guard stroke.isLooseHorizontalInEitherDirection else {
                 return false
             }
 
@@ -2015,7 +2159,7 @@ struct GestureTemplateRecognizer {
 
     private func hasMiddleRootHorizontalEvidence(in features: RootGlyphFeatures) -> Bool {
         features.strokes.contains { stroke in
-            guard stroke.isLooseHorizontal else {
+            guard stroke.isLooseHorizontalInEitherDirection else {
                 return false
             }
 
@@ -2032,11 +2176,13 @@ struct GestureTemplateRecognizer {
             let widthCoverage = stroke.bounds.width / max(features.bounds.width, 1)
             let reachesRight = stroke.bounds.maxX >= features.bounds.minX + features.bounds.width * 0.58
 
-            let explicitBottomStroke = stroke.isLooseHorizontal
+            let explicitBottomStroke = stroke.isLooseHorizontalInEitherDirection
                 && centerYRatio >= 0.72
                 && widthCoverage >= 0.30
                 && reachesRight
-            let lowerRightBody = !stroke.isLooseHorizontal
+            // A leaning stem can reach the lower right without turning into a bottom bar.
+            let lowerRightBody = !stroke.isLooseHorizontalInEitherDirection
+                && !(stroke.isVerticalStem && stroke.straightness >= 0.90)
                 && stroke.bounds.maxY >= features.bounds.minY + features.bounds.height * 0.86
                 && stroke.bounds.maxX >= features.bounds.minX + features.bounds.width * 0.62
                 && widthCoverage >= 0.35
@@ -2157,9 +2303,15 @@ private struct RootStrokeFeatures: Hashable {
     }
 
     var isLooseHorizontal: Bool {
-        bounds.width >= 6
-            && bounds.width / max(bounds.height, 1) >= 1.65
-            && abs(angleDegrees) <= 45
+        hasLooseHorizontalBounds && abs(angleDegrees) <= 45
+    }
+
+    var isLooseHorizontalInEitherDirection: Bool {
+        hasLooseHorizontalBounds && (abs(angleDegrees) <= 45 || abs(angleDegrees) >= 135)
+    }
+
+    private var hasLooseHorizontalBounds: Bool {
+        bounds.width >= 6 && bounds.width / max(bounds.height, 1) >= 1.65
     }
 
     var isLooseVertical: Bool {

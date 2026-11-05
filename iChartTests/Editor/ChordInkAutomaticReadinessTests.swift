@@ -148,6 +148,108 @@ final class ChordInkAutomaticReadinessTests: XCTestCase {
         XCTAssertNil(host.view.chart.pageHandwrittenChordData)
     }
 
+    func testManualReviewWaitsForCurrentReaderAndInvalidatesWhenWritingChanges() async throws {
+        let readStarted = expectation(description: "Manual recognition starts on the reader worker")
+        let previewReady = expectation(description: "The current manual preview can resume a pending review action")
+        let recognizer = DelayedReadinessPrimaryRecognizer(readStarted: readStarted)
+        let host = try makeHost(manual: true, recognizer: recognizer)
+        defer {
+            cleanup(host)
+            recognizer.releaseFirstRead()
+        }
+        let original = host.canvas.drawing
+        var delivered: [ChordInkRecognitionProposalPayload] = []
+        host.view.onChordInkDraftPreviewChanged = { payloads in
+            guard delivered.isEmpty, let payload = payloads.first else { return }
+            delivered = payloads
+            host.view.chordPreviewState = self.state(from: payload, chart: host.view.chart)
+        }
+        var ready = false
+        host.view.onManualChordPreviewReady = {
+            XCTAssertFalse(delivered.isEmpty, "Publish the preview before waking a pending review action")
+            XCTAssertTrue(host.view.prepareManualPreviewForReview())
+            ready = true
+            previewReady.fulfill()
+        }
+
+        XCTAssertTrue(host.view.recognizesChordInk)
+        XCTAssertFalse(host.view.prepareManualPreviewForReview(), "Restored ink needs a current preview before review")
+        await fulfillment(of: [readStarted], timeout: 5)
+        XCTAssertFalse(host.view.prepareManualPreviewForReview(), "Review must wait while recognition is in flight")
+        XCTAssertTrue(delivered.isEmpty)
+        XCTAssertFalse(ready)
+        let pendingSource = try XCTUnwrap(host.view.currentManualPreviewDrawing())
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: original, current: pendingSource))
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: original, current: host.canvas.drawing))
+
+        recognizer.releaseFirstRead()
+        await fulfillment(of: [previewReady], timeout: 5)
+        let current = try XCTUnwrap(delivered.first)
+        XCTAssertEqual(current.result.match?.displayText, "F")
+        XCTAssertEqual(delivered.count, 1)
+        let represented = try PKDrawing(data: current.drawingData)
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: pendingSource, current: represented))
+        XCTAssertTrue(host.view.prepareManualPreviewForReview())
+
+        host.view.onManualChordPreviewReady = nil
+        let oldRevision = host.view.automaticChordInputRevision
+        let changed = PKDrawing(strokes: original.strokes + sourceDrawing(xOffset: 200).strokes)
+        host.canvas.drawing = changed
+        host.view.canvasViewDrawingDidChange(host.canvas)
+        XCTAssertNotEqual(host.view.automaticChordInputRevision, oldRevision)
+        XCTAssertFalse(host.view.prepareManualPreviewForReview(), "The old read must not authorize review after a stroke is added")
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: changed, current: host.canvas.drawing))
+        XCTAssertTrue(host.view.chart.measures.allSatisfy(\.chordEvents.isEmpty))
+    }
+
+    func testManualPreviewReadyCannotResumeAnActionBoundToChangedInk() async throws {
+        let oldReadStarted = expectation(description: "The original manual read is still in flight")
+        let latestPreviewReady = expectation(description: "Only the replacement drawing becomes ready")
+        let recognizer = DelayedReadinessPrimaryRecognizer(readStarted: oldReadStarted)
+        let host = try makeHost(manual: true, recognizer: recognizer)
+        defer {
+            cleanup(host)
+            recognizer.releaseFirstRead()
+        }
+        var delivered: [ChordInkRecognitionProposalPayload] = []
+        host.view.onChordInkDraftPreviewChanged = { payloads in
+            guard let payload = payloads.first else { return }
+            delivered = payloads
+            host.view.chordPreviewState = self.state(from: payload, chart: host.view.chart)
+        }
+        XCTAssertFalse(host.view.prepareManualPreviewForReview())
+        await fulfillment(of: [oldReadStarted], timeout: 5)
+        let pendingSource = try XCTUnwrap(host.view.currentManualPreviewDrawing())
+        let oldRevision = host.view.automaticChordInputRevision
+        let replacement = sourceDrawing(xOffset: 12)
+        host.view.onManualChordPreviewReady = {
+            guard let currentSource = host.view.currentManualPreviewDrawing(),
+                  let payload = delivered.first,
+                  let previewSource = try? PKDrawing(data: payload.drawingData) else {
+                XCTFail("A ready preview must publish its current source first")
+                latestPreviewReady.fulfill()
+                return
+            }
+            XCTAssertTrue(host.view.prepareManualPreviewForReview())
+            XCTAssertFalse(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: pendingSource, current: currentSource))
+            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: replacement, current: currentSource))
+            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: replacement, current: previewSource))
+            latestPreviewReady.fulfill()
+        }
+
+        host.view.canvasViewDidBeginUsingTool(host.canvas)
+        host.canvas.drawing = replacement
+        host.view.canvasViewDrawingDidChange(host.canvas)
+        host.view.canvasViewDidEndUsingTool(host.canvas)
+        XCTAssertNotEqual(host.view.automaticChordInputRevision, oldRevision)
+        XCTAssertFalse(host.view.prepareManualPreviewForReview())
+        XCTAssertTrue(delivered.isEmpty)
+        recognizer.releaseFirstRead()
+        await fulfillment(of: [latestPreviewReady], timeout: 5)
+        XCTAssertTrue(host.view.chart.measures.allSatisfy(\.chordEvents.isEmpty))
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: replacement, current: host.canvas.drawing))
+    }
+
     private struct Host {
         let view: LeadSheetCanvasUIKitView
         let canvas: PKCanvasView
@@ -155,15 +257,15 @@ final class ChordInkAutomaticReadinessTests: XCTestCase {
         let window: UIWindow
     }
 
-    private func makeHost() throws -> Host {
+    private func makeHost(manual: Bool = false, recognizer: any ChordInkRecognizing = ReadinessPrimaryRecognizer()) throws -> Host {
         let view = LeadSheetCanvasUIKitView(frame: CGRect(origin: .zero, size: pageSize),
-            chordInkRecognizer: ReadinessPrimaryRecognizer(), automaticFallbackRecognizers: [])
+            chordInkRecognizer: recognizer, automaticFallbackRecognizers: [])
         view.recognizesChordInk = false
         let coordinator = ChordInkDraftRenderCoordinator()
         view.chordDraftRenderCoordinator = coordinator
         view.chart = restoredChart()
         view.interactionMode = .chordEntry
-        view.manualRenderWithPreview = false
+        view.manualRenderWithPreview = manual
         let controller = UIViewController()
         controller.view = view
         let window = UIWindow(frame: CGRect(origin: .zero, size: pageSize))
@@ -180,6 +282,7 @@ final class ChordInkAutomaticReadinessTests: XCTestCase {
 
     private func cleanup(_ host: Host) {
         host.view.onChordInkDraftPreviewChanged = nil
+        host.view.onManualChordPreviewReady = nil
         host.view.onChordInkAutomaticActivityChanged = nil
         host.view.onChordInkDraftBarlinesChanged = nil
         host.view.recognizesChordInk = false
@@ -263,6 +366,30 @@ private struct ReadinessPrimaryRecognizer: ChordInkRecognizing {
 
     func recognize(strokes: [InkStroke], options: ChordInkRecognitionOptions) -> ChordInkRecognitionResult {
         Self.result
+    }
+}
+
+private final class DelayedReadinessPrimaryRecognizer: ChordInkRecognizing {
+    private let readStarted: XCTestExpectation
+    private let gate = DispatchSemaphore(value: 0)
+    private let lock = NSLock()
+    private var hasStarted = false
+
+    init(readStarted: XCTestExpectation) { self.readStarted = readStarted }
+
+    func releaseFirstRead() { gate.signal() }
+
+    func recognize(strokes: [InkStroke], options: ChordInkRecognitionOptions) -> ChordInkRecognitionResult {
+        let isFirst = lock.withLock {
+            guard !hasStarted else { return false }
+            hasStarted = true
+            return true
+        }
+        if isFirst {
+            readStarted.fulfill()
+            _ = gate.wait(timeout: .now() + 5)
+        }
+        return ReadinessPrimaryRecognizer.result
     }
 }
 #endif

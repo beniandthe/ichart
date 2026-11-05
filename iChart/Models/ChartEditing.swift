@@ -1,5 +1,8 @@
 import CoreGraphics
 import Foundation
+#if canImport(PencilKit)
+import PencilKit
+#endif
 
 extension Chart {
     private func persistentInkCoordinateSpace(
@@ -310,11 +313,27 @@ extension Chart {
 
         let normalizedWidth = width.map { Measure.clampedManualLayoutWidth($0) }
         let normalizedStoredWidth = normalizedWidth.map(Double.init)
-        guard systems[location.systemIndex].measures[location.measureIndex].manualLayoutWidth != normalizedStoredWidth else {
+        let splitGroupID = systems[location.systemIndex].measures[location.measureIndex]
+            .rhythmSectionSplitLayoutSource?.groupID
+        guard systems[location.systemIndex].measures[location.measureIndex].manualLayoutWidth != normalizedStoredWidth
+                || systems[location.systemIndex].measures[location.measureIndex].usesDrawnRhythmTailWidth
+                || splitGroupID != nil else {
             return normalizedWidth
         }
 
+        if let splitGroupID {
+            // A deliberate resize, reset or Equal Row makes these physical
+            // measures independent sizing units. Internal divider writes use
+            // their own setter and retain the source grouping.
+            for systemIndex in systems.indices {
+                for measureIndex in systems[systemIndex].measures.indices where
+                    systems[systemIndex].measures[measureIndex].rhythmSectionSplitLayoutSource?.groupID == splitGroupID {
+                    systems[systemIndex].measures[measureIndex].rhythmSectionSplitLayoutSource = nil
+                }
+            }
+        }
         systems[location.systemIndex].measures[location.measureIndex].manualLayoutWidth = normalizedStoredWidth
+        systems[location.systemIndex].measures[location.measureIndex].usesDrawnRhythmTailWidth = false
         updatedAt = .now
         return normalizedWidth
     }
@@ -529,6 +548,16 @@ extension Chart {
         after measureID: UUID,
         scope: TimeSignatureApplicationScope
     ) -> UUID? {
+        applyingMeterChangePreservingLegacyArticulationBeats { chart in
+            chart.applyMeterChangeAfterMeasure(meter, measureID: measureID, scope: scope)
+        }
+    }
+
+    private mutating func applyMeterChangeAfterMeasure(
+        _ meter: Meter,
+        measureID: UUID,
+        scope: TimeSignatureApplicationScope
+    ) -> UUID? {
         guard let location = measureLocation(id: measureID) else {
             return nil
         }
@@ -590,12 +619,49 @@ extension Chart {
 
         let selectedIndex = flattenedMeasureIndex(for: location)
         guard selectedIndex > 0 else {
-            return applyMeterChangeStartingAtFirstMeasure(meter, scope: scope)
+            return applyingMeterChangePreservingLegacyArticulationBeats { chart in
+                chart.applyMeterChangeStartingAtFirstMeasure(meter, scope: scope)
+            }
         }
 
         let refreshedMeasures = measures
         let previousMeasureID = refreshedMeasures[selectedIndex - 1].id
         return applyMeterChange(meter, after: previousMeasureID, scope: scope)
+    }
+
+    func canApplyMeterToFreeInkArticulations(
+        _ meter: Meter,
+        startingAt measureID: UUID,
+        scope: TimeSignatureApplicationScope
+    ) -> Bool {
+        guard freeInkArticulations.contains(where: { $0.legacyBeatIndex != nil }),
+              measure(id: measureID) != nil else { return true }
+        var candidate = self
+        return candidate.applyMeterChange(meter, startingAt: measureID, scope: scope) != nil
+    }
+
+    private mutating func applyingMeterChangePreservingLegacyArticulationBeats(
+        _ edit: (inout Chart) -> UUID?
+    ) -> UUID? {
+        let legacyMarks = freeInkArticulations.filter { $0.legacyBeatIndex != nil }
+        guard !legacyMarks.isEmpty else { return edit(&self) }
+        var candidate = self
+        guard let changedMeasureID = edit(&candidate),
+              legacyMarks.allSatisfy({ articulation in
+                  guard let measureID = articulation.measureID,
+                        let beatIndex = articulation.legacyBeatIndex,
+                        let newMeasure = candidate.measure(id: measureID) else { return true }
+                  let newMeter = newMeasure.resolvedMeter(defaultMeter: candidate.defaultMeter)
+                  if beatIndex >= 0, beatIndex < newMeter.numerator {
+                      return true
+                  }
+                  let oldMeter = measure(id: measureID)?.resolvedMeter(defaultMeter: defaultMeter)
+                  return oldMeter == newMeter
+              }) else {
+            return nil
+        }
+        self = candidate
+        return changedMeasureID
     }
 
     @discardableResult
@@ -767,7 +833,8 @@ extension Chart {
             return false
         }
 
-        return measures.count > 1 || canClearFirstMeasureTrailingBarline(at: location)
+        return canClearFirstMeasureTrailingBarline(at: location)
+            || (measures.count > 1 && (layoutStyle == .simpleChordSheet || !hasFreeInkArticulations(in: [measureID])))
     }
 
     func canDeleteMeasures(from startMeasureID: UUID, through endMeasureID: UUID) -> Bool {
@@ -775,7 +842,134 @@ extension Chart {
             return false
         }
 
-        return deletionRange.count < measures.count
+        let flattenedMeasures = measures
+        let removedMeasureIDs = Set(flattenedMeasures[deletionRange].map(\.id))
+        return deletionRange.count < flattenedMeasures.count
+            && (layoutStyle == .simpleChordSheet || !hasFreeInkArticulations(in: removedMeasureIDs))
+    }
+
+    func hasFreeInkArticulations(in measureIDs: Set<UUID>) -> Bool {
+        freeInkArticulations.contains { articulation in
+            let targetMeasureID: UUID?
+            if case let .chord(id) = articulation.attachment {
+                targetMeasureID = measureContainingChordEvent(id: id)?.id
+            } else {
+                targetMeasureID = articulation.measureID
+            }
+            if let targetMeasureID, measureIDs.contains(targetMeasureID) {
+                return true
+            }
+            return articulation.sourceCoordinateSpace?.measureAnchors?.contains {
+                measureIDs.contains($0.measureID)
+            } == true
+        }
+    }
+
+    private mutating func preserveSimpleArticulationSourcesBeforeEditing(measureIDs: Set<UUID>) {
+        guard layoutStyle == .simpleChordSheet else { return }
+        for index in freeInkArticulations.indices {
+            var mark = freeInkArticulations[index]
+            let sourceTouchesEdit = mark.sourceCoordinateSpace?.measureAnchors?.contains {
+                measureIDs.contains($0.measureID)
+            } == true || mark.sourceCoordinateSpace?.chordAnchors?.contains {
+                measureIDs.contains($0.measureID)
+            } == true
+            let targetTouchesEdit = mark.measureID.map(measureIDs.contains) == true
+                || {
+                    guard case .chord(let chordID) = mark.attachment,
+                          let owner = measureContainingChordEvent(id: chordID) else { return false }
+                    return measureIDs.contains(owner.id)
+                }()
+            guard sourceTouchesEdit || targetTouchesEdit else { continue }
+            if mark.sourcePagePoint == nil {
+                mark.sourcePagePoint = legacySimpleArticulationRestorePoint(mark)
+            }
+            // Simple archives belong to paper, independently of a mark's
+            // current chord. Retire stale geometric anchors only after a
+            // usable paper restoration point has been retained.
+            if mark.sourcePagePoint != nil, var source = mark.sourceCoordinateSpace {
+                source.measureAnchors = nil
+                source.chordAnchors = nil
+                mark.sourceCoordinateSpace = source
+            }
+            freeInkArticulations[index] = mark
+        }
+    }
+
+    private func legacySimpleArticulationRestorePoint(_ mark: FreeInkArticulation) -> FreeInkArticulationPagePoint? {
+        #if canImport(UIKit) && canImport(PencilKit)
+        guard let originalSpace = mark.sourceCoordinateSpace,
+              let width = LeadSheetPageLayoutEngine.canvasWidth(forPageWritingWidth: CGFloat(originalSpace.width),
+                layoutStyle: .simpleChordSheet),
+              let archive = try? PKDrawing(data: mark.sourceInkData), !archive.strokes.isEmpty else { return nil }
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: self,
+            pageSize: CGSize(width: width, height: LeadSheetFreeInkDocumentLayoutPolicy.portraitPageHeight))
+        let frame = LeadSheetActiveInkScope.pageWritingFrame(for: layout)
+        guard var destination = LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(for: layout,
+            relativeTo: frame) else { return nil }
+        var source = originalSpace
+        source.measureAnchors = source.measureAnchors?.map { anchor in
+            var anchor = anchor
+            anchor.staffFrame = nil
+            return anchor
+        }
+        destination.measureAnchors = destination.measureAnchors?.map { anchor in
+            var anchor = anchor
+            anchor.staffFrame = nil
+            return anchor
+        }
+        let restored: PKDrawing
+        if let aligned = FreeInkArticulationSourceInk.restore(archive, source: source, destination: destination) {
+            // A legacy record without an authored paper point retains its
+            // existing pre-edit Restore Ink destination before that measure
+            // can be split, merged or deleted.
+            restored = aligned
+        } else if source.measureAnchors?.isEmpty != false,
+                  source.width == destination.width, source.height == destination.height {
+            restored = archive
+        } else { return nil }
+        return FreeInkArticulationPlacement.pagePoint(at:
+            CGPoint(x: restored.bounds.midX + frame.minX, y: restored.bounds.midY + frame.minY),
+            pageLayout: layout)
+        #else
+        return nil
+        #endif
+    }
+
+    private mutating func detachSimpleArticulations(chordIDs: Set<UUID>, measureIDs: Set<UUID>) {
+        guard layoutStyle == .simpleChordSheet else { return }
+        for index in freeInkArticulations.indices {
+            var mark = freeInkArticulations[index]
+            let removesTarget: Bool
+            if case .chord(let id) = mark.attachment {
+                removesTarget = chordIDs.contains(id)
+            } else {
+                removesTarget = mark.measureID.map(measureIDs.contains) == true
+            }
+            guard removesTarget else { continue }
+            mark.pagePoint = mark.pagePoint ?? mark.sourcePagePoint
+            mark.attachment = nil
+            mark.measureID = nil
+            mark.beatIndex = nil
+            freeInkArticulations[index] = mark
+        }
+    }
+
+    private mutating func reanchorSimpleArticulationsToExistingChords() {
+        guard layoutStyle == .simpleChordSheet else { return }
+        for index in freeInkArticulations.indices {
+            guard case .chord(let id) = freeInkArticulations[index].attachment else { continue }
+            if let owner = measureContainingChordEvent(id: id) {
+                freeInkArticulations[index].measureID = owner.id
+            } else {
+                var mark = freeInkArticulations[index]
+                mark.pagePoint = mark.pagePoint ?? mark.sourcePagePoint
+                mark.attachment = nil
+                mark.measureID = nil
+                mark.beatIndex = nil
+                freeInkArticulations[index] = mark
+            }
+        }
     }
 
     @discardableResult
@@ -809,7 +1003,11 @@ extension Chart {
     }
 
     func canDeleteCommittedSimpleChordBarline(after measureID: UUID) -> Bool {
-        layoutStyle == .simpleChordSheet && canJoinMeasure(after: measureID)
+        layoutStyle == .simpleChordSheet && canDeleteCommittedChordBarline(after: measureID)
+    }
+
+    func canDeleteCommittedChordBarline(after measureID: UUID) -> Bool {
+        canJoinMeasure(after: measureID)
     }
 
     func canJoinMeasure(after measureID: UUID) -> Bool {
@@ -830,7 +1028,8 @@ extension Chart {
         guard leftMeasure.authoringState == .committed,
               leftMeasure.barlineAfter == .single,
               keyChange(atStartOf: rightMeasure.id) == nil,
-              effectiveMeter(for: leftMeasure) == effectiveMeter(for: rightMeasure) else {
+              effectiveMeter(for: leftMeasure) == effectiveMeter(for: rightMeasure),
+              (layoutStyle == .simpleChordSheet || !hasFreeInkArticulations(in: [leftMeasure.id, rightMeasure.id])) else {
             return false
         }
 
@@ -852,14 +1051,33 @@ extension Chart {
             measure.rhythmMap != nil
                 || !measure.pitchedNoteEvents.isEmpty
                 || measure.handwrittenRhythmicNotationData != nil
+                || measure.handwrittenRhythmicNotationCoordinateSpace != nil
+                || measure.chordEvents.contains { $0.mappedRhythmSlotIndex != nil }
         }
         let hasRightAnchoredFreehand = freehandSymbols.contains {
             $0.anchorMeasureID == rightMeasure.id
+        }
+        if let pageInk = pageHandwrittenNotationData, !pageInk.isEmpty {
+            // Joining distinct sizing units can change the global automatic
+            // staff width and reflow ink in unrelated measures. Only a pair
+            // created by splitting one original sizing unit can undo that
+            // boundary while page staff ink is retained. The cached policy
+            // below still protects any handwriting owned by the pair itself.
+            // Empty drawings normalize to nil in the authoring setter; unknown
+            // nonempty legacy archives remain conservatively protected here.
+            guard let groupID = leftMeasure.rhythmSectionSplitLayoutSource?.groupID,
+                  rightMeasure.rhythmSectionSplitLayoutSource?.groupID == groupID else {
+                return false
+            }
         }
         return leftMeasure.beatGridPreset == rightMeasure.beatGridPreset
             && !carriesUnsupportedRhythmContent(leftMeasure)
             && !carriesUnsupportedRhythmContent(rightMeasure)
             && !hasRightAnchoredFreehand
+            && !RhythmChordMeasureJoinInkPolicy.preventsJoin(
+                drawingData: pageHandwrittenNotationData,
+                sourceCoordinateSpace: pageHandwrittenNotationCoordinateSpace,
+                measureIDs: [leftMeasure.id, rightMeasure.id])
     }
 
     @discardableResult
@@ -872,7 +1090,14 @@ extension Chart {
     }
 
     @discardableResult
-    mutating func joinMeasure(after measureID: UUID) -> Bool {
+    mutating func deleteCommittedChordBarline(
+        after measureID: UUID, sourceMeasureWidths: [UUID: Double] = [:]
+    ) -> Bool {
+        joinMeasure(after: measureID, sourceMeasureWidths: sourceMeasureWidths)
+    }
+
+    @discardableResult
+    mutating func joinMeasure(after measureID: UUID, sourceMeasureWidths: [UUID: Double] = [:]) -> Bool {
         guard canJoinMeasure(after: measureID),
               let leftLocation = measureLocation(id: measureID) else {
             return false
@@ -888,20 +1113,40 @@ extension Chart {
 
         var leftMeasure = flattenedMeasures[leftIndex]
         let rightMeasure = flattenedMeasures[rightIndex]
-        let leftWeight = max(0.0001, leftMeasure.manualLayoutWidth ?? 1)
-        let rightWeight = max(0.0001, rightMeasure.manualLayoutWidth ?? 1)
+        preserveSimpleArticulationSourcesBeforeEditing(measureIDs: [leftMeasure.id, rightMeasure.id])
+        let weights = measureJoinWidths(left: leftMeasure, right: rightMeasure, source: sourceMeasureWidths)
+        let leftWeight = weights.left
+        let rightWeight = weights.right
         let totalWeight = max(0.0001, leftWeight + rightWeight)
         let leftScale = leftWeight / totalWeight
         let rightScale = rightWeight / totalWeight
         let mergedMeter = leftMeasure.resolvedMeter(defaultMeter: defaultMeter)
 
+        func positionedForJoin(_ event: ChordEvent, fraction: Double) -> ChordEvent {
+            // Joining chord-only measures changes their local onset, not the
+            // archived handwriting, duration, tie, spelling or display intent.
+            // A visual override is independent of its old musical insertion
+            // slot and must follow the same piecewise measure transform.
+            var positioned = event
+            positioned.startPosition = simpleChordLanePrecisePosition(for: fraction, meter: mergedMeter)
+            positioned.manualLaneFraction = clampedLaneFraction(fraction)
+            positioned.mappedRhythmSlotIndex = nil
+            positioned.anchorsToMeasureStart = false
+            return positioned
+        }
+        func joinFraction(_ event: ChordEvent, scale: Double, offset: Double) -> ChordEvent {
+            let fraction = simpleChordLaneFraction(for: event, meter: mergedMeter) * scale + offset
+            var positioned = positionedForJoin(event, fraction: fraction)
+            positioned.manualVisualLaneFraction = event.manualVisualLaneFraction.map {
+                clampedLaneFraction($0 * scale + offset)
+            }
+            return positioned
+        }
         let mergedChordEvents = (
             leftMeasure.chordEvents.map { event in
-                let fraction = simpleChordLaneFraction(for: event, meter: mergedMeter) * leftScale
-                return simpleChordLanePositionedChordEvent(event, at: fraction, meter: mergedMeter)
+                joinFraction(event, scale: leftScale, offset: 0)
             } + rightMeasure.chordEvents.map { event in
-                let fraction = leftScale + simpleChordLaneFraction(for: event, meter: mergedMeter) * rightScale
-                return simpleChordLanePositionedChordEvent(event, at: fraction, meter: mergedMeter)
+                joinFraction(event, scale: rightScale, offset: leftScale)
             }
         )
             .enumerated()
@@ -945,6 +1190,11 @@ extension Chart {
         }
 
         leftMeasure.chordEvents = mergedChordEvents
+        if leftMeasure.rhythmSectionSplitLayoutSource?.groupID != rightMeasure.rhythmSectionSplitLayoutSource?.groupID {
+            // Joining distinct sizing units establishes a new single unit.
+            // Joining siblings of one drawn subdivision restores that unit.
+            leftMeasure.rhythmSectionSplitLayoutSource = nil
+        }
         leftMeasure.barlineAfter = rightMeasure.barlineAfter
         leftMeasure.authoringState = rightMeasure.authoringState == .open ? .open : .committed
         leftMeasure.cueTextIDs.append(contentsOf: rightMeasure.cueTextIDs.filter { !leftMeasure.cueTextIDs.contains($0) })
@@ -957,19 +1207,66 @@ extension Chart {
             )
         }
 
+        // The right measure's outer boundary becomes the merged measure's
+        // outer boundary. Retain any following meter-change receipt there.
+        for index in timeSignatureChanges.indices where timeSignatureChanges[index].afterMeasureID == rightMeasure.id {
+            timeSignatureChanges[index].afterMeasureID = leftMeasure.id
+        }
         reanchorAnnotations(from: rightMeasure.id, to: leftMeasure.id)
+        if layoutStyle == .rhythmSectionSheet {
+            // canJoinMeasure proved that no retained page strokes use these
+            // source frames. Retire their empty registrations so a later
+            // engraving change cannot retain the removed measure's identity.
+            pageHandwrittenNotationCoordinateSpace?.measureAnchors?.removeAll {
+                $0.measureID == leftMeasure.id || $0.measureID == rightMeasure.id
+            }
+            pageHandwrittenNotationCoordinateSpace?.chordAnchors?.removeAll {
+                $0.measureID == leftMeasure.id || $0.measureID == rightMeasure.id
+            }
+        }
         flattenedMeasures[leftIndex] = leftMeasure
         flattenedMeasures.remove(at: rightIndex)
         rebuildSystems(using: flattenedMeasures)
+        anchorLoneChordsToMeasureStart(in: [leftMeasure.id])
+        reanchorSimpleArticulationsToExistingChords()
         updatedAt = .now
         return true
+    }
+
+    private func measureJoinWidths(
+        left: Measure, right: Measure, source: [UUID: Double]
+    ) -> (left: Double, right: Double) {
+        func valid(_ value: Double?) -> Double? {
+            guard let value, value.isFinite, value > 0 else { return nil }
+            return value
+        }
+        if let lhs = valid(source[left.id]), let rhs = valid(source[right.id]) { return (lhs, rhs) }
+        if let lhs = valid(left.manualLayoutWidth), let rhs = valid(right.manualLayoutWidth) { return (lhs, rhs) }
+        if left.manualLayoutWidth == nil, right.manualLayoutWidth == nil { return (1, 1) }
+
+        // Manual widths are points while an automatic measure's old fallback
+        // was the unit weight 1. Resolve both sides in the same physical space
+        // instead of collapsing the automatic side of a mixed-width pair.
+        let width = LeadSheetFreeInkDocumentLayoutPolicy.savedCanvasWidth(for: self)
+            ?? LeadSheetFreeInkDocumentLayoutPolicy.portraitCanvasWidth
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: self,
+            pageSize: CGSize(width: width, height: LeadSheetFreeInkDocumentLayoutPolicy.portraitPageHeight))
+        let rendered = Dictionary(layout.systems.flatMap(\.measures).compactMap { measure -> (UUID, Double)? in
+            guard let id = measure.sourceMeasureID else { return nil }
+            return (id, Double(layoutStyle == .simpleChordSheet ? measure.frame.width : measure.staffFrame.width))
+        }, uniquingKeysWith: { first, _ in first })
+        if let lhs = valid(rendered[left.id]), let rhs = valid(rendered[right.id]) { return (lhs, rhs) }
+        // Corrupt/unrenderable layout cannot justify a points-versus-unit
+        // ratio. An equal pair is the non-collapsing last-resort default.
+        return (1, 1)
     }
 
     @discardableResult
     mutating func splitSimpleChordMeasure(
         _ measureID: UUID,
         atFraction fraction: Double,
-        barlineAfter: BarlineType = .single
+        barlineAfter: BarlineType = .single,
+        normalizeSingleChordToMeasureStart: Bool = true
     ) -> UUID? {
         guard layoutStyle == .simpleChordSheet,
               let location = measureLocation(id: measureID) else {
@@ -986,6 +1283,7 @@ extension Chart {
         guard originalMeasure.rhythmMap == nil else {
             return nil
         }
+        preserveSimpleArticulationSourcesBeforeEditing(measureIDs: [originalMeasure.id])
 
         let splitFraction = min(max(fraction, 0.0001), 0.9999)
         let meter = originalMeasure.resolvedMeter(defaultMeter: defaultMeter)
@@ -1038,10 +1336,20 @@ extension Chart {
             rightMeasure.manualLayoutWidth = Double(max(1, CGFloat(manualLayoutWidth) * CGFloat(1 - splitFraction)))
         }
 
+        // The following meter still begins after all of the original measure's
+        // material. Move its existing receipt before rebuilding meter overrides
+        // so the inserted right segment does not adopt the next meter early.
+        for index in timeSignatureChanges.indices where timeSignatureChanges[index].afterMeasureID == originalMeasure.id {
+            timeSignatureChanges[index].afterMeasureID = rightMeasure.id
+        }
         flattenedMeasures[flattenedIndex] = leftMeasure
         flattenedMeasures.insert(rightMeasure, at: flattenedIndex + 1)
         rebuildSystems(using: flattenedMeasures)
+        if normalizeSingleChordToMeasureStart {
+            anchorLoneChordsToMeasureStart(in: [originalMeasure.id, rightMeasure.id])
+        }
         extendRangeEndpointsAcrossSplit(from: originalMeasure.id, through: rightMeasure.id)
+        reanchorSimpleArticulationsToExistingChords()
         updatedAt = .now
         return rightMeasure.id
     }
@@ -1360,12 +1668,10 @@ extension Chart {
 
         var measure = systems[location.systemIndex].measures[location.measureIndex]
         let resolvedSpellingIntent = spellingIntent ?? .automatic
-        let suggestion = chordInsertionSuggestion(
-            for: measure,
-            atFraction: fraction,
-            excluding: nil,
-            mode: .append
-        )
+        let anchorsToMeasureStart = layoutStyle == .rhythmSectionSheet && measure.chordEvents.isEmpty
+        let suggestion = anchorsToMeasureStart
+            ? measure.suggestedChordInsertionAtMeasureStart(defaultMeter: defaultMeter)
+            : chordInsertionSuggestion(for: measure, atFraction: fraction, excluding: nil, mode: .append)
         let resolvedRecognitionPipelineVersion = sourceRecognitionPipelineVersion
             ?? (sourceInkData == nil ? nil : ChordInkRecognitionPipelineIdentity.version)
         let chordEventID = measure.appendChordEvent(
@@ -1373,6 +1679,7 @@ extension Chart {
             spellingIntent: resolvedSpellingIntent,
             rawInput: rawInput,
             suggestion: suggestion,
+            anchorsToMeasureStart: anchorsToMeasureStart,
             sourceInkData: sourceInkData,
             sourceCandidateSignature: sourceCandidateSignature,
             sourceRecognitionPipelineVersion: resolvedRecognitionPipelineVersion
@@ -1567,6 +1874,8 @@ extension Chart {
                     continue
                 }
 
+                preserveSimpleArticulationSourcesBeforeEditing(measureIDs: [systems[systemIndex].measures[measureIndex].id])
+                detachSimpleArticulations(chordIDs: [chordEventID], measureIDs: [])
                 systems[systemIndex].measures[measureIndex].chordEvents.remove(at: chordIndex)
                 updatedAt = .now
                 return true
@@ -1841,13 +2150,6 @@ extension Chart {
         excluding chordEventID: UUID?,
         mode: ChordInsertionMode
     ) -> MeasureChordInsertionSuggestion {
-        if layoutStyle == .rhythmSectionSheet,
-           measure.rhythmMap == nil,
-           mode == .append,
-           measure.chordEvents.filter({ $0.id != chordEventID }).isEmpty {
-            return beatOneChordInsertionSuggestion()
-        }
-
         guard layoutStyle == .simpleChordSheet,
               measure.rhythmMap == nil,
               mode == .append else {
@@ -1933,14 +2235,6 @@ extension Chart {
         )
     }
 
-    private func beatOneChordInsertionSuggestion() -> MeasureChordInsertionSuggestion {
-        MeasureChordInsertionSuggestion(
-            startPosition: BeatPosition(beat: 1, subdivision: 0, subdivisionsPerBeat: 1),
-            duration: .quarter,
-            mappedRhythmSlotIndex: nil
-        )
-    }
-
     private func simpleChordSheetLocationBeat(for fraction: Double, meter: Meter) -> Int? {
         let beatCount = max(1, meter.numerator)
         guard beatCount > 0 else {
@@ -2006,11 +2300,16 @@ extension Chart {
     }
 
     @discardableResult
-    mutating func commitOpenMeasure(barlineAfter: BarlineType? = nil) -> UUID? {
+    mutating func commitOpenMeasure(
+        barlineAfter: BarlineType? = nil,
+        normalizeSingleChordToMeasureStart: Bool = true
+    ) -> UUID? {
         guard let location = openMeasureLocation() else {
             return nil
         }
 
+        let closingMeasureID = systems[location.systemIndex].measures[location.measureIndex].id
+        preserveSimpleArticulationSourcesBeforeEditing(measureIDs: [closingMeasureID])
         systems[location.systemIndex].measures[location.measureIndex].authoringState = .committed
         if let barlineAfter {
             systems[location.systemIndex].measures[location.measureIndex].barlineAfter = barlineAfter
@@ -2021,15 +2320,316 @@ extension Chart {
             beatGridPreset: layoutStyle.profile.measureDefaults.beatGridPreset
         )
         insertPreparedMeasure(newMeasure, after: location)
+        if normalizeSingleChordToMeasureStart {
+            anchorLoneChordsToMeasureStart(in: [closingMeasureID])
+        }
         updatedAt = .now
         return newMeasure.id
+    }
+
+    @discardableResult
+    mutating func splitCommittedRhythmSectionMeasure(
+        _ measureID: UUID,
+        atFraction fraction: Double,
+        barlineAfter: BarlineType = .single,
+        visualChordFractions: [UUID: Double] = [:],
+        sourceWidth: Double? = nil,
+        musicalSplitFraction: Double? = nil,
+        normalizeSingleChordToMeasureStart: Bool = true
+    ) -> UUID? {
+        guard layoutStyle == .rhythmSectionSheet,
+              fraction.isFinite, fraction > 0, fraction < 1,
+              let location = measureLocation(id: measureID) else { return nil }
+        let flattenedIndex = flattenedMeasureIndex(for: location)
+        var flattenedMeasures = measures
+        let original = flattenedMeasures[flattenedIndex]
+        // A visual divider must never duplicate a full-measure rhythm map or
+        // silently reinterpret notation whose timing cannot be partitioned.
+        guard original.authoringState == .committed,
+              original.handwrittenRhythmicNotationData == nil,
+              original.handwrittenRhythmicNotationCoordinateSpace == nil else { return nil }
+
+        let meter = original.resolvedMeter(defaultMeter: defaultMeter)
+        var rhythmSplitIndex: Int?
+        var originalSlots = [MeasureRhythmSlot]()
+        var chordSlotIndices = [UUID: Int]()
+        var leftRhythmMap: MeasureRhythmMap?
+        var rightRhythmMap: MeasureRhythmMap?
+        if let map = original.rhythmMap {
+            let timingFraction = musicalSplitFraction ?? fraction
+            guard timingFraction.isFinite, timingFraction > 0, timingFraction < 1 else { return nil }
+            let onsetTolerance = sourceWidth.flatMap { $0.isFinite && $0 > 0 ? 9 / $0 : nil } ?? 0.0001
+            guard map.drawingData == nil, map.drawingCoordinateSpace == nil,
+                  !map.values.contains(.measureRepeat), !map.values.contains(.tiedContinuation),
+                  let slots = map.resolvedSlots(for: meter),
+                  let split = slots.filter({ $0.index > 0 }).min(by: {
+                      let lhs = $0.startPosition.startOffset(in: meter) ?? .infinity
+                      let rhs = $1.startPosition.startOffset(in: meter) ?? .infinity
+                      return abs(lhs / meter.measureLengthInWholeNotes - timingFraction)
+                          < abs(rhs / meter.measureLengthInWholeNotes - timingFraction)
+                  }), let splitOffset = split.startPosition.startOffset(in: meter),
+                  abs(splitOffset / meter.measureLengthInWholeNotes - timingFraction) <= onsetTolerance,
+                  !map.tieOutSlotIndices.contains(split.index - 1),
+                  map.tieOutSlotIndices.allSatisfy({ $0 >= 0 && $0 < slots.count - 1 }),
+                  original.pitchedNoteEvents.allSatisfy({ slots.indices.contains($0.rhythmSlotIndex) })
+            else { return nil }
+            let placements = original.renderedChordPlacements(defaultMeter: defaultMeter)
+            for placement in placements {
+                guard let slot = placement.resolvedRhythmSlotIndex,
+                      slots.indices.contains(slot),
+                      placement.chordEvent.mappedRhythmSlotIndex.map({ $0 == slot }) ?? true
+                else { return nil }
+                chordSlotIndices[placement.id] = slot
+            }
+            func paddedMap(_ values: [RhythmValue], ties: Set<Int>) -> MeasureRhythmMap? {
+                var padded = values
+                let length = values.reduce(0) { $0 + $1.wholeNoteLength(in: meter) }
+                let remainder = (meter.measureLengthInWholeNotes - length) * 16
+                guard remainder >= -0.0001, abs(remainder - remainder.rounded()) < 0.0001 else { return nil }
+                var units = Int(remainder.rounded())
+                for (value, count) in [(RhythmValue.wholeRest, 16), (.halfRest, 8), (.dottedQuarterRest, 6),
+                                       (.quarterRest, 4), (.eighthRest, 2), (.sixteenthRest, 1)] {
+                    while units >= count { padded.append(value); units -= count }
+                }
+                let result = MeasureRhythmMap(values: padded, tieOutSlotIndices: ties)
+                return result.fitsExactly(in: meter) ? result : nil
+            }
+            guard let lhs = paddedMap(Array(map.values.prefix(split.index)),
+                    ties: Set(map.tieOutSlotIndices.filter { $0 < split.index })),
+                  let rhs = paddedMap(Array(map.values.dropFirst(split.index)),
+                    ties: Set(map.tieOutSlotIndices.filter { $0 >= split.index }.map { $0 - split.index }))
+            else { return nil }
+            rhythmSplitIndex = split.index
+            originalSlots = slots
+            leftRhythmMap = lhs
+            rightRhythmMap = rhs
+        } else {
+            guard original.pitchedNoteEvents.isEmpty,
+                  original.chordEvents.allSatisfy({ $0.mappedRhythmSlotIndex == nil }) else { return nil }
+        }
+        func sourceFraction(_ event: ChordEvent) -> Double {
+            visualChordFractions[event.id]
+                ?? event.manualVisualLaneFraction
+                ?? simpleChordLaneFraction(for: event, meter: meter)
+        }
+        if let split = rhythmSplitIndex,
+           original.chordEvents.contains(where: {
+               guard let slot = chordSlotIndices[$0.id] else { return true }
+               return (sourceFraction($0) >= fraction) != (slot >= split)
+           }) { return nil }
+        let rightEvents = original.chordEvents.filter { sourceFraction($0) >= fraction }
+        let rightStart = rightEvents.compactMap { $0.startPosition.startOffset(in: meter) }.min() ?? 0
+        // Validate before mutating chart-wide anchors. Durations, ties, source
+        // receipts and event identity stay intact; right-hand onsets become
+        // relative to their new measure's first onset.
+        var left = original
+        var right = original
+        let layoutSource = original.rhythmSectionSplitLayoutSource ?? RhythmSectionSplitLayoutSource(
+            groupID: original.id, manualLayoutWidth: original.manualLayoutWidth, authoringState: original.authoringState)
+        left.rhythmSectionSplitLayoutSource = layoutSource
+        right.rhythmSectionSplitLayoutSource = layoutSource
+        right.id = UUID()
+        right.index += 1
+        left.barlineAfter = barlineAfter
+        left.chordEvents = []
+        right.chordEvents = []
+        right.cueTextIDs = []
+        right.roadmapObjectIDs = []
+        if let split = rhythmSplitIndex {
+            left.rhythmMap = leftRhythmMap
+            right.rhythmMap = rightRhythmMap
+            left.pitchedNoteEvents = original.pitchedNoteEvents.filter { $0.rhythmSlotIndex < split }
+            right.pitchedNoteEvents = original.pitchedNoteEvents.filter { $0.rhythmSlotIndex >= split }.map {
+                var note = $0
+                note.rhythmSlotIndex -= split
+                return note
+            }
+        }
+        for event in original.chordEvents {
+            var positioned = event
+            let isRight = sourceFraction(event) >= fraction
+            let localFraction = isRight
+                ? (sourceFraction(event) - fraction) / (1 - fraction)
+                : sourceFraction(event) / fraction
+            positioned.manualVisualLaneFraction = clampedLaneFraction(localFraction)
+            if let split = rhythmSplitIndex, let slot = chordSlotIndices[event.id] {
+                let localSlot = isRight ? slot - split : slot
+                positioned.mappedRhythmSlotIndex = localSlot
+                let slots = isRight ? rightRhythmMap?.resolvedSlots(for: meter) : leftRhythmMap?.resolvedSlots(for: meter)
+                guard let slots, slots.indices.contains(localSlot) else { return nil }
+                positioned.startPosition = slots[localSlot].startPosition
+            }
+            if isRight {
+                if rhythmSplitIndex == nil {
+                    guard let offset = event.startPosition.startOffset(in: meter),
+                          let position = BeatPosition(offsetInWholeNotes: max(0, offset - rightStart), meter: meter)
+                    else { return nil }
+                    positioned.startPosition = position
+                }
+                positioned.manualLaneFraction = event.manualLaneFraction.map { _ in clampedLaneFraction(localFraction) }
+                right.chordEvents.append(positioned)
+            } else {
+                positioned.manualLaneFraction = event.manualLaneFraction.map { _ in clampedLaneFraction(localFraction) }
+                left.chordEvents.append(positioned)
+            }
+        }
+        if let width = original.manualLayoutWidth {
+            left.manualLayoutWidth = width * fraction
+            right.manualLayoutWidth = width * (1 - fraction)
+            left.usesDrawnRhythmTailWidth = true
+            right.usesDrawnRhythmTailWidth = true
+        }
+
+        for index in cueTexts.indices where cueTexts[index].anchorMeasureID == measureID {
+            if cueTexts[index].position == .leadingEdge { continue }
+            if cueTexts[index].position == .trailingEdge {
+                cueTexts[index].anchorMeasureID = right.id
+                left.cueTextIDs.removeAll { $0 == cueTexts[index].id }
+                right.cueTextIDs.append(cueTexts[index].id)
+                continue
+            }
+            guard let x = cueTexts[index].beatFraction else { continue }
+            if x >= fraction {
+                cueTexts[index].anchorMeasureID = right.id
+                cueTexts[index].beatFraction = CueText.clampedBeatFraction((x - fraction) / (1 - fraction))
+                left.cueTextIDs.removeAll { $0 == cueTexts[index].id }
+                right.cueTextIDs.append(cueTexts[index].id)
+            } else {
+                cueTexts[index].beatFraction = CueText.clampedBeatFraction(x / fraction)
+            }
+        }
+        for index in roadmapObjects.indices where roadmapObjects[index].startMeasureID == measureID {
+            guard roadmapObjects[index].type != .repeatSpan, !roadmapObjects[index].type.isEnding,
+                  let x = roadmapObjects[index].horizontalOffsetWithinMeasure else { continue }
+            if x >= fraction {
+                roadmapObjects[index].startMeasureID = right.id
+                roadmapObjects[index].horizontalOffsetWithinMeasure = RoadmapObject.clampedHorizontalOffset((x - fraction) / (1 - fraction))
+                left.roadmapObjectIDs.removeAll { $0 == roadmapObjects[index].id }
+                right.roadmapObjectIDs.append(roadmapObjects[index].id)
+            } else {
+                roadmapObjects[index].horizontalOffsetWithinMeasure = RoadmapObject.clampedHorizontalOffset(x / fraction)
+            }
+        }
+        // A meter change after the original still follows all of its content.
+        for index in timeSignatureChanges.indices where timeSignatureChanges[index].afterMeasureID == measureID {
+            timeSignatureChanges[index].afterMeasureID = right.id
+        }
+        let rightChordIDs = Set(right.chordEvents.map(\.id))
+        for index in freeInkArticulations.indices where freeInkArticulations[index].measureID == measureID {
+            switch freeInkArticulations[index].attachment {
+            case .chord(let id):
+                if rightChordIDs.contains(id) { freeInkArticulations[index].measureID = right.id }
+            case .staff(let x, let y):
+                let isRight = x >= fraction
+                freeInkArticulations[index].measureID = isRight ? right.id : measureID
+                freeInkArticulations[index].attachment = .staff(
+                    xFraction: isRight ? (x - fraction) / (1 - fraction) : x / fraction,
+                    yFraction: y)
+            case .note(let beat, let subdivision):
+                if let split = rhythmSplitIndex,
+                   let originalSlot = originalSlots.first(where: {
+                       $0.startPosition.beat == beat && $0.startPosition.subdivision == subdivision
+                   }), originalSlot.index >= split,
+                   let slots = rightRhythmMap?.resolvedSlots(for: meter),
+                   slots.indices.contains(originalSlot.index - split) {
+                    let position = slots[originalSlot.index - split].startPosition
+                    freeInkArticulations[index].measureID = right.id
+                    freeInkArticulations[index].attachment = .note(beat: position.beat, subdivision: position.subdivision)
+                }
+            case .none:
+                if let beat = freeInkArticulations[index].legacyBeatIndex,
+                   Double(beat) / Double(max(1, meter.numerator)) >= fraction {
+                    freeInkArticulations[index].measureID = right.id
+                    freeInkArticulations[index].beatIndex = max(0, beat - Int((fraction * Double(meter.numerator)).rounded()))
+                }
+            }
+        }
+        for index in freehandSymbols.indices where freehandSymbols[index].anchorMeasureID == measureID {
+            let x = freehandSymbols[index].normalizedFrame.x
+            let isRight = x >= fraction
+            freehandSymbols[index].anchorMeasureID = isRight ? right.id : measureID
+            freehandSymbols[index].normalizedFrame.x = isRight ? (x - fraction) / (1 - fraction) : x / fraction
+            freehandSymbols[index].normalizedFrame.width /= isRight ? (1 - fraction) : fraction
+            if isRight, let width = original.manualLayoutWidth {
+                freehandSymbols[index].measureRelativeFrame?.offsetX -= width * fraction
+            }
+        }
+
+        flattenedMeasures[flattenedIndex] = left
+        flattenedMeasures.insert(right, at: flattenedIndex + 1)
+        rebuildSystems(using: flattenedMeasures)
+        if normalizeSingleChordToMeasureStart {
+            anchorLoneChordsToMeasureStart(in: [original.id, right.id])
+        }
+        extendRangeEndpointsAcrossSplit(from: original.id, through: right.id)
+        splitPersistentInkAnchors(from: original.id, through: right.id, fraction: fraction,
+            rightChordIDs: rightChordIDs)
+        updatedAt = .now
+        return right.id
+    }
+
+    private mutating func splitPersistentInkAnchors(
+        from leftID: UUID, through rightID: UUID, fraction: Double, rightChordIDs: Set<UUID>
+    ) {
+        func split(_ original: PersistentInkCoordinateSpace?) -> PersistentInkCoordinateSpace? {
+            guard var space = original else { return nil }
+            space.measureAnchors = space.measureAnchors?.flatMap { anchor in
+                guard anchor.measureID == leftID else { return [anchor] }
+                let reference = anchor.staffFrame?.rect ?? anchor.frame.rect
+                let x = reference.minX + reference.width * CGFloat(fraction)
+                func portion(_ frame: CGRect, right: Bool) -> CGRect {
+                    let cut = min(max(x, frame.minX), frame.maxX)
+                    return CGRect(x: right ? cut : frame.minX, y: frame.minY,
+                        width: right ? frame.maxX - cut : cut - frame.minX, height: frame.height)
+                }
+                guard let left = PersistentInkMeasureAnchor(measureID: leftID,
+                    frame: portion(anchor.frame.rect, right: false),
+                    staffFrame: anchor.staffFrame.map { portion($0.rect, right: false) }),
+                      let right = PersistentInkMeasureAnchor(measureID: rightID,
+                    frame: portion(anchor.frame.rect, right: true),
+                    staffFrame: anchor.staffFrame.map { portion($0.rect, right: true) }) else { return [anchor] }
+                return [left, right]
+            }
+            space.chordAnchors = space.chordAnchors?.map { anchor in
+                var result = anchor
+                if result.measureID == leftID, rightChordIDs.contains(result.chordID) { result.measureID = rightID }
+                return result
+            }
+            return space
+        }
+        pageHandwrittenNotationCoordinateSpace = split(pageHandwrittenNotationCoordinateSpace)
+        pageHandwrittenHeaderCoordinateSpace = split(pageHandwrittenHeaderCoordinateSpace)
+        pageHandwrittenChordCoordinateSpace = split(pageHandwrittenChordCoordinateSpace)
+        for index in freeInkArticulations.indices {
+            let original = freeInkArticulations[index].sourceCoordinateSpace
+            var adjusted = split(original)
+            if let anchors = original?.measureAnchors, anchors.count == 1,
+               let anchor = anchors.first, anchor.measureID == leftID {
+                var ownerID = freeInkArticulations[index].measureID == rightID ? rightID : leftID
+                #if canImport(PencilKit)
+                // Restore Ink projects each articulation from one source
+                // measure. Its archive can be on a different side than its
+                // current attachment after the user has dragged the mark.
+                if let drawing = try? PKDrawing(data: freeInkArticulations[index].sourceInkData),
+                   !drawing.strokes.isEmpty {
+                    let reference = anchor.staffFrame?.rect ?? anchor.frame.rect
+                    ownerID = drawing.bounds.midX >= reference.minX + reference.width * CGFloat(fraction)
+                        ? rightID : leftID
+                }
+                #endif
+                let owningAnchors = adjusted?.measureAnchors?.filter { $0.measureID == ownerID }
+                adjusted?.measureAnchors = owningAnchors
+            }
+            freeInkArticulations[index].sourceCoordinateSpace = adjusted
+        }
     }
 
     @discardableResult
     mutating func splitOpenRhythmSectionMeasure(
         _ measureID: UUID,
         atFraction fraction: Double,
-        barlineAfter: BarlineType = .single
+        barlineAfter: BarlineType = .single,
+        normalizeSingleChordToMeasureStart: Bool = true
     ) -> UUID? {
         guard layoutStyle == .rhythmSectionSheet,
               let location = measureLocation(id: measureID) else {
@@ -2106,9 +2706,39 @@ extension Chart {
         flattenedMeasures[flattenedIndex] = leftMeasure
         flattenedMeasures.insert(rightMeasure, at: flattenedIndex + 1)
         rebuildSystems(using: flattenedMeasures)
+        if normalizeSingleChordToMeasureStart {
+            anchorLoneChordsToMeasureStart(in: [originalMeasure.id, rightMeasure.id])
+        }
         extendRangeEndpointsAcrossSplit(from: originalMeasure.id, through: rightMeasure.id)
         updatedAt = .now
         return rightMeasure.id
+    }
+
+    /// A new boundary establishes the downbeat for an already-rendered lone
+    /// chord. Run after all boundaries and chord insertions in a transaction so
+    /// moving the glyph cannot change which later segment owns its source.
+    mutating func anchorLoneChordsToMeasureStart(
+        in measureIDs: Set<UUID>, eligibleChordIDs: Set<UUID>? = nil
+    ) {
+        guard layoutStyle == .simpleChordSheet || layoutStyle == .rhythmSectionSheet else { return }
+        for systemIndex in systems.indices {
+            for measureIndex in systems[systemIndex].measures.indices {
+                let measure = systems[systemIndex].measures[measureIndex]
+                guard measureIDs.contains(measure.id), measure.chordEvents.count == 1,
+                      let chord = measure.chordEvents.first,
+                      eligibleChordIDs.map({ $0.contains(chord.id) }) ?? true else { continue }
+                let start = measure.suggestedChordInsertionAtMeasureStart(defaultMeter: defaultMeter)
+                // Preserve duration, ties, spelling and all source receipts.
+                // An opening rest remains a rest; only harmony moves.
+                var positioned = chord
+                positioned.startPosition = BeatPosition(beat: 1, subdivision: 0, subdivisionsPerBeat: 1)
+                positioned.anchorsToMeasureStart = true
+                positioned.mappedRhythmSlotIndex = start.mappedRhythmSlotIndex
+                positioned.manualLaneFraction = nil
+                positioned.manualVisualLaneFraction = nil
+                systems[systemIndex].measures[measureIndex].chordEvents[0] = positioned
+            }
+        }
     }
 
     private func canPreserveRangeEndpointAcrossSplit(_ object: RoadmapObject) -> Bool {
@@ -2130,6 +2760,7 @@ extension Chart {
                     && !canPreserveRangeEndpointAcrossSplit($0)
             }
             || freehandSymbols.contains { $0.anchorMeasureID == measureID }
+            || hasFreeInkArticulations(in: [measureID])
     }
 
     @discardableResult
@@ -2988,6 +3619,7 @@ extension Chart {
             && measure.handwrittenRhythmicNotationData == nil
             && measure.cueTextIDs.isEmpty
             && measure.roadmapObjectIDs.isEmpty
+            && !hasFreeInkArticulations(in: [measure.id])
     }
 
     private var simpleSystemMeasureCap: Int {
@@ -3039,11 +3671,16 @@ extension Chart {
         }
 
         let removedMeasures = Array(flattenedMeasures[clampedLowerBound..<clampedUpperBound])
+        let removedIDs = Set(removedMeasures.map(\.id))
+        preserveSimpleArticulationSourcesBeforeEditing(measureIDs: removedIDs)
+        detachSimpleArticulations(chordIDs: Set(removedMeasures.flatMap(\.chordEvents).map(\.id)),
+            measureIDs: removedIDs)
         flattenedMeasures.removeSubrange(clampedLowerBound..<clampedUpperBound)
         for removedMeasure in removedMeasures {
             removeAnnotations(attachedTo: removedMeasure, fromRemainingMeasures: &flattenedMeasures)
         }
         rebuildSystems(using: flattenedMeasures)
+        reanchorSimpleArticulationsToExistingChords()
     }
 
     private mutating func normalizeSystemIndices() {
