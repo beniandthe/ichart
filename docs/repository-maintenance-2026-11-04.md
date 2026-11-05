@@ -1,9 +1,19 @@
 # Repository maintenance — November 4, 2026
 
-This records repository housekeeping, source preservation and remaining review
-work. It does not promote a new app build or change application behavior.
+This is the preserved November 4 housekeeping and source-preservation record.
+Its status and counts are point-in-time evidence, not the current PR state.
 
-## Current source and review work
+The November 5 cleanup subsequently retired 14 more local aliases into recovery
+refs and retained five older checkout folders at their same exact detached
+commits. All original refs were preserved in a new verified private bundle.
+PR #97 was first archived and then included in the user-authorized source
+consolidation; the original documentation commit remains under the tag
+`archive/2026-11-05/pr97-repository-maintenance`. See the
+[current coverage record](current-work-integration-2026-11-05.md) and
+[project-state entry point](project-state.md) for the integration boundary.
+No application or device behavior changes originate in this maintenance record.
+
+## November 4 source and review checkpoint
 
 | Item | Verified disposition |
 | --- | --- |
