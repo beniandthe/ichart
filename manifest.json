@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "archiveKind": "source-only historical publication snapshot; not buildable or accepted current app",
+  "originalRef": "codex/free-ink-selection-checkpoint",
+  "originalCommit": "21a8541080a6a9d323586036c7fcd03ced848e7e",
+  "originalLaneBaseCommit": "8ab28b6d10e318a9a6f37eb6b1384b5f8bd45134",
+  "runtimeActivationAuthorized": false,
+  "sourceFiles": [
+    {
+      "path": "iChart/Features/Editor/Components/FreeInkArticulationCoordinator.swift",
+      "originalGitBlob": "6ef88ef2563d2822e731a80afe5a7a40c5ebb25f",
+      "bytes": 4001,
+      "originalSha256": "f77a0c68554486842f3eb0c2b64aaec5c5938e9efb0f6fe412dcc235f89cae11",
+      "publishedSha256": "f77a0c68554486842f3eb0c2b64aaec5c5938e9efb0f6fe412dcc235f89cae11",
+      "redaction": "none; byte-identical original source"
+    },
+    {
+      "path": "iChart/Features/Editor/Components/LeadSheetCanvasHostView.swift",
+      "originalGitBlob": "096bf3a42b5ef829cc8ac58d9cf34f0002c0ba05",
+      "bytes": 416804,
+      "originalSha256": "a243e3bd0ead980234da3ed7a2f8032b42442d4ebdd157e5b500287bc4f6b7ad",
+      "publishedSha256": "a243e3bd0ead980234da3ed7a2f8032b42442d4ebdd157e5b500287bc4f6b7ad",
+      "redaction": "none; byte-identical original source"
+    },
+    {
+      "path": "iChart/Features/Editor/EditorView.swift",
+      "originalGitBlob": "e0f887d08680da9bd215ef317a233439319085af",
+      "bytes": 323317,
+      "originalSha256": "13df08b070115442105d83de7aacfbfcd12f075a9a0c83451e250adc7e7f5014",
+      "publishedSha256": "13df08b070115442105d83de7aacfbfcd12f075a9a0c83451e250adc7e7f5014",
+      "redaction": "none; byte-identical original source"
+    },
+    {
+      "path": "iChart/Features/Library/LibraryView.swift",
+      "originalGitBlob": "4fd8545bb8ceb72f5dbd98fe09aa2a0aa5c9edbc",
+      "bytes": 300135,
+      "originalSha256": "986ac07cd2f91b121a446e10fc0d7d3f176a974e61a5136f9a7c18399fde28e0",
+      "publishedSha256": "986ac07cd2f91b121a446e10fc0d7d3f176a974e61a5136f9a7c18399fde28e0",
+      "redaction": "none; byte-identical original source"
+    },
+    {
+      "path": "iChartTests/ProjectConfigurationTests.swift",
+      "originalGitBlob": "da32ac0028de8f02ef76f1944cd4a16988da06c8",
+      "bytes": 199036,
+      "originalSha256": "5a5da7b7dd6e922f16e26633c6dec3d40f4e2e2ddbfa59813c606d4176eaa9ed",
+      "publishedSha256": "5a5da7b7dd6e922f16e26633c6dec3d40f4e2e2ddbfa59813c606d4176eaa9ed",
+      "redaction": "none; byte-identical original source"
+    }
+  ],
+  "authoredContext": [
+    {
+      "path": "README.md",
+      "bytes": 2133,
+      "sha256": "04d06eff2d73933ef39b6f0e7255d29023b520fc4fb15f4ea793458c0022cdf1",
+      "provenance": "New sanitized technical context; no raw device/capture data copied."
+    }
+  ],
+  "omittedChangedPaths": [],
+  "privateRecovery": "Original exact history and recovery refs remain separately preserved; private filesystem/recovery paths intentionally omitted.",
+  "validation": "Source/provenance/privacy checks only. No tests, builds, device or backend calls in archive preparation.",
+  "publicationPrivacy": {
+    "sourceRedactions": 0,
+    "sourceBytesMatchOriginal": true,
+    "includedAssetTypes": [
+      "Swift source/tests",
+      "authored Markdown context",
+      "JSON provenance"
+    ],
+    "excluded": [
+      "device/QA receipts",
+      "captures and images",
+      "raw case identifiers and private filesystem paths",
+      "credentials/signing assets"
+    ],
+    "emailShapeTriage": "No hits in reader-retry. Manual-selection contains only existing public support/policy contacts/assertions and a generic example-domain form placeholder.",
+    "boundary": "Pattern/provenance check of these archive files only; source not built or activated."
+  }
+}
