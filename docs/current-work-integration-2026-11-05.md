@@ -77,6 +77,13 @@ only that joined-arm orientation requirement and adds a root-level regression;
 the existing full half-diminished expectation and positive E/F controls remain
 intact. The original working-source archive retains the pre-correction bytes.
 
+The later native run exposed a visibility-telemetry fixture failure. The
+[fixture correction](qa/native-visibility-telemetry-ci-2026-11-05.md) keeps the
+original producer handoff gate, awaits actual asynchronous queue append, and
+accepts both valid numeric duration representations. Controlled late recording
+and timer-starvation checks bound that repair; the original hosted mechanism
+and historical issue #96 remain unresolved.
+
 Issue #96 remains an unresolved historical telemetry investigation. Issue #99
 tracks physical repeat acceptance after Beni's explicit Build 138 failure report.
 Later Build 139/140 local tests, private replays and installation notes are
