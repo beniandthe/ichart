@@ -7,6 +7,67 @@ final class FormMarkerPlacementUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    /// Cold processes are intentional: the first construction must resolve the
+    /// toolbar's Swift type metadata rather than reuse a warmed metadata cache.
+    /// Run this on a physical iPad as well as Simulator: the device main stack
+    /// is smaller and exposed the Build 146 entry crash.
+    @MainActor
+    func testColdWriteAndRenderEntryAndReentryAcrossLayoutsAndModes() throws {
+        XCUIDevice.shared.orientation = .portrait
+        #if targetEnvironment(simulator)
+        let app = XCUIApplication()
+        let fixtureArguments = ["-iChartEditorUIPreview"]
+        #else
+        let bundleID = ProcessInfo.processInfo.environment["ICHART_ENTRY_TEST_BUNDLE_ID"] ?? ""
+        try XCTSkipUnless(bundleID.hasPrefix("com.ichart.claritycrash"),
+            "Physical acceptance requires an explicitly selected disposable app with synthetic fixtures.")
+        let app = XCUIApplication(bundleIdentifier: bundleID)
+        // The disposable app is seeded externally with synthetic normal saved
+        // charts. Production app preview gates remain Simulator-only.
+        let fixtureArguments: [String] = []
+        #endif
+
+        for title in ["Simple Sheet UI Fixture", "Rhythm Section UI Fixture"] {
+            for manual in [false, true] {
+                app.launchArguments = fixtureArguments + [
+                    "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+                    "-iChartManualRenderWithPreview", manual ? "YES" : "NO"
+                ]
+                app.launch()
+                let chart = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
+                XCTAssertTrue(chart.waitForExistence(timeout: 20))
+                chart.tap()
+                let writingTool = app.buttons["Write & Render"]
+                XCTAssertTrue(writingTool.waitForExistence(timeout: 15))
+                XCTAssertFalse(writingTool.isSelected, "Each cold chart entry starts in Browse")
+
+                for entry in 1...2 {
+                    writingTool.tap()
+                    let context = app.staticTexts["editor-guidance-context"]
+                    XCTAssertTrue(context.waitForExistence(timeout: 10),
+                        "Toolbar construction must survive entry \(entry) for \(title), \(manual ? "Manual" : "Automatic")")
+                    XCTAssertEqual(app.state, .runningForeground)
+                    XCTAssertTrue(writingTool.isSelected)
+                    XCTAssertEqual(context.label, "Rendering: \(manual ? "Manual" : "Automatic")")
+                    XCTAssertEqual(app.staticTexts["editor-guidance-purpose"].label,
+                        "Turn handwriting into chart notation")
+                    for label in ["Write", "Erase", "Done"] {
+                        let control = app.buttons[label]
+                        XCTAssertTrue(control.waitForExistence(timeout: 5))
+                        XCTAssertTrue(control.isHittable, "\(label) stays reachable after toolbar construction")
+                    }
+                    attach(app, name: "\(title) \(manual ? "Manual" : "Automatic") cold entry \(entry)")
+                    app.buttons["Done"].tap()
+                    let returnedToBrowse = XCTNSPredicateExpectation(
+                        predicate: NSPredicate { _, _ in !writingTool.isSelected }, object: nil)
+                    XCTAssertEqual(XCTWaiter.wait(for: [returnedToBrowse], timeout: 5), .completed)
+                    XCTAssertFalse(writingTool.isSelected, "Done returns to Browse before reentry")
+                }
+                app.terminate()
+            }
+        }
+    }
+
     @MainActor
     func testExplainersAcrossLayoutsAndRenderingModes() throws {
         XCUIDevice.shared.orientation = .portrait

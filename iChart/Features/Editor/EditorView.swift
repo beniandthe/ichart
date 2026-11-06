@@ -217,6 +217,54 @@ private struct ActiveToolDoneButtonStyle: ButtonStyle {
     }
 }
 
+/// A concrete boundary keeps a button's nested style metadata out of the
+/// editor toolbar's conditional generic types. Resolving the combined type
+/// overflowed the physical iPad's stack when entering Write & Render.
+private struct EditorToolActionButton: View {
+    let title: String
+    let systemImage: String
+    let isSelected: Bool
+    let isDestructive: Bool
+    let isTourHighlighted: Bool
+    let isDisabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        let selectedBackgroundColor = isDestructive
+            ? Color.red
+            : Color(red: 0.16, green: 0.38, blue: 0.82)
+
+        return Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.caption.weight(.semibold))
+                .labelStyle(.titleAndIcon)
+                .lineLimit(1)
+                .padding(.horizontal, 8)
+                .frame(minHeight: EditorCommandLayoutPolicy.minimumTapTarget)
+                .foregroundStyle(
+                    isSelected
+                    ? Color.white
+                    : (isDestructive ? Color.red : Color.primary)
+                )
+                .background(
+                    isSelected
+                    ? selectedBackgroundColor
+                    : Color(uiColor: .tertiarySystemBackground)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.45 : 1)
+        .accessibilityLabel(title)
+        .tourActionHighlight(
+            isActive: isTourHighlighted && !isDisabled,
+            cornerRadius: 9,
+            tint: isDestructive ? .red : Color(red: 0.16, green: 0.38, blue: 0.82)
+        )
+    }
+}
+
 enum IChartEditorGuidedTourStep: String, Identifiable {
     case setup
     case writeChords
@@ -2633,8 +2681,11 @@ struct EditorView: View {
         }
     }
 
-    private var chordDraftActiveToolActions: some View {
-        HStack(spacing: 5) {
+    // Erase the row after its concrete buttons are composed so both rendering
+    // layouts reserve the same controls without expanding their conditional
+    // button types through the rest of the editor toolbar.
+    private var chordDraftActiveToolActions: AnyView {
+        AnyView(HStack(spacing: 5) {
             if manualRenderWithPreview {
                 if hasIndependentlyRenderableNotation || !chordDraftNeedsReview {
                     activeToolButton(
@@ -2665,7 +2716,7 @@ struct EditorView: View {
                 isDisabled: !hasPendingChordDraftInk,
                 action: requestClearChordDraftInk
             )
-        }
+        })
     }
 
     @ViewBuilder
@@ -2944,38 +2995,15 @@ struct EditorView: View {
         isTourHighlighted: Bool = false,
         isDisabled: Bool = false,
         action: @escaping () -> Void
-    ) -> some View {
-        let selectedBackgroundColor = isDestructive
-            ? Color.red
-            : Color(red: 0.16, green: 0.38, blue: 0.82)
-
-        return Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(.caption.weight(.semibold))
-                .labelStyle(.titleAndIcon)
-                .lineLimit(1)
-                .padding(.horizontal, 8)
-                .frame(minHeight: EditorCommandLayoutPolicy.minimumTapTarget)
-                .foregroundStyle(
-                    isSelected
-                    ? Color.white
-                    : (isDestructive ? Color.red : Color.primary)
-                )
-                .background(
-                    isSelected
-                    ? selectedBackgroundColor
-                    : Color(uiColor: .tertiarySystemBackground)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .disabled(isDisabled)
-        .opacity(isDisabled ? 0.45 : 1)
-        .accessibilityLabel(title)
-        .tourActionHighlight(
-            isActive: isTourHighlighted && !isDisabled,
-            cornerRadius: 9,
-            tint: isDestructive ? .red : Color(red: 0.16, green: 0.38, blue: 0.82)
+    ) -> EditorToolActionButton {
+        EditorToolActionButton(
+            title: title,
+            systemImage: systemImage,
+            isSelected: isSelected,
+            isDestructive: isDestructive,
+            isTourHighlighted: isTourHighlighted,
+            isDisabled: isDisabled,
+            action: action
         )
     }
 
