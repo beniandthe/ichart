@@ -1,0 +1,19 @@
+{
+  "project": "pausvvwoazbvmzyrebwl",
+  "scope": "Read-only Supabase Dashboard observations through Chrome; no settings, restore, upgrade, add-on or database changes made",
+  "scheduledPhysicalBackupsUTC": [
+    "2026-11-05T12:35:03Z", "2026-11-04T12:36:35Z", "2026-11-03T12:35:06Z", "2026-11-02T12:34:46Z", "2026-11-01T12:36:58Z", "2026-10-31T12:34:43Z", "2026-10-30T12:34:49Z"
+  ],
+  "storageObjectContentsIncluded": false,
+  "pointInTimeRecoveryEnabled": false,
+  "pointInTimeRecoveryUI": "Available as an add-on; enable-add-on link shown; not enabled by this audit",
+  "currentPostgresVersion": "17.6.1.127",
+  "availablePostgresVersion": "17.11.0.018",
+  "upgradeTriggered": false,
+  "authServiceVersion": "2.197.0",
+  "postgrestVersion": "14.5",
+  "maxRows": 1000,
+  "automaticExposureNewTablesEnabled": true,
+  "dataAPISchemasCount": "2 of 3",
+  "notes": "New migrations must explicitly revoke/grant the intended roles despite automatic table exposure. UI exposure counters were not treated as proof of permissions; live catalog/REST evidence is audited separately. No auth callback URLs or credential material retained."
+}

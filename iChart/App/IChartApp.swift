@@ -54,7 +54,19 @@ struct IChartApp: App {
 
     var body: some Scene {
         WindowGroup {
-            AppRootView()
+            Group {
+                if store.hasUnresolvedLoadFailure {
+                    IChartLibraryLoadRecoveryView {
+                        if store.retryLoadingSavedSnapshot() {
+                            synchronizeBetaAccess(authStore.state)
+                            applySubscriptionState(subscriptionStore.entitlement)
+                            cloudSyncStore.authStateChanged(authStore.state)
+                        }
+                    }
+                } else {
+                    AppRootView()
+                }
+            }
                 .environmentObject(store)
                 .environmentObject(authStore)
                 .environmentObject(cloudSyncStore)
@@ -157,6 +169,7 @@ struct IChartApp: App {
     }
 
     private func applySubscriptionState(_ entitlement: IChartSubscriptionEntitlement) {
+        guard !store.hasUnresolvedLoadFailure else { return }
         let resolvedEntitlement = entitlement.resolvedForLibraryApplication(
             currentLibraryEntitlement: store.entitlements.subscription
         )
@@ -168,17 +181,36 @@ struct IChartApp: App {
     }
 }
 
-private extension URL {
-    var telemetryAuthFlow: String {
-        if let type = URLComponents(url: self, resolvingAgainstBaseURL: false)?
-            .queryItems?
-            .first(where: { $0.name == "type" })?
-            .value?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !type.isEmpty {
-            return type
-        }
+struct IChartLibraryLoadRecoveryView: View {
+    let retry: () -> Void
 
-        return "unknown"
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                Image(systemName: "externaldrive.badge.exclamationmark")
+                    .font(.largeTitle)
+                    .accessibilityHidden(true)
+
+                Text("Your Saved Library Couldn’t Be Opened")
+                    .font(.title2.bold())
+                    .multilineTextAlignment(.center)
+
+                Text("Editing and cloud sync are paused to protect your saved charts. Retry loading your saved library; your saved file has not been replaced.")
+                    .multilineTextAlignment(.center)
+
+                Button("Retry Loading", action: retry)
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("libraryLoadRetry")
+
+                Text("If loading still fails, keep this installation and contact support@useichart.com.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: 480)
+            .padding(24)
+            .frame(maxWidth: .infinity)
+        }
+        .accessibilityIdentifier("libraryLoadRecovery")
     }
 }

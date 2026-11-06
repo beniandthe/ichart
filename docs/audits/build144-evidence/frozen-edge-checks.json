@@ -1,0 +1,33 @@
+{
+  "observedAt": "2026-11-06T05:25:03.155452+00:00",
+  "denoVersion": "2.9.8",
+  "graphs": {
+    "app-store-server-notifications": {
+      "sha256": "6737c95b408a55cb33313f3267bfdf7e58ee1ba0c859a51fbdb3134ec3389d92",
+      "npmEntries": 48,
+      "jsrsasign": "11.1.5",
+      "appleSDK": "3.1.0"
+    },
+    "storekit-subscription-claims": {
+      "sha256": "6737c95b408a55cb33313f3267bfdf7e58ee1ba0c859a51fbdb3134ec3389d92",
+      "npmEntries": 48,
+      "jsrsasign": "11.1.5",
+      "appleSDK": "3.1.0"
+    },
+    "storekit-complimentary-offers": {
+      "sha256": "6737c95b408a55cb33313f3267bfdf7e58ee1ba0c859a51fbdb3134ec3389d92",
+      "npmEntries": 48,
+      "jsrsasign": "11.1.5",
+      "appleSDK": "3.1.0"
+    }
+  },
+  "testsPassed": 15,
+  "frozenNegativeControlRejected": true,
+  "frozenNegativeControl": {
+    "exitCode": 1,
+    "diagnostic": "error: The lockfile is out of date. Run `deno install --frozen=false`, or rerun with `--frozen=false` to update it.\nchanges:\n  4 | -    \"npm:@apple/app-store-server-library@3.1.0\": \"3.1.0\"\n  4 | +    \"npm:@apple/app-store-server-library@3.1.0\": \"3.1.0\",\n  5 | +    \"npm:jsrsasign@11.1.5\": \"11.1.5\""
+  },
+  "execution": "cached-only, deny-net, no-prompt; no env/read/write/run grants",
+  "productionAccess": false,
+  "hostedBundlerLockEnforcement": "not verified"
+}

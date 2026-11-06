@@ -6,6 +6,10 @@ import {
 const deleteAccountConfirmation = "DELETE_MY_ICHART_ACCOUNT";
 const forumPDFBucketID = "forum_chart_pdfs";
 const maximumRequestBytes = 4 * 1024;
+const cleanupPageSize = 1000;
+const maximumCleanupListingPages = 1000;
+const cleanupDeleteConcurrency = 10;
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export function createAccountDeletionDependencies(env = globalThis.Deno?.env, options = {}) {
   const configuration = supabaseAuthorityStoreConfigurationFromEnv(env);
@@ -57,7 +61,7 @@ export async function handleAccountDeletionRequest(request, dependencies = {}) {
   }
 
   const ownerID = await dependencies.authenticatedUserID(request);
-  if (ownerID === null) {
+  if (typeof ownerID !== "string" || !uuidPattern.test(ownerID.toLowerCase())) {
     return jsonResponse(401, {
       accepted: false,
       error: "A signed-in iChart account is required.",
@@ -81,7 +85,12 @@ export async function handleAccountDeletionRequest(request, dependencies = {}) {
   try {
     let storagePaths = [];
     if (typeof dependencies.listForumPDFStoragePaths === "function") {
-      storagePaths = await dependencies.listForumPDFStoragePaths(ownerID);
+      const listed = await dependencies.listForumPDFStoragePaths(ownerID);
+      if (!Array.isArray(listed)) throw new Error("Account storage inventory is invalid.");
+      storagePaths = Array.from(new Set(listed.map((path) => ownedForumPDFPath(path, ownerID))));
+    }
+    if (storagePaths.length > 0 && typeof dependencies.deleteForumPDFStoragePaths !== "function") {
+      throw new Error("Account storage cleanup is not configured.");
     }
 
     await dependencies.prepareAccountDeletion(ownerID);
@@ -106,14 +115,14 @@ export async function handleAccountDeletionRequest(request, dependencies = {}) {
 }
 
 async function listForumPDFStoragePaths(configuration, ownerID, fetcher) {
-  const normalizedOwnerID = normalizedString(ownerID).toLowerCase();
+  const normalizedOwnerID = canonicalOwnerID(ownerID);
   const paths = new Set(await forumPostPDFPathsForOwner(configuration, normalizedOwnerID, fetcher));
   const listedStoragePaths = await storageFolderPathsForOwner(configuration, normalizedOwnerID, fetcher);
   for (const path of listedStoragePaths) {
     paths.add(path);
   }
 
-  return Array.from(paths).filter((path) => path.startsWith(`${normalizedOwnerID}/`));
+  return Array.from(paths);
 }
 
 async function prepareAccountDeletion(configuration, ownerID, fetcher) {
@@ -130,62 +139,100 @@ async function prepareAccountDeletion(configuration, ownerID, fetcher) {
 }
 
 async function forumPostPDFPathsForOwner(configuration, ownerID, fetcher) {
-  const url = supabaseURL(configuration, "/rest/v1/forum_chart_posts");
-  url.searchParams.set("owner_id", `eq.${ownerID}`);
-  url.searchParams.set("select", "pdf_storage_path");
+  const paths = [];
+  let cursor = null;
+  for (let page = 0; page < maximumCleanupListingPages; page += 1) {
+    const url = supabaseURL(configuration, "/rest/v1/forum_chart_posts");
+    url.searchParams.set("owner_id", `eq.${ownerID}`);
+    url.searchParams.set("select", "id,pdf_storage_path");
+    url.searchParams.set("order", "id.asc");
+    url.searchParams.set("limit", String(cleanupPageSize));
+    if (cursor !== null) url.searchParams.set("id", `gt.${cursor}`);
 
-  const response = await fetcher(url, {
-    method: "GET",
-    headers: supabaseJSONHeaders(configuration),
-  });
-  const rows = responseRows(await parseSupabaseJSONResponse(response));
-  return rows
-    .map((row) => normalizedString(row?.pdf_storage_path).toLowerCase())
-    .filter((path) => path.length > 0);
+    const response = await fetcher(url, { method: "GET", headers: supabaseJSONHeaders(configuration) });
+    const rows = cleanupRows(await parseSupabaseJSONResponse(response));
+    if (rows.length === 0) return paths;
+    for (const row of rows) {
+      const id = typeof row?.id === "string" ? row.id.toLowerCase() : "";
+      if (!uuidPattern.test(id) || (cursor !== null && id <= cursor)) {
+        throw new Error("Account post inventory did not advance.");
+      }
+      paths.push(ownedForumPDFPath(row.pdf_storage_path, ownerID));
+      cursor = id;
+    }
+  }
+  throw new Error("Account post inventory exceeded its safe listing bound.");
 }
 
 async function storageFolderPathsForOwner(configuration, ownerID, fetcher) {
-  const response = await fetcher(
-    supabaseURL(configuration, `/storage/v1/object/list/${forumPDFBucketID}`),
-    {
-      method: "POST",
-      headers: supabaseJSONHeaders(configuration),
-      body: JSON.stringify({
-        prefix: `${ownerID}/`,
-        limit: 1000,
-        offset: 0,
-      }),
+  const paths = [];
+  const seen = new Set();
+  let offset = 0;
+  for (let page = 0; page < maximumCleanupListingPages; page += 1) {
+    const response = await fetcher(
+      supabaseURL(configuration, `/storage/v1/object/list/${forumPDFBucketID}`),
+      {
+        method: "POST",
+        headers: supabaseJSONHeaders(configuration),
+        body: JSON.stringify({ prefix: `${ownerID}/`, limit: cleanupPageSize, offset,
+          sortBy: { column: "name", order: "asc" } }),
+      }
+    );
+    // An unavailable listing is unknown, never evidence that storage is empty.
+    const rows = cleanupRows(await parseSupabaseJSONResponse(response));
+    if (rows.length === 0) return paths;
+    for (const row of rows) {
+      const name = row?.name;
+      if (typeof name !== "string") throw new Error("Account storage inventory is invalid.");
+      const path = ownedForumPDFPath(name.startsWith(`${ownerID}/`) ? name : `${ownerID}/${name}`, ownerID);
+      if (seen.has(path)) throw new Error("Account storage inventory did not advance.");
+      seen.add(path);
+      paths.push(path);
     }
-  );
-
-  if (!response.ok) {
-    return [];
+    // Advance by the actual page, including a lower server-side row cap.
+    offset += rows.length;
   }
-
-  const rows = responseRows(await parseSupabaseJSONResponse(response));
-  return rows
-    .map((row) => normalizedString(row?.name).toLowerCase())
-    .filter((name) => name.length > 0)
-    .map((name) => name.startsWith(`${ownerID}/`) ? name : `${ownerID}/${name}`);
+  throw new Error("Account storage inventory exceeded its safe listing bound.");
 }
 
 async function deleteForumPDFStoragePaths(configuration, paths, fetcher) {
-  for (const path of paths) {
-    const response = await fetcher(
-      supabaseURL(
-        configuration,
-        `/storage/v1/object/${forumPDFBucketID}/${path.split("/").map(encodeURIComponent).join("/")}`
-      ),
-      {
-        method: "DELETE",
-        headers: supabaseJSONHeaders(configuration),
-      }
-    );
-
-    if (!response.ok && response.status !== 404) {
-      throw new Error("Forum PDF storage deletion failed.");
-    }
+  for (let start = 0; start < paths.length; start += cleanupDeleteConcurrency) {
+    const results = await Promise.allSettled(paths.slice(start, start + cleanupDeleteConcurrency).map(async (path) => {
+      const response = await fetcher(
+        supabaseURL(configuration, `/storage/v1/object/${forumPDFBucketID}/${path.split("/").map(encodeURIComponent).join("/")}`),
+        { method: "DELETE", headers: supabaseJSONHeaders(configuration) }
+      );
+      if (!response.ok && response.status !== 404) throw new Error("Forum PDF storage deletion failed.");
+    }));
+    if (results.some((result) => result.status === "rejected")) throw new Error("Forum PDF storage deletion failed.");
   }
+}
+
+function cleanupRows(value) {
+  if (!Array.isArray(value) || value.length > cleanupPageSize
+      || value.some((row) => row === null || typeof row !== "object" || Array.isArray(row))) {
+    throw new Error("Account cleanup inventory is invalid.");
+  }
+  return value;
+}
+
+function canonicalOwnerID(value) {
+  if (typeof value !== "string" || !uuidPattern.test(value.toLowerCase())) throw new Error("Account owner is invalid.");
+  return value.toLowerCase();
+}
+
+function ownedForumPDFPath(value, ownerID) {
+  const prefix = `${canonicalOwnerID(ownerID)}/`;
+  if (typeof value !== "string" || value.length > 1024 || !value.startsWith(prefix)) {
+    throw new Error("Account storage path is outside its owner scope.");
+  }
+  const name = value.slice(prefix.length);
+  // Current uploads use UUID.pdf; keep ordinary legacy PDF names and their
+  // case intact, but never traverse a nested folder or encoded path segment.
+  if (!/^[^/\\%?#\u0000-\u001f\u007f]+\.pdf$/i.test(name) || name === ".pdf" || name.includes("..")) {
+    throw new Error("Account storage path is invalid.");
+  }
+  return value;
 }
 
 async function deleteAuthUser(configuration, ownerID, fetcher) {
@@ -291,18 +338,6 @@ async function parseSupabaseJSONResponse(response) {
   }
 
   return JSON.parse(text);
-}
-
-function responseRows(value) {
-  if (Array.isArray(value)) {
-    return value;
-  }
-
-  if (value === null || value === undefined) {
-    return [];
-  }
-
-  return [value];
 }
 
 function jsonResponse(status, body) {

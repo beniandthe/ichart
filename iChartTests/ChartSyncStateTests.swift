@@ -23,6 +23,7 @@ final class ChartSyncStateTests: XCTestCase {
         XCTAssertFalse(ChartSyncState.syncing.allowsManualSync)
 
         XCTAssertTrue(ChartSyncState.offline.allowsManualSync)
+        XCTAssertTrue(ChartSyncState.idle.allowsManualSync)
         XCTAssertTrue(ChartSyncState.synced(Date(timeIntervalSinceReferenceDate: 1)).allowsManualSync)
         XCTAssertTrue(ChartSyncState.failed("Retry later.").allowsManualSync)
     }
@@ -42,6 +43,7 @@ final class ChartSyncStateTests: XCTestCase {
         )
         XCTAssertNil(ChartSyncState.syncing.manualSyncDisabledReason)
         XCTAssertNil(ChartSyncState.offline.manualSyncDisabledReason)
+        XCTAssertNil(ChartSyncState.idle.manualSyncDisabledReason)
         XCTAssertNil(ChartSyncState.synced(Date(timeIntervalSinceReferenceDate: 1)).manualSyncDisabledReason)
         XCTAssertNil(ChartSyncState.failed("Retry later.").manualSyncDisabledReason)
     }
@@ -54,6 +56,7 @@ final class ChartSyncStateTests: XCTestCase {
         XCTAssertFalse(ChartSyncState.syncing.allowsCloudRestore)
 
         XCTAssertTrue(ChartSyncState.synced(Date(timeIntervalSinceReferenceDate: 1)).allowsCloudRestore)
+        XCTAssertTrue(ChartSyncState.idle.allowsCloudRestore)
         XCTAssertTrue(ChartSyncState.failed("Retry later.").allowsCloudRestore)
     }
 
@@ -76,6 +79,14 @@ final class ChartSyncStateTests: XCTestCase {
         )
         XCTAssertNil(ChartSyncState.syncing.cloudRestoreDisabledReason)
         XCTAssertNil(ChartSyncState.synced(Date(timeIntervalSinceReferenceDate: 1)).cloudRestoreDisabledReason)
+        XCTAssertNil(ChartSyncState.idle.cloudRestoreDisabledReason)
         XCTAssertNil(ChartSyncState.failed("Retry later.").cloudRestoreDisabledReason)
+    }
+
+    func testNoChangesStateDoesNotClaimFreshBackupAndKeepsRestoreAvailable() {
+        XCTAssertEqual(ChartSyncState.idle.displayText, "No chart changes")
+        XCTAssertEqual(ChartSyncState.idle.detailText, "No chart changes to back up.")
+        XCTAssertEqual(ChartSyncState.idle.manualSyncTitle, "Back Up Now")
+        XCTAssertTrue(ChartSyncState.idle.allowsCloudRestore)
     }
 }

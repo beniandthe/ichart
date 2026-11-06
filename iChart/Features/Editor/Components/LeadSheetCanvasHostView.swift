@@ -567,6 +567,32 @@ enum LeadSheetCanvasLayoutInvalidationPolicy {
     }
 }
 
+enum LeadSheetSavedRhythmicInkIndex {
+    struct Entry {
+        let drawingData: Data
+        let coordinateSpace: PersistentInkCoordinateSpace?
+    }
+
+    static func entries<Measures: Sequence>(in measures: Measures) -> [UUID: Entry]
+    where Measures.Element == Measure {
+        var seenMeasureIDs = Set<UUID>()
+        var entries: [UUID: Entry] = [:]
+        for measure in measures {
+            // Chart.measure(id:) selects the first occurrence, including a
+            // first occurrence without ink. Preserve that behavior for old or
+            // malformed archives instead of trapping on duplicate IDs.
+            guard seenMeasureIDs.insert(measure.id).inserted,
+                  let drawingData = measure.handwrittenRhythmicNotationData,
+                  !drawingData.isEmpty else { continue }
+            entries[measure.id] = Entry(
+                drawingData: drawingData,
+                coordinateSpace: measure.handwrittenRhythmicNotationCoordinateSpace
+            )
+        }
+        return entries
+    }
+}
+
 enum LeadSheetCanvasChartUpdatePolicy {
     static func requiresLayoutRefresh(previousChart: Chart, nextChart: Chart) -> Bool {
         guard previousChart != nextChart else {
@@ -2383,11 +2409,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             drawChordWritingLanes(pageLayout)
         }
 
+        let savedRhythmicInk = LeadSheetSavedRhythmicInkIndex.entries(
+            in: chart.systems.lazy.flatMap(\.measures)
+        )
         for system in pageLayout.systems {
             drawSystem(
                 system,
                 paperFrame: pageLayout.paperFrame(for: system),
-                using: renderer
+                using: renderer,
+                savedRhythmicInk: savedRhythmicInk
             )
         }
 
@@ -2866,7 +2896,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func drawSystem(
         _ system: LeadSheetSystemLayout,
         paperFrame: CGRect,
-        using renderer: LeadSheetNotationRenderer
+        using renderer: LeadSheetNotationRenderer,
+        savedRhythmicInk: [UUID: LeadSheetSavedRhythmicInkIndex.Entry]
     ) {
         if let sectionTextFrame = system.sectionTextFrame,
            let sectionText = system.sectionText {
@@ -3028,7 +3059,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 renderer.drawCueText(cueTextLayoutForDisplay)
             }
 
-            drawSavedMeasureRhythmicNotation(measure)
+            drawSavedMeasureRhythmicNotation(measure, savedRhythmicInk: savedRhythmicInk)
 
             if let meterChange = measure.meterChange,
                let meterChangeFrame = measure.meterChangeFrame {
@@ -3892,7 +3923,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         targetPath.stroke()
     }
 
-    private func drawSavedMeasureRhythmicNotation(_ measure: LeadSheetMeasureLayout) {
+    private func drawSavedMeasureRhythmicNotation(
+        _ measure: LeadSheetMeasureLayout,
+        savedRhythmicInk: [UUID: LeadSheetSavedRhythmicInkIndex.Entry]
+    ) {
         guard let sourceMeasureID = measure.sourceMeasureID else {
             return
         }
@@ -3902,13 +3936,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        guard let sourceMeasure = chart.measure(id: sourceMeasureID) else {
+        guard let savedInk = savedRhythmicInk[sourceMeasureID] else {
             return
         }
 
         LeadSheetSavedInkRenderer.drawRhythmicNotationInk(
-            sourceMeasure.handwrittenRhythmicNotationData,
-            coordinateSpace: sourceMeasure.handwrittenRhythmicNotationCoordinateSpace,
+            savedInk.drawingData,
+            coordinateSpace: savedInk.coordinateSpace,
             in: measure
         )
     }

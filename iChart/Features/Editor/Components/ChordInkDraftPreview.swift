@@ -186,13 +186,10 @@ enum ChordInkDraftVisibleStrokePolicy {
             invisibleStrokeIndices: []
         )
         let allStrokes = PencilKitInkAdapter.inkStrokes(from: fullContext.drawing)
-        let endings = ChordDraftEndingRecognizer.recognize(
+        let structures = ChordDraftEndingRecognizer.recognizeStructure(
             strokes: allStrokes, chordFrame: chordFrame, pageLayout: pageLayout)
-        let barlines = ChordDraftEndingRecognizer.recognizeBarlinesExcludingEndings(
-            strokes: allStrokes,
-            chordFrame: chordFrame,
-            pageLayout: pageLayout
-        )
+        let endings = structures.endings
+        let barlines = structures.barlines
         let promotedIndices = fullContext.barlineRecognitionWithUnambiguousSourceStrokes(barlines).strokeIndices
             .union(fullContext.endingRecognitionWithUnambiguousSourceStrokes(endings).strokeIndices)
         guard !promotedIndices.isEmpty else { return visibleDrawingContext(from: drawing) }

@@ -1,0 +1,65 @@
+{
+  "observedAtUTC": "2026-11-06T05:58:47.370127+00:00",
+  "baseCommit": "00f7901538074670251cd6626c1efa88a3bd1aec",
+  "native": {
+    "executed": 3352,
+    "passed": 3232,
+    "skipped": 120,
+    "failed": 0,
+    "deviceID": "AE5191DE-3C20-4542-814F-4FCD53215F9D",
+    "runtime": "iOS26.5",
+    "accessibilityPreferenceRestored": "absent",
+    "hardwareKeyboardPreferenceRestored": "absent"
+  },
+  "portable": {
+    "executed": 2040,
+    "passed": 1948,
+    "skipped": 92,
+    "failed": 0
+  },
+  "release": {
+    "result": "BUILD SUCCEEDED",
+    "platform": "generic iOS arm64",
+    "codeSigningAllowed": false,
+    "installed": false
+  },
+  "backendNode": {
+    "files": 25,
+    "passed": 659,
+    "failed": 0
+  },
+  "storekitPostgres": {
+    "version": "17.6",
+    "serialControlGroupsPassed": 17,
+    "concurrentSessionTestsPassed": 6
+  },
+  "forumPostgres": {
+    "version": "17.6",
+    "pgTapPassed": 35,
+    "platformAdapters": [
+      "minimalAuth",
+      "minimalStorage",
+      "inertCronRegistration"
+    ],
+    "productionDataUsed": false
+  },
+  "optionalPillow": {
+    "version": "13.0.0",
+    "python": "3.12",
+    "syntheticTestsPassed": 43,
+    "trainingRun": false
+  },
+  "edgeDeno": {
+    "version": "2.9.8",
+    "offlineTestsPassed": 15,
+    "frozenEntrypoints": 3,
+    "staleLockRejected": true,
+    "hostedBundlerProvenanceVerified": false
+  },
+  "parkedPackagingTestsPassed": 7,
+  "secretScannerTestsPassed": 14,
+  "repositorySecretScanPassed": true,
+  "productionMutations": false,
+  "iPadUpdatePerformed": false,
+  "rasterExperiment": "deferred; production renderer byte-identical to baseline; strict pixel evidence archived"
+}

@@ -93,6 +93,12 @@ final class ChartLibraryStoreTests: XCTestCase {
         }
     }
 
+    private struct SynchronousFileRepository: ChartRepository {
+        let file: FileChartRepository
+        func loadSnapshot() throws -> ChartLibrarySnapshot? { try file.loadSnapshot() }
+        func saveSnapshot(_ snapshot: ChartLibrarySnapshot) throws { try file.saveSnapshot(snapshot) }
+    }
+
     private func waitUntil(
         _ condition: @autoclosure () -> Bool,
         timeout: TimeInterval = 5,
@@ -212,6 +218,35 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertEqual(store.entitlements.subscription.status, .proActive)
         XCTAssertTrue(store.canUse(.cloudBackup))
         XCTAssertEqual(repository.savedSnapshots.last?.entitlements.subscription.status, .proActive)
+    }
+
+    func testRepeatedEqualBillingSelectionAndCloudMetadataDoNotSaveOrNotify() {
+        let repository = RecordingChartRepository()
+        let chart = Chart.blank(title: "Preserved fixture")
+        let billing = IChartSubscriptionEntitlement.activePro(verifiedAt: Date(timeIntervalSinceReferenceDate: 42))
+        let metadata = ChartCloudMetadata(ownerID: UUID(), lastSyncAt: Date(timeIntervalSinceReferenceDate: 50))
+        let store = ChartLibraryStore(charts: [chart], entitlements: AppEntitlements(subscription: billing),
+            selectedChartID: chart.id, cloudMetadata: metadata, repository: repository)
+        var notificationCount = 0
+        store.onSnapshotSaved = { _ in notificationCount += 1 }
+        var billingPublicationCount = 0
+        let subscription = store.$entitlements.dropFirst().sink { _ in billingPublicationCount += 1 }
+        defer { subscription.cancel() }
+
+        store.applySubscriptionState(billing)
+        store.selectedChartID = chart.id
+        store.cloudMetadata = metadata
+        store.updateCloudMetadataFromSync(ownerID: metadata.ownerID!, lastSyncAt: metadata.lastSyncAt!, lastRemoteBackupAt: nil)
+
+        XCTAssertEqual(repository.saveAttemptCount, 0)
+        XCTAssertEqual(notificationCount, 0)
+        XCTAssertEqual(billingPublicationCount, 0)
+        XCTAssertEqual(store.charts, [chart])
+
+        store.applySubscriptionState(.proExpired(verifiedAt: Date(timeIntervalSinceReferenceDate: 60)))
+        XCTAssertEqual(repository.saveAttemptCount, 1)
+        XCTAssertEqual(notificationCount, 1)
+        XCTAssertEqual(billingPublicationCount, 1)
     }
 
     func testExpiredSubscriptionRequiresBasicChartPruningWithoutCloudAccess() {
@@ -587,6 +622,96 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertEqual(store.initialLoadOutcome?.succeeded, false,
                        "Retain only the scalar failure for reporting after optional startup")
         XCTAssertGreaterThanOrEqual(store.initialLoadOutcome?.durationMilliseconds ?? -1, 0)
+    }
+
+    func testLoadFailureQuarantinesEveryLaterFallbackMutationAndCloudNotification() {
+        let repository = RecordingChartRepository()
+        repository.loadError = RecordingRepositoryError.load
+        let store = ChartLibraryStore.live(repository: repository)
+        var notificationCount = 0
+        store.onSnapshotSaved = { _ in notificationCount += 1 }
+
+        store.applySubscriptionState(.activePro())
+        store.selectedChartID = UUID()
+        store.charts[0].title = "Fallback edited after failed initial load"
+        store.cloudMetadata = ChartCloudMetadata(ownerID: UUID())
+        store.projects = [ChartProject(title: "Fallback project")]
+        store.applySyncedSnapshot(.empty)
+        store.retrySavingCurrentSnapshot()
+
+        XCTAssertTrue(store.hasUnresolvedLoadFailure)
+        XCTAssertNotNil(store.libraryLoadFailureMessage)
+        XCTAssertNil(store.retryableSaveFailureMessage)
+        XCTAssertEqual(repository.saveAttemptCount, 0)
+        XCTAssertEqual(notificationCount, 0)
+        guard case .failed = store.persistenceStatus else {
+            return XCTFail("An unread library remains a read failure, not a successful fallback save")
+        }
+    }
+
+    func testUnreadOriginalFileIsNotReplacedByStartupBillingOrFallbackEditing() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("library-state.json")
+        let unreadOriginal = Data("incomplete original library bytes retained for recovery".utf8)
+        try unreadOriginal.write(to: url)
+        let repository = SynchronousFileRepository(file: FileChartRepository(url: url))
+        let store = ChartLibraryStore.live(repository: repository)
+
+        store.applySubscriptionState(.activePro())
+        store.selectedChartID = UUID()
+        store.charts[0].title = "Fallback edit must never replace unread original"
+
+        XCTAssertTrue(store.hasUnresolvedLoadFailure)
+        XCTAssertEqual(try Data(contentsOf: url), unreadOriginal)
+        XCTAssertFalse(store.retryLoadingSavedSnapshot())
+        XCTAssertEqual(try Data(contentsOf: url), unreadOriginal)
+    }
+
+    func testFailedOrMissingReloadKeepsQuarantineAndNeverWritesFallback() {
+        let repository = RecordingChartRepository()
+        repository.loadError = RecordingRepositoryError.load
+        let store = ChartLibraryStore.live(repository: repository)
+        XCTAssertFalse(store.retryLoadingSavedSnapshot())
+        repository.loadError = nil
+        repository.snapshotToLoad = nil
+        XCTAssertFalse(store.retryLoadingSavedSnapshot(), "A missing formerly unread file is not a fresh library")
+        store.applySubscriptionState(.activePro())
+        XCTAssertTrue(store.hasUnresolvedLoadFailure)
+        XCTAssertEqual(repository.saveAttemptCount, 0)
+        XCTAssertEqual(repository.loadAttemptCount, 3)
+    }
+
+    func testSuccessfulReloadReplacesOnlyFallbackAndEnablesLaterRealEditsWithoutSavingOnReload() throws {
+        let repository = RecordingChartRepository()
+        repository.loadError = RecordingRepositoryError.load
+        let store = ChartLibraryStore.live(repository: repository)
+        store.charts[0].title = "Discardable unread-library fallback"
+        var restoredChart = Chart.blank(title: "Recovered saved chart")
+        let originalInk = Data([0x10, 0x20, 0x30])
+        restoredChart.setPageHandwrittenChordDrawing(originalInk)
+        let project = ChartProject(title: "Recovered organization", chartIDs: [restoredChart.id])
+        let recovered = ChartLibrarySnapshot(charts: [restoredChart], selectedChartID: restoredChart.id,
+            entitlements: .free, projects: [project])
+        repository.loadError = nil
+        repository.snapshotToLoad = recovered
+        var notificationCount = 0
+        store.onSnapshotSaved = { _ in notificationCount += 1 }
+
+        XCTAssertTrue(store.retryLoadingSavedSnapshot())
+
+        XCTAssertFalse(store.hasUnresolvedLoadFailure)
+        XCTAssertNil(store.libraryLoadFailureMessage)
+        XCTAssertEqual(store.charts, recovered.charts)
+        XCTAssertEqual(store.projects, recovered.projects)
+        XCTAssertEqual(store.selectedChartID, restoredChart.id)
+        XCTAssertEqual(repository.saveAttemptCount, 0)
+        XCTAssertEqual(notificationCount, 0)
+        XCTAssertTrue(store.renameChart(id: restoredChart.id, to: "Real edit after recovery"))
+        XCTAssertEqual(repository.saveAttemptCount, 1)
+        XCTAssertEqual(notificationCount, 1)
+        XCTAssertEqual(repository.savedSnapshots.last?.charts[0].pageHandwrittenChordData, originalInk)
     }
 
     func testMutatingChartElementPersistsEditedChartSnapshot() throws {
@@ -1175,6 +1300,19 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertEqual(scheduledUploadCount, 0)
     }
 
+    func testAlreadyIncludedCloudEnrollmentDoesNotRewriteLibrary() {
+        let repository = RecordingChartRepository()
+        let chart = Chart.blank(title: "Already included")
+        let store = ChartLibraryStore(charts: [chart], selectedChartID: chart.id, repository: repository)
+        let original = store.snapshot
+
+        XCTAssertEqual(store.enrollLocalChartsForCloudBackup(), original)
+        XCTAssertEqual(store.enrollLocalChartsForCloudBackup(), original)
+
+        XCTAssertEqual(repository.saveAttemptCount, 0)
+        XCTAssertEqual(store.snapshot, original)
+    }
+
     func testSuccessfulCloudBackupMarksMatchingChartsBackedUp() throws {
         let repository = RecordingChartRepository()
         let ownerID = UUID(uuidString: "00000000-0000-0000-0000-000000000402")!
@@ -1228,6 +1366,78 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertNil(updatedChart.cloudBackupStatus.firstBackedUpAt)
         XCTAssertNil(updatedChart.cloudBackupStatus.lastBackedUpAt)
         XCTAssertEqual(updatedChart.cloudBackupStatus.intent, .included)
+    }
+
+    func testCloudAcknowledgementUsesExactContentEvenWhenLocalEditKeepsSameTimestamp() throws {
+        let repository = RecordingChartRepository()
+        let ownerID = UUID()
+        let chart = Chart.blank(title: "Uploaded content")
+        let store = ChartLibraryStore(charts: [chart], selectedChartID: chart.id, repository: repository)
+        let uploaded = store.snapshot
+        let digest = try ChartCloudContentIdentity.sha256(for: chart)
+        store.charts[0].title = "Different content under the same revision timestamp"
+        store.charts[0].pageHandwrittenNotationData = Data([1, 2, 3])
+        XCTAssertEqual(store.charts[0].updatedAt, chart.updatedAt)
+        let saveCountBeforeAcknowledgement = repository.saveAttemptCount
+
+        store.markChartsBackedUpToCloud(chartIDs: [chart.id], ownerID: ownerID,
+            backedUpAt: Date(), from: uploaded, acknowledgedContentSHA256ByChartID: [chart.id: digest])
+
+        XCTAssertNil(store.charts[0].cloudBackupStatus.ownerID)
+        XCTAssertNil(store.charts[0].cloudBackupStatus.acknowledgedContentSHA256)
+        XCTAssertEqual(store.charts[0].pageHandwrittenNotationData, Data([1, 2, 3]))
+        XCTAssertEqual(repository.saveAttemptCount, saveCountBeforeAcknowledgement)
+    }
+
+    func testMatchingCloudAcknowledgementPersistsOnceAndRepeatedReceiptIsNoOp() throws {
+        let repository = RecordingChartRepository()
+        let ownerID = UUID()
+        let chart = Chart.blank(title: "Included content")
+        let store = ChartLibraryStore(charts: [chart], selectedChartID: chart.id, repository: repository)
+        let uploaded = store.snapshot
+        let digest = try ChartCloudContentIdentity.sha256(for: chart)
+        let backupDate = Date(timeIntervalSinceReferenceDate: 9_500)
+        var notifications = 0
+        store.onSnapshotSaved = { _ in notifications += 1 }
+
+        store.markChartsBackedUpToCloud(chartIDs: [chart.id], ownerID: ownerID,
+            backedUpAt: backupDate, from: uploaded, acknowledgedContentSHA256ByChartID: [chart.id: digest])
+        XCTAssertEqual(store.charts[0].cloudBackupStatus.acknowledgedContentSHA256, digest)
+        XCTAssertEqual(store.charts[0].cloudBackupStatus.ownerID, ownerID)
+        XCTAssertEqual(repository.saveAttemptCount, 1)
+        XCTAssertEqual(notifications, 0)
+        let acknowledged = store.snapshot
+
+        store.markChartsBackedUpToCloud(chartIDs: [chart.id], ownerID: ownerID,
+            backedUpAt: backupDate, from: acknowledged, acknowledgedContentSHA256ByChartID: [chart.id: digest])
+
+        XCTAssertEqual(store.snapshot, acknowledged)
+        XCTAssertEqual(repository.saveAttemptCount, 1)
+        XCTAssertEqual(notifications, 0)
+    }
+
+    func testCloudAcknowledgementCannotReincludeExcludedOrDifferentOwnerChart() throws {
+        let ownerID = UUID()
+        for changedStatus in [
+            ChartCloudBackupStatus(intent: .excluded),
+            ChartCloudBackupStatus(intent: .legacyLocal),
+            ChartCloudBackupStatus(intent: .included, ownerID: UUID())
+        ] {
+            let repository = RecordingChartRepository()
+            let chart = Chart.blank(title: "Uploaded before backup intent changed")
+            let store = ChartLibraryStore(charts: [chart], selectedChartID: chart.id, repository: repository)
+            let uploaded = store.snapshot
+            let digest = try ChartCloudContentIdentity.sha256(for: chart)
+            store.charts[0].cloudBackupStatus = changedStatus
+            let beforeReceipt = store.snapshot
+            let saveCount = repository.saveAttemptCount
+
+            store.markChartsBackedUpToCloud(chartIDs: [chart.id], ownerID: ownerID,
+                backedUpAt: Date(), from: uploaded, acknowledgedContentSHA256ByChartID: [chart.id: digest])
+
+            XCTAssertEqual(store.snapshot, beforeReceipt)
+            XCTAssertEqual(repository.saveAttemptCount, saveCount)
+        }
     }
 
     func testDelayedEditorInkWriteUsesChartIDAfterLibraryReorders() throws {

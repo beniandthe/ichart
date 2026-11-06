@@ -51,7 +51,7 @@ struct IChartTypedTextField: UIViewRepresentable {
             } else if !field.requestsFocus, field.isFirstResponder {
                 DispatchQueue.main.async { [weak field] in
                     guard let field, !field.requestsFocus, field.isFirstResponder else { return }
-                    field.resignFirstResponder()
+                    _ = field.resignFirstResponder()
                 }
             }
         }
@@ -60,7 +60,7 @@ struct IChartTypedTextField: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
     static func dismantleUIView(_ field: IChartTypedUITextField, coordinator: Coordinator) {
         field.requestsFocus = false
-        field.resignFirstResponder()
+        _ = field.resignFirstResponder()
         IChartKeyboardInputContext.finish(for: field)
     }
 
@@ -137,7 +137,7 @@ struct IChartTypedTextView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
     static func dismantleUIView(_ view: IChartTypedUITextView, coordinator: Coordinator) {
         view.requestsFocus = false
-        view.resignFirstResponder()
+        _ = view.resignFirstResponder()
         IChartKeyboardInputContext.finish(for: view)
     }
 
@@ -154,7 +154,7 @@ struct IChartTypedTextView: UIViewRepresentable {
         }
         @objc func doneTyping() {
             textView?.requestsFocus = false
-            textView?.resignFirstResponder()
+            _ = textView?.resignFirstResponder()
         }
     }
 }

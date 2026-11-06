@@ -32,6 +32,16 @@ final class ChartCloudSyncFeedbackTests: XCTestCase {
         XCTAssertEqual(result.detailText, "No eligible charts or cloud deletions were included in this backup.")
     }
 
+    func testCachedAcknowledgementDoesNotClaimFreshRemoteBackup() {
+        let result = ChartCloudSyncOperationResult(operation: .backup,
+            completedAt: Date(timeIntervalSinceReferenceDate: 40), remoteChartCount: nil,
+            backedUpChartCount: 0, tombstonedChartCount: 0, libraryChartCount: 4,
+            didApplySnapshot: nil, didPerformRemoteWrites: false)
+        XCTAssertEqual(result.displayTitle, "No chart changes")
+        XCTAssertEqual(result.detailText, "No chart changes to back up.")
+        XCTAssertFalse(result.detailText.contains("Backed up"))
+    }
+
     func testPermissionFailureDoesNotInventMissingSignInOrRLSCause() {
         let failure = ChartCloudSyncFailure(operation: .restore, stage: .writingDocument, category: .permissionDenied)
         XCTAssertTrue(failure.detailText.contains("Cloud permissions blocked cloud restore"))

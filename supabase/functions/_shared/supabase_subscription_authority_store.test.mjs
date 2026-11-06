@@ -87,322 +87,159 @@ test("authenticated user resolver treats denied sessions as signed out", async (
   assert.equal(userID, null);
 });
 
-test("claim writer upserts subscription authority by owner", async () => {
-  let requestedURL = null;
-  let requestedInit = null;
-  const requestedMethods = [];
-  const result = await upsertSubscriptionAuthorityClaim(
-    {
-      supabaseURL: "https://project.supabase.co",
-      secretKey: "server-only-key",
-    },
-    "00000000-0000-4000-8000-000000000001",
-    {
-      provider: "storekit",
-      plan: "studioSubscription",
-      status: "active",
-      storekit_original_transaction_id: "1000000000000100",
-      storekit_app_account_token: "00000000-0000-4000-8000-000000000001",
-      app_store_signed_at: "2026-06-12T21:29:00.000Z",
-    },
-    async (url, init) => {
-      requestedMethods.push(init.method);
-      if (init.method === "GET") {
-        return Response.json([]);
-      }
+const configuration = {
+  supabaseURL: "https://project.supabase.co",
+  secretKey: "server-only-key",
+};
+const ownerID = "00000000-0000-4000-8000-000000000001";
+const rpcURL = "https://project.supabase.co/rest/v1/rpc/apply_storekit_subscription_authority";
+const notification = {
+  provider: "storekit",
+  plan: "free",
+  status: "inactive",
+  storekit_original_transaction_id: "1000000000000100",
+  app_store_notification_uuid: "notification-0001",
+  app_store_signed_at: "2026-06-12T21:29:00.000Z",
+  app_store_status: "expired",
+};
 
-      requestedURL = String(url);
-      requestedInit = init;
-      return Response.json([
-        {
-          owner_id: "00000000-0000-4000-8000-000000000001",
-          provider: "storekit",
-        },
-      ]);
-    }
-  );
+function captureRPC(requests, response) {
+  return async (url, init) => {
+    assert.equal(String(url), rpcURL);
+    assert.equal(init.method, "POST");
+    assert.equal(init.headers.apikey, "server-only-key");
+    assert.equal(init.headers.authorization, "Bearer server-only-key");
+    assert.equal(init.headers.prefer, undefined);
+    requests.push(JSON.parse(init.body));
+    return Response.json(response);
+  };
+}
 
-  assert.equal(
-    requestedURL,
-    "https://project.supabase.co/rest/v1/subscriptions?on_conflict=owner_id"
-  );
-  assert.deepEqual(requestedMethods, ["GET", "GET", "POST"]);
-  assert.equal(requestedInit.method, "POST");
-  assert.equal(requestedInit.headers.authorization, "Bearer server-only-key");
-  assert.equal(requestedInit.headers.prefer, "resolution=merge-duplicates,return=representation");
-  const body = JSON.parse(requestedInit.body);
-  assert.equal(body.owner_id, "00000000-0000-4000-8000-000000000001");
-  assert.equal(body.storekit_original_transaction_id, "1000000000000100");
-  assert.equal(Object.hasOwn(body, "app_store_auto_renew_status"), false);
-  assert.equal(result.stored, true);
-  assert.equal(result.mapping_status, "claimed");
+test("claim writer sends exactly one atomic RPC with owner and unchanged field-presence semantics", async () => {
+  const authorityUpdate = {
+    provider: "storekit", plan: "studioSubscription", status: "active",
+    storekit_original_transaction_id: "1000000000000100",
+    app_store_signed_at: null,
+    cloud_retention_deleted_at: null,
+  };
+  const requests = [];
+  const subscription = { owner_id: ownerID, ...authorityUpdate };
+  const result = await upsertSubscriptionAuthorityClaim(configuration, ` ${ownerID} `, authorityUpdate,
+    captureRPC(requests, { stored: true, mapping_status: "claimed", subscription }));
+
+  assert.deepEqual(requests, [{ authority_update: authorityUpdate, claim_owner_id: ownerID }]);
+  assert.equal(Object.hasOwn(requests[0].authority_update, "app_store_auto_renew_status"), false);
+  assert.equal(requests[0].authority_update.cloud_retention_deleted_at, null);
+  assert.deepEqual(result, { stored: true, mapping_status: "claimed", subscription });
 });
 
-test("claim writer clears stale renewal state when an owner claims a new active original transaction", async () => {
-  let requestedInit = null;
-  const requestedMethods = [];
-  const result = await upsertSubscriptionAuthorityClaim(
-    {
-      supabaseURL: "https://project.supabase.co",
-      secretKey: "server-only-key",
-    },
-    "00000000-0000-4000-8000-000000000001",
-    {
-      provider: "storekit",
-      plan: "studioSubscription",
-      status: "active",
-      storekit_original_transaction_id: "1000000000000200",
-      storekit_app_account_token: "00000000-0000-4000-8000-000000000001",
-      app_store_signed_at: "2026-06-12T21:29:00.000Z",
-    },
-    async (url, init) => {
-      requestedMethods.push(init.method);
-      const requestedURL = String(url);
-      if (init.method === "GET" && requestedURL.includes("storekit_original_transaction_id=eq.1000000000000200")) {
-        return Response.json([]);
-      }
-      if (init.method === "GET" && requestedURL.includes("owner_id=eq.00000000-0000-4000-8000-000000000001")) {
-        return Response.json([
-          {
-            owner_id: "00000000-0000-4000-8000-000000000001",
-            provider: "storekit",
-            status: "active",
-            storekit_original_transaction_id: "1000000000000100",
-            app_store_auto_renew_status: false,
-          },
-        ]);
-      }
-
-      requestedInit = init;
-      return Response.json([
-        {
-          owner_id: "00000000-0000-4000-8000-000000000001",
-          provider: "storekit",
-        },
-      ]);
-    }
-  );
-
-  assert.deepEqual(requestedMethods, ["GET", "GET", "POST"]);
-  const body = JSON.parse(requestedInit.body);
-  assert.equal(body.storekit_original_transaction_id, "1000000000000200");
-  assert.equal(body.app_store_auto_renew_status, null);
-  assert.equal(result.stored, true);
-  assert.equal(result.mapping_status, "claimed");
+test("claim writer passes owner-conflict and stale-claim transaction outcomes through without a REST fallback", async () => {
+  for (const status of ["original_transaction_owner_conflict", "stale_transaction_claim"]) {
+    const requests = [];
+    const expected = { stored: false, mapping_status: status, subscription: { owner_id: ownerID } };
+    const result = await upsertSubscriptionAuthorityClaim(configuration, ownerID, notification,
+      captureRPC(requests, expected));
+    assert.deepEqual(result, expected);
+    assert.equal(requests.length, 1);
+  }
 });
 
-test("claim writer rejects original transactions already mapped to another owner", async () => {
-  const result = await upsertSubscriptionAuthorityClaim(
-    {
-      supabaseURL: "https://project.supabase.co",
-      secretKey: "server-only-key",
-    },
-    "00000000-0000-4000-8000-000000000001",
-    {
-      provider: "storekit",
-      plan: "studioSubscription",
-      status: "active",
-      storekit_original_transaction_id: "1000000000000100",
-      app_store_signed_at: "2026-06-12T21:29:00.000Z",
-    },
-    async (url, init) => {
-      assert.equal(init.method, "GET");
-      return Response.json([
-        {
-          owner_id: "00000000-0000-4000-8000-000000000002",
-          provider: "storekit",
-        },
-      ]);
-    }
-  );
-
-  assert.equal(result.stored, false);
-  assert.equal(result.mapping_status, "original_transaction_owner_conflict");
+test("notification writer sends ledger and authority fields to one atomic transaction", async () => {
+  const requests = [];
+  const expected = { stored: true, mapping_status: "updated", subscription: { owner_id: ownerID } };
+  const result = await updateMappedSubscriptionAuthority(configuration, notification,
+    captureRPC(requests, expected));
+  assert.deepEqual(requests, [{ authority_update: notification, claim_owner_id: null }]);
+  assert.deepEqual(result, expected);
 });
 
-test("claim writer rejects stale transaction claims for the same owner", async () => {
-  const result = await upsertSubscriptionAuthorityClaim(
-    {
-      supabaseURL: "https://project.supabase.co",
-      secretKey: "server-only-key",
-    },
-    "00000000-0000-4000-8000-000000000001",
-    {
-      provider: "storekit",
-      plan: "studioSubscription",
-      status: "active",
-      storekit_original_transaction_id: "1000000000000100",
-      app_store_last_transaction_id: "1000000000000101",
-      app_store_signed_at: "2026-06-12T21:29:00.000Z",
-    },
-    async (url, init) => {
-      assert.equal(init.method, "GET");
-      return Response.json([
-        {
-          owner_id: "00000000-0000-4000-8000-000000000001",
-          app_store_last_transaction_id: "1000000000000102",
-          app_store_signed_at: "2026-06-12T21:30:00.000Z",
-        },
-      ]);
-    }
-  );
-
-  assert.equal(result.stored, false);
-  assert.equal(result.mapping_status, "stale_transaction_claim");
+test("notification writer returns unmapped, duplicate and stale outcomes from the same RPC", async () => {
+  for (const status of ["unmapped_original_transaction", "duplicate_notification", "stale_notification"]) {
+    const requests = [];
+    const expected = { stored: false, mapping_status: status };
+    const result = await updateMappedSubscriptionAuthority(configuration, notification,
+      captureRPC(requests, expected));
+    assert.deepEqual(result, expected);
+    assert.equal(requests.length, 1);
+  }
 });
 
-test("notification writer patches only previously claimed original transactions", async () => {
-  let requestedURL = null;
-  let requestedInit = null;
-  const requestedMethods = [];
-  const result = await updateMappedSubscriptionAuthority(
-    {
-      supabaseURL: "https://project.supabase.co",
-      secretKey: "server-only-key",
-    },
-    {
-      provider: "storekit",
-      plan: "free",
-      status: "inactive",
-      storekit_original_transaction_id: "1000000000000100",
-      app_store_notification_uuid: "notification-0001",
-      app_store_signed_at: "2026-06-12T21:29:00.000Z",
-      app_store_status: "expired",
-    },
-    async (url, init) => {
-      requestedMethods.push(init.method);
-      if (init.method === "GET") {
-        return Response.json([
-          {
-            owner_id: "00000000-0000-4000-8000-000000000001",
-            app_store_signed_at: "2026-06-12T21:28:00.000Z",
-          },
-        ]);
-      }
-      if (String(url).includes("/rest/v1/app_store_notification_events")) {
-        return Response.json([
-          {
-            notification_uuid: "notification-0001",
-          },
-        ]);
-      }
-
-      requestedURL = String(url);
-      requestedInit = init;
-      return Response.json([
-        {
-          owner_id: "00000000-0000-4000-8000-000000000001",
-          app_store_status: "expired",
-        },
-      ]);
-    }
-  );
-
-  assert.equal(
-    requestedURL,
-    "https://project.supabase.co/rest/v1/subscriptions?storekit_original_transaction_id=eq.1000000000000100"
-  );
-  assert.deepEqual(requestedMethods, ["GET", "POST", "PATCH"]);
-  assert.equal(requestedInit.method, "PATCH");
-  assert.equal(requestedInit.headers.prefer, "return=representation");
-  assert.equal(JSON.parse(requestedInit.body).app_store_status, "expired");
-  assert.equal(result.stored, true);
-  assert.equal(result.mapping_status, "updated");
+test("missing original transaction never sends a claim or notification mutation", async () => {
+  const fetcher = async () => { assert.fail("Missing originals must not invoke the RPC."); };
+  const expected = { stored: false, mapping_status: "missing_original_transaction" };
+  assert.deepEqual(await updateMappedSubscriptionAuthority(configuration, {}, fetcher), expected);
+  assert.deepEqual(await upsertSubscriptionAuthorityClaim(configuration, ownerID,
+    { storekit_original_transaction_id: "  " }, fetcher), expected);
 });
 
-test("notification writer accepts unmapped original transactions without assigning an owner", async () => {
-  const result = await updateMappedSubscriptionAuthority(
-    {
-      supabaseURL: "https://project.supabase.co",
-      secretKey: "server-only-key",
-    },
-    {
-      provider: "storekit",
-      plan: "studioSubscription",
-      status: "active",
-      storekit_original_transaction_id: "1000000000009999",
-    },
-    async () => Response.json([])
-  );
-
-  assert.equal(result.stored, false);
-  assert.equal(result.mapping_status, "unmapped_original_transaction");
+test("failed atomic RPC stays retryable with the same notification UUID and never falls back to split writes", async () => {
+  for (const failureStatus of [404, 503]) {
+    const requests = [];
+    const fetcher = async (url, init) => {
+      assert.equal(String(url), rpcURL);
+      assert.equal(init.method, "POST");
+      requests.push(JSON.parse(init.body));
+      return requests.length === 1
+        ? new Response("transaction unavailable", { status: failureStatus })
+        : Response.json({ stored: true, mapping_status: "updated", subscription: { owner_id: ownerID } });
+    };
+    await assert.rejects(updateMappedSubscriptionAuthority(configuration, notification, fetcher),
+      new RegExp(`status ${failureStatus}`));
+    const retried = await updateMappedSubscriptionAuthority(configuration, notification, fetcher);
+    assert.equal(retried.stored, true);
+    assert.deepEqual(requests, [
+      { authority_update: notification, claim_owner_id: null },
+      { authority_update: notification, claim_owner_id: null },
+    ]);
+  }
 });
 
-test("notification writer ignores duplicate notification UUIDs", async () => {
-  const result = await updateMappedSubscriptionAuthority(
-    {
-      supabaseURL: "https://project.supabase.co",
-      secretKey: "server-only-key",
-    },
-    {
-      provider: "storekit",
-      plan: "free",
-      status: "inactive",
-      storekit_original_transaction_id: "1000000000000100",
-      app_store_notification_uuid: "notification-0001",
-      app_store_signed_at: "2026-06-12T21:29:00.000Z",
-      app_store_status: "expired",
-    },
-    async (url, init) => {
-      if (init.method === "GET") {
-        return Response.json([
-          {
-            owner_id: "00000000-0000-4000-8000-000000000001",
-            app_store_signed_at: "2026-06-12T21:28:00.000Z",
-          },
-        ]);
-      }
-      if (String(url).includes("/rest/v1/app_store_notification_events")) {
-        return Response.json([]);
-      }
-
-      throw new Error("duplicate notification should not patch subscription authority");
-    }
-  );
-
-  assert.equal(result.stored, false);
-  assert.equal(result.mapping_status, "duplicate_notification");
+test("parallel claim and notification requests have no client-side authority-read race", async () => {
+  const requests = [];
+  let release;
+  const barrier = new Promise((resolve) => { release = resolve; });
+  const fetcher = async (url, init) => {
+    assert.equal(String(url), rpcURL);
+    assert.equal(init.method, "POST");
+    const payload = JSON.parse(init.body);
+    requests.push(payload);
+    if (requests.length === 2) release();
+    await barrier;
+    return Response.json({ stored: true,
+      mapping_status: payload.claim_owner_id === null ? "updated" : "claimed",
+      subscription: { owner_id: ownerID } });
+  };
+  const claimUpdate = { ...notification, app_store_notification_uuid: null };
+  const results = await Promise.all([
+    upsertSubscriptionAuthorityClaim(configuration, ownerID, claimUpdate, fetcher),
+    updateMappedSubscriptionAuthority(configuration, notification, fetcher),
+  ]);
+  assert.deepEqual(results.map((result) => result.mapping_status), ["claimed", "updated"]);
+  assert.equal(requests.length, 2);
+  assert.deepEqual(requests.find((request) => request.claim_owner_id !== null).authority_update, claimUpdate);
+  assert.deepEqual(requests.find((request) => request.claim_owner_id === null).authority_update, notification);
 });
 
-test("notification writer rejects stale notifications", async () => {
-  const result = await updateMappedSubscriptionAuthority(
-    {
-      supabaseURL: "https://project.supabase.co",
-      secretKey: "server-only-key",
-    },
-    {
-      provider: "storekit",
-      plan: "studioSubscription",
-      status: "active",
-      storekit_original_transaction_id: "1000000000000100",
-      app_store_last_transaction_id: "1000000000000101",
-      app_store_notification_uuid: "notification-0002",
-      app_store_signed_at: "2026-06-12T21:29:00.000Z",
-      app_store_status: "active",
-    },
-    async (url, init) => {
-      if (init.method === "GET") {
-        return Response.json([
-          {
-            owner_id: "00000000-0000-4000-8000-000000000001",
-            app_store_last_transaction_id: "1000000000000102",
-            app_store_signed_at: "2026-06-12T21:30:00.000Z",
-          },
-        ]);
-      }
-      if (String(url).includes("/rest/v1/app_store_notification_events")) {
-        return Response.json([
-          {
-            notification_uuid: "notification-0002",
-          },
-        ]);
-      }
+test("atomic RPC transport failures do not create a local replay acknowledgment", async () => {
+  let calls = 0;
+  const fetcher = async (url, init) => {
+    assert.equal(String(url), rpcURL);
+    assert.equal(JSON.parse(init.body).authority_update.app_store_notification_uuid, notification.app_store_notification_uuid);
+    if (++calls === 1) throw new Error("connection interrupted");
+    return Response.json({ stored: false, mapping_status: "duplicate_notification" });
+  };
+  await assert.rejects(updateMappedSubscriptionAuthority(configuration, notification, fetcher), /connection interrupted/);
+  assert.equal((await updateMappedSubscriptionAuthority(configuration, notification, fetcher)).mapping_status,
+    "duplicate_notification");
+  assert.equal(calls, 2);
+});
 
-      throw new Error("stale notification should not patch subscription authority");
-    }
-  );
-
-  assert.equal(result.stored, false);
-  assert.equal(result.mapping_status, "stale_notification");
+test("invalid or contradictory atomic RPC results fail closed", async () => {
+  for (const response of [null, [], {}, { stored: true, mapping_status: "stale_notification" },
+    { stored: false, mapping_status: "updated" }, { stored: true, mapping_status: "claimed" }]) {
+    await assert.rejects(updateMappedSubscriptionAuthority(configuration, notification,
+      async () => Response.json(response)), /invalid transaction result/);
+  }
+  await assert.rejects(upsertSubscriptionAuthorityClaim(configuration, ownerID, notification,
+    async () => Response.json({ stored: true, mapping_status: "updated" })), /invalid transaction result/);
 });

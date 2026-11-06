@@ -4623,6 +4623,111 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(secondSystem.measures.count, 2)
     }
 
+    func testMeterChangeContextTraversesInputOnceAndQueriesDoNotRevisitIt() {
+        let measures = Chart.blank(title: "Meter Traversal", measureCount: 1_024).measures
+        let probe = MeterSequenceProbe()
+        let context = LeadSheetPageLayoutEngine.MeterChangeContext(
+            measures: CountedMeterMeasures(measures: measures, probe: probe),
+            defaultMeter: Meter(numerator: 4, denominator: 4)
+        )
+
+        XCTAssertEqual(probe.iteratorCount, 1)
+        XCTAssertEqual(probe.yieldedMeasureCount, measures.count)
+        for _ in 0..<4 {
+            for measure in measures {
+                XCTAssertNil(context.change(for: measure))
+            }
+        }
+        XCTAssertEqual(probe.iteratorCount, 1)
+        XCTAssertEqual(probe.yieldedMeasureCount, measures.count)
+        XCTAssertNil(context.change(for: nil))
+        var unknownMeasure = measures[0]
+        unknownMeasure.id = UUID()
+        XCTAssertNil(context.change(for: unknownMeasure))
+    }
+
+    func testMeterChangeContextKeepsFirstMatchPredecessorForDuplicateMeasureIDs() {
+        let commonTime = Meter(numerator: 4, denominator: 4)
+        let tripleTime = Meter(numerator: 3, denominator: 4)
+        let quintupleTime = Meter(numerator: 5, denominator: 4)
+        var measures = Chart.blank(title: "Imported Meter IDs", measureCount: 5).measures
+        measures[1].meterOverride = tripleTime
+        measures[2].meterOverride = quintupleTime
+        measures[3].id = measures[1].id
+        measures[3].meterOverride = nil
+        measures[4].id = measures[0].id
+        measures[4].meterOverride = quintupleTime
+        let context = LeadSheetPageLayoutEngine.MeterChangeContext(
+            measures: measures,
+            defaultMeter: commonTime
+        )
+
+        XCTAssertNil(context.change(for: measures[0]))
+        XCTAssertEqual(context.change(for: measures[1]), tripleTime)
+        XCTAssertEqual(context.change(for: measures[2]), quintupleTime)
+        // The later duplicate uses the first matching ID's predecessor (4/4),
+        // while its current meter still comes from this actual measure.
+        XCTAssertNil(context.change(for: measures[3]))
+        // A duplicate of the first saved measure never gains a predecessor.
+        XCTAssertNil(context.change(for: measures[4]))
+    }
+
+    func testMeterChangesAcrossSavedSystemsAndPagesMatchFlattenedOrderInEveryStyle() throws {
+        let commonTime = Meter(numerator: 4, denominator: 4)
+        let tripleTime = Meter(numerator: 3, denominator: 4)
+        let quintupleTime = Meter(numerator: 5, denominator: 4)
+        for style in [ChartLayoutStyle.leadSheet, .simpleChordSheet, .rhythmSectionSheet] {
+            var chart = Chart.blank(title: "Meter Across Pages", measureCount: 8, layoutStyle: style)
+            var measures = chart.measures
+            measures[1].meterOverride = tripleTime
+            measures[2].meterOverride = nil
+            measures[3].meterOverride = quintupleTime
+            measures[4].meterOverride = quintupleTime
+            measures[5].meterOverride = nil
+            var firstSystem = try XCTUnwrap(chart.systems.first)
+            firstSystem.measures = Array(measures.prefix(3))
+            var secondSystem = firstSystem
+            secondSystem.id = UUID()
+            secondSystem.index = 1
+            // Saved page breaks also force a row boundary. Automatic packing
+            // may otherwise put this first measure inside the preceding row.
+            secondSystem.lineBreakRule = .forced
+            secondSystem.startsNewPage = true
+            secondSystem.measures = Array(measures.dropFirst(3))
+            chart.systems = [firstSystem, secondSystem]
+            chart.defaultMeter = commonTime
+            // Dense content exercises the measuring-layout pass as well as
+            // final layout on both sides of an explicit page boundary.
+            chart.staffSystemDensity = .dense
+            let layout = LeadSheetPageLayoutEngine.pageLayout(
+                for: chart,
+                pageSize: CGSize(width: 900, height: 1_100),
+                includesChordInkContinuationLanes: true
+            )
+            XCTAssertEqual(layout.pages.count, 2, "\(style)")
+            let firstPage = try XCTUnwrap(layout.pages.first)
+            let secondPage = try XCTUnwrap(layout.pages.dropFirst().first)
+            let firstPageSourceIDs = layout.systems
+                .filter { firstPage.systemIDs.contains($0.id) }
+                .flatMap(\.measures).compactMap(\.sourceMeasureID)
+            let secondPageSourceIDs = layout.systems
+                .filter { secondPage.systemIDs.contains($0.id) }
+                .flatMap(\.measures).compactMap(\.sourceMeasureID)
+            XCTAssertEqual(firstPageSourceIDs, Array(measures.prefix(3)).map(\.id), "\(style)")
+            XCTAssertEqual(secondPageSourceIDs, Array(measures.dropFirst(3)).map(\.id), "\(style)")
+            let rendered = layout.systems.flatMap(\.measures)
+            for (index, source) in measures.enumerated() {
+                let current = source.meterOverride ?? commonTime
+                let previous = index > 0 ? measures[index - 1].meterOverride ?? commonTime : nil
+                let expected: Meter? = previous == nil || previous == current ? nil : current
+                let displayed = try XCTUnwrap(rendered.first { $0.sourceMeasureID == source.id })
+                XCTAssertEqual(displayed.meterChange, expected, "\(style) measure \(index)")
+                XCTAssertEqual(displayed.meterChangeFrame == nil, expected == nil)
+            }
+            XCTAssertTrue(rendered.filter { $0.sourceMeasureID == nil }.allSatisfy { $0.meterChange == nil })
+        }
+    }
+
     func testLeadSheetLayoutShowsMeterChangeInsideChangedMeasure() throws {
         var chart = makeBlankLeadSheet()
         _ = chart.commitOpenMeasure()
@@ -5305,5 +5410,26 @@ final class LeadSheetPageLayoutTests: XCTestCase {
             staffStyle: .fiveLine
         )
         return chart
+    }
+}
+
+private final class MeterSequenceProbe {
+    var iteratorCount = 0
+    var yieldedMeasureCount = 0
+}
+
+private struct CountedMeterMeasures: Sequence {
+    let measures: [Measure]
+    let probe: MeterSequenceProbe
+
+    func makeIterator() -> AnyIterator<Measure> {
+        probe.iteratorCount += 1
+        var index = 0
+        return AnyIterator {
+            guard index < measures.count else { return nil }
+            probe.yieldedMeasureCount += 1
+            defer { index += 1 }
+            return measures[index]
+        }
     }
 }

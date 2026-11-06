@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import Foundation
+import UIKit
 import XCTest
 @testable import iChart
 
@@ -416,6 +417,454 @@ final class IChartForumParticipationTests: XCTestCase {
             "created_at.lt.\(firstTimestamp),and(created_at.eq.\(firstTimestamp),id.lt.\(comment.id.uuidString))")
     }
 
+    func testLateForumPDFCompletionCannotReopenClosedDetail() async throws {
+        for style in chartStyles {
+            for fails in [false, true] {
+                let fixture = try makeFixture(layoutStyle: style)
+                defer { fixture.clean() }
+                authorizeForumAccess(fixture)
+                await fixture.store.openPost(fixture.detail.post, song: fixture.detail.song)
+                let pending = Task { await fixture.store.downloadPDF(for: fixture.detail) }
+                try await waitForDownload(fixture, postID: fixture.detail.post.id)
+
+                fixture.store.clearSelectedDetail()
+                let pdf = sampleDownloadedPDF(for: fixture.detail.post)
+                await fixture.service.releaseDownload(postID: fixture.detail.post.id, pdf: pdf, fails: fails)
+                let result = await pending.value
+
+                XCTAssertNil(result, "A dismissed request must not reach LibraryView's automatic PDF save")
+                XCTAssertNil(fixture.store.selectedDetail)
+                XCTAssertNil(fixture.store.downloadedPDF)
+                XCTAssertNil(fixture.store.errorMessage, "An obsolete failure must not affect the next discussion")
+                XCTAssertFalse(fixture.store.isWorking)
+            }
+        }
+    }
+
+    func testPreviousForumPDFCannotReplaceNewPostOrClearItsBusyState() async throws {
+        for style in chartStyles {
+            for oldRequestFails in [false, true] {
+                let fixture = try makeFixture(layoutStyle: style)
+                defer { fixture.clean() }
+                authorizeForumAccess(fixture)
+                await fixture.store.openPost(fixture.detail.post, song: fixture.detail.song)
+                let oldDownload = Task { await fixture.store.downloadPDF(for: fixture.detail) }
+                try await waitForDownload(fixture, postID: fixture.detail.post.id)
+
+                let nextPost = otherPost(from: fixture.detail.post)
+                await fixture.service.setPost(nextPost)
+                await fixture.store.openPost(nextPost, song: fixture.detail.song)
+                let nextDetail = try XCTUnwrap(fixture.store.selectedDetail)
+                let nextDownload = Task { await fixture.store.downloadPDF(for: nextDetail) }
+                try await waitForDownload(fixture, postID: nextPost.id)
+
+                await fixture.service.releaseDownload(postID: fixture.detail.post.id,
+                    pdf: sampleDownloadedPDF(for: fixture.detail.post), fails: oldRequestFails)
+                let oldResult = await oldDownload.value
+                XCTAssertNil(oldResult)
+                XCTAssertEqual(fixture.store.selectedDetail?.post.id, nextPost.id)
+                XCTAssertNil(fixture.store.downloadedPDF)
+                XCTAssertNil(fixture.store.errorMessage)
+                XCTAssertTrue(fixture.store.isWorking, "An old completion cannot finish the new post's request")
+
+                let nextPDF = sampleDownloadedPDF(for: nextPost)
+                await fixture.service.releaseDownload(postID: nextPost.id, pdf: nextPDF)
+                let nextResult = await nextDownload.value
+                XCTAssertEqual(nextResult?.url, nextPDF.url)
+                XCTAssertEqual(fixture.store.downloadedPDF?.url, nextPDF.url)
+                XCTAssertFalse(fixture.store.isWorking)
+
+                await fixture.store.openPost(nextPost, song: fixture.detail.song)
+                XCTAssertNil(fixture.store.downloadedPDF, "A reopened detail starts without the previous preview")
+            }
+        }
+    }
+
+    func testCancelledForumPDFRequestCannotPresentLateResult() async throws {
+        for style in chartStyles {
+            let fixture = try makeFixture(layoutStyle: style)
+            defer { fixture.clean() }
+            authorizeForumAccess(fixture)
+            await fixture.store.openPost(fixture.detail.post, song: fixture.detail.song)
+            let pending = Task { await fixture.store.downloadPDF(for: fixture.detail) }
+            try await waitForDownload(fixture, postID: fixture.detail.post.id)
+
+            pending.cancel()
+            await fixture.service.releaseDownload(postID: fixture.detail.post.id,
+                pdf: sampleDownloadedPDF(for: fixture.detail.post))
+            let result = await pending.value
+            let serviceWasCancelled = await fixture.service.cancelledDownloadIDs.contains(fixture.detail.post.id)
+
+            XCTAssertNil(result)
+            XCTAssertTrue(serviceWasCancelled, "Cancellation must reach the download task even if its provider completes late")
+            XCTAssertNil(fixture.store.downloadedPDF)
+            XCTAssertNil(fixture.store.errorMessage)
+            XCTAssertFalse(fixture.store.isWorking)
+        }
+    }
+
+    func testForumPDFCompletionIsIgnoredAfterMembershipOrAccountChanges() async throws {
+        for style in chartStyles {
+            for accessChange in 0..<3 {
+                let fixture = try makeFixture(layoutStyle: style)
+                defer { fixture.clean() }
+                authorizeForumAccess(fixture)
+                await fixture.store.openPost(fixture.detail.post, song: fixture.detail.song)
+                let pending = Task { await fixture.store.downloadPDF(for: fixture.detail) }
+                try await waitForDownload(fixture, postID: fixture.detail.post.id)
+
+                let entitlements = accessChange == 1
+                    ? AppEntitlements(subscription: .basic, accessPolicy: .betaBasic)
+                    : AppEntitlements(subscription: .basic, accessPolicy: .freeAllFeatures)
+                let ownerID: UUID? = accessChange == 0 ? nil
+                    : accessChange == 1 ? fixture.detail.post.ownerID : UUID()
+                fixture.store.applyAccess(entitlements: entitlements, charts: [], currentUserID: ownerID)
+                await fixture.service.releaseDownload(postID: fixture.detail.post.id,
+                    pdf: sampleDownloadedPDF(for: fixture.detail.post))
+                let result = await pending.value
+
+                XCTAssertNil(result)
+                XCTAssertNil(fixture.store.selectedDetail)
+                XCTAssertNil(fixture.store.downloadedPDF)
+                XCTAssertNil(fixture.store.errorMessage)
+                XCTAssertFalse(fixture.store.isWorking)
+            }
+        }
+    }
+
+    func testForumPDFCacheKeepsSameTitlePostsAndRetriesIndependent() throws {
+        for style in chartStyles {
+            let fixture = try makeFixture(layoutStyle: style)
+            defer { fixture.clean() }
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("ForumPDFCacheTests-\(UUID().uuidString)", isDirectory: true)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let firstPost = fixture.detail.post
+            let secondPost = otherPost(from: firstPost)
+            let firstData = samplePDFData(label: "First chart", post: firstPost)
+            let secondData = samplePDFData(label: "Different chart", post: secondPost)
+            let retryData = samplePDFData(label: "Retry snapshot", post: firstPost)
+
+            let first = try IChartForumPDFMetadata.cacheDownloadedPDF(data: firstData, post: firstPost, in: directory)
+            let second = try IChartForumPDFMetadata.cacheDownloadedPDF(data: secondData, post: secondPost, in: directory)
+            let retry = try IChartForumPDFMetadata.cacheDownloadedPDF(data: retryData, post: firstPost, in: directory)
+
+            XCTAssertEqual(firstPost.chartTitle, secondPost.chartTitle)
+            XCTAssertEqual(Set([first.url, second.url, retry.url]).count, 3)
+            XCTAssertEqual(first.url.lastPathComponent, second.url.lastPathComponent,
+                "The public filename stays readable while its private request directory carries identity")
+            XCTAssertEqual(try Data(contentsOf: first.url), firstData)
+            XCTAssertEqual(try Data(contentsOf: second.url), secondData)
+            XCTAssertEqual(try Data(contentsOf: retry.url), retryData)
+            for pdf in [first, second, retry] {
+                XCTAssertEqual(pdf.layoutStyle, style)
+                XCTAssertEqual(pdf.transpositionView, .eb)
+                XCTAssertEqual(pdf.chordTranspositionSemitones, 3)
+                XCTAssertEqual(pdf.pageCount, 1)
+            }
+        }
+    }
+
+    func testSearchPaginationAppendsOnceAndKeepsDuplicateSongPositionsStable() async throws {
+        for style in chartStyles {
+            let fixture = try makeFixture(layoutStyle: style)
+            defer { fixture.clean() }
+            authorizeForumAccess(fixture)
+            let first = searchSummary(title: "First", style: style, ownerID: fixture.detail.post.ownerID)
+            let second = searchSummary(title: "Second", style: style, ownerID: fixture.detail.post.ownerID)
+            let cursor = IChartForumHomeCursor(updatedAt: "2026-11-05T12:13:14.123456+00:00", songID: first.id)
+            await fixture.service.setFirstHomePage(query: "literal%_", page: .init(summaries: [first], nextCursor: cursor))
+            await refreshSearch("literal%_", fixture: fixture)
+            let next = Task { await fixture.store.loadMoreHome() }
+            try await waitForHomePage(fixture, cursor: cursor)
+            await fixture.service.releaseHomePage(cursor: cursor, page: .init(summaries: [first, second], nextCursor: nil))
+            await next.value
+            guard case .loaded(let summaries) = fixture.store.state else { return XCTFail("Expected loaded search results") }
+            XCTAssertEqual(summaries, [first, second])
+            XCTAssertEqual(summaries.flatMap(\.topPosts).map(\.layoutStyle), [style, style])
+            XCTAssertNil(fixture.store.homeNextCursor)
+            XCTAssertFalse(fixture.store.isLoadingMoreHome)
+            await fixture.store.loadMoreHome()
+            let requests = await fixture.service.homePageRequests
+            XCTAssertEqual(requests.count, 2, "Each action fetches at most one bounded page; exhaustion does not fetch again")
+            XCTAssertEqual(requests.last?.query, "literal%_")
+            XCTAssertEqual(requests.last?.cursor, cursor)
+        }
+    }
+
+    func testLateSearchPageCannotReplaceNewQueryOrClearItsLoadingState() async throws {
+        for style in chartStyles {
+            for oldPageFails in [false, true] {
+                let fixture = try makeFixture(layoutStyle: style)
+                defer { fixture.clean() }
+                authorizeForumAccess(fixture)
+                let first = searchSummary(title: "Old query", style: style, ownerID: fixture.detail.post.ownerID)
+                let replacement = searchSummary(title: "New query", style: style, ownerID: fixture.detail.post.ownerID)
+                let extra = searchSummary(title: "New next page", style: style, ownerID: fixture.detail.post.ownerID)
+                let oldCursor = IChartForumHomeCursor(updatedAt: "2026-11-05T12:00:00.123456+00:00", songID: first.id)
+                let newCursor = IChartForumHomeCursor(updatedAt: "2026-11-05T11:00:00.123456+00:00", songID: replacement.id)
+                await fixture.service.setFirstHomePage(query: "old", page: .init(summaries: [first], nextCursor: oldCursor))
+                await fixture.service.setFirstHomePage(query: "new", page: .init(summaries: [replacement], nextCursor: newCursor))
+                await refreshSearch("old", fixture: fixture)
+                let oldRequest = Task { await fixture.store.loadMoreHome() }
+                try await waitForHomePage(fixture, cursor: oldCursor)
+                await refreshSearch("new", fixture: fixture)
+                let newRequest = Task { await fixture.store.loadMoreHome() }
+                try await waitForHomePage(fixture, cursor: newCursor)
+
+                await fixture.service.releaseHomePage(cursor: oldCursor,
+                    page: .init(summaries: [first], nextCursor: nil), fails: oldPageFails)
+                await oldRequest.value
+                XCTAssertEqual(fixture.store.state, .loaded([replacement]))
+                XCTAssertEqual(fixture.store.homeNextCursor, newCursor)
+                XCTAssertTrue(fixture.store.isLoadingMoreHome)
+                XCTAssertNil(fixture.store.errorMessage)
+
+                await fixture.service.releaseHomePage(cursor: newCursor, page: .init(summaries: [extra], nextCursor: nil))
+                await newRequest.value
+                XCTAssertEqual(fixture.store.state, .loaded([replacement, extra]))
+                XCTAssertFalse(fixture.store.isLoadingMoreHome)
+            }
+        }
+    }
+
+    func testFailedSearchPageKeepsResultsAndCursorForRetry() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.clean() }
+        authorizeForumAccess(fixture)
+        let first = searchSummary(title: "Kept", style: .simpleChordSheet, ownerID: fixture.detail.post.ownerID)
+        let cursor = IChartForumHomeCursor(updatedAt: "2026-11-05T12:13:14.123456+00:00", songID: first.id)
+        await fixture.service.setFirstHomePage(query: "kept", page: .init(summaries: [first], nextCursor: cursor))
+        await refreshSearch("kept", fixture: fixture)
+        let failed = Task { await fixture.store.loadMoreHome() }
+        try await waitForHomePage(fixture, cursor: cursor)
+        await fixture.service.releaseHomePage(cursor: cursor, page: .init(summaries: [], nextCursor: nil), fails: true)
+        await failed.value
+        XCTAssertEqual(fixture.store.state, .loaded([first]))
+        XCTAssertEqual(fixture.store.homeNextCursor, cursor)
+        XCTAssertNotNil(fixture.store.errorMessage)
+        XCTAssertFalse(fixture.store.isLoadingMoreHome)
+        let retried = Task { await fixture.store.loadMoreHome() }
+        try await waitForHomePage(fixture, cursor: cursor)
+        await fixture.service.releaseHomePage(cursor: cursor, page: .init(summaries: [], nextCursor: nil))
+        await retried.value
+        XCTAssertEqual(fixture.store.state, .loaded([first]))
+        XCTAssertNil(fixture.store.homeNextCursor)
+        XCTAssertNil(fixture.store.errorMessage)
+    }
+
+    func testSearchPageIsRejectedAfterAccountOrAccessChange() async throws {
+        for change in 0..<3 {
+            let fixture = try makeFixture()
+            defer { fixture.clean() }
+            authorizeForumAccess(fixture)
+            let first = searchSummary(title: "First", style: .simpleChordSheet, ownerID: fixture.detail.post.ownerID)
+            let extra = searchSummary(title: "Obsolete", style: .simpleChordSheet, ownerID: fixture.detail.post.ownerID)
+            let cursor = IChartForumHomeCursor(updatedAt: "2026-11-05T12:13:14.123456+00:00", songID: first.id)
+            await fixture.service.setFirstHomePage(query: "first", page: .init(summaries: [first], nextCursor: cursor))
+            await refreshSearch("first", fixture: fixture)
+            let pending = Task { await fixture.store.loadMoreHome() }
+            try await waitForHomePage(fixture, cursor: cursor)
+            fixture.store.applyAccess(entitlements: AppEntitlements(subscription: .basic,
+                accessPolicy: change == 1 ? .betaBasic : .freeAllFeatures), charts: [],
+                currentUserID: change == 0 ? nil : change == 1 ? fixture.detail.post.ownerID : UUID())
+            await fixture.service.releaseHomePage(cursor: cursor, page: .init(summaries: [extra], nextCursor: nil))
+            await pending.value
+            XCTAssertNil(fixture.store.homeNextCursor)
+            XCTAssertFalse(fixture.store.isLoadingMoreHome)
+            XCTAssertNil(fixture.store.errorMessage)
+            if case .loaded(let summaries) = fixture.store.state { XCTAssertFalse(summaries.contains { $0.id == extra.id }) }
+        }
+    }
+
+    func testAbandonedFirstSearchDoesNotLeaveBusyOrClearANewerRequest() async throws {
+        for oldRequestFails in [false, true] {
+            let fixture = try makeFixture()
+            defer { fixture.clean() }
+            authorizeForumAccess(fixture)
+            await fixture.service.holdFirstHomePage(query: "old")
+            await fixture.service.holdFirstHomePage(query: "new")
+            let oldRequest = Task { await refreshSearch("old", fixture: fixture) }
+            try await waitForFirstHomePage(fixture, query: "old")
+            let newRequest = Task { await refreshSearch("new", fixture: fixture) }
+            try await waitForFirstHomePage(fixture, query: "new")
+            XCTAssertTrue(fixture.store.isWorking)
+            await fixture.service.releaseFirstHomePage(query: "old", page: .init(summaries: [], nextCursor: nil), fails: oldRequestFails)
+            await oldRequest.value
+            XCTAssertTrue(fixture.store.isWorking, "An abandoned first-page completion cannot finish the newer operation")
+            XCTAssertEqual(fixture.store.state, .loading)
+            await fixture.service.releaseFirstHomePage(query: "new", page: .init(summaries: [], nextCursor: nil))
+            await newRequest.value
+            XCTAssertFalse(fixture.store.isWorking)
+            XCTAssertEqual(fixture.store.state, .loaded([]))
+
+            await fixture.service.holdFirstHomePage(query: "signed out")
+            let signedOut = Task { await refreshSearch("signed out", fixture: fixture) }
+            try await waitForFirstHomePage(fixture, query: "signed out")
+            fixture.store.applyAccess(entitlements: AppEntitlements(subscription: .basic, accessPolicy: .freeAllFeatures),
+                charts: [], currentUserID: nil)
+            XCTAssertFalse(fixture.store.isWorking, "Invalidating the owned home request must not orphan its busy state")
+            await fixture.service.releaseFirstHomePage(query: "signed out", page: .init(summaries: [], nextCursor: nil))
+            await signedOut.value
+            XCTAssertEqual(fixture.store.state, .signedOut)
+            XCTAssertFalse(fixture.store.isWorking)
+        }
+    }
+
+    func testSearchWireParametersKeepLiteralTextAndMicrosecondCursor() throws {
+        let query = "50%_O'Reilly,(score.gt.0) \\\"São\\\""
+        let cursor = IChartForumHomeCursor(updatedAt: "2026-11-05T12:13:14.123456+00:00", songID: UUID())
+        let data = try JSONEncoder().encode(ForumHomeSearchParameters(searchQuery: query,
+            afterUpdatedAt: cursor.updatedAt, afterSongID: cursor.songID))
+        let value = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(value["search_query"] as? String, query)
+        XCTAssertEqual(value["page_size"] as? Int, 20)
+        XCTAssertEqual(value["after_updated_at"] as? String, cursor.updatedAt)
+        XCTAssertEqual(value["after_song_id"] as? String, cursor.songID.uuidString)
+        XCTAssertThrowsError(try ForumHomeSearchParameters(searchQuery: String(repeating: "é", count: 201),
+            afterUpdatedAt: nil, afterSongID: nil))
+        XCTAssertThrowsError(try ForumHomeSearchParameters(searchQuery: "literal", afterUpdatedAt: cursor.updatedAt, afterSongID: nil))
+        let normalized = try ForumHomeSearchParameters(searchQuery: "  SÃO\t Paulo  ", afterUpdatedAt: nil, afterSongID: nil)
+        XCTAssertEqual(normalized.searchQuery, "SÃO Paulo")
+    }
+
+    func testSearchWireLeavesUnicodeCaseNormalizationToDatabase() throws {
+        let cases: [(input: String, expectedScalars: [UInt32])] = [
+            ("  İSTANBUL\t", [0x0130, 0x0053, 0x0054, 0x0041, 0x004E, 0x0042, 0x0055, 0x004C]),
+            ("  ΟΣ  ", [0x039F, 0x03A3]),
+            ("  Cafe\u{0301}\t", [0x0043, 0x0061, 0x0066, 0x00E9])
+        ]
+        for entry in cases {
+            let parameters = try ForumHomeSearchParameters(searchQuery: entry.input,
+                afterUpdatedAt: nil, afterSongID: nil)
+            let data = try JSONEncoder().encode(parameters)
+            let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            let query = try XCTUnwrap(object["search_query"] as? String)
+            XCTAssertEqual(query.unicodeScalars.map(\.value), entry.expectedScalars,
+                "Only whitespace and canonical composition may change before the SQL engine normalizes case for both sides.")
+        }
+    }
+
+    func testSearchResponseRejectsOversizedDuplicateOrNonPublicPages() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet, .leadSheet] {
+            let valid = searchResponse(songCount: 20, style: style)
+            let page = try IChartForumSearchResponseDecoder.decode(JSONSerialization.data(withJSONObject: valid))
+            XCTAssertEqual(page.summaries.count, 20)
+            XCTAssertEqual(page.summaries.flatMap(\.topPosts).count, 60)
+            XCTAssertEqual(page.summaries.flatMap(\.topPosts).map(\.layoutStyle), Array(repeating: style, count: 60))
+            XCTAssertEqual(page.nextCursor?.updatedAt, "2026-11-05T12:13:14.123456+00:00")
+        }
+        for mutation in 0..<5 {
+            var response = searchResponse(songCount: mutation == 0 ? 21 : 1, style: .simpleChordSheet)
+            var songs = try XCTUnwrap(response["songs"] as? [[String: Any]])
+            if mutation == 1 { songs.append(songs[0]) }
+            if mutation == 2 || mutation == 3 {
+                var posts = try XCTUnwrap(songs[0]["posts"] as? [[String: Any]])
+                if mutation == 2 { posts.append(posts[0]) }
+                else { posts[0]["status"] = "pending" }
+                songs[0]["posts"] = posts
+            }
+            response["songs"] = songs
+            if mutation == 4 { response["next_cursor"] = ["updated_at": "2026-11-05T12:13:14.123457+00:00", "id": UUID().uuidString] }
+            XCTAssertThrowsError(try IChartForumSearchResponseDecoder.decode(JSONSerialization.data(withJSONObject: response)))
+        }
+    }
+
+    private func searchResponse(songCount: Int, style: ChartLayoutStyle) -> [String: Any] {
+        let timestamp = "2026-11-05T12:13:14.123456+00:00"
+        let songs: [[String: Any]] = (0..<songCount).map { index in
+            let songID = UUID()
+            let posts: [[String: Any]] = (0..<3).map { rank in
+                ["id": UUID().uuidString, "song_id": songID.uuidString, "owner_id": UUID().uuidString,
+                 "chart_title": "Chart \(index)", "arranger_credit": "Arranger", "creator_display_name": "Creator",
+                 "tags": ["literal%_"], "layout_style": style.rawValue, "pdf_storage_path": "fixture.pdf",
+                 "status": "published", "vote_up_count": 0, "vote_down_count": 0, "report_count": 0,
+                 "ranking_score": 3 - rank, "published_at": timestamp]
+            }
+            return ["song": ["id": songID.uuidString, "song_title": "Song \(index)", "artist_name": "Artist", "updated_at": timestamp], "posts": posts]
+        }
+        let lastSong = songs.last?["song"] as? [String: Any]
+        var response: [String: Any] = ["songs": songs]
+        if let lastSong { response["next_cursor"] = ["updated_at": timestamp, "id": lastSong["id"]!] }
+        else { response["next_cursor"] = NSNull() }
+        return response
+    }
+
+    private func searchSummary(title: String, style: ChartLayoutStyle, ownerID: UUID) -> IChartForumSongSummary {
+        let song = ForumSong(id: UUID(), songTitle: title, artistName: "Paging artist")
+        let post = ForumChartPost(id: UUID(), songID: song.id, ownerID: ownerID,
+            chartTitle: title, arrangerCredit: "Paging arranger", creatorDisplayName: "Paging creator",
+            tags: ["literal%_"], versionNote: nil, layoutStyle: style, pdfStoragePath: "fixture.pdf",
+            status: .published, voteUpCount: 0, voteDownCount: 0, reportCount: 0, rankingScore: 1, publishedAt: .now)
+        return IChartForumSongSummary(song: song, topPosts: [post])
+    }
+
+    private func refreshSearch(_ query: String, fixture: Fixture) async {
+        await fixture.store.refresh(authState: .signedIn(.init(id: fixture.detail.post.ownerID, email: nil,
+            phone: nil, isEmailVerified: true)), entitlements: AppEntitlements(subscription: .basic,
+            accessPolicy: .freeAllFeatures), query: query)
+    }
+
+    private func waitForHomePage(_ fixture: Fixture, cursor: IChartForumHomeCursor) async throws {
+        for _ in 0..<100 {
+            if await fixture.service.hasPendingHomePage(cursor: cursor) { return }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTFail("Expected one controlled search-page request")
+        throw NSError(domain: "ForumSearchPageTests", code: 1)
+    }
+
+    private func waitForFirstHomePage(_ fixture: Fixture, query: String) async throws {
+        for _ in 0..<100 {
+            if await fixture.service.hasPendingFirstHomePage(query: query) { return }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTFail("Expected one controlled first search page")
+        throw NSError(domain: "ForumSearchPageTests", code: 2)
+    }
+
+    private func authorizeForumAccess(_ fixture: Fixture) {
+        fixture.store.applyAccess(entitlements: AppEntitlements(subscription: .basic, accessPolicy: .freeAllFeatures),
+            charts: [], currentUserID: fixture.detail.post.ownerID)
+    }
+
+    private func waitForDownload(_ fixture: Fixture, postID: UUID) async throws {
+        for _ in 0..<100 {
+            if await fixture.service.hasPendingDownload(postID: postID) { return }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTFail("Expected the controlled forum download to start")
+        throw NSError(domain: "ForumDownloadTests", code: 1)
+    }
+
+    private func otherPost(from post: ForumChartPost) -> ForumChartPost {
+        ForumChartPost(id: UUID(), songID: post.songID, ownerID: post.ownerID,
+            chartTitle: post.chartTitle, arrangerCredit: post.arrangerCredit,
+            creatorDisplayName: post.creatorDisplayName, tags: post.tags, versionNote: post.versionNote,
+            layoutStyle: post.layoutStyle, pdfStoragePath: "another.pdf", status: post.status,
+            voteUpCount: 0, voteDownCount: 0, reportCount: 0, rankingScore: 0, publishedAt: post.publishedAt)
+    }
+
+    private func sampleDownloadedPDF(for post: ForumChartPost) -> ExportedPDF {
+        ExportedPDF(url: FileManager.default.temporaryDirectory.appendingPathComponent("\(post.id).pdf"),
+            chartTitle: post.chartTitle, layoutStyle: post.layoutStyle,
+            transpositionView: .concert, chordTranspositionSemitones: 0,
+            pageCount: 1, fileSizeBytes: 100, exportedAt: Date())
+    }
+
+    private func samplePDFData(label: String, post: ForumChartPost) -> Data {
+        var chart = Chart.blank(title: post.chartTitle, measureCount: 1, layoutStyle: post.layoutStyle)
+        chart.defaultTranspositionView = .eb
+        chart.chordTranspositionSemitones = 3
+        let format = UIGraphicsPDFRendererFormat()
+        format.documentInfo = [kCGPDFContextSubject as String:
+            ForumPDFInstrumentSnapshot(chart: chart, forumPostID: post.id).subjectText]
+        return UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 120, height: 120), format: format).pdfData { context in
+            context.beginPage()
+            (label as NSString).draw(at: CGPoint(x: 10, y: 10), withAttributes: [.font: UIFont.systemFont(ofSize: 12)])
+        }
+    }
+
     private func makeFixture(commentCount: Int = 0, layoutStyle: ChartLayoutStyle = .simpleChordSheet) throws -> Fixture {
         let suite = "IChartForumParticipationTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -468,7 +917,15 @@ private actor ForumParticipationService: IChartForumServicing {
     private var rejectsNextEarlierLoad = false
     private var holdsNextEarlierLoad = false
     private var earlierLoadContinuation: CheckedContinuation<Void, Never>?
+    private var downloadContinuations: [UUID: CheckedContinuation<ExportedPDF, Error>] = [:]
+    private(set) var cancelledDownloadIDs: Set<UUID> = []
     private(set) var earlierCursors: [ForumCommentCursor] = []
+    struct HomePageRequest { let query: String; let cursor: IChartForumHomeCursor? }
+    private(set) var homePageRequests: [HomePageRequest] = []
+    private var firstHomePages: [String: IChartForumHomePage] = [:]
+    private var homePageContinuations: [UUID: CheckedContinuation<IChartForumHomePage, Error>] = [:]
+    private var heldFirstHomeQueries: Set<String> = []
+    private var firstHomeContinuations: [String: CheckedContinuation<IChartForumHomePage, Error>] = [:]
 
     init(detail: IChartForumPostDetail, comments: [ForumComment] = []) {
         self.detail = detail
@@ -478,6 +935,28 @@ private actor ForumParticipationService: IChartForumServicing {
     }
 
     func setHiddenCommentBodies(_ bodies: Set<String>) { hiddenCommentBodies = bodies }
+    func setPost(_ post: ForumChartPost) { self.post = post }
+    func setFirstHomePage(query: String, page: IChartForumHomePage) { firstHomePages[query] = page }
+    func holdFirstHomePage(query: String) { heldFirstHomeQueries.insert(query) }
+    func hasPendingFirstHomePage(query: String) -> Bool { firstHomeContinuations[query] != nil }
+    func releaseFirstHomePage(query: String, page: IChartForumHomePage, fails: Bool = false) {
+        heldFirstHomeQueries.remove(query)
+        let continuation = firstHomeContinuations.removeValue(forKey: query)
+        if fails { continuation?.resume(throwing: Failure.refresh) }
+        else { continuation?.resume(returning: page) }
+    }
+    func hasPendingHomePage(cursor: IChartForumHomeCursor) -> Bool { homePageContinuations[cursor.songID] != nil }
+    func releaseHomePage(cursor: IChartForumHomeCursor, page: IChartForumHomePage, fails: Bool = false) {
+        let continuation = homePageContinuations.removeValue(forKey: cursor.songID)
+        if fails { continuation?.resume(throwing: Failure.refresh) }
+        else { continuation?.resume(returning: page) }
+    }
+    func hasPendingDownload(postID: UUID) -> Bool { downloadContinuations[postID] != nil }
+    func releaseDownload(postID: UUID, pdf: ExportedPDF, fails: Bool = false) {
+        let continuation = downloadContinuations.removeValue(forKey: postID)
+        if fails { continuation?.resume(throwing: Failure.refresh) }
+        else { continuation?.resume(returning: pdf) }
+    }
 
     func appendComments(count: Int) {
         let firstIndex = (comments.compactMap { Int($0.body) }.max() ?? -1) + 1
@@ -551,6 +1030,18 @@ private actor ForumParticipationService: IChartForumServicing {
     }
 
     func loadHome(query: String) async throws -> [IChartForumSongSummary] { [] }
+    func loadHomePage(query: String, after cursor: IChartForumHomeCursor?) async throws -> IChartForumHomePage {
+        homePageRequests.append(.init(query: query, cursor: cursor))
+        guard let cursor else {
+            if heldFirstHomeQueries.contains(query) {
+                return try await withCheckedThrowingContinuation { firstHomeContinuations[query] = $0 }
+            }
+            return firstHomePages[query] ?? .init(summaries: [], nextCursor: nil)
+        }
+        // Deliberately resume even after cancellation so store generation and
+        // account guards must reject obsolete results independently.
+        return try await withCheckedThrowingContinuation { homePageContinuations[cursor.songID] = $0 }
+    }
     func publish(chart: Chart, draft: ForumPublishDraft, ownerID: UUID, postID: UUID, exportedAt: Date,
                  progress: @escaping (ForumUploadStage) async -> Void) async throws { throw Failure.unused }
     func withdrawPost(postID: UUID) async throws { throw Failure.unused }
@@ -566,7 +1057,13 @@ private actor ForumParticipationService: IChartForumServicing {
     func reportPost(postID: UUID, reason: ForumReportReason, detail: String?) async throws { throw Failure.unused }
     func reportComment(commentID: UUID, reason: ForumReportReason, detail: String?) async throws { throw Failure.unused }
     func blockUser(ownerID: UUID) async throws { throw Failure.unused }
-    func downloadPDF(for post: ForumChartPost) async throws -> ExportedPDF { throw Failure.unused }
+    func downloadPDF(for post: ForumChartPost) async throws -> ExportedPDF {
+        // A provider can finish after cancellation. Hold it until the test
+        // releases success/error so session guards, not cancellation alone,
+        // must prevent stale presentation and automatic library saving.
+        defer { if Task.isCancelled { cancelledDownloadIDs.insert(post.id) } }
+        return try await withCheckedThrowingContinuation { downloadContinuations[post.id] = $0 }
+    }
 
     private enum Failure: LocalizedError {
         case send, refresh, unused

@@ -493,7 +493,7 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Forums are an account-based space for sharing useful chart PDFs with other musicians, included in free Pro access.",
             bullets: [
                 "A forum upload starts from a chart you made in iChart.",
-                "Use the search field at the top of Forums, then tap Search to find songs, artists, arrangers, or tags. Your search text stays available while results load or if you need to retry.",
+                "Use the search field at the top of Forums, then tap Search to find songs, artists, arrangers, or tags. Use Load More for additional matches. Your search text stays available while results load or if you need to retry.",
                 "Forum PDFs keep the publisher's instrument view and transposition at submission. Change the view in the chart before Submit To Forum if needed.",
                 "Older downloads without reliable view metadata show Instrument view unknown. Downloading never changes the notes printed in the PDF.",
                 "iChart checks that the PDF and chart details belong to that upload before it appears publicly.",
@@ -1470,7 +1470,10 @@ struct LibraryView: View {
                             Task {
                                 await forumStore.openPost(post, song: song)
                             }
-                        }
+                        },
+                        hasMoreSearchResults: forumStore.homeNextCursor != nil,
+                        isLoadingMoreSearchResults: forumStore.isLoadingMoreHome,
+                        onLoadMoreSearchResults: { Task { await forumStore.loadMoreHome() } }
                     )
                 } else {
                     IChartLockedFeatureView(
@@ -2932,12 +2935,15 @@ struct IChartForumHomeView: View {
     let onWithdrawUpload: (ForumUploadQueueItem) -> Void
     let onDismissUpload: (ForumUploadQueueItem) -> Void
     let onOpenPost: (ForumSong, ForumChartPost) -> Void
+    var hasMoreSearchResults = false
+    var isLoadingMoreSearchResults = false
+    var onLoadMoreSearchResults: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             if showsSearchControls {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Search for a song, artist, arranger, or tag, then tap Search. Open a chart to preview its PDF or join the discussion.")
+                    Text("Search songs, artists, arrangers, or tags, then tap Search. Use Load More for more matches. Open a chart to preview its PDF or discuss it.")
                         .font(.subheadline)
                         .foregroundStyle(theme.panelSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -3140,6 +3146,18 @@ struct IChartForumHomeView: View {
                                         onOpenPost(summary.song, post)
                                     }
                                 )
+                            }
+                            if hasMoreSearchResults {
+                                Button(action: onLoadMoreSearchResults) {
+                                    HStack(spacing: 8) {
+                                        if isLoadingMoreSearchResults { ProgressView() }
+                                        Text(isLoadingMoreSearchResults ? "Loading More…" : "Load More")
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(isLoadingMoreSearchResults)
+                                .accessibilityIdentifier("forum.search.load-more")
+                                .accessibilityHint("Load the next page of charts matching this submitted search.")
                             }
                         }
                     }
@@ -6628,7 +6646,7 @@ private struct IChartPlanSettings: View {
         .onAppear {
             debugPreview = IChartDebugPlanPreview.preview(for: store.subscriptionState)
         }
-        .onChange(of: store.entitlements.subscription) { subscription in
+        .onChange(of: store.entitlements.subscription) { _, subscription in
             let nextPreview = IChartDebugPlanPreview.preview(for: subscription)
             if debugPreview != nextPreview {
                 debugPreview = nextPreview
@@ -7119,7 +7137,7 @@ private struct IChartCloudSyncSettings: View {
             return Color(red: 0.72, green: 0.18, blue: 0.12)
         case .requiresPro:
             return Color(red: 0.62, green: 0.40, blue: 0.10)
-        case .syncing, .signedOut, .unconfigured:
+        case .idle, .syncing, .signedOut, .unconfigured:
             return IChartHomeBrand.blue
         }
     }

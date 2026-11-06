@@ -6,6 +6,62 @@ import XCTest
 @testable import iChart
 
 final class PDFChartExporterTests: XCTestCase {
+    func testConcurrentSameTitleExportsKeepDistinctFilesAndRetainedPDFBytes() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let exporter = PDFChartExporter(exportDirectory: directory)
+        var firstChart = Chart.blank(title: "Shared title", layoutStyle: .simpleChordSheet)
+        firstChart.composerCredit = "First arrangement marker"
+        var secondChart = Chart.blank(title: "Shared title", layoutStyle: .simpleChordSheet)
+        secondChart.composerCredit = "Second arrangement marker"
+
+        let firstInput = firstChart
+        let secondInput = secondChart
+        async let firstTask = exporter.exportPDF(for: firstInput)
+        async let secondTask = exporter.exportPDF(for: secondInput)
+        let (first, second) = try await (firstTask, secondTask)
+        let firstBytes = try Data(contentsOf: first.url)
+        let secondBytes = try Data(contentsOf: second.url)
+        XCTAssertNotEqual(first.url, second.url)
+        XCTAssertNotEqual(first.url.deletingLastPathComponent(), second.url.deletingLastPathComponent())
+        XCTAssertEqual(first.fileName, exporter.exportFileName(for: firstChart))
+        XCTAssertEqual(first.fileName, second.fileName)
+        XCTAssertTrue(PDFDocument(data: firstBytes)?.string?.contains("First arrangement marker") == true)
+        XCTAssertTrue(PDFDocument(data: secondBytes)?.string?.contains("Second arrangement marker") == true)
+        XCTAssertFalse(PDFDocument(data: firstBytes)?.string?.contains("Second arrangement marker") == true)
+        XCTAssertFalse(PDFDocument(data: secondBytes)?.string?.contains("First arrangement marker") == true)
+
+        var thirdChart = firstChart
+        thirdChart.composerCredit = "Later arrangement marker"
+        let third = try await exporter.exportPDF(for: thirdChart)
+        XCTAssertNotEqual(third.url, first.url)
+        XCTAssertEqual(try Data(contentsOf: first.url), firstBytes)
+        XCTAssertEqual(try Data(contentsOf: second.url), secondBytes)
+        XCTAssertTrue(PDFDocument(url: third.url)?.string?.contains("Later arrangement marker") == true)
+    }
+
+    func testFailedExportRemovesOnlyItsOwnOperationDirectory() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let normalExporter = PDFChartExporter(exportDirectory: directory)
+        let chart = Chart.blank(title: "Retained prior export", layoutStyle: .simpleChordSheet)
+        let retained = try await normalExporter.exportPDF(for: chart)
+        let retainedBytes = try Data(contentsOf: retained.url)
+        let beforeDirectories = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        let failingManager = PDFWriteObstructingFileManager(
+            exportRoot: directory, fileName: normalExporter.exportFileName(for: chart))
+        let failingExporter = PDFChartExporter(exportDirectory: directory, fileManager: failingManager)
+
+        do {
+            _ = try await failingExporter.exportPDF(for: chart)
+            XCTFail("The operation's obstructed output must fail.")
+        } catch {
+            XCTAssertEqual(try Data(contentsOf: retained.url), retainedBytes)
+            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted(),
+                beforeDirectories.sorted(), "Only the failing operation's newly created directory may be removed.")
+        }
+    }
+
     func testExportPDFWritesAValidLookingPDFFile() async throws {
         let exportDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -577,6 +633,27 @@ final class PDFChartExporterTests: XCTestCase {
                 atFraction: fraction
             )
         )
+    }
+}
+
+private final class PDFWriteObstructingFileManager: FileManager, @unchecked Sendable {
+    let exportRoot: URL
+    let fileName: String
+
+    init(exportRoot: URL, fileName: String) {
+        self.exportRoot = exportRoot
+        self.fileName = fileName
+        super.init()
+    }
+
+    override func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool,
+        attributes: [FileAttributeKey: Any]? = nil) throws {
+        try super.createDirectory(at: url, withIntermediateDirectories: createIntermediates, attributes: attributes)
+        guard url.deletingLastPathComponent().standardizedFileURL.path == exportRoot.standardizedFileURL.path else { return }
+        // A directory at the file destination makes Data.write fail without
+        // changing permissions or touching any previously exported PDF.
+        try super.createDirectory(at: url.appendingPathComponent(fileName, isDirectory: true),
+            withIntermediateDirectories: false, attributes: nil)
     }
 }
 #endif

@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import XCTest
 @testable import iChart
 
@@ -77,6 +78,95 @@ final class PDFLibraryStoreTests: XCTestCase {
         XCTAssertNotEqual(first.url.lastPathComponent, second.url.lastPathComponent)
         XCTAssertTrue(FileManager.default.fileExists(atPath: first.url.path(percentEncoded: false)))
         XCTAssertTrue(FileManager.default.fileExists(atPath: second.url.path(percentEncoded: false)))
+    }
+
+    func testSaveManifestFailurePreservesPublishedItemsManifestAndEveryExistingPDF() throws {
+        let manager = DeletionFailureFileManager()
+        let fixture = try deletionFixture(fileManager: manager)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let originalFiles = try libraryFiles(in: fixture.library)
+        let sourceBytes = try Data(contentsOf: fixture.sourcePDF.url)
+        var publishedUpdates = 0
+        let observation = fixture.store.$items.dropFirst().sink { _ in publishedUpdates += 1 }
+        defer { observation.cancel() }
+        manager.failCreateAt = fixture.library.path
+
+        for source in [IChartPDFLibrarySource.chartExport, .forumDownload] {
+            XCTAssertThrowsError(try fixture.store.save(fixture.sourcePDF, source: source))
+            XCTAssertEqual(fixture.store.items, fixture.originalItems)
+            XCTAssertEqual(try libraryFiles(in: fixture.library), originalFiles)
+            XCTAssertEqual(try Data(contentsOf: fixture.sourcePDF.url), sourceBytes)
+            XCTAssertEqual(IChartPDFLibraryStore(baseDirectory: fixture.library).items, fixture.originalItems)
+        }
+        XCTAssertEqual(publishedUpdates, 0, "A failed durable save must not publish a temporary new PDF item")
+    }
+
+    func testSaveRollbackFailureRetainsOwnedCopyAndReportsItWithoutPublishing() throws {
+        let manager = DeletionFailureFileManager()
+        let fixture = try deletionFixture(fileManager: manager)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let originalFiles = try libraryFiles(in: fixture.library)
+        manager.failCreateAt = fixture.library.path
+        manager.failPDFCopyRemoval = true
+
+        XCTAssertThrowsError(try fixture.store.save(fixture.sourcePDF, source: .chartExport)) { error in
+            guard let importError = error as? IChartPDFImportError,
+                  case .rollbackFailed = importError else {
+                return XCTFail("Expected an explicit retained-copy cleanup error")
+            }
+        }
+        XCTAssertEqual(fixture.store.items, fixture.originalItems)
+        let retainedFiles = try libraryFiles(in: fixture.library)
+        for (path, bytes) in originalFiles { XCTAssertEqual(retainedFiles[path], bytes) }
+        let retainedPaths = Set(retainedFiles.keys).subtracting(originalFiles.keys)
+        XCTAssertEqual(retainedPaths.count, 1)
+        let retainedPath = try XCTUnwrap(retainedPaths.first)
+        XCTAssertEqual(retainedFiles[retainedPath], try Data(contentsOf: fixture.sourcePDF.url))
+        XCTAssertEqual(IChartPDFLibraryStore(baseDirectory: fixture.library).items, fixture.originalItems)
+    }
+
+    func testSaveMergesNewerDiskItemsAndDoesNotResurrectDeletedPDFs() throws {
+        let fixture = try deletionFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let secondStore = IChartPDFLibraryStore(baseDirectory: fixture.library)
+        let removed = fixture.originalItems[0]
+        try secondStore.delete(removed)
+        _ = try secondStore.save(fixture.sourcePDF, source: .forumDownload)
+        let newerItems = secondStore.items
+
+        let saved = try fixture.store.save(fixture.sourcePDF, source: .chartExport)
+        XCTAssertTrue(Set(newerItems.map(\.id)).isSubset(of: Set(fixture.store.items.map(\.id))))
+        XCTAssertEqual(fixture.store.items.count, newerItems.count + 1)
+        XCTAssertFalse(fixture.store.items.contains { $0.id == removed.id })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: saved.url.path))
+        XCTAssertEqual(IChartPDFLibraryStore(baseDirectory: fixture.library).items, fixture.store.items)
+    }
+
+    func testSaveWithMissingPreviouslyLoadedManifestPreservesRetainedPDFs() throws {
+        let fixture = try deletionFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        try FileManager.default.removeItem(at: fixture.library.appendingPathComponent("pdf-library.json"))
+        let originalFiles = try libraryFiles(in: fixture.library)
+
+        XCTAssertThrowsError(try fixture.store.save(fixture.sourcePDF, source: .chartExport))
+        XCTAssertEqual(fixture.store.items, fixture.originalItems)
+        XCTAssertEqual(try libraryFiles(in: fixture.library), originalFiles)
+    }
+
+    func testSaveNeverOverwritesAnotherWritersClaimedCopyDestination() throws {
+        let manager = DeletionFailureFileManager()
+        let fixture = try deletionFixture(fileManager: manager)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let manifest = fixture.library.appendingPathComponent("pdf-library.json")
+        let originalManifest = try Data(contentsOf: manifest)
+        let otherWritersBytes = Data("%PDF-1.7\n% Another writer's retained PDF\n".utf8)
+        manager.claimUnusedPDFPathWith = otherWritersBytes
+
+        XCTAssertThrowsError(try fixture.store.save(fixture.sourcePDF, source: .chartExport))
+        let claimedURL = try XCTUnwrap(manager.claimedPDFURL)
+        XCTAssertEqual(try Data(contentsOf: claimedURL), otherWritersBytes)
+        XCTAssertEqual(try Data(contentsOf: manifest), originalManifest)
+        XCTAssertEqual(fixture.store.items, fixture.originalItems)
     }
 
     func testFreeAccessPreservesForumPDFsSetlistEntriesAndBytesAcrossEveryBillingStateAndReload() throws {
@@ -499,6 +589,15 @@ final class PDFLibraryStoreTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: item.url(relativeTo: fixture.library)), before)
     }
 
+    private func libraryFiles(in directory: URL) throws -> [String: Data] {
+        let paths = try FileManager.default.subpathsOfDirectory(atPath: directory.path)
+        return try paths.reduce(into: [:]) { files, path in
+            let url = directory.appendingPathComponent(path)
+            let values = try url.resourceValues(forKeys: [.isRegularFileKey])
+            if values.isRegularFile == true { files[path] = try Data(contentsOf: url) }
+        }
+    }
+
     private struct DeletionFixture {
         var root: URL
         var library: URL
@@ -529,6 +628,9 @@ private final class DeletionFailureFileManager: FileManager, @unchecked Sendable
     var failCreateAt: String?
     var failRestoreMoves = false
     var failTransactionCleanup = false
+    var failPDFCopyRemoval = false
+    var claimUnusedPDFPathWith: Data?
+    private(set) var claimedPDFURL: URL?
 
     private var injectedError: NSError {
         NSError(domain: "PDFLibraryStoreTests", code: 1,
@@ -550,6 +652,18 @@ private final class DeletionFailureFileManager: FileManager, @unchecked Sendable
 
     override func removeItem(at URL: URL) throws {
         if failTransactionCleanup && URL.path.contains("/.deletions/") { throw injectedError }
+        if failPDFCopyRemoval && URL.pathExtension.lowercased() == "pdf" { throw injectedError }
         try super.removeItem(at: URL)
+    }
+
+    override func fileExists(atPath path: String) -> Bool {
+        let exists = super.fileExists(atPath: path)
+        if !exists, let bytes = claimUnusedPDFPathWith, (path as NSString).pathExtension.lowercased() == "pdf" {
+            claimUnusedPDFPathWith = nil
+            let url = URL(fileURLWithPath: path)
+            try? bytes.write(to: url, options: .atomic)
+            claimedPDFURL = url
+        }
+        return exists
     }
 }

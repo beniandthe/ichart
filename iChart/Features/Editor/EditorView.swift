@@ -5535,8 +5535,6 @@ struct EditorView: View {
             return
         }
 
-        let discardedDraftCount = chordPreviewState.draftChords.count
-        let discardedBarlineCount = chordPreviewState.draftBarlines.count
         var updatedChart = chart
         _ = updatedChart.setPageHandwrittenChordDrawing(nil)
         chart = updatedChart

@@ -65,14 +65,13 @@ enum ChordInkDraftSourceCoveragePolicy {
             let context = ChordInkDraftVisibleStrokePolicy.structuralVisibleDrawingContext(
                 from: source, chordFrame: chordFrame, pageLayout: layout)
             let strokes = PencilKitInkAdapter.inkStrokes(from: context.drawing)
-            let freshEndings = ChordDraftEndingRecognizer.recognize(
+            let structures = ChordDraftEndingRecognizer.recognizeStructure(
                 strokes: strokes, chordFrame: chordFrame, pageLayout: layout)
+            let freshEndings = structures.endings
             let safeEndings = context.endingRecognitionWithUnambiguousSourceStrokes(freshEndings)
             let remappedEndings = context.remappedEndingRecognition(safeEndings)
             let endingsByIdentity = Dictionary(grouping: remappedEndings.endings, by: \.identitySignature)
-            let fresh = ChordDraftEndingRecognizer.recognizeBarlinesExcludingEndings(
-                strokes: strokes,
-                chordFrame: chordFrame, pageLayout: layout)
+            let fresh = structures.barlines
             let safe = context.barlineRecognitionWithUnambiguousSourceStrokes(fresh)
             let remapped = context.remappedBarlineRecognition(safe)
             let freshByIdentity = Dictionary(grouping: remapped.barlines, by: \.identitySignature)

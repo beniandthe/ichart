@@ -1,0 +1,24 @@
+{
+  "observedAtUTC": "2026-11-06T14:39:20.894574+00:00",
+  "auditCommit": "002c0aeb6ab021e56dc34b29e7b2c7398f1110c2",
+  "failure": {
+    "runID": 42171821259,
+    "jobID": 127741170232,
+    "class": "ChordInkAutomaticFallbackSessionTests",
+    "method": "testBlockedFallbackDoesNotHoldTheAutomaticRenderOfASeparateSupportedPrimaryTarget",
+    "assertion": "2-second neighbor-render expectation timed out",
+    "otherRenderingSourceOrderAssertionsFailed": false
+  },
+  "fix": "First fallback is held until an explicit release; neighbor is admitted only after entry and must really render while hold is unreleased and unfinished. 30-second watchdog bounds stalled test execution, with no automatic provider release. All original ink/layout/event/call-count checks retained.",
+  "testSourceSHA256": "744e35a45ae040092e8722a2ef545dd0421443e6e3668ccdb5ac1ef215fafc35",
+  "validation": {
+    "focusedPassedRepetitions": 50,
+    "focusedFailedRepetitions": 0,
+    "fallbackSessionClassPassed": 14,
+    "fallbackSessionClassSkipped": 0,
+    "fallbackSessionClassFailed": 0,
+    "preferencesRestored": true
+  },
+  "productionRuntimeChanged": false,
+  "hostedFollowup": "New-head checks required before merge; results recorded in PR and final merge receipt."
+}
