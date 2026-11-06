@@ -4,7 +4,7 @@ Date: November 6, 2026
 Initial base: GitHub main `00f7901538074670251cd6626c1efa88a3bd1aec`
 Integrated main: `fd7e4bbb3f898dbf806d85afaee43ea8c7ef58c3` (#103)
 Branch: `codex/clarity-workflows-20261106`
-Status: implementation under verification
+Status: implemented; source review and Simulator acceptance complete
 
 ## Result
 
@@ -82,8 +82,38 @@ Chart Key also transposes chart chords and key changes. Instrument changes the d
 
 ## Verification
 
-The app and test target compile with the generated Xcode project. A test-only accessibility identifier cast was corrected after the first test build.
+The app and test targets compile from the XcodeGen project with the optional personal-ML comparison disabled.
 
-The regression matrix and runtime observations will be recorded here after verification completes. Simulator/replayed/injected evidence remains separate from physical Pencil acceptance, saved-state readback and production behavior.
+The final integrated regression run passed: **542 selected tests, 540 passed, 2 optional saved-device replays skipped, zero failures**. Result: `clarity-acceptance-regression.xcresult`; structured totals: `acceptance-regression-summary.json` in the main workspace's `.build/clarity-verification/` evidence directory.
 
-Frozen-result UI fixtures now disable their reader once through an internal dependency that defaults to enabled in the app. Repeated layout-time toggles had cancelled fixture serialization work. Manual fixture readiness is bound to actual visible source and represented claims; the production source-consumption checks remain in use. Delayed-review coverage returns to writing before adding source ink and distinguishes injected callbacks from physical Pencil input.
+The run includes both shipped chart layouts and both render settings in portrait and landscape, the largest standard text size for Rhythm Manual, Guide presentation and return, keyboard review reachability, delayed-preview recovery, source ownership and durable saved-state readback, retired-repeat boundaries, creation admission/quarantine, retrieval/deletion scope, PDF export/library/setlist workflows, Forum state and latest-main recovery contracts.
+
+The two skipped tests require explicit saved-device replay inputs (`ICHART_STATE` or paired before/after files). No personal library, saved-device ink, or new physical Pencil input was used.
+
+Native UI acceptance is recorded separately below. Simulator/replayed/injected evidence remains separate from physical Pencil acceptance and production behavior.
+
+Frozen-result UI fixtures now disable their reader once through an internal dependency that defaults to enabled in the app. Repeated layout-time toggles had cancelled fixture serialization work. Manual fixture readiness is bound to actual visible source and represented claims; the production source-consumption checks remain in use. Delayed-review coverage returns to writing before an injected saved-source update through the owning chart binding; it does not claim physical Pencil input or natural recognition accuracy.
+
+Hosted SwiftUI ScrollView tests require the Simulator’s native accessibility providers. A focused synthetic control exposed purpose and Guide but zero scroll children before activation; attaching Apple Accessibility Inspector made the unchanged probe and the three-workflow sequence pass. No lookup algorithm, fake identifiers, skips or relaxed UI assertions were used to manufacture that result.
+
+## Native app acceptance
+
+The `iChartClarityUI` scheme passed **2 external UI tests, zero failures** on iOS 26.5 / iPad Air 11-inch (M3), using the existing Debug-only synthetic preview route.
+
+- Both layouts × Automatic/Manual: real Rendering menu selection, purpose, both numbered steps, mode context, visible/hittable Write/Erase/Done controls, Guide opening/dismissal, and retained Write & Render selection. External accessibility trees and four screenshots were captured.
+- Both layouts: Tools > Form Markers, explicit Measure 2 and Segno, staged Cancel, default Coda on reopening, then confirmed Add and the Marker action tray with Measure 2 context.
+- Independent JSON readback after the native flow found exactly one Segno anchored to saved measure 2 in each eight-measure fixture. This is a saved-state assertion, separate from the on-screen result.
+- Final screenshots for Simple Automatic and Rhythm Manual were visually reviewed for hierarchy, instruction visibility and reachable controls.
+
+Evidence in the main workspace's `.build/clarity-verification/`:
+
+- `clarity-acceptance-regression.xcresult` and `acceptance-regression-summary.json`
+- `clarity-native-acceptance.xcresult` and `native-acceptance-summary.json`
+- `native-acceptance-attachments/` (external AX trees and screenshots)
+- `native-acceptance-saved-readback.json` (saved marker destinations and source-file checksum)
+
+The temporary framework-provider probe is archived as `hosted-swiftui-ax-probe.swift`; it is diagnostic evidence, not part of the app acceptance suite. Existing application assertions were retained.
+
+## Acceptance limits
+
+These checks establish the inspected source contracts, synthetic/injected workflows, Simulator layout/accessibility-tree behavior and the specified saved-state results. They do not establish fresh physical Pencil recognition, VoiceOver speech/focus behavior, real email delivery, production purchases/cloud recovery, or success by an unfamiliar human user. No physical iPad install, data replacement, publishing or production deployment was performed. The implementation is committed locally on the isolated clarity branch, with the original working checkout kept separate.

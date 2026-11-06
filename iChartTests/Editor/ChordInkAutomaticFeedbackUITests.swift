@@ -598,14 +598,14 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
         XCTAssertEqual(mounted.canvas.chordPreviewState.draftChords.map(\.strokeCount), [1, 1])
         XCTAssertEqual(mounted.store.charts.first?.pageHandwrittenChordData, initialSourceData)
 
-        // Once the user is back in writing, append the detail through the
-        // active PencilKit callbacks and publish a complete updated census.
-        // This is injected callback evidence, not a physical Pencil test.
-        let live = try XCTUnwrap(mounted.canvas.subviews.compactMap { $0 as? PKCanvasView }.last)
-        mounted.canvas.canvasViewDidBeginUsingTool(live)
-        live.drawing = source
-        mounted.canvas.canvasViewDrawingDidChange(live)
-        mounted.canvas.canvasViewDidEndUsingTool(live)
+        // Once review is dismissed, inject an external source update through
+        // the owning chart binding. Recognition is frozen in this fixture, so
+        // this exercises external chart arrival while writing, not Pencil input.
+        let externalBinding = try XCTUnwrap(mounted.store.editorBinding(for: chart.id))
+        var incomingChart = externalBinding.wrappedValue
+        XCTAssertTrue(incomingChart.setPageHandwrittenChordDrawing(source.dataRepresentation(),
+            coordinateSpace: incomingChart.pageHandwrittenChordCoordinateSpace))
+        externalBinding.wrappedValue = incomingChart
         var expandedSourceReachedCanvas = false
         for _ in 0..<60 {
             mounted.window.layoutIfNeeded()
@@ -620,8 +620,20 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
             }
             try await Task.sleep(nanoseconds: 50_000_000)
         }
+        if !expandedSourceReachedCanvas {
+            let savedChart = mounted.store.charts.first(where: { $0.id == chart.id })
+            let savedStrokeCount = savedChart?.pageHandwrittenChordData.flatMap { try? PKDrawing(data: $0).strokes.count }
+            let current = mounted.canvas.chordDraftRenderCoordinator?.currentSourceDrawing()
+            let diagnostic = XCTAttachment(string:
+                "External source update while writing: expected=\(source.strokes.count) saved=\(String(describing: savedStrokeCount)) live=\(String(describing: current?.strokes.count)) suspended=\(mounted.canvas.isInteractionSuspended)\n" +
+                "incomingCoordinateSpace=\(String(describing: incomingChart.pageHandwrittenChordCoordinateSpace)) savedCoordinateSpace=\(String(describing: savedChart?.pageHandwrittenChordCoordinateSpace))\n" +
+                guideGeometryDiagnostics(in: mounted))
+            diagnostic.name = "Delayed review external source update mismatch"
+            diagnostic.lifetime = .keepAlways
+            add(diagnostic)
+        }
         XCTAssertTrue(expandedSourceReachedCanvas,
-            "The active writing update must reach the owning store and live canvas before its census is published")
+            "The external writing-state update must reach the owning store and live canvas before its injected census is published")
         latest.timing.recognitionFinishedAt = .now
         try XCTUnwrap(mounted.canvas.onChordInkDraftPreviewChanged)([first, latest])
         for _ in 0..<50 {
