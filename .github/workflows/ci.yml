@@ -46,6 +46,7 @@ jobs:
           supabase/functions/_shared/app_store_subscription_authority.test.mjs
           supabase/functions/_shared/supabase_subscription_authority_store.test.mjs
           supabase/functions/_shared/account_deletion.test.mjs
+          supabase/functions/_shared/owner_snapshot_retention.test.mjs
           supabase/functions/_shared/forum_post_actions.test.mjs
 
       - name: Install pinned isolated PostgreSQL test runtime
@@ -127,8 +128,8 @@ jobs:
   ios-simulator:
     name: iOS simulator tests
     runs-on: macos-26
-    # Allow the cold build, full native suite and result validation to finish.
-    timeout-minutes: 50
+    # Keep the Xcode step bounded and reserve time for result validation/artifacts.
+    timeout-minutes: 65
 
     steps:
       - name: Check out repository
@@ -204,6 +205,7 @@ jobs:
 
       - name: Run iChart Xcode tests
         if: steps.app_changes.outputs.run_tests == 'true'
+        timeout-minutes: 55
         run: |
           bash .github/scripts/with-simulator-accessibility.sh "$SIMULATOR_DESTINATION" -- xcodebuild test \
             -project iChart.xcodeproj \

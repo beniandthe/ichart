@@ -82,24 +82,39 @@ final class TrialTelemetryTransportTests: XCTestCase {
         let consent = try consentStore(granted: true)
         let input = basicFixtureEvent()
         try queue.append(input)
-        let telemetry = service(queue, consent: consent)
+        let cancelled = expectation(description: "held request cancelled")
+        let flushFinished = expectation(description: "cancelled flush finished")
+        let resetCompleted = expectation(description: "withdrawal queue reset completed")
+        let resetProbe = TrialTelemetryWithdrawalResetProbe { resetCompleted.fulfill() }
+        let telemetry = service(queue, consent: consent, recordingObserver: { resetProbe.record($0) })
         IChartTelemetry.configure(telemetry)
         defer { IChartTelemetry.configure(nil) }
         let started = expectation(description: "request started")
-        TrialTelemetryHTTPStub.configure([.held], onRequest: { started.fulfill() })
-        let flushing = Task { await telemetry.flush() }
-        await fulfillment(of: [started], timeout: 2)
-        IChartTelemetry.setConsentGranted(false)
-        XCTAssertFalse(consent.trySnapshotForScheduling()?.isGranted ?? true)
-        for _ in 0..<100 {
-            if TrialTelemetryHTTPStub.cancellationCount > 0 { break }
-            try await Task.sleep(nanoseconds: 10_000_000)
+        TrialTelemetryHTTPStub.configure([.held], onRequest: { started.fulfill() },
+            onHeldCancellation: { resetProbe.markRequestCancelled(); cancelled.fulfill() })
+        let flushing = Task {
+            await telemetry.flush()
+            resetProbe.markFlushFinished()
+            flushFinished.fulfill()
         }
+        defer { flushing.cancel() }
+        await fulfillment(of: [started], timeout: 2)
+        resetProbe.arm()
+        IChartTelemetry.setConsentGranted(false)
+        // A nonblocking scheduling read may be nil while cleanup reads the mirror.
+        XCTAssertFalse(consent.cachedSnapshotForScheduling.isGranted)
+        XCTAssertNil(IChartTelemetry.basicRecordingAuthorization())
+        await fulfillment(of: [cancelled], timeout: 5)
         XCTAssertGreaterThanOrEqual(TrialTelemetryHTTPStub.cancellationCount, 1,
             "The facade must cancel held HTTP without waiting for the data drain or request timeout")
+        // Rescue only after a recorded cancellation/flush timeout; never leave a held task awaiting cleanup.
+        guard resetProbe.didCancelRequest else { flushing.cancel(); return }
+        await fulfillment(of: [flushFinished], timeout: 5)
+        guard resetProbe.didFinishFlush else { flushing.cancel(); return }
         await flushing.value
+        await fulfillment(of: [resetCompleted], timeout: 5)
+        XCTAssertTrue(resetProbe.didComplete, "Withdrawal reset trace after finished flush: \(resetProbe.stageDescription)")
         await consent.waitForPendingPersistence()
-        await telemetry.consentDidChange()
         XCTAssertTrue(try queue.loadEvents().isEmpty)
         consent.setConsentGranted(true)
         await consent.waitForPendingPersistence()
@@ -153,16 +168,83 @@ final class TrialTelemetryTransportTests: XCTestCase {
         return IChartTelemetryConsentStore(defaults: defaults)
     }
 
-    private func service(_ queue: IChartTelemetryQueueStore, consent: IChartTelemetryConsentStore? = nil) -> IChartTelemetryService {
+    private func service(_ queue: IChartTelemetryQueueStore, consent: IChartTelemetryConsentStore? = nil,
+        recordingObserver: (@Sendable (IChartTelemetryRecordingTrace) -> Void)? = nil) -> IChartTelemetryService {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [TrialTelemetryHTTPStub.self]
         return IChartTelemetryService(endpointURL: URL(string: "https://telemetry.invalid/ingest")!, publishableKey: "publishable-test-key",
             sessionStore: nil, queueStore: queue, installationID: UUID(),
-            consentStore: consent ?? (try! consentStore(granted: true)), urlSession: URLSession(configuration: configuration))
+            consentStore: consent ?? (try! consentStore(granted: true)), urlSession: URLSession(configuration: configuration),
+            recordingObserver: recordingObserver)
     }
 
     private func batch(_ data: Data) throws -> [String: Any] {
         try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+}
+
+private final class TrialTelemetryWithdrawalResetProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private let onCompletion: @Sendable () -> Void
+    private var isArmed = false
+    private var completed = false
+    private var requestCancelled = false
+    private var flushFinished = false
+    private var stages: [IChartTelemetryRecordingTrace.Stage] = []
+
+    init(onCompletion: @escaping @Sendable () -> Void) { self.onCompletion = onCompletion }
+
+    func arm() {
+        lock.lock()
+        isArmed = true
+        lock.unlock()
+    }
+
+    func markRequestCancelled() {
+        lock.lock()
+        requestCancelled = true
+        lock.unlock()
+    }
+
+    func markFlushFinished() {
+        lock.lock()
+        flushFinished = true
+        lock.unlock()
+    }
+
+    var didCancelRequest: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return requestCancelled
+    }
+
+    var didFinishFlush: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return flushFinished
+    }
+
+    func record(_ trace: IChartTelemetryRecordingTrace) {
+        guard [.queueResetStarted, .queueResetRejected, .queueResetFailed, .queueResetCompleted].contains(trace.stage) else { return }
+        lock.lock()
+        guard isArmed else { lock.unlock(); return }
+        stages.append(trace.stage)
+        let completes = trace.stage == .queueResetCompleted && !completed
+        if completes { completed = true }
+        lock.unlock()
+        if completes { onCompletion() }
+    }
+
+    var didComplete: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return completed
+    }
+
+    var stageDescription: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return stages.map(\.rawValue).joined(separator: ", ")
     }
 }
 
@@ -178,7 +260,10 @@ private final class TrialTelemetryHTTPStub: URLProtocol {
     private static var responses: [Response] = []
     private static var captured: [CapturedRequest] = []
     private static var onRequest: (() -> Void)?
+    private static var onHeldCancellation: (() -> Void)?
     private static var cancelledRequests = 0
+    private var heldCancellation: (() -> Void)?
+    private var reportedHeldCancellation = false
 
     static var cancellationCount: Int {
         lock.lock()
@@ -192,13 +277,15 @@ private final class TrialTelemetryHTTPStub: URLProtocol {
         return captured
     }
 
-    static func configure(_ values: [Response], onRequest: (() -> Void)? = nil) {
+    static func configure(_ values: [Response], onRequest: (() -> Void)? = nil,
+        onHeldCancellation: (() -> Void)? = nil) {
         lock.lock()
         defer { lock.unlock() }
         responses = values
         captured = []
         cancelledRequests = 0
         self.onRequest = onRequest
+        self.onHeldCancellation = onHeldCancellation
     }
 
     static func setOnRequest(_ callback: (() -> Void)?) {
@@ -221,6 +308,7 @@ private final class TrialTelemetryHTTPStub: URLProtocol {
         Self.captured.append(capture)
         let response = Self.responses.isEmpty ? Response.status(202) : Self.responses.removeFirst()
         let onRequest = Self.onRequest
+        if case .held = response { heldCancellation = Self.onHeldCancellation }
         Self.lock.unlock()
         onRequest?()
 
@@ -251,7 +339,10 @@ private final class TrialTelemetryHTTPStub: URLProtocol {
     override func stopLoading() {
         Self.lock.lock()
         Self.cancelledRequests += 1
+        let callback = reportedHeldCancellation ? nil : heldCancellation
+        reportedHeldCancellation = true
         Self.lock.unlock()
+        callback?()
     }
 
     private static func body(of request: URLRequest) -> Data {

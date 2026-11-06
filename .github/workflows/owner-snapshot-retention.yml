@@ -1,0 +1,57 @@
+name: Owner snapshot retention
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/**"
+      - "supabase/tests/owner_snapshot_retention/**"
+      - "supabase/functions/_shared/owner_snapshot_retention*.mjs"
+      - "supabase/functions/_shared/account_deletion*.mjs"
+      - "supabase/functions/owner-snapshot-retention/**"
+      - ".github/workflows/owner-snapshot-retention.yml"
+  push:
+    branches: [main]
+    paths:
+      - "supabase/migrations/**"
+      - "supabase/tests/owner_snapshot_retention/**"
+      - "supabase/functions/_shared/owner_snapshot_retention*.mjs"
+      - "supabase/functions/_shared/account_deletion*.mjs"
+      - "supabase/functions/owner-snapshot-retention/**"
+      - ".github/workflows/owner-snapshot-retention.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  owner-snapshot-retention:
+    name: PostgreSQL 17.11 owner archive and retention
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    container:
+      # Official docker-library/postgres 17/trixie; immutable multi-platform index.
+      # GitHub's job-container entrypoint override prevents the image's default
+      # PostgreSQL entrypoint from initializing a separate database.
+      image: postgres:17.11@sha256:748a18a54d3842d43bc156f0840d78029b8d349e0feca98c12b9c4ce3404a6b3
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.15.0
+      - name: Verify frozen migration in a new private PostgreSQL cluster
+        shell: bash
+        env:
+          ICHART_RETENTION_TEST_PG_BIN: /usr/lib/postgresql/17/bin
+        run: |
+          set -euo pipefail
+          node_bin="$(command -v node)"
+          test -x "$ICHART_RETENTION_TEST_PG_BIN/postgres"
+          test "$(id -u postgres)" != 0
+          # gosu is supplied by the pinned official PostgreSQL image. initdb and
+          # every database session run unprivileged, without a service or port.
+          gosu postgres "$node_bin" --version
+          gosu postgres "$node_bin" --test \
+            "$GITHUB_WORKSPACE/supabase/tests/owner_snapshot_retention/retention.test.mjs"
