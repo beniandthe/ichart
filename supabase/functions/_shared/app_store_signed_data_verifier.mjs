@@ -4,7 +4,7 @@ import {
   X509Certificate,
   verify as verifySignature,
 } from "node:crypto";
-import { KJUR, X509 } from "npm:jsrsasign@11.1.0";
+import { KJUR, X509 } from "npm:jsrsasign@11.1.5";
 import {
   Environment,
   SignedDataVerifier,

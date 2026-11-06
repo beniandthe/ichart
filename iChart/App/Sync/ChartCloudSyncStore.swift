@@ -20,6 +20,22 @@ final class ChartCloudSyncStore: ObservableObject {
     private var syncTask: Task<Void, Never>?
     private var feedbackOperationID: UUID?
     private var feedbackAccountID: UUID?
+    private var operationGeneration = 0
+    private var lastObservedAuthContext: AuthContext?
+
+    private enum ConnectionMode: Equatable { case unconfigured, signedOut, offline, online }
+
+    private struct AuthContext: Equatable {
+        let accountID: UUID?
+        let connection: ConnectionMode
+        let hasCloudAccess: Bool
+        let libraryReadFailed: Bool
+    }
+
+    private struct OperationContext: Sendable {
+        let generation: Int
+        let accountID: UUID
+    }
 
     init(service: (any ChartCloudSyncServicing)?) {
         self.service = service
@@ -45,6 +61,8 @@ final class ChartCloudSyncStore: ObservableObject {
             return
         }
 
+        invalidatePendingOperations()
+        lastObservedAuthContext = nil
         self.libraryStore = libraryStore
         lastRemoteBackupAt = libraryStore.cloudMetadata.lastRemoteBackupAt
         libraryStore.onSnapshotSaved = { [weak self] snapshot in
@@ -56,13 +74,33 @@ final class ChartCloudSyncStore: ObservableObject {
 
     func authStateChanged(_ authState: IChartAuthState) {
         let accountID: UUID?
+        let connection: ConnectionMode
         switch authState {
-        case .signedIn(let session), .passwordRecovery(let session), .temporarilyOffline(let session):
+        case .signedIn(let session), .passwordRecovery(let session):
+            connection = .online
             accountID = session.id
-        default:
+        case .temporarilyOffline(let session):
+            connection = .offline
+            accountID = session.id
+        case .unconfigured:
+            connection = .unconfigured
+            accountID = nil
+        case .signedOut, .pendingEmailVerification:
+            connection = .signedOut
             accountID = nil
         }
-        if accountID != feedbackAccountID { clearOperationFeedback() }
+        let context = AuthContext(accountID: accountID, connection: connection,
+            hasCloudAccess: isCloudSyncEntitled,
+            libraryReadFailed: libraryStore?.hasUnresolvedLoadFailure == true)
+        // SwiftUI observes account and entitlement state in several places.
+        // Repeated equivalent observations must not cancel a manual restore or
+        // restart the first upload before its acknowledgements can be saved.
+        guard context != lastObservedAuthContext else { return }
+        lastObservedAuthContext = context
+        if accountID != feedbackAccountID {
+            invalidatePendingOperations()
+            clearOperationFeedback()
+        }
         feedbackAccountID = accountID
         guard service != nil else {
             cancelPendingSyncWork()
@@ -115,10 +153,12 @@ final class ChartCloudSyncStore: ObservableObject {
         let snapshot = enrollLocalCharts
             ? libraryStore.enrollLocalChartsForCloudBackup()
             : currentSnapshot
-        queuedUploadTask?.cancel()
-        syncTask?.cancel()
+        invalidatePendingOperations()
+        guard let context = currentOperationContext else { return }
         syncTask = Task { [weak self] in
-            await self?.runPush(snapshot: snapshot, service: service)
+            guard let self, self.isAuthorized(context), !Task.isCancelled else { return }
+            await self.runPush(snapshot: snapshot, service: service, context: context,
+                               forceRemoteWrite: enrollLocalCharts)
         }
     }
 
@@ -138,10 +178,11 @@ final class ChartCloudSyncStore: ObservableObject {
         let snapshot = libraryStore.snapshot
         guard validateLocalCharts(in: snapshot, for: .restore) else { return }
 
-        queuedUploadTask?.cancel()
-        syncTask?.cancel()
+        invalidatePendingOperations()
+        guard let context = currentOperationContext else { return }
         syncTask = Task { [weak self] in
-            await self?.runRestore(snapshot: snapshot, service: service)
+            guard let self, self.isAuthorized(context), !Task.isCancelled else { return }
+            await self.runRestore(snapshot: snapshot, service: service, context: context)
         }
     }
 
@@ -157,20 +198,22 @@ final class ChartCloudSyncStore: ObservableObject {
         }
 
         guard validateLocalCharts(in: snapshot, for: .backup),
-              allowsAutomaticUpload(snapshot, at: Date()) else {
+              allowsAutomaticUpload(snapshot, at: Date()),
+              let context = currentOperationContext else {
             return
         }
 
         queuedUploadTask?.cancel()
         queuedUploadTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_200_000_000)
-            guard !Task.isCancelled else {
+            guard !Task.isCancelled, self?.isAuthorized(context) == true else {
                 return
             }
             guard self?.beginQueuedAutomaticUpload(snapshot) == true else {
                 return
             }
-            await self?.runPush(snapshot: snapshot, service: service)
+            await self?.runPush(snapshot: snapshot, service: service, context: context,
+                                forceRemoteWrite: false)
         }
     }
 
@@ -180,6 +223,16 @@ final class ChartCloudSyncStore: ObservableObject {
     }
 
     private func validateLocalCharts(in snapshot: ChartLibrarySnapshot, for operation: ChartCloudSyncOperation) -> Bool {
+        guard libraryStore?.hasUnresolvedLoadFailure != true else {
+            invalidatePendingOperations()
+            let failure = ChartCloudSyncFailure(
+                operation: operation, stage: .validatingLocalCharts, category: .localStorage
+            )
+            let feedbackID = beginOperationFeedback(operation)
+            state = .failed(failure.detailText)
+            failOperationFeedback(failure, feedbackID: feedbackID)
+            return false
+        }
         guard Set(snapshot.charts.map(\.id)).count == snapshot.charts.count else {
             queuedUploadTask?.cancel()
             queuedUploadTask = nil
@@ -210,8 +263,10 @@ final class ChartCloudSyncStore: ObservableObject {
         return true
     }
 
-    private func runRestore(snapshot: ChartLibrarySnapshot, service: any ChartCloudSyncServicing) async {
+    private func runRestore(snapshot: ChartLibrarySnapshot, service: any ChartCloudSyncServicing, context: OperationContext) async {
+        guard isAuthorized(context), !Task.isCancelled else { return }
         isWorking = true
+        defer { finishWorkingState(for: context) }
         lastSyncAttemptAt = Date()
         state = .syncing
         let feedbackID = beginOperationFeedback(.restore)
@@ -226,10 +281,18 @@ final class ChartCloudSyncStore: ObservableObject {
 
         do {
             let outcome = try await service.restoreFromCloud(localSnapshot: snapshot, onProgress: { [weak self] stage in
-                await self?.updateProgress(stage, operation: .restore, feedbackID: feedbackID)
+                await self?.updateProgress(stage, operation: .restore, feedbackID: feedbackID, context: context)
             })
+            guard isAuthorized(context), !Task.isCancelled else { return }
             let result = outcome.syncResult
-            updateProgress(.applyingSnapshot, operation: .restore, feedbackID: feedbackID)
+            guard result.snapshot.cloudMetadata.ownerID == context.accountID else {
+                let failure = ChartCloudSyncFailure(operation: .restore,
+                    stage: .preparingSession, category: .sessionRequired)
+                state = .failed(failure.detailText)
+                failOperationFeedback(failure, feedbackID: feedbackID)
+                return
+            }
+            updateProgress(.applyingSnapshot, operation: .restore, feedbackID: feedbackID, context: context)
             var didApplySyncedSnapshot = false
             if let libraryStore {
                 didApplySyncedSnapshot = libraryStore.applySyncedSnapshot(
@@ -265,6 +328,7 @@ final class ChartCloudSyncStore: ObservableObject {
                 ]
             )
         } catch {
+            guard isAuthorized(context), !Task.isCancelled else { return }
             let failure = Self.failureFeedback(for: error, operation: .restore)
             if feedbackOperationID == feedbackID {
                 state = Self.failureState(for: error, operation: .restore)
@@ -281,18 +345,21 @@ final class ChartCloudSyncStore: ObservableObject {
                 ]
             )
         }
-
-        isWorking = false
     }
 
-    private func runPush(snapshot: ChartLibrarySnapshot, service: any ChartCloudSyncServicing) async {
+    private func runPush(snapshot: ChartLibrarySnapshot, service: any ChartCloudSyncServicing,
+                         context: OperationContext, forceRemoteWrite: Bool) async {
+        guard isAuthorized(context), !Task.isCancelled else { return }
         queuedUploadTask = nil
         guard !isWorking else {
             queueUpload(snapshot)
             return
         }
 
+        let stateBeforePush = state
+        let failureBeforePush = lastFailure
         isWorking = true
+        defer { finishWorkingState(for: context) }
         lastSyncAttemptAt = Date()
         state = .syncing
         let feedbackID = beginOperationFeedback(.backup)
@@ -306,23 +373,43 @@ final class ChartCloudSyncStore: ObservableObject {
         )
 
         do {
-            let result = try await service.pushLocalSnapshot(snapshot, onProgress: { [weak self] stage in
-                await self?.updateProgress(stage, operation: .backup, feedbackID: feedbackID)
+            let result = try await service.pushLocalSnapshot(snapshot, forceRemoteWrite: forceRemoteWrite, onProgress: { [weak self] stage in
+                await self?.updateProgress(stage, operation: .backup, feedbackID: feedbackID, context: context)
             })
-            libraryStore?.markChartsBackedUpToCloud(
-                chartIDs: result.backedUpChartIDs,
-                ownerID: result.ownerID,
-                backedUpAt: result.lastRemoteBackupAt,
-                from: snapshot
-            )
-            libraryStore?.updateCloudMetadataFromSync(
-                ownerID: result.ownerID,
-                lastSyncAt: Date(),
-                lastRemoteBackupAt: result.lastRemoteBackupAt
-            )
-            automaticUploadBackoff.recordSuccess()
-            lastRemoteBackupAt = result.lastRemoteBackupAt
-            if feedbackOperationID == feedbackID { state = .synced(Date()) }
+            guard isAuthorized(context), !Task.isCancelled else { return }
+            guard result.ownerID == context.accountID else {
+                let failure = ChartCloudSyncFailure(operation: .backup,
+                    stage: .preparingSession, category: .sessionRequired)
+                state = .failed(failure.detailText)
+                failOperationFeedback(failure, feedbackID: feedbackID)
+                return
+            }
+            if result.didPerformRemoteWrites {
+                libraryStore?.markChartsBackedUpToCloud(
+                    chartIDs: result.backedUpChartIDs,
+                    ownerID: result.ownerID,
+                    backedUpAt: result.lastRemoteBackupAt,
+                    from: snapshot,
+                    acknowledgedContentSHA256ByChartID: result.acknowledgedContentSHA256ByChartID
+                )
+                libraryStore?.updateCloudMetadataFromSync(
+                    ownerID: result.ownerID,
+                    lastSyncAt: Date(),
+                    lastRemoteBackupAt: result.lastRemoteBackupAt
+                )
+                automaticUploadBackoff.recordSuccess()
+                lastRemoteBackupAt = result.lastRemoteBackupAt
+                if feedbackOperationID == feedbackID { state = .synced(Date()) }
+            } else if feedbackOperationID == feedbackID {
+                // A local durable acknowledgement is not a new network check.
+                // Preserve prior failure/offline information and backup dates.
+                switch stateBeforePush {
+                case .synced, .failed, .offline:
+                    state = stateBeforePush
+                default:
+                    state = lastRemoteBackupAt.map(ChartSyncState.synced) ?? .idle
+                }
+            }
             finishOperationFeedback(
                 ChartCloudSyncOperationResult(
                     operation: .backup,
@@ -331,10 +418,15 @@ final class ChartCloudSyncStore: ObservableObject {
                     backedUpChartCount: result.backedUpChartIDs.count,
                     tombstonedChartCount: result.tombstonedChartIDs.count,
                     libraryChartCount: libraryStore?.charts.count ?? snapshot.charts.count,
-                    didApplySnapshot: nil
+                    didApplySnapshot: nil,
+                    didPerformRemoteWrites: result.didPerformRemoteWrites
                 ),
                 feedbackID: feedbackID
             )
+            guard result.didPerformRemoteWrites else {
+                lastFailure = failureBeforePush
+                return
+            }
             IChartTelemetry.record(
                 "cloud.push_succeeded",
                 properties: [
@@ -345,6 +437,7 @@ final class ChartCloudSyncStore: ObservableObject {
                 ]
             )
         } catch {
+            guard isAuthorized(context), !Task.isCancelled else { return }
             automaticUploadBackoff.recordFailure(at: Date())
             let failure = Self.failureFeedback(for: error, operation: .backup)
             if feedbackOperationID == feedbackID { state = Self.failureState(for: error) }
@@ -360,18 +453,41 @@ final class ChartCloudSyncStore: ObservableObject {
                 ]
             )
         }
-
-        isWorking = false
     }
 
     private func cancelPendingSyncWork() {
         clearOperationFeedback()
+        invalidatePendingOperations()
+        automaticUploadBackoff.reset()
+    }
+
+    private func invalidatePendingOperations() {
+        operationGeneration += 1
         queuedUploadTask?.cancel()
         queuedUploadTask = nil
         syncTask?.cancel()
         syncTask = nil
         isWorking = false
-        automaticUploadBackoff.reset()
+    }
+
+    private var currentOperationContext: OperationContext? {
+        guard isSignedIn, let feedbackAccountID else { return nil }
+        return OperationContext(generation: operationGeneration, accountID: feedbackAccountID)
+    }
+
+    private func isAuthorized(_ context: OperationContext) -> Bool {
+        context.generation == operationGeneration
+            && context.accountID == feedbackAccountID
+            && isSignedIn
+            && isCloudSyncEntitled
+            && libraryStore?.hasUnresolvedLoadFailure != true
+    }
+
+    private func finishWorkingState(for context: OperationContext) {
+        // An old task must not clear a newer account/operation's busy state.
+        guard context.generation == operationGeneration,
+              context.accountID == feedbackAccountID else { return }
+        isWorking = false
     }
 
     private var isCloudSyncEntitled: Bool {
@@ -388,8 +504,8 @@ final class ChartCloudSyncStore: ObservableObject {
         return id
     }
 
-    private func updateProgress(_ stage: ChartCloudSyncStage, operation: ChartCloudSyncOperation, feedbackID: UUID) {
-        guard feedbackOperationID == feedbackID else { return }
+    private func updateProgress(_ stage: ChartCloudSyncStage, operation: ChartCloudSyncOperation, feedbackID: UUID, context: OperationContext) {
+        guard isAuthorized(context), feedbackOperationID == feedbackID else { return }
         progress = ChartCloudSyncProgress(operation: operation, stage: stage)
     }
 

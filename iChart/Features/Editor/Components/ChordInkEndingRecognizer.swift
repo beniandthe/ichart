@@ -5,6 +5,11 @@ import Foundation
 /// Detects structure only. A label is retained as source ink until the user
 /// supplies its exact text in review; no chord or language recognizer is used.
 enum ChordDraftEndingRecognizer {
+    struct StructuralRecognition {
+        var endings: ChordDraftEndingRecognition
+        var barlines: ChordDraftBarlineRecognition
+    }
+
     private struct Roof {
         var index: Int
         var left: CGFloat
@@ -49,8 +54,25 @@ enum ChordDraftEndingRecognizer {
     static func recognizeBarlinesExcludingEndings(
         strokes: [InkStroke], chordFrame: CGRect, pageLayout: LeadSheetPageLayout?
     ) -> ChordDraftBarlineRecognition {
+        recognizeStructure(strokes: strokes, chordFrame: chordFrame, pageLayout: pageLayout).barlines
+    }
+
+    /// Detect both structures with one ending pass. Barlines exclude the raw
+    /// ending claims before callers filter ambiguous original-stroke ownership.
+    static func recognizeStructure(
+        strokes: [InkStroke], chordFrame: CGRect, pageLayout: LeadSheetPageLayout?
+    ) -> StructuralRecognition {
         let endings = recognize(strokes: strokes, chordFrame: chordFrame, pageLayout: pageLayout)
-        let remaining = strokes.indices.filter { !endings.strokeIndices.contains($0) }
+        return StructuralRecognition(endings: endings,
+            barlines: recognizeBarlines(strokes: strokes, chordFrame: chordFrame,
+                pageLayout: pageLayout, excludingEndingStrokeIndices: endings.strokeIndices))
+    }
+
+    private static func recognizeBarlines(
+        strokes: [InkStroke], chordFrame: CGRect, pageLayout: LeadSheetPageLayout?,
+        excludingEndingStrokeIndices: Set<Int>
+    ) -> ChordDraftBarlineRecognition {
+        let remaining = strokes.indices.filter { !excludingEndingStrokeIndices.contains($0) }
         let recognition = ChordDraftBarlineRecognizer.recognize(
             strokes: remaining.map { strokes[$0] }, chordFrame: chordFrame, pageLayout: pageLayout)
         let barlines = recognition.barlines.map { draft -> DraftBarline in

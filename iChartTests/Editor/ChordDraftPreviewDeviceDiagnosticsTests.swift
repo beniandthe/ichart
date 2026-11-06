@@ -1,3 +1,4 @@
+import Foundation
 import XCTest
 @testable import iChart
 
@@ -114,7 +115,7 @@ final class ChordDraftPreviewDeviceDiagnosticsTests: XCTestCase {
             try? FileManager.default.removeItem(at: temporaryDirectory)
         }
 
-        try recorder.append(event)
+        XCTAssertTrue(try recorder.appendIfWithinSizeLimit(event))
         try recorder.append(event)
 
         let loadedEvents = try recorder.loadEvents()
@@ -200,4 +201,141 @@ final class ChordDraftPreviewDeviceDiagnosticsTests: XCTestCase {
         XCTAssertTrue(try recorder.resetIfLargerThan(0))
         XCTAssertEqual(try recorder.loadEvents(), [])
     }
+
+    func testRawCaptureIsOffUnlessDebugProcessExplicitlyOptsIn() {
+        for isDebugBuild in [false, true] {
+            XCTAssertFalse(ChordDraftPreviewDiagnosticCapturePolicy.isEnabled(
+                isDebugBuild: isDebugBuild, environment: [:], arguments: []))
+            XCTAssertFalse(ChordDraftPreviewDiagnosticCapturePolicy.isEnabled(
+                isDebugBuild: isDebugBuild,
+                environment: [ChordDraftPreviewDiagnosticCapturePolicy.environmentKey: "true"],
+                arguments: ["-unrelatedDiagnosticFlag"]))
+        }
+        XCTAssertTrue(ChordDraftPreviewDiagnosticCapturePolicy.isEnabled(
+            isDebugBuild: true,
+            environment: [ChordDraftPreviewDiagnosticCapturePolicy.environmentKey: "1"], arguments: []))
+        XCTAssertTrue(ChordDraftPreviewDiagnosticCapturePolicy.isEnabled(
+            isDebugBuild: true, environment: [:],
+            arguments: [ChordDraftPreviewDiagnosticCapturePolicy.launchArgument]))
+        XCTAssertFalse(ChordDraftPreviewDiagnosticCapturePolicy.isEnabled(
+            isDebugBuild: false,
+            environment: [ChordDraftPreviewDiagnosticCapturePolicy.environmentKey: "1"],
+            arguments: [ChordDraftPreviewDiagnosticCapturePolicy.launchArgument]))
+    }
+
+    func testDisabledCaptureNeverBuildsAnEventOrCreatesStorage() {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let recorder = ChordDraftPreviewDeviceDiagnosticRecorder(url: directory.appendingPathComponent("capture.jsonl"))
+        let queue = DispatchQueue(label: "test.disabled-chord-diagnostic")
+        let capture = ChordDraftPreviewDiagnosticWorkQueue(isEnabled: false, queue: queue)
+        let probe = DiagnosticCaptureProbe()
+
+        XCTAssertFalse(capture.enqueue {
+            probe.recordCall()
+            try? recorder.append(ChordDraftPreviewDeviceDiagnosticEvent(stage: "must_not_materialize"))
+        })
+        queue.sync {}
+        XCTAssertEqual(probe.callCount, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+    }
+
+    func testDisabledCapturePreservesExistingDiagnosticEvidence() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let recorder = ChordDraftPreviewDeviceDiagnosticRecorder(url: directory.appendingPathComponent("capture.jsonl"))
+        let event = ChordDraftPreviewDeviceDiagnosticEvent(
+            timestamp: Date(timeIntervalSinceReferenceDate: 10),
+            stage: "retained_capture"
+        )
+        try recorder.append(event)
+        let before = try Data(contentsOf: recorder.url)
+        let queue = DispatchQueue(label: "test.disabled-existing-chord-diagnostic")
+        let capture = ChordDraftPreviewDiagnosticWorkQueue(isEnabled: false, queue: queue)
+
+        XCTAssertFalse(capture.enqueue { try? recorder.reset() })
+        queue.sync {}
+        XCTAssertEqual(try Data(contentsOf: recorder.url), before)
+        XCTAssertEqual(try recorder.loadEvents(), [event])
+    }
+
+    func testBlockedOptedInCaptureBoundsPendingWorkAndRecoversAfterDrain() {
+        let queue = DispatchQueue(label: "test.blocked-chord-diagnostic")
+        let started = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        queue.async {
+            started.signal()
+            _ = release.wait(timeout: .now() + 5)
+        }
+        guard started.wait(timeout: .now() + 2) == .success else {
+            XCTFail("Synthetic diagnostic worker did not start")
+            return
+        }
+        // A caller cannot raise the hard bound, even with a stalled worker.
+        let capture = ChordDraftPreviewDiagnosticWorkQueue(
+            isEnabled: true, queue: queue, maximumPendingCount: Int.max)
+        let probe = DiagnosticCaptureProbe()
+        let completed = expectation(description: "admitted captures drained")
+        completed.expectedFulfillmentCount = ChordDraftPreviewDiagnosticWorkQueue.maximumPendingOperationCount
+        for _ in 0..<ChordDraftPreviewDiagnosticWorkQueue.maximumPendingOperationCount {
+            XCTAssertTrue(capture.enqueue { probe.recordCall(); completed.fulfill() })
+        }
+        for _ in 0..<128 {
+            XCTAssertFalse(capture.enqueue { XCTFail("Excess diagnostic work must be dropped") })
+        }
+        XCTAssertEqual(probe.callCount, 0, "No factory may run inline on the producer")
+        release.signal()
+        wait(for: [completed], timeout: 2)
+        queue.sync {}
+        XCTAssertEqual(probe.callCount, ChordDraftPreviewDiagnosticWorkQueue.maximumPendingOperationCount)
+        let resumed = expectation(description: "admission resumes after drain")
+        XCTAssertTrue(capture.enqueue { resumed.fulfill() })
+        wait(for: [resumed], timeout: 2)
+    }
+
+    func testLiveSizeBudgetDropsWholeNewRecordsAndKeepsPriorCapture() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let recorder = ChordDraftPreviewDeviceDiagnosticRecorder(url: directory.appendingPathComponent("capture.jsonl"))
+        let event = ChordDraftPreviewDeviceDiagnosticEvent(
+            timestamp: Date(timeIntervalSinceReferenceDate: 10),
+            stage: "retained_capture"
+        )
+        try recorder.append(event)
+        let before = try Data(contentsOf: recorder.url)
+
+        XCTAssertFalse(try recorder.appendIfWithinSizeLimit(event, maximumBytes: before.count))
+        XCTAssertEqual(try Data(contentsOf: recorder.url), before)
+        XCTAssertEqual(try recorder.loadEvents(), [event])
+        XCTAssertTrue(try recorder.appendIfWithinSizeLimit(event, maximumBytes: before.count * 2))
+        XCTAssertEqual(try recorder.loadEvents(), [event, event])
+    }
+
+    func testOversizedFirstRecordDoesNotCreateStorage() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let recorder = ChordDraftPreviewDeviceDiagnosticRecorder(url: directory.appendingPathComponent("capture.jsonl"))
+        XCTAssertFalse(try recorder.appendIfWithinSizeLimit(
+            ChordDraftPreviewDeviceDiagnosticEvent(stage: "capture"), maximumBytes: 1))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+    }
+
+    func testLiveSizeBudgetCannotBeRaisedOrDeleteOversizedHistoricalEvidence() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let recorder = ChordDraftPreviewDeviceDiagnosticRecorder(url: directory.appendingPathComponent("capture.jsonl"))
+        let historical = Data(repeating: 0x41, count: ChordDraftPreviewDeviceDiagnosticRecorder.defaultMaximumRetainedBytes + 1)
+        try historical.write(to: recorder.url)
+
+        XCTAssertFalse(try recorder.appendIfWithinSizeLimit(
+            ChordDraftPreviewDeviceDiagnosticEvent(stage: "capture"), maximumBytes: Int.max))
+        XCTAssertEqual(try Data(contentsOf: recorder.url), historical)
+    }
+}
+
+private final class DiagnosticCaptureProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    var callCount: Int { lock.lock(); defer { lock.unlock() }; return count }
+    func recordCall() { lock.lock(); count += 1; lock.unlock() }
 }

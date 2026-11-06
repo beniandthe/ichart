@@ -11,9 +11,11 @@ or a claim that handwritten chord recognition is impossible.
 | `codex/park/recognition-research-2026-10-05` | `417113a` | Recognition research, evaluation infrastructure, reports, and retained app maintenance fixes from the generalization-reset tree. |
 | `codex/park/stroke-direction-2026-10-05` | `f4b4ffe` | Earlier stroke-direction/reader investigation preserved separately. |
 
-The active app branch is `codex/app-release-normalization`. Local refs are not a
-GitHub backup or a completed remote push. Inspect a snapshot without altering
-the current app tree:
+The shipping source is `main`; the accepted local Build 144 uses the PR #102
+merge `00f79015`. The active audit branch is `codex/build144-app-db-audit`, based
+on that source. See [Project state](../project-state.md) for the current build and
+validation boundaries. Local parking refs are not a GitHub backup or a completed
+remote push. Inspect a snapshot without altering the current app tree:
 
 ```sh
 git show codex/park/recognition-research-2026-10-05:recognition_ml/README.md
@@ -35,11 +37,17 @@ reset the release branch or restore an old snapshot over charts/profiles.
 - `docs/personal-*`, grouping/domain reports, and referenced protocols: original
   dated evidence and rejected approaches remain in their paths so links still
   resolve.
-- Original worktrees `/Users/benirossman/.codex/worktrees/recognition-generalization-reset/Smart Chart`
-  and `/Users/benirossman/.codex/worktrees/717e/Smart Chart`: retained local files.
+- Historical worktree paths
+  `/Users/benirossman/.codex/worktrees/recognition-generalization-reset/Smart Chart`
+  and `/Users/benirossman/.codex/worktrees/717e/Smart Chart` are not present at
+  those paths in the November 5 audit. The former still has a locked Git
+  worktree registration; that metadata alone does not establish a live checkout.
+  Use the verified named source snapshots above and inspect recovery archives
+  before attempting worktree repair or pruning.
 - Generated datasets, model binaries, ignored files, and Python caches were not
-  copied into source snapshots. They remain at their original local locations.
-  Source refs do not back up those files. Research reports identify durable
+  copied into source snapshots. Source refs do not back up those files, and their
+  current location/availability must be verified separately. Research reports
+  identify durable
   local artifacts under `/Users/benirossman/.local/share/ichart/recognition-development/`;
   `/private/tmp/` build artifacts may expire. Verify an artifact before using it.
 

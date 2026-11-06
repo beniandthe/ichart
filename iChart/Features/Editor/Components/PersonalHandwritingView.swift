@@ -283,7 +283,7 @@ struct PersonalHandwritingView: View {
         }
         .presentationDetents([.large])
         .onAppear { if startsWithEvaluation { stage = 2 } }
-        .onChange(of: stage) { stage in if stage == 0 { model.reloadProfile() } }
+        .onChange(of: stage) { _, stage in if stage == 0 { model.reloadProfile() } }
         .interactiveDismissDisabled(model.busy)
         .confirmationDialog("Reset your handwriting profile? Your charts and ink will not change.", isPresented: $confirmsReset, titleVisibility: .visible) {
             Button("Reset Profile", role: .destructive) { model.update { $0 = PersonalInkProfile() } }

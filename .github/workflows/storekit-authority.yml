@@ -1,0 +1,129 @@
+name: StoreKit authority transactions
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/**"
+      - "supabase/functions/_shared/app_store_subscription_authority*.mjs"
+      - "supabase/functions/_shared/supabase_subscription_authority_store*.mjs"
+      - "supabase/tests/storekit_authority_atomic*"
+      - "supabase/tests/support/**"
+      - "scripts/scan_repository_secrets.py"
+      - "scripts/test_scan_repository_secrets.py"
+      - "scripts/run_supabase_production_readiness.sh"
+      - ".github/workflows/storekit-authority.yml"
+  push:
+    branches: [main]
+    paths:
+      - "supabase/migrations/**"
+      - "supabase/functions/_shared/app_store_subscription_authority*.mjs"
+      - "supabase/functions/_shared/supabase_subscription_authority_store*.mjs"
+      - "supabase/tests/storekit_authority_atomic*"
+      - "supabase/tests/support/**"
+      - "scripts/scan_repository_secrets.py"
+      - "scripts/test_scan_repository_secrets.py"
+      - "scripts/run_supabase_production_readiness.sh"
+      - ".github/workflows/storekit-authority.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  repository-readiness:
+    name: Secret scanner fixtures and repository checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify scanner detection, exceptions and redaction
+        run: python3 -m unittest discover -s scripts -p 'test_scan_repository_secrets.py' -v
+      - name: Check repository paths and secret patterns
+        run: bash scripts/run_supabase_production_readiness.sh --scan-only
+
+  storekit-authority:
+    name: PostgreSQL 17 authority rollback and ordering
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      ICHART_AUTHORITY_TEST_CONTAINER: ichart-authority-ci-${{ github.run_id }}-${{ github.run_attempt }}
+      ICHART_AUTHORITY_CI_RUN: ${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Start disposable PostgreSQL 17
+        shell: bash
+        run: |
+          set -euo pipefail
+          if docker inspect "$ICHART_AUTHORITY_TEST_CONTAINER" >/dev/null 2>&1; then
+            echo "Refusing to reuse an existing container." >&2
+            exit 1
+          fi
+          docker run --detach \
+            --name "$ICHART_AUTHORITY_TEST_CONTAINER" \
+            --label "com.ichart.authority-ci-run=$ICHART_AUTHORITY_CI_RUN" \
+            --network none \
+            --memory 768m --memory-swap 768m \
+            --tmpfs /var/lib/postgresql/data:rw,nosuid,nodev,noexec,size=512m \
+            --env POSTGRES_DB=ichart_authority_audit \
+            --env POSTGRES_PASSWORD=ichart-disposable-ci-only \
+            postgres:17.6@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929
+          ready=false
+          for attempt in $(seq 1 45); do
+            # The entrypoint briefly starts a temporary server during init.
+            # Wait for PID 1 to become postgres as well as SQL readiness.
+            if docker exec "$ICHART_AUTHORITY_TEST_CONTAINER" sh -c \
+              'test "$(cat /proc/1/comm)" = postgres && pg_isready -U postgres -d ichart_authority_audit' \
+              >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            if [ "$(docker inspect --format '{{.State.Running}}' "$ICHART_AUTHORITY_TEST_CONTAINER")" != true ]; then
+              docker logs "$ICHART_AUTHORITY_TEST_CONTAINER"
+              exit 1
+            fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then
+            docker logs "$ICHART_AUTHORITY_TEST_CONTAINER"
+            echo "PostgreSQL did not become ready within the bounded wait." >&2
+            exit 1
+          fi
+
+      - name: Apply isolated fixture, actual migration and serial controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          for sql_file in \
+            supabase/tests/support/storekit_authority_atomic_fixture.psql \
+            supabase/migrations/20261106045008_atomic_storekit_subscription_authority.sql \
+            supabase/tests/storekit_authority_atomic_test.psql; do
+            docker exec -i "$ICHART_AUTHORITY_TEST_CONTAINER" \
+              psql -X -v ON_ERROR_STOP=1 -U postgres -d ichart_authority_audit < "$sql_file"
+          done
+
+      - name: Verify competing real PostgreSQL sessions
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --version
+          node --test supabase/tests/storekit_authority_atomic_concurrency.test.mjs
+
+      - name: Remove only this job's disposable container
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_run="$(docker inspect --format '{{index .Config.Labels "com.ichart.authority-ci-run"}}' \
+            "$ICHART_AUTHORITY_TEST_CONTAINER" 2>/dev/null || true)"
+          if [ "$actual_run" = "$ICHART_AUTHORITY_CI_RUN" ]; then
+            docker rm --force "$ICHART_AUTHORITY_TEST_CONTAINER"
+          elif [ -n "$actual_run" ]; then
+            echo "Refusing to remove a container not owned by this job." >&2
+            exit 1
+          fi

@@ -5,6 +5,7 @@ enum ChartSyncState: Equatable {
     case signedOut
     case requiresPro
     case offline
+    case idle
     case syncing
     case synced(Date)
     case failed(String)
@@ -19,6 +20,8 @@ enum ChartSyncState: Equatable {
             return "Cloud backup requires Pro"
         case .offline:
             return "Offline"
+        case .idle:
+            return "No chart changes"
         case .syncing:
             return "Backing up"
         case .synced:
@@ -38,6 +41,8 @@ enum ChartSyncState: Equatable {
             return "Upgrade to Pro to back up and restore from cloud."
         case .offline:
             return "Reconnect to back up."
+        case .idle:
+            return "No chart changes to back up."
         case .syncing:
             return "Backing up eligible local charts."
         case .synced:
@@ -57,6 +62,8 @@ enum ChartSyncState: Equatable {
             return "lock.icloud"
         case .offline:
             return "wifi.slash"
+        case .idle:
+            return "icloud"
         case .syncing:
             return "arrow.triangle.2.circlepath.icloud"
         case .synced:
@@ -78,7 +85,7 @@ enum ChartSyncState: Equatable {
             return "Try Again"
         case .syncing:
             return "Backing Up"
-        case .synced:
+        case .idle, .synced:
             return "Back Up Now"
         }
     }
@@ -98,7 +105,7 @@ enum ChartSyncState: Equatable {
 
     var allowsManualSync: Bool {
         switch self {
-        case .offline, .synced, .failed:
+        case .offline, .idle, .synced, .failed:
             return true
         case .unconfigured, .signedOut, .requiresPro, .syncing:
             return false
@@ -115,14 +122,14 @@ enum ChartSyncState: Equatable {
             return "Cloud backup and restore require Pro."
         case .syncing:
             return nil
-        case .offline, .synced, .failed:
+        case .offline, .idle, .synced, .failed:
             return nil
         }
     }
 
     var allowsCloudRestore: Bool {
         switch self {
-        case .synced, .failed:
+        case .idle, .synced, .failed:
             return true
         case .unconfigured, .signedOut, .requiresPro, .offline, .syncing:
             return false
@@ -141,7 +148,7 @@ enum ChartSyncState: Equatable {
             return "Reconnect to restore charts from cloud."
         case .syncing:
             return nil
-        case .synced, .failed:
+        case .idle, .synced, .failed:
             return nil
         }
     }

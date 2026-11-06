@@ -107,7 +107,11 @@ final class ChartAppearancePreviewTests: XCTestCase {
         for style in styles {
             let source = Chart.blank(title: "Engraving entry", layoutStyle: style)
             let original = source
-            let host = UIHostingController(rootView: ChartAppearanceSheetView(chart: .constant(source), panel: .engraving))
+            let helperLabel = ChartAppearancePanel.engraving.instruction(for: style)
+            let previewLabel = ChartAppearancePreviewPolicy.accessibilityLabel(for: source)
+            let host = UIHostingController(rootView: ChartAppearanceSheetView(chart: .constant(source), panel: .engraving)
+                .environment(\.sizeCategory, .large)
+                .environment(\.accessibilityEnabled, true))
             let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
                 .first { $0.activationState == .foregroundActive })
             let previousWindow = scene.windows.first(where: \.isKeyWindow)
@@ -117,27 +121,38 @@ final class ChartAppearancePreviewTests: XCTestCase {
             window.rootViewController = host
             window.makeKeyAndVisible()
             defer {
+                window.endEditing(true)
                 window.isHidden = true
                 window.rootViewController = nil
                 previousWindow?.makeKey()
             }
             var nodes = [NativeAccessibilityLookup.Node]()
+            var mountedNodesReady = false
             for _ in 0..<40 {
                 window.layoutIfNeeded()
                 host.view.layoutIfNeeded()
-                nodes = try NativeAccessibilityLookup.nodes(in: window)
-                if nodes.contains(where: {
-                    $0.element.accessibilityLabel == ChartAppearancePreviewPolicy.accessibilityLabel(for: source)
-                }) { break }
+                nodes = try NativeAccessibilityLookup.nodes(in: host.view)
+                let hasHelper = nodes.contains { $0.element.accessibilityLabel == helperLabel && !$0.frame(in: window).isEmpty }
+                let hasPreview = nodes.contains { $0.element.accessibilityLabel == previewLabel && !$0.frame(in: window).isEmpty }
+                let hasDone = nodes.contains { $0.isButton && $0.element.accessibilityLabel == "Done" && !$0.frame(in: window).isEmpty }
+                if window.isKeyWindow, host.view.window === window, hasHelper, hasPreview, hasDone {
+                    mountedNodesReady = true
+                    break
+                }
                 try await Task.sleep(nanoseconds: 50_000_000)
             }
+            if !mountedNodesReady {
+                attach(windowImage(window), name: "Engraving sheet mount timeout \(style.rawValue)")
+                attachMountDiagnostics(window: window, hostView: host.view, nodes: nodes, style: style)
+            }
             let helper = try XCTUnwrap(nodes.first {
-                $0.element.accessibilityLabel == ChartAppearancePanel.engraving.instruction(for: style)
+                $0.element.accessibilityLabel == helperLabel
             })
             let preview = try XCTUnwrap(nodes.first {
-                $0.element.accessibilityLabel == ChartAppearancePreviewPolicy.accessibilityLabel(for: source)
+                $0.element.accessibilityLabel == previewLabel
             })
             let done = try XCTUnwrap(nodes.first { $0.isButton && $0.element.accessibilityLabel == "Done" })
+            XCTAssertTrue(mountedNodesReady, "The production engraving sheet must attach and expose all first-screen nodes within the bounded wait.")
             let viewport = window.bounds.insetBy(dx: -1, dy: -1)
             XCTAssertTrue(viewport.contains(helper.frame(in: window)))
             XCTAssertTrue(viewport.contains(preview.frame(in: window)))
@@ -170,6 +185,27 @@ final class ChartAppearancePreviewTests: XCTestCase {
         return UIGraphicsImageRenderer(size: window.bounds.size, format: format).image { _ in
             window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         }
+    }
+
+    private func attachMountDiagnostics(window: UIWindow, hostView: UIView,
+        nodes: [NativeAccessibilityLookup.Node], style: ChartLayoutStyle) {
+        func scrollViews(in view: UIView) -> [UIScrollView] {
+            let current = (view as? UIScrollView).map { [$0] } ?? []
+            return current + view.subviews.flatMap { scrollViews(in: $0) }
+        }
+        let lines = [
+            "Synthetic layout: \(style.rawValue)",
+            "Window key: \(window.isKeyWindow); hidden: \(window.isHidden); bounds: \(window.bounds)",
+            "Host attached: \(hostView.window === window); frame: \(hostView.frame); bounds: \(hostView.bounds)"
+        ] + scrollViews(in: hostView).map {
+            "Scroll \(type(of: $0)): frame=\($0.frame), offset=\($0.contentOffset), content=\($0.contentSize), inset=\($0.adjustedContentInset)"
+        } + nodes.map {
+            "Node \(type(of: $0.element)): label=\(String(reflecting: $0.element.accessibilityLabel)), button=\($0.isButton), frame=\($0.frame(in: window))"
+        }
+        let attachment = XCTAttachment(string: lines.joined(separator: "\n"))
+        attachment.name = "Engraving sheet mount metadata \(style.rawValue)"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     private func darkPixels(in image: UIImage, region: CGRect? = nil) throws -> Int {

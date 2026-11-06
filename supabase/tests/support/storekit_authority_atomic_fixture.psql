@@ -1,0 +1,76 @@
+-- Isolated PostgreSQL fixture only. Never run against a linked Supabase stack.
+-- The .psql extension excludes this non-TAP fixture from supabase test db discovery.
+do $$
+begin
+    if current_database() <> 'ichart_authority_audit' then
+        raise exception 'Create a fresh ichart_authority_audit database in a disposable test container.';
+    end if;
+    if to_regclass('public.subscriptions') is not null
+        or to_regclass('public.app_store_notification_events') is not null then
+        raise exception 'Authority fixture requires a new empty database.';
+    end if;
+    if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon nologin; end if;
+    if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated nologin; end if;
+    if not exists (select 1 from pg_roles where rolname = 'service_role') then create role service_role nologin bypassrls; end if;
+end;
+$$;
+
+create schema auth;
+create table auth.users (id uuid primary key);
+create table public.subscriptions (
+    id uuid primary key default gen_random_uuid(),
+    owner_id uuid not null unique references auth.users(id) on delete cascade,
+    plan text not null default 'free',
+    status text not null default 'inactive',
+    stripe_customer_id text,
+    stripe_subscription_id text,
+    current_period_end timestamptz,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    provider text not null default 'none' check (provider in ('none', 'storekit', 'stripe', 'manual')),
+    storekit_product_id text,
+    storekit_original_transaction_id text,
+    storekit_environment text check (storekit_environment is null or storekit_environment in ('sandbox', 'production')),
+    app_store_status text check (app_store_status is null or app_store_status in ('active', 'grace', 'billing_retry', 'expired', 'revoked', 'refunded')),
+    app_store_notification_type text,
+    app_store_last_transaction_id text,
+    entitlement_expires_at timestamptz,
+    grace_period_expires_at timestamptz,
+    revoked_at timestamptz,
+    last_verified_at timestamptz,
+    storekit_app_account_token uuid,
+    app_store_signed_at timestamptz,
+    app_store_notification_uuid text,
+    app_store_auto_renew_status boolean,
+    cloud_retention_deadline timestamptz,
+    expiration_warning_sent_at timestamptz,
+    cloud_retention_deleted_at timestamptz
+);
+create unique index subscriptions_storekit_original_transaction_id_idx
+    on public.subscriptions(storekit_original_transaction_id)
+    where storekit_original_transaction_id is not null;
+create table public.app_store_notification_events (
+    notification_uuid text primary key check (btrim(notification_uuid) <> ''),
+    original_transaction_id text not null check (btrim(original_transaction_id) <> ''),
+    signed_at timestamptz,
+    received_at timestamptz not null default now()
+);
+alter table public.subscriptions enable row level security;
+alter table public.app_store_notification_events enable row level security;
+revoke all on public.subscriptions, public.app_store_notification_events from public, anon, authenticated;
+grant usage on schema public to service_role;
+grant all on public.subscriptions, public.app_store_notification_events to service_role;
+
+create function public.audit_authority_update_failure()
+returns trigger language plpgsql set search_path = pg_catalog as $$
+begin
+    if current_setting('ichart.audit.fail_authority', true) = 'on' then
+        raise check_violation using message = 'Controlled authority update failure.';
+    end if;
+    new.updated_at := now();
+    return new;
+end;
+$$;
+create trigger audit_authority_update_failure
+    before update on public.subscriptions
+    for each row execute function public.audit_authority_update_failure();

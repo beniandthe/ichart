@@ -1,0 +1,17 @@
+[
+  {
+    "stage": "fixture",
+    "exitCode": 0,
+    "file": "supabase/tests/support/storekit_authority_atomic_fixture.psql"
+  },
+  {
+    "stage": "migration",
+    "exitCode": 0,
+    "file": "supabase/migrations/20261106045008_atomic_storekit_subscription_authority.sql"
+  },
+  {
+    "stage": "serial",
+    "exitCode": 0,
+    "file": "supabase/tests/storekit_authority_atomic_test.psql"
+  }
+]

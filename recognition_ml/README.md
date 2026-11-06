@@ -11,6 +11,23 @@ contracts and the separate RecognitionStudy app remain available through the
 CI workflow's explicit `run_recognition_research` dispatch input. Swift app
 recognition safety and parser tests remain in normal app validation.
 
+### Parked-toolchain security maintenance — November 5, 2026
+
+The optional `training` and `export` extras now pin **Pillow 13.0.0**, the
+patched release identified by the current Pillow dependency advisories. These
+extras require **Python 3.11 or newer** because Pillow 13 no longer supports
+Python 3.10; the existing optional CI lane uses Python 3.12. The dependency-free
+base contract/CLI package still supports Python 3.10 and newer.
+
+This pin change does not resume training, run an evaluation, generate a model or
+activate a production recognizer. Preserve historical environments, frozen
+manifests, model artifacts and source snapshots unchanged. A recorded Pillow
+version is part of an old experiment's provenance: do not rewrite it or treat a
+replay under the new environment as the same result. Use a separate environment
+when validating the patched extra. See the maintainer's
+[13.0.0 release notes](https://pillow.readthedocs.io/en/stable/releasenotes/13.0.0.html)
+and [security advisory](https://github.com/advisories/GHSA-5x8w-8jj5-q52h).
+
 This directory is the reproducible, writer-independent data-contract boundary for
 future chord-recognition training and evaluation. It intentionally contains no
 handwriting, labels, model weights, checkpoints, or generated manifests.
@@ -516,9 +533,9 @@ sigmoid without renormalizing surviving candidates.
 `research.personal_symbol_training` and `research.personal_symbol_expansion`
 continue the local customizable visual model. They do not invoke another OCR
 engine, ingest private corrections into shared training, or emit a production
-manifest. Install the `training` extra for the pinned PyTorch/NumPy/Pillow
-dependencies. Sources are provided explicitly, hash-checked, and kept outside
-Git. No archive code is executed or extracted.
+manifest. Install the `training` extra with Python 3.11 or newer for the pinned
+PyTorch/NumPy/Pillow dependencies. Sources are provided explicitly, hash-checked,
+and kept outside Git. No archive code is executed or extracted.
 
 The fixed mixed-source and frozen-output-only comparisons, their data/license
 limits, and the failed live-reader promotion decision are recorded in

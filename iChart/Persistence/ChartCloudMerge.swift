@@ -10,6 +10,8 @@ struct ChartCloudPushResult: Equatable {
     var lastRemoteBackupAt: Date
     var backedUpChartIDs: Set<Chart.ID>
     var tombstonedChartIDs: Set<Chart.ID>
+    var acknowledgedContentSHA256ByChartID: [Chart.ID: String] = [:]
+    var didPerformRemoteWrites: Bool = true
 }
 
 struct ChartCloudRemoteLibrary: Equatable {

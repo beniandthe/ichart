@@ -5,6 +5,55 @@ import XCTest
 @testable import iChart
 
 final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
+    func testSavedRhythmicInkIndexIsSparseAndKeepsFirstDuplicateMeasure() throws {
+        var measures = Chart.blank(title: "Synthetic index", measureCount: 4).measures
+        let duplicateID = measures[0].id
+        measures[1].id = duplicateID
+        measures[1].handwrittenRhythmicNotationData = Data([1, 2])
+        measures[2].handwrittenRhythmicNotationData = Data([3, 4])
+        measures[2].handwrittenRhythmicNotationCoordinateSpace = PersistentInkCoordinateSpace(width: 120, height: 60)
+        measures[3].handwrittenRhythmicNotationData = Data()
+
+        let entries = LeadSheetSavedRhythmicInkIndex.entries(in: measures)
+
+        XCTAssertNil(entries[duplicateID], "The first occurrence has no ink; a later duplicate must not replace it.")
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[measures[2].id]?.drawingData, Data([3, 4]))
+        XCTAssertEqual(entries[measures[2].id]?.coordinateSpace,
+            measures[2].handwrittenRhythmicNotationCoordinateSpace)
+        XCTAssertNil(entries[measures[3].id])
+    }
+
+    func testSavedRhythmicInkIndexReadsEachInputOnceAndLookupsDoNotRescan() {
+        var measures = Chart.blank(title: "Synthetic index", measureCount: 256).measures
+        for index in measures.indices where index.isMultiple(of: 32) {
+            measures[index].handwrittenRhythmicNotationData = Data([UInt8(index)])
+        }
+        var iteratorCount = 0
+        var yieldedCount = 0
+        let input = AnySequence<Measure> {
+            iteratorCount += 1
+            var iterator = measures.makeIterator()
+            return AnyIterator<Measure> {
+                guard let measure = iterator.next() else { return nil }
+                yieldedCount += 1
+                return measure
+            }
+        }
+
+        let entries = LeadSheetSavedRhythmicInkIndex.entries(in: input)
+        XCTAssertEqual(iteratorCount, 1)
+        XCTAssertEqual(yieldedCount, measures.count)
+        XCTAssertEqual(entries.count, 8)
+        for _ in 0..<4 {
+            for measure in measures {
+                XCTAssertEqual(entries[measure.id]?.drawingData, measure.handwrittenRhythmicNotationData)
+            }
+        }
+        XCTAssertEqual(iteratorCount, 1)
+        XCTAssertEqual(yieldedCount, measures.count)
+    }
+
     func testEditorPerformanceMetricsCountsDragAndChartWriteBackSignals() {
         var metrics = LeadSheetEditorPerformanceMetrics()
 

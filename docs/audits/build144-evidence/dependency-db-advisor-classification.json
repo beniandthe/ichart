@@ -1,0 +1,380 @@
+{
+  "generated_at": "2026-11-06T05:01:47.325612+00:00",
+  "baseline": {
+    "commit": "00f7901538074670251cd6626c1efa88a3bd1aec",
+    "installed_build": "1.2.4 (144)",
+    "audit_branch": "codex/build144-app-db-audit"
+  },
+  "scope": "Read-only dependency metadata and previously captured DB advisor/catalog aggregate review; no live SQL, credential reads, model training or generation, backend deployment, device actions or Git mutations by this agent.",
+  "dependency_snapshot": {
+    "observed_at": "2026-11-06T04:46:16.352907+00:00",
+    "repository": "beniandthe/ichart",
+    "open_alert_count": 41,
+    "severity_counts": {
+      "critical": 5,
+      "medium": 13,
+      "high": 23
+    },
+    "manifest_counts": {
+      "recognition_ml/pyproject.toml": 41
+    },
+    "package_counts": {
+      "pillow": 12,
+      "Pillow": 29
+    },
+    "relationship_counts": {
+      "direct": 41
+    },
+    "patch_versions": {
+      "13.0.0": 41
+    }
+  },
+  "critical_primary_advisories": [
+    "https://github.com/advisories/GHSA-5x8w-8jj5-q52h",
+    "https://github.com/advisories/GHSA-v9pv-5gc8-w2m6",
+    "https://github.com/advisories/GHSA-332p-7hrc-92wf",
+    "https://github.com/advisories/GHSA-w889-685w-c8fh",
+    "https://github.com/advisories/GHSA-8g5g-8vmr-9782"
+  ],
+  "dependency_change": {
+    "files": [
+      "recognition_ml/pyproject.toml",
+      "recognition_ml/README.md"
+    ],
+    "training_Pillow": "13.0.0",
+    "export_Pillow": "13.0.0",
+    "base_python": ">=3.10",
+    "extras_python": ">=3.11",
+    "frozen_provenance_preserved": true,
+    "training_resumed": false,
+    "validation": "Scoped diff --check passed; parent owns isolated Python3.12/Pillow13 synthetic decoder tests; no installs/tests by this agent."
+  },
+  "advisors": {
+    "security": [
+      {
+        "name": "rls_enabled_no_policy",
+        "level": "INFO",
+        "count": 14,
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy"
+      },
+      {
+        "name": "authenticated_security_definer_function_executable",
+        "level": "WARN",
+        "count": 7,
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      },
+      {
+        "name": "auth_insufficient_mfa_options",
+        "level": "WARN",
+        "count": 1,
+        "remediation": "https://supabase.com/docs/guides/auth/auth-mfa"
+      }
+    ],
+    "performance": [
+      {
+        "name": "unindexed_foreign_keys",
+        "level": "INFO",
+        "count": 14,
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0001_unindexed_foreign_keys"
+      },
+      {
+        "name": "unused_index",
+        "level": "INFO",
+        "count": 14,
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0005_unused_index"
+      },
+      {
+        "name": "auth_db_connections_absolute",
+        "level": "INFO",
+        "count": 1,
+        "remediation": "https://supabase.com/docs/guides/deployment/going-into-prod"
+      }
+    ],
+    "health": []
+  },
+  "db_classification": {
+    "rls_enabled_no_policy": "Intentional fail-closed internal/service tables. Direct public/anon/auth privileges revoked. Study ledger FORCE RLS; later ledger migration revokes earlier service direct-table privileges. Do not add broad client policies to silence INFO.",
+    "authenticated_security_definer_function_executable": "Seven intentional owner-scoped RPCs; empty search_path; ownership derives from auth.uid; caller-expected owner UUID is rejection guard only; source revokes PUBLIC/anon; private helpers not executable by public/anon/auth. Changing to INVOKER or revoking authenticated would break designed access.",
+    "unindexed_foreign_keys": "Fourteen catalog opportunities on tables currently 0-107 rows, including four empty parked-study relationships. No workload plan demonstrates current bottleneck. Do not blanket-index for linter.",
+    "unused_index": "Fourteen low-use warnings are not removal evidence; retain uniqueness and rare/cold access paths absent workload/constraint proof.",
+    "auth_insufficient_mfa_options": "Operational authentication-policy decision; no automatic production configuration change.",
+    "auth_db_connections_absolute": "Fixed10 connection allocation; operational capacity choice. Current observed8/60 total connections, no waiting locks. No automatic production configuration change.",
+    "health": "No health advisory lint. Root receipts report no deadlocks/checksum failures/conflicts/invalid-or-unready indexes/waiting locks; this is a point-in-time observation, not a proof of all user content.",
+    "main_storage": "chart_snapshots approx1.583GB of approx1.642GB DB;26,007 rows. Main storage concern is historical snapshot retention/deduplication, with user recovery semantics preserved. Parent owns query/implementation decisions.",
+    "limits": "Reviewed current source migrations and root-captured advisor/aggregate receipts; did not independently hash live pg_proc bodies/ACLs against migrations. Matching migration versions alone does not exclude catalog drift."
+  },
+  "deployment_reproducibility": [
+    {
+      "priority": "P2",
+      "path": "scripts/run_supabase_local_qa.sh:11",
+      "finding": "Accepts arbitrary global CLI; fallback npx --yes supabase unpinned; db reset starts before version guard. Optional local QA only, not ordinary CI/proddeploy.",
+      "proposal": "Pin validated CLI2.109.0 centrally, validate global version before reset, explicit npx supabase@2.109.0 fallback, mocked mismatch-before-mutation tests; CLI3 separate migration."
+    },
+    {
+      "priority": "P2",
+      "path": ".github/workflows/ci.yml:29",
+      "finding": "Backend job uses ubuntu-latest bare node/python3 and whichever PG16+ pg_config supplies.",
+      "proposal": "Record known-green versions and select them explicitly or a supported matrix; at least print tool versions."
+    },
+    {
+      "priority": "P2",
+      "path": "supabase/functions/_shared/complimentary_offer_api_client.deno-test.mjs:10",
+      "finding": "Real pinned AppleSDK+syntheticES256 integration test exists but no workflow invokes Deno. No deno.lock/json tracked. Direct imports pinned; transitives not frozen for future deploy. Existing deployed bundle does not change on its own.",
+      "proposal": "Validate pinned Deno plus per-function config/locks and existing synthetic no-network AppleSDK composition gate. Preserve Apple3.1.0 and patched jsrsasign11.1.5. Verify Supabase bundler actually consumes lock before deployment reproducibility claim; no automatic redeploy or SDK upgrade."
+    }
+  ],
+  "source_anchors": {
+    "server_only_tables": [
+      "supabase/migrations/20260621001910_security_hardening.sql:43",
+      "supabase/migrations/20260813192919_telemetry_foundation.sql:30",
+      "supabase/migrations/20261008173453_storekit_complimentary_campaign.sql:52",
+      "supabase/migrations/20261015203728_free_pro_access.sql:12",
+      "supabase/migrations/20261015232153_voluntary_free_pro_beta.sql:10",
+      "supabase/migrations/20260923013805_recognition_study_collection_authority.sql:154",
+      "supabase/migrations/20260923024500_recognition_study_capture_ingest.sql:77",
+      "supabase/migrations/20260923033000_recognition_study_consent_ledger.sql:165"
+    ],
+    "owner_scoped_functions": [
+      "supabase/migrations/20261015232153_voluntary_free_pro_beta.sql:31",
+      "supabase/migrations/20261015232153_voluntary_free_pro_beta.sql:44",
+      "supabase/migrations/20261015232153_voluntary_free_pro_beta.sql:54",
+      "supabase/migrations/20261015232153_voluntary_free_pro_beta.sql:72",
+      "supabase/migrations/20261016022548_atomic_forum_publication.sql:4",
+      "supabase/migrations/20260923033000_recognition_study_consent_ledger.sql:292",
+      "supabase/migrations/20260923033000_recognition_study_consent_ledger.sql:539",
+      "supabase/migrations/20260923033000_recognition_study_consent_ledger.sql:717",
+      "supabase/migrations/20260923033000_recognition_study_consent_ledger.sql:909",
+      "supabase/migrations/20260923033000_recognition_study_consent_ledger.sql:930"
+    ]
+  },
+  "primary_sources": [
+    "https://pillow.readthedocs.io/en/stable/releasenotes/13.0.0.html",
+    "https://pypi.org/project/pillow/13.0.0/",
+    "https://github.com/python-pillow/Pillow/releases/tag/13.0.0",
+    "https://docs.github.com/en/rest/security-advisories/global-advisories",
+    "https://github.com/kjur/jsrsasign",
+    "https://github.com/kjur/jsrsasign/blob/master/ChangeLog.txt",
+    "https://supabase.com/docs/guides/functions/dependencies",
+    "https://docs.deno.com/runtime/reference/deno_json/#lockfile",
+    "https://docs.deno.com/runtime/packages/#lockfile-and-reproducible-installs",
+    "https://docs.deno.com/runtime/reference/cli/test/",
+    "https://docs.deno.com/runtime/reference/permissions/",
+    "https://docs.deno.com/runtime/fundamentals/security/",
+    "https://supabase.com/changelog/supabase-cli-v3"
+  ],
+  "dependency_graph_coverage": {
+    "observed_at": "2026-11-06T04:57:14.675403+00:00",
+    "package_count": 13,
+    "caveat": "Current repository SBOM has 5PyPI,1npm,6GitHubActions,1GitHub repository; none of seven native Swift pins or two Edge npm imports. Repository Dependabot backlog is not shipped dependency coverage proof."
+  },
+  "shipped_native_advisories": {
+    "catalog_reviewed_swift_count": 64,
+    "package_alias_handling": "Strip URL scheme, trailing slash and .git; match exact canonical repo path or bare Swift package identity, accounting for reviewed catalog aliases.",
+    "historical_matches": [
+      {
+        "ghsa": "GHSA-9m44-rr2w-ppp7",
+        "severity": "high",
+        "summary": "Swift Crypto: X-Wing HPKE Decapsulation Accepts Malformed Ciphertext Length",
+        "url": "https://github.com/advisories/GHSA-9m44-rr2w-ppp7",
+        "package": "swift-crypto",
+        "locked_version": "4.5.2",
+        "affected_range": ">= 4.0.0, <= 4.3.0",
+        "first_patched_version": "4.3.1"
+      },
+      {
+        "ghsa": "GHSA-w8xv-rwgf-4fwh",
+        "severity": "low",
+        "summary": "CVE-2025-0343: Swift ASN.1 can crash when parsing maliciously formed BER/DER",
+        "url": "https://github.com/advisories/GHSA-w8xv-rwgf-4fwh",
+        "package": "github.com/apple/swift-asn1",
+        "locked_version": "1.7.3",
+        "affected_range": "<= 1.3.0",
+        "first_patched_version": "1.3.1"
+      }
+    ],
+    "exact_version_query_affected_counts": {
+      "swift_crypto_locked": 0,
+      "swift_asn1_locked": 0
+    },
+    "limits": "Current reviewed GitHub advisory metadata only; not a guarantee of vulnerability absence or comprehensive audit of binary implementation."
+  },
+  "shipped_edge_advisories": {
+    "apple_sdk_3_1_0_reviewed_affected_count": 0,
+    "jsrsasign_11_1_0_reviewed_affected": [
+      {
+        "ghsa": "GHSA-wvqx-v3f6-w8rh",
+        "cve": "CVE-2026-4600",
+        "summary": "jsrsasign: DSA signatures or X.509 certificates can be forged via DSA domain-parameter validation in KJUR.crypto.DSA.setPublic",
+        "severity": "high",
+        "type": "reviewed",
+        "published_at": "2026-03-23T06:30:29Z",
+        "updated_at": "2026-07-21T15:03:28Z",
+        "withdrawn_at": null,
+        "advisory_url": "https://github.com/advisories/GHSA-wvqx-v3f6-w8rh",
+        "vulnerabilities": [
+          {
+            "package": {
+              "ecosystem": "npm",
+              "name": "jsrsasign"
+            },
+            "vulnerable_version_range": "< 11.1.1",
+            "first_patched_version": "11.1.1",
+            "vulnerable_functions": []
+          }
+        ]
+      },
+      {
+        "ghsa": "GHSA-5jx8-q4cp-rhh6",
+        "cve": "CVE-2026-4599",
+        "summary": "jsrsasign: Incomplete Comparison Allows DSA Private Key Recovery via Biased Nonce Generation",
+        "severity": "critical",
+        "type": "reviewed",
+        "published_at": "2026-03-23T06:30:29Z",
+        "updated_at": "2026-07-21T13:42:20Z",
+        "withdrawn_at": null,
+        "advisory_url": "https://github.com/advisories/GHSA-5jx8-q4cp-rhh6",
+        "vulnerabilities": [
+          {
+            "package": {
+              "ecosystem": "npm",
+              "name": "jsrsasign"
+            },
+            "vulnerable_version_range": ">= 7.0.0, < 11.1.1",
+            "first_patched_version": "11.1.1",
+            "vulnerable_functions": []
+          }
+        ]
+      },
+      {
+        "ghsa": "GHSA-464q-cqxq-xhgr",
+        "cve": "CVE-2026-4603",
+        "summary": "jsrsasign: Division by Zero Allows Invalid JWK Modulus to Cause Deterministic Zero Output in RSA Operations",
+        "severity": "low",
+        "type": "reviewed",
+        "published_at": "2026-03-23T06:30:29Z",
+        "updated_at": "2026-03-30T19:30:17Z",
+        "withdrawn_at": null,
+        "advisory_url": "https://github.com/advisories/GHSA-464q-cqxq-xhgr",
+        "vulnerabilities": [
+          {
+            "package": {
+              "ecosystem": "npm",
+              "name": "jsrsasign"
+            },
+            "vulnerable_version_range": "< 11.1.1",
+            "first_patched_version": "11.1.1",
+            "vulnerable_functions": []
+          }
+        ]
+      },
+      {
+        "ghsa": "GHSA-8qwj-4jxw-m8jw",
+        "cve": "CVE-2026-4602",
+        "summary": "jsrsasign: Negative Exponent Handling Leads to Signature Verification Bypass",
+        "severity": "high",
+        "type": "reviewed",
+        "published_at": "2026-03-23T06:30:29Z",
+        "updated_at": "2026-07-21T13:42:25Z",
+        "withdrawn_at": null,
+        "advisory_url": "https://github.com/advisories/GHSA-8qwj-4jxw-m8jw",
+        "vulnerabilities": [
+          {
+            "package": {
+              "ecosystem": "npm",
+              "name": "jsrsasign"
+            },
+            "vulnerable_version_range": "< 11.1.1",
+            "first_patched_version": "11.1.1",
+            "vulnerable_functions": []
+          }
+        ]
+      },
+      {
+        "ghsa": "GHSA-8g7p-jf3g-gxcp",
+        "cve": "CVE-2026-4598",
+        "summary": "jsrsasign is vulnerable to DoS through Infinite Loop when processing zero or negative inputs",
+        "severity": "high",
+        "type": "reviewed",
+        "published_at": "2026-03-23T06:30:29Z",
+        "updated_at": "2026-07-21T13:42:16Z",
+        "withdrawn_at": null,
+        "advisory_url": "https://github.com/advisories/GHSA-8g7p-jf3g-gxcp",
+        "vulnerabilities": [
+          {
+            "package": {
+              "ecosystem": "npm",
+              "name": "jsrsasign"
+            },
+            "vulnerable_version_range": "< 11.1.1",
+            "first_patched_version": "11.1.1",
+            "vulnerable_functions": []
+          }
+        ]
+      },
+      {
+        "ghsa": "GHSA-w8q8-93cx-6h7r",
+        "cve": "CVE-2026-4601",
+        "summary": "jsrsasign: Missing cryptographic validation during DSA signing enables private key extraction",
+        "severity": "high",
+        "type": "reviewed",
+        "published_at": "2026-03-23T06:30:29Z",
+        "updated_at": "2026-03-29T15:52:00Z",
+        "withdrawn_at": null,
+        "advisory_url": "https://github.com/advisories/GHSA-w8q8-93cx-6h7r",
+        "vulnerabilities": [
+          {
+            "package": {
+              "ecosystem": "npm",
+              "name": "jsrsasign"
+            },
+            "vulnerable_version_range": "< 11.1.1",
+            "first_patched_version": "11.1.1",
+            "vulnerable_functions": []
+          }
+        ]
+      }
+    ],
+    "jsrsasign_11_1_5_reviewed_affected_count": 0,
+    "reachability_qualification": "App verifier uses X509 parsing/OID extraction and last-resort KJUR certificate verification after Node/WebCrypto; no DSA signing calls. Six package advisories are not proof of six exploitable application vulnerabilities. Parser/verification surface justifies patch maintenance.",
+    "patch_applied": {
+      "path": "supabase/functions/_shared/app_store_signed_data_verifier.mjs:7",
+      "old": "npm:jsrsasign@11.1.0",
+      "new": "npm:jsrsasign@11.1.5",
+      "diff": "One import line only. Certificate trust, algorithms, fallback order and configuration unchanged.",
+      "validation": "Scoped diff --check passed; parent owns actual-version isolated crypto/bundle/backend validation; no build/test/deploy here."
+    },
+    "deprecation": {
+      "upstream_end_of_support": "2026-08-14",
+      "npm_latest": "11.1.5",
+      "npm_deprecation": "This package is no longer maintained.",
+      "source": "https://github.com/kjur/jsrsasign",
+      "changelog": "https://github.com/kjur/jsrsasign/blob/master/ChangeLog.txt",
+      "qualification": "Final11.1.5 contains post11.1.1 security patches including ASN.1 parser fixes; patch does not restore ongoing maintainer support. Apple3.1.0 also declares jsrsasign ^11.0.0, so direct import replacement alone is not a full removal plan."
+    }
+  },
+  "apple_sdk_replacement_proposal": {
+    "latest_npm": "3.1.0",
+    "npm_published_at": "2026-05-06T01:14:11.509Z",
+    "latest_release": "v3.1.0",
+    "release_published_at": "2026-05-06T01:13:52Z",
+    "published_jsrsasign_range": "^11.0.0",
+    "unreleased_main_version": "3.1.0",
+    "unreleased_main_jsrsasign_range": "^11.1.5",
+    "manifest_commit": "990b3a28804b2ec55ba14281b7da97be187bfcd5",
+    "manifest_commit_time": "2026-10-15T02:20:42Z",
+    "conclusion": "No currently published supported Node SDK upgrade removes unsupported jsrsasign. Retain Apple3.1.0 until independently validated migration; preserve patched direct11.1.5; a future validated lock must freeze transitive11.1.5 as well. Keep end-of-support lifecycle debt open.",
+    "support_contract": "Apple supports latest major and current README requires Node22+. This does not prove official Deno compatibility.",
+    "why_direct_removal_not_sufficient": "Published Apple verifier itself imports KJUR/X509/ASN1HEX for certificate OIDs and OCSP; removal of only our direct import leaves the dependency in the SDK.",
+    "validation_scope": "Synthetic signed-request SDK test covers bearer-token creation/transport override, not certificate-extension or OCSP parsing. Actual patched-version validation should include trusted chain and malformed/wrong-scope negatives; preserve Node/WebCrypto/KJUR compatibility fallback and fail-closed root/CA/date/scope checks.",
+    "no_actions": "Read metadata/source only: no installs, dependency resolution, builds, tests, deployment, DB query or source SDK upgrade.",
+    "sources": [
+      "https://registry.npmjs.org/@apple%2fapp-store-server-library",
+      "https://github.com/apple/app-store-server-library-node/releases/tag/v3.1.0",
+      "https://github.com/apple/app-store-server-library-node/blob/v3.1.0/package.json",
+      "https://github.com/apple/app-store-server-library-node/blob/main/package.json",
+      "https://github.com/apple/app-store-server-library-node/commit/990b3a28804b2ec55ba14281b7da97be187bfcd5",
+      "https://github.com/apple/app-store-server-library-node/blob/main/README.md",
+      "https://github.com/apple/app-store-server-library-node/blob/v3.1.0/jws_verification.ts"
+    ]
+  }
+}

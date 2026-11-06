@@ -99,59 +99,7 @@ export async function upsertSubscriptionAuthorityClaim(
     };
   }
 
-  const existingRows = await subscriptionAuthorityRowsForOriginalTransaction(
-    configuration,
-    originalTransactionID,
-    fetcher
-  );
-  const conflictingRow = existingRows.find((row) => normalizedString(row?.owner_id) !== normalizedOwnerID);
-  if (conflictingRow !== undefined) {
-    return {
-      stored: false,
-      mapping_status: "original_transaction_owner_conflict",
-      subscription: conflictingRow,
-    };
-  }
-
-  const existingOwnerRow = existingRows.find((row) => normalizedString(row?.owner_id) === normalizedOwnerID);
-  if (existingOwnerRow !== undefined && incomingAuthorityIsStale(existingOwnerRow, authorityUpdate)) {
-    return {
-      stored: false,
-      mapping_status: "stale_transaction_claim",
-      subscription: existingOwnerRow,
-    };
-  }
-
-  const currentOwnerRow = existingOwnerRow ?? await subscriptionAuthorityRowForOwner(
-    configuration,
-    normalizedOwnerID,
-    fetcher
-  );
-  const claimingNewOriginalTransaction = currentOwnerRow !== undefined
-    && normalizedString(currentOwnerRow?.storekit_original_transaction_id) !== originalTransactionID;
-  const shouldClearStaleRenewalStatus = claimingNewOriginalTransaction
-    && normalizedString(authorityUpdate?.provider) === "storekit"
-    && normalizedString(authorityUpdate?.status) === "active";
-  const row = {
-    owner_id: normalizedOwnerID,
-    ...authorityUpdate,
-    ...(shouldClearStaleRenewalStatus ? { app_store_auto_renew_status: null } : {}),
-  };
-  const url = supabaseURL(configuration, "/rest/v1/subscriptions");
-  url.searchParams.set("on_conflict", "owner_id");
-
-  const response = await fetcher(url, {
-    method: "POST",
-    headers: supabaseRESTHeaders(configuration, "resolution=merge-duplicates,return=representation"),
-    body: JSON.stringify(row),
-  });
-  const rows = responseRows(await parseSupabaseJSONResponse(response));
-
-  return {
-    stored: true,
-    mapping_status: "claimed",
-    subscription: rows[0] ?? row,
-  };
+  return applySubscriptionAuthorityRPC(configuration, authorityUpdate, normalizedOwnerID, fetcher);
 }
 
 export async function updateMappedSubscriptionAuthority(configuration, authorityUpdate, fetcher = fetch) {
@@ -163,166 +111,33 @@ export async function updateMappedSubscriptionAuthority(configuration, authority
     };
   }
 
-  const existingRows = await subscriptionAuthorityRowsForOriginalTransaction(
-    configuration,
-    originalTransactionID,
-    fetcher
-  );
-  if (existingRows.length === 0) {
-    return {
-      stored: false,
-      mapping_status: "unmapped_original_transaction",
-    };
-  }
-
-  const duplicateNotification = await recordAppStoreNotificationEvent(
-    configuration,
-    authorityUpdate,
-    fetcher
-  );
-  if (duplicateNotification) {
-    return {
-      stored: false,
-      mapping_status: "duplicate_notification",
-      subscription: existingRows[0],
-    };
-  }
-
-  const staleRow = existingRows.find((row) => incomingAuthorityIsStale(row, authorityUpdate));
-  if (staleRow !== undefined) {
-    return {
-      stored: false,
-      mapping_status: "stale_notification",
-      subscription: staleRow,
-    };
-  }
-
-  const url = supabaseURL(configuration, "/rest/v1/subscriptions");
-  url.searchParams.set("storekit_original_transaction_id", `eq.${originalTransactionID}`);
-
-  const response = await fetcher(url, {
-    method: "PATCH",
-    headers: supabaseRESTHeaders(configuration, "return=representation"),
-    body: JSON.stringify(authorityUpdate),
-  });
-  const rows = responseRows(await parseSupabaseJSONResponse(response));
-
-  return {
-    stored: true,
-    mapping_status: "updated",
-    subscription: rows[0],
-  };
+  return applySubscriptionAuthorityRPC(configuration, authorityUpdate, null, fetcher);
 }
 
-async function subscriptionAuthorityRowsForOriginalTransaction(
-  configuration,
-  originalTransactionID,
-  fetcher
-) {
-  const url = supabaseURL(configuration, "/rest/v1/subscriptions");
-  url.searchParams.set("storekit_original_transaction_id", `eq.${originalTransactionID}`);
-  url.searchParams.set(
-    "select",
-    [
-      "owner_id",
-      "provider",
-      "plan",
-      "status",
-      "storekit_original_transaction_id",
-      "storekit_app_account_token",
-      "app_store_status",
-      "app_store_auto_renew_status",
-      "app_store_last_transaction_id",
-      "app_store_signed_at",
-      "app_store_notification_uuid",
-      "entitlement_expires_at",
-      "grace_period_expires_at",
-      "cloud_retention_deadline",
-      "cloud_retention_deleted_at",
-      "last_verified_at",
-    ].join(",")
-  );
-
-  const response = await fetcher(url, {
-    method: "GET",
-    headers: supabaseRESTHeaders(configuration),
-  });
-
-  return responseRows(await parseSupabaseJSONResponse(response));
-}
-
-async function subscriptionAuthorityRowForOwner(configuration, ownerID, fetcher) {
-  const url = supabaseURL(configuration, "/rest/v1/subscriptions");
-  url.searchParams.set("owner_id", `eq.${ownerID}`);
-  url.searchParams.set(
-    "select",
-    [
-      "owner_id",
-      "provider",
-      "plan",
-      "status",
-      "storekit_original_transaction_id",
-      "app_store_auto_renew_status",
-    ].join(",")
-  );
-  url.searchParams.set("limit", "1");
-
-  const response = await fetcher(url, {
-    method: "GET",
-    headers: supabaseRESTHeaders(configuration),
-  });
-
-  return responseRows(await parseSupabaseJSONResponse(response))[0];
-}
-
-async function recordAppStoreNotificationEvent(configuration, authorityUpdate, fetcher) {
-  const notificationUUID = normalizedString(authorityUpdate?.app_store_notification_uuid);
-  if (notificationUUID.length === 0) {
-    return false;
-  }
-
-  const url = supabaseURL(configuration, "/rest/v1/app_store_notification_events");
-  url.searchParams.set("on_conflict", "notification_uuid");
-  const response = await fetcher(url, {
+async function applySubscriptionAuthorityRPC(configuration, authorityUpdate, claimOwnerID, fetcher) {
+  // The transaction locks and rechecks ownership/order, acknowledges the
+  // notification UUID, and changes authority together. Never fall back to
+  // separate REST writes: a failed authority update must remain retryable.
+  const response = await fetcher(supabaseURL(configuration, "/rest/v1/rpc/apply_storekit_subscription_authority"), {
     method: "POST",
-    headers: supabaseRESTHeaders(configuration, "resolution=ignore-duplicates,return=representation"),
-    body: JSON.stringify({
-      notification_uuid: notificationUUID,
-      original_transaction_id: normalizedString(authorityUpdate?.storekit_original_transaction_id),
-      signed_at: authorityUpdate?.app_store_signed_at ?? null,
-    }),
+    headers: supabaseRESTHeaders(configuration),
+    body: JSON.stringify({ authority_update: authorityUpdate, claim_owner_id: claimOwnerID }),
   });
-  const rows = responseRows(await parseSupabaseJSONResponse(response));
-  return rows.length === 0;
-}
-
-function incomingAuthorityIsStale(existingRow, authorityUpdate) {
-  const existingSignedAt = dateTime(existingRow?.app_store_signed_at);
-  const incomingSignedAt = dateTime(authorityUpdate?.app_store_signed_at);
-
-  if (existingSignedAt !== null) {
-    if (incomingSignedAt === null || incomingSignedAt < existingSignedAt) {
-      return true;
-    }
-  }
-
+  const result = await parseSupabaseJSONResponse(response);
+  const allowedStatuses = claimOwnerID === null
+    ? new Set(["missing_original_transaction", "unmapped_original_transaction", "duplicate_notification", "stale_notification", "updated"])
+    : new Set(["missing_original_transaction", "original_transaction_owner_conflict", "stale_transaction_claim", "claimed"]);
   if (
-    existingSignedAt !== null
-    && incomingSignedAt !== null
-    && incomingSignedAt.getTime() === existingSignedAt.getTime()
+    result === null
+    || typeof result !== "object"
+    || Array.isArray(result)
+    || typeof result.stored !== "boolean"
+    || !allowedStatuses.has(result.mapping_status)
+    || result.stored !== ["updated", "claimed"].includes(result.mapping_status)
   ) {
-    const existingTransactionNumber = transactionNumber(existingRow?.app_store_last_transaction_id);
-    const incomingTransactionNumber = transactionNumber(authorityUpdate?.app_store_last_transaction_id);
-    if (
-      existingTransactionNumber !== null
-      && incomingTransactionNumber !== null
-      && incomingTransactionNumber < existingTransactionNumber
-    ) {
-      return true;
-    }
+    throw new Error("Supabase subscription authority returned an invalid transaction result.");
   }
-
-  return false;
+  return result;
 }
 
 function envValue(env, key) {
@@ -365,18 +180,6 @@ async function parseSupabaseJSONResponse(response) {
   return JSON.parse(text);
 }
 
-function responseRows(value) {
-  if (Array.isArray(value)) {
-    return value;
-  }
-
-  if (value === null || value === undefined) {
-    return [];
-  }
-
-  return [value];
-}
-
 function bearerTokenFromRequest(request) {
   const authorization = request.headers.get("authorization") ?? "";
   const match = authorization.match(/^Bearer\s+(\S+)$/i);
@@ -389,27 +192,4 @@ function normalizedString(value) {
   }
 
   return String(value).trim();
-}
-
-function dateTime(value) {
-  const candidate = normalizedString(value);
-  if (candidate.length === 0) {
-    return null;
-  }
-
-  const date = new Date(candidate);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function transactionNumber(value) {
-  const candidate = normalizedString(value);
-  if (!/^\d+$/.test(candidate)) {
-    return null;
-  }
-
-  try {
-    return BigInt(candidate);
-  } catch {
-    return null;
-  }
 }

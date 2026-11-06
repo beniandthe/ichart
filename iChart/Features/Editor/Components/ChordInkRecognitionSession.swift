@@ -282,32 +282,26 @@ enum ChordInkRecognitionPreparation {
         }
 
         let visibleEndingRecognition: ChordDraftEndingRecognition
-        if request.flow == .draftPreview {
-            visibleEndingRecognition = visibleSourceContext.endingRecognitionWithUnambiguousSourceStrokes(
-                ChordDraftEndingRecognizer.recognize(strokes: sourceStrokes,
-                    chordFrame: request.chordFrame, pageLayout: request.pageLayout)
-            )
-        } else {
-            visibleEndingRecognition = ChordDraftEndingRecognition(endings: [], strokeIndices: [])
-        }
-        let endingRecognition = visibleSourceContext.remappedEndingRecognition(visibleEndingRecognition)
         let visibleBarlineRecognition: ChordDraftBarlineRecognition
         if request.flow == .draftPreview {
-            let rawVisibleBarlineRecognition = ChordDraftEndingRecognizer.recognizeBarlinesExcludingEndings(
-                strokes: sourceStrokes,
-                chordFrame: request.chordFrame,
-                pageLayout: request.pageLayout
+            let structures = ChordDraftEndingRecognizer.recognizeStructure(
+                strokes: sourceStrokes, chordFrame: request.chordFrame,
+                pageLayout: request.pageLayout)
+            visibleEndingRecognition = visibleSourceContext.endingRecognitionWithUnambiguousSourceStrokes(
+                structures.endings
             )
             visibleBarlineRecognition = visibleSourceContext
                 .barlineRecognitionWithUnambiguousSourceStrokes(
-                    rawVisibleBarlineRecognition
+                    structures.barlines
                 )
         } else {
+            visibleEndingRecognition = ChordDraftEndingRecognition(endings: [], strokeIndices: [])
             visibleBarlineRecognition = ChordDraftBarlineRecognition(
                 barlines: [],
                 strokeIndices: []
             )
         }
+        let endingRecognition = visibleSourceContext.remappedEndingRecognition(visibleEndingRecognition)
         let barlineRecognition = request.flow == .draftPreview
             ? visibleSourceContext.remappedBarlineRecognition(visibleBarlineRecognition)
             : visibleBarlineRecognition
