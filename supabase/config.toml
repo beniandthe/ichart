@@ -87,3 +87,9 @@ entrypoint = "./functions/recognition-study-capture-upload/index.mjs"
 enabled = true
 verify_jwt = true
 entrypoint = "./functions/recognition-study-consent/index.mjs"
+
+# Operator-only archival job; the body validates the existing retention secret.
+[functions.owner-snapshot-retention]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/owner-snapshot-retention/index.mjs"

@@ -9,6 +9,10 @@ import {
 const confirmation = "DELETE_MY_ICHART_ACCOUNT";
 const ownerID = "00000000-0000-4000-8000-000000000001";
 const postID = "00000000-0000-4000-8000-000000000101";
+const archiveBucket = "ichart-owner-snapshot-archives";
+const archiveScopePath = "/rest/v1/rpc/owner_snapshot_archive_deletion_scope";
+const archiveListPath = `/storage/v1/object/list/${archiveBucket}`;
+const archiveBucketPath = `/storage/v1/bucket/${archiveBucket}`;
 
 test("account deletion rejects non-POST requests", async () => {
   const response = await handleAccountDeletionRequest(new Request("https://example.test", { method: "GET" }));
@@ -181,6 +185,7 @@ test("account deletion prepares forum rows before deleting storage and auth user
         `${ownerID}/pending.pdf`,
         `${ownerID}/published.pdf`,
       ],
+      listOwnerSnapshotArchiveStoragePaths: async () => [],
       prepareAccountDeletion: async (userID) => {
         calls.push(["prepare", userID]);
       },
@@ -212,6 +217,7 @@ test("account deletion still deletes auth user when there are no forum PDFs", as
     {
       authenticatedUserID: async () => ownerID,
       listForumPDFStoragePaths: async () => [],
+      listOwnerSnapshotArchiveStoragePaths: async () => [],
       prepareAccountDeletion: async () => {},
       deleteForumPDFStoragePaths: async () => {
         throw new Error("should not delete storage");
@@ -235,6 +241,7 @@ test("account deletion fails closed if database preparation fails", async () => 
     {
       authenticatedUserID: async () => ownerID,
       listForumPDFStoragePaths: async () => [`${ownerID}/published.pdf`],
+      listOwnerSnapshotArchiveStoragePaths: async () => [],
       prepareAccountDeletion: async () => {
         calls.push("prepare");
         throw new Error("prepare failed");
@@ -261,6 +268,7 @@ test("account deletion fails closed if storage cleanup fails", async () => {
     {
       authenticatedUserID: async () => ownerID,
       listForumPDFStoragePaths: async () => [`${ownerID}/published.pdf`],
+      listOwnerSnapshotArchiveStoragePaths: async () => [],
       prepareAccountDeletion: async () => {},
       deleteForumPDFStoragePaths: async () => {
         throw new Error("storage failed");
@@ -283,6 +291,7 @@ test("account deletion reports failure if auth deletion fails", async () => {
     {
       authenticatedUserID: async () => ownerID,
       listForumPDFStoragePaths: async () => [],
+      listOwnerSnapshotArchiveStoragePaths: async () => [],
       prepareAccountDeletion: async () => {},
       deleteAuthUser: async () => {
         throw new Error("auth failed");
@@ -310,6 +319,11 @@ test("account deletion wired dependencies verify bearer and delete owned server 
         if (path === "/auth/v1/user") {
           assert.equal(init.headers.authorization, "Bearer user-token");
           return jsonResponse(200, { id: ownerID });
+        }
+
+        if (path === "/rest/v1/rpc/owner_snapshot_archive_deletion_scope") {
+          assert.deepEqual(JSON.parse(init.body), { p_owner_id: ownerID });
+          return jsonResponse(200, { applies: false });
         }
 
         if (url.pathname === "/rest/v1/forum_chart_posts") {
@@ -384,6 +398,7 @@ test("account deletion wired dependencies verify bearer and delete owned server 
     ["GET", `/rest/v1/forum_chart_posts?owner_id=eq.${ownerID}&select=id%2Cpdf_storage_path&order=id.asc&limit=1000&id=gt.${postID}`, "Bearer service-role-test-key"],
     ["POST", "/storage/v1/object/list/forum_chart_pdfs", "Bearer service-role-test-key"],
     ["POST", "/storage/v1/object/list/forum_chart_pdfs", "Bearer service-role-test-key"],
+    ["POST", "/rest/v1/rpc/owner_snapshot_archive_deletion_scope", "Bearer service-role-test-key"],
     ["POST", "/rest/v1/rpc/prepare_account_deletion", "Bearer service-role-test-key"],
     ["DELETE", `/storage/v1/object/forum_chart_pdfs/${ownerID}/published.pdf`, "Bearer service-role-test-key"],
     ["DELETE", `/storage/v1/object/forum_chart_pdfs/${ownerID}/pending.pdf`, "Bearer service-role-test-key"],
@@ -480,6 +495,7 @@ test("account deletion rejects malformed, nested and unowned paths before mutati
     const response = await handleAccountDeletionRequest(deletionRequest({ confirmation }), {
       authenticatedUserID: async () => ownerID,
       listForumPDFStoragePaths: async () => [path],
+      listOwnerSnapshotArchiveStoragePaths: async () => [],
       prepareAccountDeletion: async () => calls.push("prepare"),
       deleteForumPDFStoragePaths: async () => calls.push("storage"),
       deleteAuthUser: async () => calls.push("auth"),
@@ -511,6 +527,7 @@ test("account deletion preserves case of owned legacy PDF object names", async (
   const response = await handleAccountDeletionRequest(deletionRequest({ confirmation }), {
     authenticatedUserID: async () => ownerID,
     listForumPDFStoragePaths: async () => [`${ownerID}/Legacy Chart.PDF`, `${ownerID}/Legacy Chart.PDF`],
+    listOwnerSnapshotArchiveStoragePaths: async () => [],
     prepareAccountDeletion: async () => {},
     deleteForumPDFStoragePaths: async (values) => paths.push(...values),
     deleteAuthUser: async () => {},
@@ -519,12 +536,312 @@ test("account deletion preserves case of owned legacy PDF object names", async (
   assert.deepEqual(paths, [`${ownerID}/Legacy Chart.PDF`]);
 });
 
+test("account deletion requires archive inventory authority before any mutation", async () => {
+  const mutations = [];
+  const response = await handleAccountDeletionRequest(deletionRequest({ confirmation }), {
+    authenticatedUserID: async () => ownerID,
+    prepareAccountDeletion: async () => mutations.push("prepare"),
+    deleteAuthUser: async () => mutations.push("auth"),
+  });
+  assert.equal(response.status, 501);
+  assert.deepEqual(mutations, []);
+});
+
+test("other-account deletion scopes only the verified bearer and never touches archive Storage", async () => {
+  const calls = [];
+  const dependencies = createArchiveWiredDependencies(async (url, init) => {
+    calls.push([init.method, url.pathname]);
+    if (url.pathname === archiveScopePath) {
+      assert.equal(init.headers.authorization, "Bearer service-role-test-key");
+      assert.deepEqual(JSON.parse(init.body), { p_owner_id: ownerID });
+      return jsonResponse(200, { applies: false });
+    }
+    if (url.pathname === "/rest/v1/rpc/prepare_account_deletion" || url.pathname === `/auth/v1/admin/users/${ownerID}`) {
+      return jsonResponse(200, {});
+    }
+    throw new Error("Other accounts must not inspect or delete archive Storage");
+  }, [], () => { throw new Error("Other accounts must not inspect archive bucket metadata"); });
+  const response = await handleAccountDeletionRequest(deletionRequest({
+    confirmation, owner_id: fixtureUUID(999), bucket: "unrelated", prefix: "/",
+  }, { authorization: "Bearer user-token" }), dependencies);
+  assert.equal(response.status, 202);
+  assert.deepEqual(calls, [
+    ["POST", archiveScopePath], ["POST", "/rest/v1/rpc/prepare_account_deletion"],
+    ["DELETE", `/auth/v1/admin/users/${ownerID}`],
+  ]);
+});
+
+test("configured-owner deletion fully inventories short archive pages before bounded deletion and Auth", async () => {
+  const objects = Array.from({ length: 1001 }, (_, index) => ({ name: `${fixtureUUID(index + 1)}.jsonl.gz` }));
+  const offsets = [];
+  const deleted = [];
+  let inventoryComplete = false;
+  let prepared = false;
+  let activeDeletes = 0;
+  let maximumActiveDeletes = 0;
+  let authDeleted = false;
+  let forumDeleted = false;
+  const dependencies = createArchiveWiredDependencies(async (url, init) => {
+    if (url.pathname === archiveScopePath) return jsonResponse(200, matchingArchiveScope());
+    if (url.pathname === archiveListPath) {
+      assert.equal(prepared, false);
+      assert.equal(activeDeletes, 0);
+      const body = JSON.parse(init.body);
+      assert.deepEqual(body, { prefix: `${ownerID}/`, limit: 1000, offset: body.offset,
+        sortBy: { column: "name", order: "asc" } });
+      offsets.push(body.offset);
+      const page = objects.slice(body.offset, body.offset + 333);
+      if (page.length === 0) inventoryComplete = true;
+      return jsonResponse(200, page);
+    }
+    if (url.pathname === "/rest/v1/rpc/prepare_account_deletion") {
+      assert.equal(inventoryComplete, true);
+      prepared = true;
+      return jsonResponse(200, {});
+    }
+    if (init.method === "DELETE" && url.pathname === `/storage/v1/object/forum_chart_pdfs/${ownerID}/owned.pdf`) {
+      assert.equal(inventoryComplete, true);
+      assert.equal(prepared, true);
+      forumDeleted = true;
+      return jsonResponse(200, {});
+    }
+    if (init.method === "DELETE" && url.pathname.startsWith(`/storage/v1/object/${archiveBucket}/${ownerID}/`)) {
+      assert.equal(prepared, true);
+      assert.equal(inventoryComplete, true);
+      assert.equal(authDeleted, false);
+      activeDeletes += 1;
+      maximumActiveDeletes = Math.max(maximumActiveDeletes, activeDeletes);
+      await new Promise((resolve) => setImmediate(resolve));
+      deleted.push(url.pathname);
+      activeDeletes -= 1;
+      return jsonResponse(deleted.length === 1 ? 404 : 200, {});
+    }
+    if (url.pathname === `/auth/v1/admin/users/${ownerID}`) {
+      assert.equal(activeDeletes, 0);
+      assert.equal(deleted.length, objects.length);
+      assert.equal(forumDeleted, true);
+      authDeleted = true;
+      return jsonResponse(200, {});
+    }
+    throw new Error("Unexpected archive cleanup request");
+  }, [{ name: "owned.pdf" }]);
+  const response = await handleAccountDeletionRequest(deletionRequest({ confirmation }, { authorization: "Bearer user-token" }), dependencies);
+  assert.equal(response.status, 202);
+  assert.deepEqual(offsets, [0, 333, 666, 999, 1001]);
+  assert.equal(new Set(deleted).size, objects.length);
+  assert.ok(maximumActiveDeletes > 1 && maximumActiveDeletes <= 10);
+  assert.equal(authDeleted, true);
+});
+
+test("busy archive fence stops before archive inventory and all destructive operations", async () => {
+  const calls = [];
+  const dependencies = createArchiveWiredDependencies(async (url, init) => {
+    calls.push([init.method, url.pathname]);
+    if (url.pathname === archiveScopePath) return jsonResponse(200, matchingArchiveScope({ ready: false }));
+    throw new Error("A leased archive must drain before inventory or destruction");
+  }, [], () => { throw new Error("Busy archive scopes must not inspect bucket metadata"); });
+  const response = await handleAccountDeletionRequest(deletionRequest({ confirmation }, { authorization: "Bearer user-token" }), dependencies);
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), { accepted: false, error: "Account deletion is temporarily busy. Try again shortly." });
+  assert.deepEqual(calls, [["POST", archiveScopePath]]);
+});
+
+test("missing malformed or unowned archive scopes fail before storage inventory or destruction", async () => {
+  const scopes = [null, [], {}, { applies: "false" }, matchingArchiveScope({ ready: undefined }),
+    matchingArchiveScope({ owner_id: fixtureUUID(999) }), matchingArchiveScope({ bucket: "forum_chart_pdfs" }),
+    matchingArchiveScope({ prefix: "" }), matchingArchiveScope({ prefix: "/" }),
+    matchingArchiveScope({ prefix: `${fixtureUUID(999)}/` })];
+  for (const scope of scopes) {
+    const calls = [];
+    const dependencies = createArchiveWiredDependencies(async (url, init) => {
+      calls.push([init.method, url.pathname]);
+      if (url.pathname === archiveScopePath) return jsonResponse(scope === null ? 404 : 200, scope);
+      throw new Error("Invalid scope cannot authorize storage or deletion");
+    }, [{ name: "owned.pdf" }]);
+    const response = await handleAccountDeletionRequest(deletionRequest({ confirmation }, { authorization: "Bearer user-token" }), dependencies);
+    assert.equal(response.status, 502);
+    assert.deepEqual(calls, [["POST", archiveScopePath]]);
+  }
+});
+
+test("archive inventory rejects unsafe paths and later failed malformed or repeated pages before mutation", async () => {
+  const validName = `${fixtureUUID(1)}.jsonl.gz`;
+  const cases = [
+    { rows: [{ name: `${fixtureUUID(999)}/${validName}` }] },
+    { rows: [{ name: `../${validName}` }] }, { rows: [{ name: `nested/${validName}` }] },
+    { rows: [{ name: `${fixtureUUID(1)}%2f.jsonl.gz` }] }, { rows: [{ name: `${validName}?x=1` }] },
+    { rows: [{ name: "unknown.json" }] }, { rows: [{ name: null }] },
+    { rows: [{ name: validName, id: null }] },
+    { laterStatus: 503 }, { laterRows: {} }, { laterRows: [{ name: validName }] },
+  ];
+  for (const scenario of cases) {
+    const mutations = [];
+    const dependencies = createArchiveWiredDependencies(async (url, init) => {
+      if (url.pathname === archiveScopePath) return jsonResponse(200, matchingArchiveScope());
+      if (url.pathname === archiveListPath) {
+        const { offset } = JSON.parse(init.body);
+        return offset === 0 ? jsonResponse(200, scenario.rows ?? [{ name: validName }])
+          : jsonResponse(scenario.laterStatus ?? 200, scenario.laterRows ?? []);
+      }
+      mutations.push([init.method, url.pathname]);
+      return jsonResponse(200, {});
+    }, [{ name: "owned.pdf" }]);
+    const response = await handleAccountDeletionRequest(deletionRequest({ confirmation }, { authorization: "Bearer user-token" }), dependencies);
+    assert.equal(response.status, 502);
+    assert.deepEqual(mutations, []);
+  }
+});
+
+test("archive deletion failure waits for its batch and retry inventories remaining owned objects before Auth", async () => {
+  const names = [1, 2, 3].map((index) => `${fixtureUUID(index)}.jsonl.gz`);
+  const remaining = new Set(names);
+  let failOnce = true;
+  let activeDeletes = 0;
+  let authDeleteCount = 0;
+  let inventoryStarts = 0;
+  const dependencies = createArchiveWiredDependencies(async (url, init) => {
+    if (url.pathname === archiveScopePath) return jsonResponse(200, matchingArchiveScope());
+    if (url.pathname === archiveListPath) {
+      const { offset } = JSON.parse(init.body);
+      if (offset === 0) inventoryStarts += 1;
+      return jsonResponse(200, Array.from(remaining).sort().slice(offset).map((name) => ({ name })));
+    }
+    if (url.pathname === "/rest/v1/rpc/prepare_account_deletion") return jsonResponse(200, {});
+    if (init.method === "DELETE" && url.pathname.startsWith(`/storage/v1/object/${archiveBucket}/${ownerID}/`)) {
+      activeDeletes += 1;
+      await new Promise((resolve) => setImmediate(resolve));
+      const name = url.pathname.split("/").at(-1);
+      const failed = name === names[1] && failOnce;
+      if (failed) failOnce = false;
+      else remaining.delete(name);
+      activeDeletes -= 1;
+      return jsonResponse(failed ? 503 : 200, {});
+    }
+    if (url.pathname === `/auth/v1/admin/users/${ownerID}`) {
+      assert.equal(activeDeletes, 0);
+      assert.equal(remaining.size, 0);
+      authDeleteCount += 1;
+      return jsonResponse(200, {});
+    }
+    throw new Error("Unexpected archive retry request");
+  });
+  const first = await handleAccountDeletionRequest(deletionRequest({ confirmation }, { authorization: "Bearer user-token" }), dependencies);
+  assert.equal(first.status, 502);
+  assert.equal(activeDeletes, 0);
+  assert.equal(authDeleteCount, 0);
+  assert.deepEqual(Array.from(remaining), [names[1]]);
+  const retried = await handleAccountDeletionRequest(deletionRequest({ confirmation }, { authorization: "Bearer user-token" }), dependencies);
+  assert.equal(retried.status, 202);
+  assert.equal(inventoryStarts, 2);
+  assert.equal(authDeleteCount, 1);
+});
+
+test("archive deletion authority validates every captured key before sending its first DELETE", async () => {
+  const requests = [];
+  const dependencies = createArchiveWiredDependencies(async (url, init) => {
+    requests.push([init.method, url.pathname]);
+    return jsonResponse(200, {});
+  });
+  await assert.rejects(dependencies.deleteOwnerSnapshotArchiveStoragePaths(ownerID, [
+    `${ownerID}/${fixtureUUID(1)}.jsonl.gz`, `${fixtureUUID(999)}/${fixtureUUID(2)}.jsonl.gz`,
+  ]));
+  assert.deepEqual(requests, []);
+});
+
+test("definitively absent fixed archive bucket permits account deletion without object inventory", async () => {
+  const absentResponses = [
+    () => jsonResponse(404, {}),
+    () => jsonResponse(400, { statusCode: "404", code: "NoSuchBucket", error: "Bucket not found", message: "Bucket not found" }),
+    () => jsonResponse(400, { statusCode: 404, error: "Bucket not found", message: "Bucket not found" }),
+  ];
+  for (const absentResponse of absentResponses) {
+    const calls = [];
+    let scopeReady = false;
+    const dependencies = createArchiveWiredDependencies(async (url, init) => {
+      calls.push([init.method, url.pathname]);
+      if (url.pathname === archiveScopePath) {
+        scopeReady = true;
+        return jsonResponse(200, matchingArchiveScope());
+      }
+      if (url.pathname === "/rest/v1/rpc/prepare_account_deletion"
+          || url.pathname === `/storage/v1/object/forum_chart_pdfs/${ownerID}/owned.pdf`
+          || url.pathname === `/auth/v1/admin/users/${ownerID}`) return jsonResponse(200, {});
+      throw new Error("An absent archive bucket must not trigger object listing or deletion");
+    }, [{ name: "owned.pdf" }], (url, init) => {
+      assert.equal(scopeReady, true);
+      assert.equal(init.method, "GET");
+      assert.equal(init.headers.authorization, "Bearer service-role-test-key");
+      calls.push([init.method, url.pathname]);
+      return absentResponse();
+    });
+    const response = await handleAccountDeletionRequest(deletionRequest({ confirmation }, { authorization: "Bearer user-token" }), dependencies);
+    assert.equal(response.status, 202);
+    assert.deepEqual(calls, [
+      ["POST", archiveScopePath], ["GET", archiveBucketPath],
+      ["POST", "/rest/v1/rpc/prepare_account_deletion"],
+      ["DELETE", `/storage/v1/object/forum_chart_pdfs/${ownerID}/owned.pdf`],
+      ["DELETE", `/auth/v1/admin/users/${ownerID}`],
+    ]);
+  }
+});
+
+test("unknown bucket errors object-missing authorization and transport failures still stop all destruction", async () => {
+  const invalidResponses = [
+    () => jsonResponse(400, { statusCode: "404", code: "NoSuchKey", error: "not_found", message: "Object not found" }),
+    () => jsonResponse(400, { message: "Bucket not found" }),
+    () => jsonResponse(400, { statusCode: 404, error: "Bucket not found", message: "Object not found" }),
+    () => jsonResponse(401, { statusCode: 404, code: "NoSuchBucket" }),
+    () => jsonResponse(403, { error: "Unauthorized" }),
+    () => jsonResponse(503, { error: "Unavailable" }),
+    () => new Response("invalid JSON", { status: 400 }),
+    () => { throw new Error("Transport unavailable"); },
+  ];
+  for (const invalidResponse of invalidResponses) {
+    const mutations = [];
+    let lookups = 0;
+    const dependencies = createArchiveWiredDependencies(async (url, init) => {
+      if (url.pathname === archiveScopePath) return jsonResponse(200, matchingArchiveScope());
+      mutations.push([init.method, url.pathname]);
+      return jsonResponse(200, {});
+    }, [{ name: "owned.pdf" }], () => { lookups += 1; return invalidResponse(); });
+    const response = await handleAccountDeletionRequest(deletionRequest({ confirmation }, { authorization: "Bearer user-token" }), dependencies);
+    assert.equal(response.status, 502);
+    assert.equal(lookups, 1);
+    assert.deepEqual(mutations, []);
+  }
+});
+
+function matchingArchiveScope(changes = {}) {
+  return { applies: true, ready: true, owner_id: ownerID, bucket: archiveBucket, prefix: `${ownerID}/`, ...changes };
+}
+
+function createArchiveWiredDependencies(fetcher, forumObjects = [],
+  bucketLookup = () => jsonResponse(200, { id: archiveBucket, public: false })) {
+  return createAccountDeletionDependencies({ SUPABASE_URL: "https://project.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "service-role-test-key" }, {
+    fetch: (url, init) => {
+      if (url.pathname === "/auth/v1/user") return jsonResponse(200, { id: ownerID });
+      if (url.pathname === "/rest/v1/forum_chart_posts") {
+        return jsonResponse(200, []);
+      }
+      if (url.pathname === "/storage/v1/object/list/forum_chart_pdfs") {
+        const { offset } = JSON.parse(init.body);
+        return jsonResponse(200, forumObjects.slice(offset, offset + 1000));
+      }
+      if (url.pathname === archiveBucketPath) return bucketLookup(url, init);
+      return fetcher(url, init);
+    },
+  });
+}
+
 function fixtureUUID(value) {
   return `00000000-0000-4000-8000-${String(value).padStart(12, "0")}`;
 }
 
 function createWiredDependencies(fetcher) {
-  return createAccountDeletionDependencies({ SUPABASE_URL: "https://project.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "service-role-test-key" }, { fetch: fetcher });
+  return createAccountDeletionDependencies({ SUPABASE_URL: "https://project.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "service-role-test-key" }, {
+    fetch: (url, init) => url.pathname === "/rest/v1/rpc/owner_snapshot_archive_deletion_scope"
+      ? jsonResponse(200, { applies: false }) : fetcher(url, init),
+  });
 }
 
 function deletionRequest(body, headers = {}) {
