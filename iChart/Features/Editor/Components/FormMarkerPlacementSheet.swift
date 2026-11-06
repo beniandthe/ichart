@@ -18,8 +18,11 @@ struct FormMarkerPlacementSheet: View {
                 Section {
                     Text("Mark the song's form")
                         .font(.headline)
+                        .frame(maxWidth: .infinity)
                     Text("Choose a measure and a marker, then tap Add. Nothing changes until you add it.")
                         .fixedSize(horizontal: false, vertical: true)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
                         .accessibilityIdentifier("form-marker-instruction")
                 }
 
@@ -37,23 +40,32 @@ struct FormMarkerPlacementSheet: View {
                         Button {
                             draft.markerType = type
                         } label: {
-                            HStack(alignment: .top, spacing: 12) {
-                                VStack(alignment: .leading, spacing: 4) {
+                            VStack(spacing: 5) {
+                                HStack(spacing: 8) {
                                     Text(type.editorMenuDisplayText)
                                         .font(.body.weight(.semibold))
-                                    Text(type.placementMeaning)
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                        .fixedSize(horizontal: false, vertical: true)
+                                    if draft.markerType == type {
+                                        Image(systemName: "checkmark")
+                                            .foregroundStyle(Color.accentColor)
+                                            .accessibilityHidden(true)
+                                    }
                                 }
-                                Spacer(minLength: 4)
-                                if draft.markerType == type {
-                                    Image(systemName: "checkmark")
-                                        .accessibilityHidden(true)
-                                }
+                                Text(type.placementMeaning)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                             .foregroundStyle(.primary)
-                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 8)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(IChartTourStyle.orange.opacity(draft.markerType == type ? 0.09 : 0.025),
+                                in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(IChartTourStyle.orange.opacity(draft.markerType == type ? 0.42 : 0.14), lineWidth: 1)
+                            }
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -67,10 +79,14 @@ struct FormMarkerPlacementSheet: View {
                         Label(target, systemImage: "signpost.right")
                             .font(.body.weight(.semibold))
                             .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity)
+                            .multilineTextAlignment(.center)
                             .accessibilityIdentifier("form-marker-target")
                         Text("After adding, use Select to move, resize, or delete the marker.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity)
+                            .multilineTextAlignment(.center)
                     }
                 }
             }

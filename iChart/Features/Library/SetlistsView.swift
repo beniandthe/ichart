@@ -43,21 +43,28 @@ struct SetlistsView: View {
                 VStack(spacing: 0) {
                     HStack(spacing: 12) {
                         IChartSetlistWorkspaceTitle(text: "Setlists", identifier: "setlists.title")
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .frame(maxWidth: .infinity, alignment: .center)
                         IChartSetlistNativeActionButton(title: "New Setlist", systemImage: "plus", identifier: "setlists.create",
                             isEnabled: setlistStore.loadError == nil) { showingCreate = true }
                     }
                     .padding(.horizontal, 16).padding(.vertical, 8)
                     .background(Color(uiColor: .systemBackground))
                     Divider()
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(spacing: 8) {
                         Text("Arrange PDFs in playing order.").font(.headline)
+                        Capsule()
+                            .fill(IChartTourStyle.orange)
+                            .frame(width: 40, height: 3)
+                            .accessibilityHidden(true)
                         Text("Open a setlist, or choose New Setlist to start one.")
                             .font(.subheadline).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
                         IChartSetlistSearchControls(query: $searchText, order: $listOrder,
                             placeholder: "Search setlists", identifier: "setlists.search")
                     }
                     .padding(.horizontal, 16).padding(.vertical, 10)
+                    .background(IChartTourStyle.orange.opacity(0.07))
                     List {
                         if let loadError = setlistStore.loadError {
                             Section {
@@ -179,7 +186,7 @@ struct IChartSetlistDetailView: View {
             HStack(spacing: 8) {
                 IChartSetlistNativeActionButton(title: "Back", systemImage: "chevron.left", identifier: "setlists.back", action: leaveDetail)
                 IChartSetlistWorkspaceTitle(text: setlist?.name ?? "Setlist", identifier: "setlists.detail.title")
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .center)
                 IChartSetlistNativeActionButton(title: "Add PDFs", systemImage: "plus", identifier: "setlists.songs.add",
                     isEnabled: setlist != nil) { showingAddPDFs = true }
                 IChartSetlistNativeActionButton(title: editMode.isEditing ? "Done" : "Edit", identifier: "setlists.reorder",
@@ -202,6 +209,8 @@ struct IChartSetlistDetailView: View {
                     Section {
                         Text("Tap a song to read. Use Edit to reorder songs.")
                             .font(.subheadline).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
                             .accessibilityIdentifier("setlists.detail.guidance")
                         if unavailableCount > 0 {
                             Label("\(unavailableCount) unavailable \(unavailableCount == 1 ? "PDF" : "PDFs")", systemImage: "exclamationmark.triangle")
@@ -288,7 +297,11 @@ struct IChartSetlistDetailView: View {
 
     private func songRow(_ song: IChartPDFSetlistResolvedEntry, index: Int) -> some View {
         HStack(spacing: 14) {
-            Text("\(index + 1)").font(.headline.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 28)
+            Text("\(index + 1)")
+                .font(.headline.monospacedDigit())
+                .foregroundStyle(IChartTourStyle.navy)
+                .frame(minWidth: 32, minHeight: 32)
+                .background(IChartTourStyle.orangeSoft, in: Capsule())
             VStack(alignment: .leading, spacing: 4) {
                 Text(song.displayTitle).font(.headline)
                 if let item = song.pdfItem, pdfStore.exportedPDF(for: item) != nil {
@@ -358,6 +371,8 @@ struct IChartSetlistNameSheet: View {
                 Section {
                     Text("Name this setlist, then tap \(saveTitle). Your PDFs stay in the PDF Library.")
                         .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Section("Setlist Name") {
@@ -422,6 +437,8 @@ private struct IChartSetlistPDFPicker: View {
                         ? "Choose PDFs, then tap Add. Songs are added at the end of the setlist."
                         : "Choose one PDF, then tap Replace. The song keeps its place; the original PDF stays in your library.")
                         .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("setlists.pick.guidance")
                     IChartSetlistSearchControls(query: $searchText, order: $listOrder,
@@ -708,6 +725,7 @@ private struct IChartSetlistWorkspaceTitle: UIViewRepresentable {
         label.font = UIFontMetrics(forTextStyle: .title2).scaledFont(for: .systemFont(ofSize: 22, weight: .semibold))
         label.adjustsFontForContentSizeCategory = true
         label.textColor = .label
+        label.textAlignment = .center
         label.numberOfLines = 2
         label.isAccessibilityElement = true
         label.accessibilityTraits.insert(.header)

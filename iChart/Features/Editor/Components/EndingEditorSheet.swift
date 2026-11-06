@@ -155,6 +155,7 @@ struct EndingEditorSheet: View {
                             .accessibilityLabel("Use ending label \(preset)")
                         }
                     }
+                    .frame(maxWidth: .infinity)
                 } header: {
                     Text("Ending label")
                 } footer: {

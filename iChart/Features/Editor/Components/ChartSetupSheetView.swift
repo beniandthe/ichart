@@ -104,7 +104,7 @@ struct ChartSetupSheetView: View {
                         .accessibilityHint("Choose a different chart layout before creating the chart")
                     }
 
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(spacing: 6) {
                         Text(chart.hasCompletedInitialSetup ? "Update this chart's setup" : "Prepare a blank chart")
                             .font(.headline)
                         Text(chart.hasCompletedInitialSetup
@@ -120,6 +120,8 @@ struct ChartSetupSheetView: View {
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("chart-setup-instruction")
 
@@ -264,16 +266,15 @@ struct ChartSetupSheetView: View {
 
     private var layoutSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Layout Style")
-                .font(.headline)
+            setupSectionHeading("Layout Style")
 
-            HStack(alignment: .top, spacing: 12) {
+            VStack(spacing: 8) {
                 Image(systemName: chart.layoutStyle.systemImageName)
                     .font(.title3.weight(.semibold))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(IChartTourStyle.orange)
                     .frame(width: 28, height: 28)
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(spacing: 4) {
                     Text(chart.layoutStyle.displayText)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
@@ -281,21 +282,24 @@ struct ChartSetupSheetView: View {
                     Text(chart.layoutStyle.detailText)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-
-                Spacer()
             }
+            .multilineTextAlignment(.center)
             .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(uiColor: .secondarySystemBackground))
+            .frame(maxWidth: .infinity)
+            .background(IChartTourStyle.orange.opacity(0.07))
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(IChartTourStyle.orange.opacity(0.22), lineWidth: 1)
+            }
         }
     }
 
     private var sheetStyleSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Sheet Style")
-                .font(.headline)
+            setupSectionHeading("Sheet Style")
 
             VStack(spacing: 8) {
                 ForEach(StylePreset.sheetPresets(for: chart.layoutStyle)) { preset in
@@ -326,10 +330,14 @@ struct ChartSetupSheetView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(
                             selectedStylePreset == preset
-                                ? Color.accentColor.opacity(0.10)
+                                ? IChartTourStyle.orange.opacity(0.09)
                                 : Color(uiColor: .secondarySystemBackground)
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(IChartTourStyle.orange.opacity(selectedStylePreset == preset ? 0.42 : 0.12), lineWidth: 1)
+                        }
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(preset.sheetDisplayText(for: chart.layoutStyle))
@@ -341,8 +349,7 @@ struct ChartSetupSheetView: View {
 
     private var keySection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Key")
-                .font(.headline)
+            setupSectionHeading("Key")
 
             Picker("Key", selection: $selectedKey) {
                 Section("Major") {
@@ -367,8 +374,7 @@ struct ChartSetupSheetView: View {
 
     private var clefSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Clef")
-                .font(.headline)
+            setupSectionHeading("Clef")
 
             Picker("Clef", selection: $selectedClef) {
                 ForEach(setupPolicy.clefOptions) { clef in
@@ -385,8 +391,7 @@ struct ChartSetupSheetView: View {
 
     private var meterSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Time Signature")
-                .font(.headline)
+            setupSectionHeading("Time Signature")
 
             HStack(spacing: 14) {
                 Stepper(value: $numerator, in: 1...12) {
@@ -415,8 +420,7 @@ struct ChartSetupSheetView: View {
 
     private var startingMeasuresSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Starting Measures")
-                .font(.headline)
+            setupSectionHeading("Starting Measures")
 
             Stepper(value: $startingMeasureCount, in: 1...64) {
                 HStack {
@@ -435,6 +439,18 @@ struct ChartSetupSheetView: View {
             .background(Color(uiColor: .secondarySystemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
+    }
+
+    private func setupSectionHeading(_ title: String) -> some View {
+        VStack(spacing: 6) {
+            Text(title)
+                .font(.headline)
+            Capsule()
+                .fill(IChartTourStyle.orange.opacity(0.7))
+                .frame(width: 28, height: 3)
+                .accessibilityHidden(true)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private func applySetupWithFeedback() {

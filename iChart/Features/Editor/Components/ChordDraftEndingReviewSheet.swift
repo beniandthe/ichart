@@ -60,10 +60,13 @@ struct ChordDraftEndingReviewSheet: View {
                     if let range = selectedRange {
                         Label(measureRangeText(range), systemImage: "music.note.list")
                             .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
                             .accessibilityIdentifier("draft-ending-review-measures")
                         Text("Based on the existing and drawn barlines.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
                     } else if !request.blockingBarlines.isEmpty {
                         Label("Fix the marks below to choose measures", systemImage: "exclamationmark.triangle")
                             .font(.subheadline.weight(.semibold))
@@ -85,6 +88,8 @@ struct ChordDraftEndingReviewSheet: View {
                         Text("The bracket suggests a range. You can correct its start and end measures below without redrawing the ink.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
                     }
                 } header: {
                     Text("Your ending")
@@ -151,6 +156,7 @@ struct ChordDraftEndingReviewSheet: View {
                                     .accessibilityLabel("Use ending label \(preset)")
                             }
                         }
+                        .frame(maxWidth: .infinity)
                     } header: {
                         Text("Ending label")
                     } footer: {

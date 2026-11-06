@@ -29,6 +29,12 @@ private struct TourActionHighlightModifier: ViewModifier {
 }
 
 extension View {
+    /// A warm surface for instructions and section introductions. Text keeps
+    /// its semantic foreground so the accent does not reduce readability.
+    func ichartWarmPanel(cornerRadius: CGFloat = 12) -> some View {
+        modifier(IChartWarmPanelModifier(cornerRadius: cornerRadius))
+    }
+
     func tourActionHighlight(
         isActive: Bool,
         cornerRadius: CGFloat = 10,
@@ -41,5 +47,23 @@ extension View {
                 tint: tint
             )
         )
+    }
+}
+
+private struct IChartWarmPanelModifier: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+    let cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                IChartTourStyle.orangeSoft.opacity(colorScheme == .dark ? 0.10 : 0.48),
+                in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(IChartTourStyle.orange.opacity(colorScheme == .dark ? 0.46 : 0.24), lineWidth: 1)
+                    .allowsHitTesting(false)
+            }
     }
 }

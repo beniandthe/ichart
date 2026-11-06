@@ -84,6 +84,14 @@ struct IChartHomeTheme {
     var panelShadow: Color {
         isDark ? Color.black.opacity(0.28) : IChartHomeBrand.ink.opacity(0.08)
     }
+
+    var accentBackground: Color {
+        IChartTourStyle.orangeSoft.opacity(isDark ? 0.12 : 0.52)
+    }
+
+    var accentBorder: Color {
+        IChartTourStyle.orange.opacity(isDark ? 0.44 : 0.25)
+    }
 }
 
 private enum IChartLogoVariant: String {
@@ -472,7 +480,7 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Measures stays one tap away; less-frequent structure and annotation commands live under Tools.",
             bullets: [
                 "Measures groups Add, Layout, and Delete actions for the selected measure.",
-                "Open Layout for Start New Row, Join Row Above, Move to Row Below, Even Row Widths, or an eligible Merge with Next Measure.",
+                "Open Layout to compare Start New Row, Join Row Above, Move to Row Below, Even Row Widths, and Merge with Next Measure. The sheet explains each action and why an option is unavailable. Tap an available action to apply it.",
                 "Tools > Repeats groups Repeat Measures, Add Ending, and Manage. Add Ending offers 1st Ending…, 2nd Ending…, or Custom Ending… with a shared label and range editor.",
                 "Tools > Time Signature and Text use the selected measure. Tools > Form Markers opens a sheet: check the measure, choose a marker, then tap Add."
             ]
@@ -492,14 +500,15 @@ private struct IChartHelpArticleSection: Identifiable {
             id: "editor-free-write",
             title: "Free Ink",
             systemImageName: "pencil.and.scribble",
-            body: "Use Free Ink to write or erase notes and marks directly on the page.",
+            body: "Use Free Ink to write or erase notes and marks, or draw a fermata (arch over a dot) or accent (>).",
             bullets: [
                 "Use it for handwritten rhythm notes and reminders.",
                 "On a Simple Chord Sheet or Rhythm Section Sheet, draw a fermata or accent anywhere on the page. Lift the Pencil and pause. iChart converts clear marks into notation and leaves unclear marks as handwriting.",
+                "Leave clear space around each symbol. Rendering replaces only that symbol’s strokes; iChart keeps those strokes with the converted mark and leaves other handwriting on the page.",
                 "On a Simple Chord Sheet, a converted mark attaches above a nearby rendered chord. Other marks float where you drew them. Drag near a chord to attach; drag away to float. Deleting a chord keeps its mark floating.",
                 "On a Rhythm Section Sheet, draw a marcato (^) near a chord, rhythm note, or staff ink, then lift the Pencil and pause. In open space, the caret stays handwritten.",
                 "On a Rhythm Section Sheet, a converted mark attaches above a nearby chord, rhythm note, or staff ink. Fermatas and accents drawn in open space stay where you drew them. Use Select to move or delete a converted mark.",
-                "Use Restore Ink to bring the handwriting back. In Simple, measure splits, merges and deletions keep converted marks and their original handwriting. In Rhythm, a converted mark can require restoration before merging or deleting measures; supported splits of committed measures keep the marks.",
+                "Use Restore Ink to replace a converted mark with its original handwriting. In Simple, measure splits, merges and deletions keep converted marks and their original handwriting. In Rhythm, a converted mark can require restoration before merging or deleting measures; supported splits of committed measures keep the marks.",
                 "Switch directly to another tool, or tap Done to return to Select."
             ]
         ),
@@ -1497,6 +1506,7 @@ struct LibraryView: View {
                     selectedPDFLibraryItem = item
                 }
                 .buttonStyle(.borderedProminent)
+                .frame(maxWidth: .infinity, alignment: .center)
                 libraryRetrievalControls(query: $pdfSearchText, order: $pdfSortOrder, noun: "PDFs")
                 if !pdfSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && filteredPDFs.isEmpty {
                     libraryNoMatches(noun: "PDFs", query: pdfSearchText)
@@ -1806,7 +1816,7 @@ struct LibraryView: View {
                 librarySearchField(query: query, noun: noun)
                 librarySortMenu(order: order)
             }
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .center, spacing: 10) {
                 librarySearchField(query: query, noun: noun)
                 librarySortMenu(order: order)
             }
@@ -2930,6 +2940,8 @@ private struct IChartPDFLibraryHomeView: View {
                 .font(.subheadline)
                 .foregroundStyle(theme.panelSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, alignment: .center)
 
             ForEach(IChartPDFLibrarySource.allCases.filter { source in
                 !isFiltering || items.contains { $0.source == source }
@@ -2963,23 +2975,26 @@ private struct IChartPDFLibrarySection: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 9) {
                 Image(systemName: source.systemImageName)
-                    .foregroundStyle(IChartHomeBrand.blue)
+                    .foregroundStyle(IChartTourStyle.orange)
                     .frame(width: 22)
 
                 Text(source.title)
                     .font(.headline.weight(.semibold))
                     .foregroundStyle(theme.panelTitle)
-
-                Spacer()
+                    .multilineTextAlignment(.center)
 
                 Text("\(items.count)")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(theme.panelSecondary)
+                    .foregroundStyle(IChartTourStyle.navy)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 5)
-                    .background(theme.emptyStateBackground)
+                    .background(IChartTourStyle.orangeSoft)
                     .clipShape(Capsule())
             }
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(theme.accentBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
             if items.isEmpty {
                 ContentUnavailableView(
@@ -3030,7 +3045,7 @@ private struct IChartPDFLibraryRow: View {
 
     private var metadata: [String] {
         [item.source.itemTitle, item.layoutStyle?.displayText, item.transpositionText,
-         item.pageCountText, item.fileSizeText].compactMap { $0 }
+         item.pageCountText].compactMap { $0 }
     }
 
     var body: some View {
@@ -3039,7 +3054,7 @@ private struct IChartPDFLibraryRow: View {
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: "doc.richtext")
                         .font(.title3.weight(.semibold))
-                        .foregroundStyle(IChartHomeBrand.blue)
+                        .foregroundStyle(IChartTourStyle.orange)
                         .frame(width: 36, height: 44)
                     VStack(alignment: .leading, spacing: 6) {
                         Text(item.displayTitle)
@@ -3119,6 +3134,8 @@ struct IChartForumHomeView: View {
                         .font(.subheadline)
                         .foregroundStyle(theme.panelSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity, alignment: .center)
                         .accessibilityIdentifier("forum.search.instructions")
                     searchAndPublishRow
                 }
@@ -3986,14 +4003,17 @@ private struct IChartForumSectionHeader: View {
     let theme: IChartHomeTheme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .center, spacing: 3) {
             Text(title)
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(theme.panelTitle)
             Text(subtitle)
                 .font(.caption)
                 .foregroundStyle(theme.panelSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 }
 
@@ -5296,7 +5316,7 @@ private struct IChartHelpArticlePage: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .center, spacing: 8) {
                 Label(topic.detailTitle, systemImage: topic.systemImageName)
                     .font(.headline.weight(.semibold))
                     .foregroundStyle(theme.panelTitle)
@@ -5305,6 +5325,7 @@ private struct IChartHelpArticlePage: View {
                     .font(.subheadline)
                     .foregroundStyle(theme.panelSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.center)
 
                 if topic == .contactUs {
                     Link(destination: IChartSupportLinks.supportURL) {
@@ -5325,6 +5346,7 @@ private struct IChartHelpArticlePage: View {
                         .tint(IChartHomeBrand.blue)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .center)
 
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(sections) { section in
@@ -5445,7 +5467,7 @@ private struct IChartHelpArticleSectionView: View {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: section.systemImageName)
                         .font(.body.weight(.semibold))
-                        .foregroundStyle(IChartHomeBrand.blue)
+                        .foregroundStyle(IChartTourStyle.orange)
                         .frame(width: 28, height: 28)
 
                     VStack(alignment: .leading, spacing: 4) {
@@ -5536,11 +5558,14 @@ private struct IChartTutorialGuide: View {
             Label("Quick Start", systemImage: "sparkles")
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(theme.panelTitle)
+                .frame(maxWidth: .infinity, alignment: .center)
 
             Text("Make a first Simple Chord Sheet with one short guide that stays on the chart while you try it.")
                 .font(.subheadline)
                 .foregroundStyle(theme.panelSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, alignment: .center)
 
             Button(action: onStartGuidedTour) {
                 Label("Start Quick Start", systemImage: "play.fill")
@@ -5597,9 +5622,9 @@ private struct IChartQuickStartStepRow: View {
         HStack(alignment: .top, spacing: 10) {
             Text("\(number)")
                 .font(.caption.weight(.bold))
-                .foregroundStyle(IChartHomeBrand.blue)
+                .foregroundStyle(IChartTourStyle.navy)
                 .frame(width: 22, height: 22)
-                .background(IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.18 : 0.82))
+                .background(IChartTourStyle.orangeSoft)
                 .clipShape(Circle())
 
             VStack(alignment: .leading, spacing: 2) {
@@ -5647,13 +5672,16 @@ private struct IChartHomePanel<Content: View>: View {
             HStack(spacing: 10) {
                 Image(systemName: systemImageName)
                     .font(.title3.weight(.semibold))
-                    .foregroundStyle(IChartHomeBrand.blue)
-                    .frame(width: 28, height: 28)
+                    .foregroundStyle(IChartTourStyle.navy)
+                    .frame(width: 36, height: 36)
+                    .background(IChartTourStyle.orangeSoft, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 
                 Text(title)
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(theme.panelTitle)
+                    .multilineTextAlignment(.center)
             }
+            .frame(maxWidth: .infinity, alignment: .center)
 
             content
                 .foregroundStyle(theme.panelTitle)
@@ -5664,7 +5692,7 @@ private struct IChartHomePanel<Content: View>: View {
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(theme.panelBorder, lineWidth: 1)
+                .stroke(theme.accentBorder, lineWidth: 1)
         }
         .shadow(color: theme.panelShadow, radius: 16, y: 8)
     }
@@ -7548,6 +7576,7 @@ private struct IChartNewChartControl: View {
             Button(action: onCreateChart) {
                 Label("New Chart", systemImage: "square.and.pencil")
                     .font(.headline.weight(.semibold))
+                    .foregroundStyle(canCreateChart ? Color.white : theme.workspaceTitle)
                     .frame(minWidth: 180, minHeight: 44)
                     .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
@@ -7565,12 +7594,17 @@ private struct IChartNewChartControl: View {
                 Text(chartUsageText)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(theme.workspaceTitle.opacity(0.68))
-                    .lineLimit(1)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .center)
-        .padding(.top, 2)
-        .padding(.bottom, 2)
+        .padding(.vertical, 14)
+        .background(theme.accentBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(theme.accentBorder, lineWidth: 1)
+        }
     }
 }
 
@@ -7633,8 +7667,8 @@ private struct IChartProjectCreateControl: View {
     let onCreateProject: () -> Void
 
     var body: some View {
-        HStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 3) {
+        VStack(spacing: 12) {
+            VStack(alignment: .center, spacing: 3) {
                 Text(projectCount == 1 ? "1 project" : "\(projectCount) projects")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(theme.workspaceTitle)
@@ -7643,8 +7677,7 @@ private struct IChartProjectCreateControl: View {
                     .font(.caption)
                     .foregroundStyle(theme.workspaceSecondary)
             }
-
-            Spacer(minLength: 16)
+            .multilineTextAlignment(.center)
 
             Button(action: onCreateProject) {
                 Label("New Project", systemImage: "folder.badge.plus")
@@ -7653,7 +7686,8 @@ private struct IChartProjectCreateControl: View {
             .tint(IChartHomeBrand.blue)
         }
         .padding(16)
-        .background(theme.emptyStateBackground)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .background(theme.accentBackground)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }

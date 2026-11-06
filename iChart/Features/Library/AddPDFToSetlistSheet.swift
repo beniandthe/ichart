@@ -32,16 +32,24 @@ struct AddPDFToSetlistSheet: View {
         NavigationStack {
             List {
                 Section {
-                    VStack(alignment: .leading, spacing: 5) {
+                    VStack(spacing: 6) {
+                        Image(systemName: "music.note.list")
+                            .font(.title2)
+                            .foregroundStyle(IChartTourStyle.orange)
+                            .accessibilityHidden(true)
                         Text("Choose a setlist").font(.headline)
                         Text("Tap a setlist to add \(pdfItemIDs.count == 1 ? "this PDF" : "these PDFs") at the end, or create a new one.")
                             .foregroundStyle(.secondary)
                         Text("The PDFs stay in your library for offline reading.")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("setlists.destination.guidance")
                 }
+                .listRowBackground(IChartTourStyle.orange.opacity(0.07))
                 if let loadError = setlistStore.loadError {
                     Section {
                         Text("Setlists couldn’t be loaded").font(.headline)
@@ -81,6 +89,8 @@ struct AddPDFToSetlistSheet: View {
                     if targets.isEmpty {
                         Text(setlistStore.setlists.isEmpty ? "No setlists yet. Create one above." : "No setlists match this search.")
                             .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
                     }
                     ForEach(targets) { setlist in
                         Button {

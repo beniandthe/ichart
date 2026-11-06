@@ -69,6 +69,161 @@ final class FormMarkerPlacementUITests: XCTestCase {
     }
 
     @MainActor
+    func testFreeInkSymbolGuidanceAcrossLayouts() throws {
+        XCUIDevice.shared.orientation = .portrait
+        let (app, arguments) = try disposableFixtureApplication()
+        app.launchArguments = arguments
+        app.launch()
+
+        for title in ["Simple Sheet UI Fixture", "Rhythm Section UI Fixture"] {
+            let chart = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
+            XCTAssertTrue(chart.waitForExistence(timeout: 20))
+            chart.tap()
+            let freeInk = app.buttons["Free Ink"]
+            XCTAssertTrue(freeInk.waitForExistence(timeout: 15))
+            XCTAssertFalse(freeInk.isSelected, "The normal entry starts in Browse")
+            freeInk.tap()
+
+            let purpose = app.staticTexts["editor-guidance-purpose"]
+            let firstStep = app.staticTexts["editor-guidance-step-1"]
+            let symbolStep = app.staticTexts["editor-guidance-step-2"]
+            XCTAssertTrue(symbolStep.waitForExistence(timeout: 10))
+            XCTAssertEqual(purpose.label, "Write notes and reminders on the page")
+            XCTAssertTrue(firstStep.label.contains("Staff notes stay handwritten"))
+            XCTAssertTrue(symbolStep.label.contains("fermata (arch over a dot)"))
+            XCTAssertTrue(symbolStep.label.contains("accent (>)"))
+            XCTAssertTrue(symbolStep.label.contains("Lift the Pencil and pause to render"))
+            for element in [purpose, firstStep, symbolStep] {
+                XCTAssertTrue(element.isHittable)
+                XCTAssertGreaterThan(element.frame.height, 0)
+                XCTAssertTrue(app.windows.firstMatch.frame.insetBy(dx: -1, dy: -1).contains(element.frame))
+            }
+            let instruction = app.descendants(matching: .any)
+                .matching(identifier: "editor-active-tool-instruction").firstMatch
+            XCTAssertTrue(instruction.exists)
+            XCTAssertEqual(purpose.frame.midX, instruction.frame.midX, accuracy: 3,
+                "The purpose is centered within the helper, including the balanced Guide affordance")
+            for label in ["Write", "Erase", "Done"] {
+                XCTAssertTrue(app.buttons[label].isHittable)
+            }
+            attach(app, name: "\(title) centered Free Ink helper and symbol instructions")
+
+            app.buttons["Free Ink guide"].tap()
+            let guideBar = app.navigationBars["Free Ink guide"]
+            XCTAssertTrue(guideBar.waitForExistence(timeout: 10))
+            let ownership = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@",
+                "Rendering replaces only that symbol's strokes")).firstMatch
+            reveal(ownership, in: app)
+            XCTAssertTrue(ownership.label.contains("other handwriting stays on the page"))
+            XCTAssertTrue(ownership.label.contains("keeps the original strokes with the converted mark"))
+            XCTAssertTrue(ownership.isHittable)
+            // These fixtures contain no converted marks. Recovery is offered
+            // only when a mark exists; model tests cover its Restore Ink copy.
+            XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Restore Ink")).count, 0)
+            attach(app, name: "\(title) Free Ink guide preserves symbol source ownership")
+            guideBar.buttons["Done"].tap()
+            XCTAssertTrue(symbolStep.waitForExistence(timeout: 10))
+            XCTAssertTrue(freeInk.isSelected)
+            app.buttons["Done"].tap()
+            app.buttons["Exit Chart"].tap()
+            XCTAssertTrue(chart.waitForExistence(timeout: 10))
+        }
+        app.terminate()
+    }
+
+    @MainActor
+    func testMeasureLayoutExplanationsAndDoneAcrossLayouts() throws {
+        XCUIDevice.shared.orientation = .portrait
+        let (app, arguments) = try disposableFixtureApplication()
+        app.launchArguments = arguments
+        app.launch()
+        let actionIDs = ["startNewRow", "joinRowAbove", "moveToRowBelow", "evenRowWidths", "mergeWithNext"]
+
+        for title in ["Simple Sheet UI Fixture", "Rhythm Section UI Fixture"] {
+            let chart = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
+            XCTAssertTrue(chart.waitForExistence(timeout: 20))
+            chart.tap()
+            let measures = app.buttons["Measures"]
+            XCTAssertTrue(measures.waitForExistence(timeout: 15))
+            measures.tap()
+            let layout = app.buttons["measure-layout-open"]
+            XCTAssertTrue(layout.waitForExistence(timeout: 10))
+            XCTAssertTrue(layout.isHittable)
+            layout.tap()
+            let bar = app.navigationBars["Measure Layout"]
+            XCTAssertTrue(bar.waitForExistence(timeout: 10))
+            let context = app.staticTexts["measure-layout-context"]
+            XCTAssertTrue(context.waitForExistence(timeout: 5))
+            let selectedMeasure = context.label
+            XCTAssertNotNil(selectedMeasure.range(of: #"^Measure [1-9][0-9]* selected$"#, options: .regularExpression))
+            XCTAssertTrue(app.staticTexts["measure-layout-instruction"].isHittable)
+            XCTAssertTrue(bar.buttons["Done"].isHittable)
+
+            var availability: [String: Bool] = [:]
+            var explanations: [String: String] = [:]
+            var reasons: [String: String] = [:]
+            for actionID in actionIDs {
+                let action = app.buttons["measure-layout-action-\(actionID)"]
+                let explanation = app.staticTexts["measure-layout-explanation-\(actionID)"]
+                reveal(explanation, in: app)
+                XCTAssertTrue(action.exists)
+                XCTAssertGreaterThanOrEqual(action.frame.height, 44)
+                XCTAssertTrue(app.windows.firstMatch.frame.insetBy(dx: -1, dy: -1).contains(action.frame),
+                    "Every action remains visible beside its full explanation")
+                if action.isEnabled { XCTAssertTrue(action.isHittable) }
+                XCTAssertTrue(explanation.isHittable, "Every explanation is reachable by ordinary scrolling")
+                XCTAssertFalse(explanation.label.isEmpty)
+                XCTAssertGreaterThanOrEqual(explanation.frame.height, 14)
+                XCTAssertTrue(app.windows.firstMatch.frame.insetBy(dx: -1, dy: -1).contains(explanation.frame))
+                if actionID == "joinRowAbove" {
+                    XCTAssertTrue(explanation.label.contains("The remaining measures stay together."))
+                    XCTAssertGreaterThan(explanation.frame.height, 25,
+                        "The full two-sentence explanation wraps instead of using a truncated menu subtitle")
+                }
+                availability[actionID] = action.isEnabled
+                explanations[actionID] = explanation.label
+                let reason = app.descendants(matching: .any)
+                    .matching(identifier: "measure-layout-reason-\(actionID)").firstMatch
+                if !action.isEnabled {
+                    reveal(reason, in: app)
+                    XCTAssertFalse(reason.label.isEmpty, "An unavailable action explains how to make it available")
+                    XCTAssertGreaterThan(reason.frame.height, 0)
+                    XCTAssertTrue(app.windows.firstMatch.frame.insetBy(dx: -1, dy: -1).contains(reason.frame))
+                    reasons[actionID] = reason.label
+                } else {
+                    XCTAssertFalse(reason.exists)
+                }
+                attach(app, name: "\(title) \(actionID) full explanation and availability")
+            }
+            XCTAssertFalse(reasons.isEmpty, "A blank chart also exercises the disabled-action explanations")
+
+            // Inspecting the sheet and Done never invokes a layout action.
+            // Reopen to check unchanged selection, availability and guidance;
+            // independent container readback verifies saved chart payloads.
+            bar.buttons["Done"].tap()
+            XCTAssertTrue(layout.waitForExistence(timeout: 10))
+            XCTAssertTrue(measures.isSelected)
+            layout.tap()
+            XCTAssertTrue(bar.waitForExistence(timeout: 10))
+            XCTAssertEqual(app.staticTexts["measure-layout-context"].label, selectedMeasure)
+            for actionID in actionIDs {
+                XCTAssertEqual(app.buttons["measure-layout-action-\(actionID)"].isEnabled, availability[actionID])
+                XCTAssertEqual(app.staticTexts["measure-layout-explanation-\(actionID)"].label, explanations[actionID])
+                if let originalReason = reasons[actionID] {
+                    let reason = app.descendants(matching: .any)
+                        .matching(identifier: "measure-layout-reason-\(actionID)").firstMatch
+                    XCTAssertEqual(reason.label, originalReason)
+                }
+            }
+            bar.buttons["Done"].tap()
+            XCTAssertTrue(layout.waitForExistence(timeout: 10))
+            app.buttons["Exit Chart"].tap()
+            XCTAssertTrue(chart.waitForExistence(timeout: 10))
+        }
+        app.terminate()
+    }
+
+    @MainActor
     func testExplainersAcrossLayoutsAndRenderingModes() throws {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
@@ -201,6 +356,19 @@ final class FormMarkerPlacementUITests: XCTestCase {
             app.buttons["Exit Chart"].tap()
             XCTAssertTrue(chart.waitForExistence(timeout: 10))
         }
+    }
+
+    @MainActor
+    private func disposableFixtureApplication() throws -> (XCUIApplication, [String]) {
+        let languageArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        #if targetEnvironment(simulator)
+        return (XCUIApplication(), ["-iChartEditorUIPreview"] + languageArguments)
+        #else
+        let bundleID = ProcessInfo.processInfo.environment["ICHART_ENTRY_TEST_BUNDLE_ID"] ?? ""
+        try XCTSkipUnless(bundleID.hasPrefix("com.ichart.claritycrash"),
+            "Physical acceptance requires an explicitly selected disposable app with synthetic fixtures.")
+        return (XCUIApplication(bundleIdentifier: bundleID), languageArguments)
+        #endif
     }
 
     @MainActor

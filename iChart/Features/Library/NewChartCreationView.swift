@@ -62,14 +62,20 @@ struct NewChartCreationView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(spacing: 8) {
                         Text("Choose a chart layout")
                             .font(.headline)
+                        Capsule()
+                            .fill(IChartTourStyle.orange)
+                            .frame(width: 40, height: 3)
+                            .accessibilityHidden(true)
                         Text("Pick the example that fits your chart. Next, choose its setup. Nothing is saved until Create Blank Page.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("new-chart-layout-instruction")
 
@@ -100,13 +106,15 @@ struct NewChartCreationView: View {
             }
             showingSetup = true
         } label: {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
+            VStack(spacing: 10) {
+                ZStack(alignment: .trailing) {
                     Text(layoutStyle.displayText)
                         .font(.headline)
-                    Spacer(minLength: 8)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.horizontal, 24)
                     Image(systemName: "chevron.right")
                         .font(.footnote.weight(.semibold))
+                        .foregroundStyle(IChartTourStyle.orange)
                         .accessibilityHidden(true)
                 }
                 Text(layoutStyle.detailText)
@@ -119,15 +127,23 @@ struct NewChartCreationView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .accessibilityHidden(true)
                 Text("Example layout")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(IChartTourStyle.navy)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(IChartTourStyle.orangeSoft, in: Capsule())
             }
             .foregroundStyle(.primary)
-            .multilineTextAlignment(.leading)
+            .multilineTextAlignment(.center)
             .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .center)
             .background(isTourTarget ? Color.accentColor.opacity(0.10) : Color(uiColor: .secondarySystemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(IChartTourStyle.orange.opacity(0.28), lineWidth: 1)
+                    .allowsHitTesting(false)
+            }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(layoutStyle.displayText)

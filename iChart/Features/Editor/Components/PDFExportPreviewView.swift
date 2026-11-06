@@ -58,11 +58,13 @@ struct PDFExportPreviewView: View {
     }
 
     private var exportSummary: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .center, spacing: 10) {
             Text(pdfItemID == nil ? "Check this reading copy, then Share it." : "Read this saved PDF, Share it, or add it to a setlist.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
                 .accessibilityIdentifier("pdf.preview.guidance")
             if pdfItemID != nil {
                 Button {
@@ -73,17 +75,19 @@ struct PDFExportPreviewView: View {
                         .frame(minHeight: 32)
                 }
                 .buttonStyle(.bordered)
+                .tint(IChartTourStyle.orange)
                 .accessibilityHint("Choose a setlist for this saved PDF.")
                 .accessibilityIdentifier("pdf.preview.add-to-setlist")
             }
             Text(exportedPDF.fileName)
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(2)
+                .multilineTextAlignment(.center)
                 .textSelection(.enabled)
 
             LazyVGrid(
                 columns: [GridItem(.adaptive(minimum: 118), spacing: 8)],
-                alignment: .leading,
+                alignment: .center,
                 spacing: 8
             ) {
                 if source == .personalImport {
@@ -97,14 +101,13 @@ struct PDFExportPreviewView: View {
                     metadataPill(transpositionText)
                 }
                 metadataPill(exportedPDF.pageCountText)
-                metadataPill(exportedPDF.fileSizeText)
             }
             .font(.caption.weight(.semibold))
             .accessibilityIdentifier("pdf.preview.metadata")
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
-        .background(Color(uiColor: .secondarySystemBackground))
+        .ichartWarmPanel(cornerRadius: 0)
     }
 
     private func metadataPill(_ text: String) -> some View {

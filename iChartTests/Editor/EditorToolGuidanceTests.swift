@@ -52,24 +52,52 @@ final class EditorToolGuidanceTests: XCTestCase {
         }
     }
 
-    func testFreeInkStartsWithHandwritingAndKeepsConversionsInItsGuide() {
+    func testFreeInkExplainerNamesTheTwoSharedSymbolsAndKeepsRecoveryInItsGuide() {
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
-            let guidance = EditorCanvasMode.freeHand.toolGuidance(
-                layoutStyle: style, manualRenderWithPreview: false,
-                hasFreeInkArticulations: true)
-            XCTAssertEqual(guidance.title, "Write notes and reminders on the page")
-            XCTAssertTrue(guidance.steps[0].contains("Staff notes stay handwritten"))
-            XCTAssertTrue(guidance.steps[1].contains("One finger scrolls"))
-            XCTAssertFalse(guidance.accessibilitySummary.contains("fermata"))
-            XCTAssertTrue(guidance.referenceText.contains("fermata or accent"))
-            XCTAssertTrue(guidance.referenceText.contains("Restore Ink"))
-            XCTAssertEqual(guidance.referenceText.contains("marcato"), style == .rhythmSectionSheet)
+            // Free Ink conversion does not depend on Write & Render's mode.
+            for manual in [false, true] {
+                let guidance = EditorCanvasMode.freeHand.toolGuidance(
+                    layoutStyle: style, manualRenderWithPreview: manual,
+                    hasFreeInkArticulations: true)
+                XCTAssertEqual(guidance.title, "Write notes and reminders on the page")
+                XCTAssertEqual(guidance.steps.count, 2)
+                XCTAssertTrue(guidance.steps[0].contains("Staff notes stay handwritten"))
+                XCTAssertTrue(guidance.steps[1].contains("fermata (arch over a dot)"))
+                XCTAssertTrue(guidance.steps[1].contains("accent (>)"))
+                XCTAssertTrue(guidance.steps[1].contains("Lift the Pencil and pause to render"))
+                XCTAssertTrue(guidance.accessibilitySummary.contains("fermata"))
+                XCTAssertFalse(guidance.accessibilitySummary.contains("marcato"))
+                XCTAssertTrue(guidance.referenceText.contains("One finger scrolls"))
+                XCTAssertTrue(guidance.referenceText.contains("Two fingers pan and zoom"))
+                XCTAssertTrue(guidance.referenceText.contains("other handwriting stays on the page"))
+                XCTAssertTrue(guidance.referenceText.contains("original strokes"))
+                XCTAssertTrue(guidance.referenceText.contains("Restore Ink to replace a converted mark"))
+                XCTAssertEqual(guidance.referenceText.contains("marcato"), style == .rhythmSectionSheet)
+                let withoutMarks = EditorCanvasMode.freeHand.toolGuidance(
+                    layoutStyle: style, manualRenderWithPreview: manual)
+                XCTAssertFalse(withoutMarks.referenceText.contains("Restore Ink"),
+                    "Restoration is offered after the chart contains a converted mark")
+            }
         }
         let legacy = EditorCanvasMode.freeHand.toolGuidance(
             layoutStyle: .leadSheet, manualRenderWithPreview: false,
             hasFreeInkArticulations: true)
         XCTAssertFalse(legacy.referenceText.contains("Restore Ink"))
         XCTAssertFalse(legacy.referenceText.contains("pause to convert"))
+        XCTAssertFalse(legacy.accessibilitySummary.contains("fermata"))
+        XCTAssertFalse(legacy.accessibilitySummary.contains("accent"))
+        XCTAssertTrue(legacy.steps[1].contains("One finger scrolls"))
+    }
+
+    func testMeasuresGuideExplainsTheLayoutComparisonAndAvailability() {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let guidance = EditorCanvasMode.measureEdit.toolGuidance(
+                layoutStyle: style, manualRenderWithPreview: false)
+            XCTAssertEqual(guidance.steps, ["Tap a measure, then choose Add, Layout, or Delete."])
+            XCTAssertTrue(guidance.referenceText.contains("Open Layout to compare each action"))
+            XCTAssertTrue(guidance.referenceText.contains("read why an option is unavailable"))
+            XCTAssertTrue(guidance.referenceText.contains("Tap an available action to apply it"))
+        }
     }
 
     func testSelectionGuideOnlyOffersConvertedMarkActionsWhenPresent() {

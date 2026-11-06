@@ -399,29 +399,38 @@ private struct AppearanceChoiceRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                VStack(alignment: .leading, spacing: 5) {
+            VStack(spacing: 6) {
+                HStack(spacing: 8) {
                     Text(title)
                         .font(.headline)
                         .foregroundStyle(.primary)
 
-                    if let preview {
-                        Text(preview)
-                            .font(previewFont ?? .subheadline.weight(.semibold))
-                            .foregroundStyle(.primary)
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.blue)
                     }
-
-                    Text(detail)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
                 }
 
-                Spacer(minLength: 12)
-
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.blue)
+                if let preview {
+                    Text(preview)
+                        .font(previewFont ?? .subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
                 }
+
+                Text(detail)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
+            .background(IChartTourStyle.orange.opacity(isSelected ? 0.09 : 0.025),
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(IChartTourStyle.orange.opacity(isSelected ? 0.42 : 0.14), lineWidth: 1)
             }
             .contentShape(Rectangle())
         }

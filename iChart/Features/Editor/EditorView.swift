@@ -588,6 +588,7 @@ struct EditorView: View {
     @State private var cueTextDraft = ""
     @State private var showingCueTextEntry = false
     @State private var showingFormMarkerPlacement = false
+    @State private var pendingMeasureLayoutRequest: MeasureLayoutSheetRequest?
     @State private var showingToolGuide = false
     @State private var toolGuideResumeSnapshot: ToolGuideResumeSnapshot?
     @State private var editingCueTextID: UUID?
@@ -1355,7 +1356,7 @@ struct EditorView: View {
                     statusMessage: canvasMode == .chordEntry ? chordRenderStatus : nil,
                     onGuidePresentationChanged: handleToolGuidePresentationChanged
                 )
-                .frame(maxWidth: minWidth, alignment: .leading)
+                .frame(maxWidth: minWidth, alignment: .center)
             }
 
             Group {
@@ -1943,9 +1944,10 @@ struct EditorView: View {
     private func manualChordToolControls(minWidth: CGFloat) -> some View {
         VStack(spacing: 6) {
             HStack(spacing: 8) {
+                Spacer(minLength: 0)
                 InkToolModeTab(mode: $inkToolMode).fixedSize()
                 renderingModeMenu
-                Spacer(minLength: 8)
+                Spacer(minLength: 0)
                 activeToolDoneButton
             }
             .frame(height: max(52, automaticFeedbackHeight))
@@ -2477,55 +2479,7 @@ struct EditorView: View {
                 }
                 .buttonStyle(.plain)
 
-                Menu {
-                    let move = measureLayoutAvailability(.moveToRowBelow)
-                    let join = measureLayoutAvailability(.joinRowAbove)
-                    let merge = measureLayoutAvailability(.mergeWithNext)
-                    let even = measureLayoutAvailability(.evenRowWidths)
-                    Button(action: handleNewSystemBeforeSelectedMeasure) {
-                        Label("Start New Row", systemImage: "arrow.down.to.line")
-                    }
-                    .disabled(!canInsertSystemBreakBeforeSelectedMeasure)
-                    if !canInsertSystemBreakBeforeSelectedMeasure {
-                        Text("Start New Row: select an eligible measure inside a row. Existing row, page and key boundaries stay in place.")
-                    }
-                    Button(action: handleJoinSelectedMeasureRow) {
-                        Label("Join Row Above", systemImage: "arrow.up.to.line")
-                    }
-                    .disabled(!join.isEnabled)
-                    if let reason = join.reason { Text("Join Row Above: \(reason)") }
-
-                    Button {
-                        handleMoveSelectedMeasureToRowBelow()
-                    } label: {
-                        Label("Move to Row Below", systemImage: "arrow.down.to.line")
-                    }
-                    .disabled(!move.isEnabled)
-                    if let reason = move.reason { Text("Move to Row Below: \(reason)") }
-
-                    Button {
-                        handleEvenSelectedMeasureRow()
-                    } label: {
-                        Label(selectedMeasureIsOnlyMeasureInRow ? "Fill Row" : "Even Row Widths", systemImage: "rectangle.split.3x1")
-                    }
-                    .disabled(!even.isEnabled)
-                    if let reason = even.reason { Text("Even Row Widths: \(reason)") }
-
-                    Button {
-                        handleJoinSelectedMeasure()
-                    } label: {
-                        Label("Merge with Next Measure", systemImage: "rectangle.compress.vertical")
-                    }
-                    .disabled(!merge.isEnabled)
-                    if let reason = merge.reason { Text("Merge with Next Measure: \(reason)") }
-                } label: {
-                    activeToolMenuLabel(
-                        title: "Layout",
-                        systemImage: "rectangle.3.group",
-                        isTourHighlighted: editorGuidedTourStep == .shapeForm
-                    )
-                }
-                .buttonStyle(.plain)
+                measureLayoutButton
 
                 Menu {
                     Button(role: .destructive) {
@@ -3145,6 +3099,7 @@ struct EditorView: View {
         activeSheet != nil || showingSetupSheet || showingHeaderSheet
             || showingTypographySheet || showingNotationReadabilitySheet || showingPersonalHandwriting
             || showingToolGuide || showingFormMarkerPlacement
+            || pendingMeasureLayoutRequest != nil
             || endingEditorRequest != nil
             || showingCueTextEntry || pendingMeasureStackInsertion != nil
             || pendingChordInkConfirmation != nil || pendingChordInkBatchConfirmation != nil
@@ -3624,10 +3579,63 @@ struct EditorView: View {
         return chart.canDeleteMeasures(from: pendingDeleteStartMeasureID, through: targetMeasureID)
     }
 
-    private func measureLayoutAvailability(_ action: MeasureLayoutAction) -> MeasureLayoutActionAvailability {
-        MeasureLayoutActionGuidance.availability(for: action, chart: chart,
-            measureID: resolvedMeasureActionTargetID(),
-            pageLayout: LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: latestEditorContentSize))
+    private var measureLayoutButton: AnyView {
+        AnyView(Button {
+            pendingMeasureLayoutRequest = MeasureLayoutSheetRequest(
+                chartID: chart.id, measureID: resolvedMeasureActionTargetID())
+        } label: {
+            activeToolMenuLabel(
+                title: "Layout",
+                systemImage: "rectangle.3.group",
+                isTourHighlighted: editorGuidedTourStep == .shapeForm
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Open measure layout actions with full explanations and availability details.")
+        .accessibilityIdentifier("measure-layout-open")
+        .sheet(item: $pendingMeasureLayoutRequest) { request in
+            measureLayoutSheet(for: request)
+        })
+    }
+
+    private func measureLayoutSheet(for request: MeasureLayoutSheetRequest) -> MeasureLayoutSheetView {
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: latestEditorContentSize)
+        let measureNumber = request.chartID == chart.id
+            ? chart.measures.firstIndex(where: { $0.id == request.measureID }).map { $0 + 1 }
+            : nil
+        let onlyMeasureInRow = chart.layoutStyle == .simpleChordSheet
+            && request.measureID.map { renderedMeasureRowIDs(containing: $0).count == 1 } == true
+        let options = MeasureLayoutAction.allCases.map { action in
+            MeasureLayoutActionOption(action: action,
+                availability: request.chartID == chart.id
+                    ? MeasureLayoutActionGuidance.availability(for: action, chart: chart,
+                        measureID: request.measureID, pageLayout: layout)
+                    : .unavailable("Close Layout and select a measure in the current chart."),
+                isOnlyMeasureInRow: onlyMeasureInRow)
+        }
+        return MeasureLayoutSheetView(measureNumber: measureNumber, options: options) { action in
+            handleMeasureLayoutAction(action, request: request)
+        }
+    }
+
+    private func handleMeasureLayoutAction(_ action: MeasureLayoutAction, request: MeasureLayoutSheetRequest) {
+        guard request.chartID == chart.id,
+              let measureID = request.measureID,
+              chart.measure(id: measureID) != nil,
+              MeasureLayoutActionGuidance.availability(for: action, chart: chart, measureID: measureID,
+                pageLayout: LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: latestEditorContentSize)).isEnabled else {
+            return
+        }
+        // Keep the exact measure shown in the sheet as the destination, even
+        // if a save or other refresh updates the editor's default selection.
+        selectedMeasureID = measureID
+        switch action {
+        case .startNewRow: handleNewSystemBeforeSelectedMeasure()
+        case .joinRowAbove: handleJoinSelectedMeasureRow()
+        case .moveToRowBelow: handleMoveSelectedMeasureToRowBelow()
+        case .evenRowWidths: handleEvenSelectedMeasureRow()
+        case .mergeWithNext: handleJoinSelectedMeasure()
+        }
     }
 
     private var canEvenSelectedMeasureRow: Bool {

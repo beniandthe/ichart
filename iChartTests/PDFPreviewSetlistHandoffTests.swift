@@ -32,6 +32,8 @@ final class PDFPreviewSetlistHandoffTests: XCTestCase {
         let guidance = try await node("Read this saved PDF, Share it, or add it to a setlist.", in: window)
         assertVisible(action, in: window)
         assertVisible(guidance, in: window)
+        XCTAssertTrue(try NativeAccessibilityLookup.matching(saved.fileSizeText, in: window).isEmpty,
+            "Saved PDF previews show reading metadata without displaying a file size")
         XCTAssertGreaterThan(action.frame(in: window).width, 100,
             "The saved-PDF action must display its text rather than collapse to a toolbar icon")
         XCTAssertGreaterThanOrEqual(action.frame(in: window).minY, guidance.frame(in: window).minY,
@@ -67,6 +69,8 @@ final class PDFPreviewSetlistHandoffTests: XCTestCase {
         XCTAssertTrue(try NativeAccessibilityLookup.matching("Add to Setlist", in: window,
             buttonsOnly: true).isEmpty)
         XCTAssertNotNil(try NativeAccessibilityLookup.matching("Share", in: window, buttonsOnly: true).first)
+        XCTAssertTrue(try NativeAccessibilityLookup.matching(exported.fileSizeText, in: window).isEmpty,
+            "Export previews keep file size out of the reading interface")
         XCTAssertEqual(try Data(contentsOf: exported.url).count, exported.fileSizeBytes)
     }
 

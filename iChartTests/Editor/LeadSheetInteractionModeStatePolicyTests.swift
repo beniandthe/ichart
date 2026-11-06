@@ -4473,8 +4473,9 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
                 layoutStyle: style, manualRenderWithPreview: false)
             XCTAssertEqual(freeInk.title, "Write notes and reminders on the page")
             XCTAssertTrue(freeInk.steps[0].contains("Staff notes stay handwritten"))
-            XCTAssertFalse(freeInk.accessibilitySummary.contains("fermata"),
-                "Free Ink should explain its general job before the conversion exception")
+            XCTAssertTrue(freeInk.accessibilitySummary.contains("fermata (arch over a dot)"),
+                "The quick Free Ink explainer must show the supported drawn symbols")
+            XCTAssertTrue(freeInk.accessibilitySummary.contains("accent (>)"))
             XCTAssertTrue(freeInk.referenceText.contains("pause to convert"))
             XCTAssertEqual(freeInk.referenceText.contains("marcato"), style == .rhythmSectionSheet)
             let withoutMarks = EditorCanvasMode.browse.toolGuidance(

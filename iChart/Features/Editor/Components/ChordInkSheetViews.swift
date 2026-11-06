@@ -113,7 +113,7 @@ private struct ChordInkSourcePreview: View {
         .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                .stroke(IChartTourStyle.orange.opacity(0.22), lineWidth: 1)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(sourceImage == nil ? "Source handwriting unavailable" : accessibilityDescription)
@@ -650,6 +650,11 @@ struct ChordInkBatchConfirmationSheetView: View {
                         VStack(spacing: 5) {
                             Text(batch.displayTitle)
                                 .font(.system(.title2, design: .rounded).weight(.bold))
+                                .padding(.bottom, 5)
+                                .overlay(alignment: .bottom) {
+                                    Capsule().fill(IChartTourStyle.orange).frame(width: 36, height: 3)
+                                        .accessibilityHidden(true)
+                                }
 
                             Text(batch.instructionText)
                                 .font(.subheadline)
@@ -995,6 +1000,11 @@ struct ChordInkConfirmationSheetView: View {
                     .font(.title2.weight(.bold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
+                    .padding(.bottom, 5)
+                    .overlay(alignment: .bottom) {
+                        Capsule().fill(IChartTourStyle.orange).frame(width: 36, height: 3)
+                            .accessibilityHidden(true)
+                    }
 
                 HStack(spacing: 16) {
                     ChordInkSourcePreview(drawingData: confirmation.drawingData)
@@ -1221,11 +1231,18 @@ struct ChordCorrectionSheetView: View {
                     .font(.title2.weight(.bold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
+                    .padding(.bottom, 5)
+                    .overlay(alignment: .bottom) {
+                        Capsule().fill(IChartTourStyle.orange).frame(width: 36, height: 3)
+                            .accessibilityHidden(true)
+                    }
 
                 Text("Choose an alternative, change the quality, or edit the text. Save applies the chord shown in Change to.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
 
                 HStack(spacing: 16) {
                     if correction.sourceInkData != nil {

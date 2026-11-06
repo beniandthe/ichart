@@ -243,7 +243,7 @@ enum EditorCanvasMode: Hashable {
                 detailsTitle: "Measures guide",
                 details: [
                     .init(title: "Add measures", text: "Use Add to extend the chart beside the selected measure or onto another row."),
-                    .init(title: "Change the layout", text: "Layout includes Merge with Next Measure when the boundary can be removed safely. Select the first or last measure in a row for row-boundary actions."),
+                    .init(title: "Change the layout", text: "Open Layout to compare each action and read why an option is unavailable. Tap an available action to apply it. Merge with Next Measure is available when the boundary can be removed safely. Select the first or last measure in a row for row-boundary actions."),
                     .init(title: "Delete a range", text: "Choose the first measure and start the range. Tap the last measure, then choose Delete To. Review the range before deleting.")
                 ]
             )
@@ -290,6 +290,7 @@ enum EditorCanvasMode: Hashable {
                 details: [.init(title: "Select the note", text: "Available editing actions follow the selected note and the chart's rhythm-tool availability.")]
             )
         case .freeHand:
+            let supportsSymbolRendering = layoutStyle == .simpleChordSheet || layoutStyle == .rhythmSectionSheet
             var details = [EditorToolGuidanceSection(
                 title: "Handwriting",
                 text: "Use Apple Pencil to write notes and reminders directly on the page. Staff notes stay handwritten; Free Ink does not transcribe them into rhythm notation. Choose Erase to remove handwriting."
@@ -308,14 +309,23 @@ enum EditorCanvasMode: Hashable {
             case .leadSheet:
                 break
             }
-            if hasFreeInkArticulations && (layoutStyle == .simpleChordSheet || layoutStyle == .rhythmSectionSheet) {
-                details.append(.init(title: "Restore handwriting", text: "Use Restore Ink to bring back the original handwriting for a converted mark."))
+            if supportsSymbolRendering {
+                details.append(.init(
+                    title: "Rendering symbols",
+                    text: "Leave clear space around each symbol. Rendering replaces only that symbol's strokes; other handwriting stays on the page. iChart keeps the original strokes with the converted mark."
+                ))
             }
+            if hasFreeInkArticulations && supportsSymbolRendering {
+                details.append(.init(title: "Restore handwriting", text: "Use Restore Ink to replace a converted mark with its original handwriting."))
+            }
+            details.append(.init(title: "Move around the page", text: "One finger scrolls. Two fingers pan and zoom."))
             return .init(
                 title: "Write notes and reminders on the page",
                 steps: [
                     "Use Apple Pencil to write, or choose Erase. Staff notes stay handwritten.",
-                    "One finger scrolls. Two fingers pan and zoom."
+                    supportsSymbolRendering
+                        ? "Draw a fermata (arch over a dot) or accent (>). Lift the Pencil and pause to render."
+                        : "One finger scrolls. Two fingers pan and zoom."
                 ],
                 detailsTitle: "Free Ink guide",
                 details: details

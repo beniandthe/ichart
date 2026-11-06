@@ -89,7 +89,8 @@ final class DividerToolGuidanceTests: XCTestCase {
                 CGPoint(x: redX.midX, y: redX.midY), from: mounted.canvas), with: nil),
                 "The selected divider's red X must be reachable through the actual hit overlay")
         } else {
-            XCTAssertTrue(expected.referenceText.contains("Layout includes Merge with Next Measure"))
+            XCTAssertTrue(expected.referenceText.contains("Open Layout to compare each action"))
+            XCTAssertTrue(expected.referenceText.contains("Merge with Next Measure"))
             XCTAssertEqual(mounted.canvas.interactionMode, .measureEdit)
             for label in ["Add", "Layout", "Delete", "Done"] {
                 let control = try await node(label, in: mounted.window, button: true)
@@ -156,12 +157,19 @@ final class DividerToolGuidanceTests: XCTestCase {
             previousWindow?.makeKey()
             try? FileManager.default.removeItem(at: directory)
         }
-        for _ in 0..<40 {
+        // A cold app launch can finish connecting its normal SwiftUI window
+        // after this fixture is installed. Keep the real fixture window key
+        // while waiting for UIKit's actual appearance callback.
+        for _ in 0..<100 {
+            if !window.isKeyWindow, scene.activationState == .foregroundActive {
+                window.makeKeyAndVisible()
+            }
             window.layoutIfNeeded()
             if host.hasAppeared, window.isKeyWindow, host.view.bounds.size == window.bounds.size { break }
             try await Task.sleep(nanoseconds: 50_000_000)
         }
-        XCTAssertTrue(host.hasAppeared && window.isKeyWindow)
+        XCTAssertTrue(host.hasAppeared && window.isKeyWindow,
+            "The actual fixture must appear and own input: appeared=\(host.hasAppeared), key=\(window.isKeyWindow), scene=\(scene.activationState.rawValue)")
         XCTAssertEqual(window.bounds.size, scene.coordinateSpace.bounds.size)
         XCTAssertEqual(host.view.bounds.size, window.bounds.size)
         let canvas = try XCTUnwrap(Self.descendants(host.view).compactMap { $0 as? LeadSheetCanvasUIKitView }.first)
