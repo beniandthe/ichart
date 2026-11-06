@@ -2,6 +2,17 @@
 
 Status: source audit and local remediation validation complete. Production changes require the separate rollout packet. The installed iPad remains on Build 144.
 
+November 6 merge follow-up: the full PR native run passed, but a same-head push
+run exposed a two-second deadline in an unchanged fallback-independence test.
+The test now holds fallback explicitly, admits the neighbor after that hold is
+entered, and verifies its real render before release. Its watchdog cannot release
+fallback or satisfy the ordering claim. All original source/layout assertions
+remain. Fifty repetitions and the full fallback-session class passed; see the
+[focused receipt](build144-evidence/ci-fallback-fixture-2026-11-06.json). The
+production runtime is unchanged by this test-only follow-up. The November 5
+source manifest below remains the original audit checkpoint; final new-head
+hosted checks and merge identity are recorded by PR #103.
+
 ## Accepted baseline and boundaries
 
 - User-designated baseline: iChart 1.2.4 (144), installed from merged PR #102 commit `00f7901538074670251cd6626c1efa88a3bd1aec`, tree `97df96b43de9431ba72a0f7ab186da2323281740`.
