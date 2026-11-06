@@ -467,10 +467,6 @@ struct EditorView: View {
         Meter(numerator: 12, denominator: 8)
     ]
     private static let showsChordFixtureCaptureTools = false
-    private static let chordPreviewTelemetryQueue = DispatchQueue(
-        label: "com.ichart.chord-preview-telemetry",
-        qos: .utility
-    )
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var store: ChartLibraryStore
@@ -518,8 +514,6 @@ struct EditorView: View {
     @State private var automaticChordFeedbackClockID: UUID?
     @State private var automaticReviewFocusedDraftID: UUID?
     @State private var isReplayingAutomaticChordCensus = false
-    @State private var chordWritingBatchID = UUID()
-    @State private var chordReviewStartedAt: Date?
     @State private var chordReviewEditCache = ChordInkReviewEditCache()
     @State private var chordDraftRenderInvalidationRequestID: UUID?
     @State private var pendingChordRenderTimingEvidence: [UUID: PendingChordRenderTimingEvidence] = [:]
@@ -931,18 +925,6 @@ struct EditorView: View {
                 canvasMode = .browse
                 return
             }
-            if previousMode != mode {
-                IChartTelemetry.record(
-                    "editor.mode_changed",
-                    properties: [
-                        "from_mode": .string(previousMode.telemetryValue),
-                        "to_mode": .string(mode.telemetryValue),
-                        "layout_style": .string(chart.layoutStyle.rawValue),
-                        "measure_count": .int(chart.measures.count),
-                        "ink_tool_mode": .string(inkToolMode.rawValue)
-                    ]
-                )
-            }
             if mode != .noteEdit {
                 isNoteEditMenuPresented = false
                 noteEditMenuStage = .actions
@@ -968,16 +950,6 @@ struct EditorView: View {
             }
             if freeInkDocumentCanvasWidth == nil {
                 freeInkDocumentCanvasWidth = LeadSheetFreeInkDocumentLayoutPolicy.savedCanvasWidth(for: updatedChart)
-            }
-            if !previousChart.hasCompletedInitialSetup,
-               updatedChart.hasCompletedInitialSetup {
-                IChartTelemetry.record(
-                    "editor.chart_setup_completed",
-                    properties: [
-                        "layout_style": .string(updatedChart.layoutStyle.rawValue),
-                        "measure_count": .int(updatedChart.measures.count)
-                    ]
-                )
             }
             scheduleChordEntryDiagnosticReconciliation(for: updatedChart)
             advanceEditorGuidedTourAfterSetupIfNeeded(updatedChart)
@@ -1010,14 +982,6 @@ struct EditorView: View {
             chordDraftRenderCoordinator.renderSessionReadyAt = nil
             pendingChordDiagnosticReconciliationWorkItem?.cancel()
             pendingChordDiagnosticReconciliationWorkItem = nil
-            IChartTelemetry.record(
-                "editor.closed",
-                properties: [
-                    "mode": .string(canvasMode.telemetryValue),
-                    "layout_style": .string(chart.layoutStyle.rawValue),
-                    "measure_count": .int(chart.measures.count)
-                ]
-            )
         }
         .onChange(of: manualRenderWithPreview) { _, _ in
             cancelAutomaticChordRendering()
@@ -1035,14 +999,6 @@ struct EditorView: View {
             }
         }
         .task {
-            IChartTelemetry.record(
-                "editor.opened",
-                properties: [
-                    "mode": .string(canvasMode.telemetryValue),
-                    "layout_style": .string(chart.layoutStyle.rawValue),
-                    "measure_count": .int(chart.measures.count)
-                ]
-            )
             startPendingSimpleChartTourIfNeeded()
 
             if chart.staffStyle != .fiveLine {
@@ -2840,14 +2796,6 @@ struct EditorView: View {
         }
         if let batch = ChordInkDraftReviewPolicy.batch(for: chordPreviewState) {
             pendingChordInkBatchConfirmation = batch
-            chordReviewStartedAt = Date()
-            IChartTelemetry.record("chord.confirmation_presented", properties: [
-                "batch_size": .int(batch.confirmations.count),
-                "confirm_count": .int(batch.confirmations.filter { $0.decision.action == .confirm }.count),
-                "result": .string("draft_review"),
-                "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
-                "layout_style": .string(chart.layoutStyle.rawValue)
-            ].merging(ChordWritingWorkflowTelemetry.batchProperties(batchID: chordWritingBatchID)) { _, value in value })
             return
         }
         if let ending = ChordDraftEndingReviewPolicy.firstEndingNeedingReview(chart: chart, state: chordPreviewState) {
@@ -3326,14 +3274,6 @@ struct EditorView: View {
         let chartToExport = chart
         isExporting = true
         let exportStartedAt = Date()
-        IChartTelemetry.record(
-            "pdf.export_started",
-            properties: [
-                "layout_style": .string(chartToExport.layoutStyle.rawValue),
-                "measure_count": .int(chartToExport.measures.count),
-                "mode": .string(canvasMode.telemetryValue)
-            ]
-        )
 
         Task {
             do {
@@ -3346,10 +3286,6 @@ struct EditorView: View {
                     IChartTelemetry.record(
                         "pdf.export_succeeded",
                         properties: [
-                            "layout_style": .string(chartToExport.layoutStyle.rawValue),
-                            "measure_count": .int(chartToExport.measures.count),
-                            "page_count": .int(exportedPDF.pageCount),
-                            "pdf_size_bucket": .string(Self.pdfSizeBucket(exportedPDF.fileSizeBytes)),
                             "duration_ms": .double(Date().timeIntervalSince(exportStartedAt) * 1_000)
                         ]
                     )
@@ -3362,8 +3298,6 @@ struct EditorView: View {
                     IChartTelemetry.record(
                         "pdf.export_failed",
                         properties: [
-                            "layout_style": .string(chartToExport.layoutStyle.rawValue),
-                            "measure_count": .int(chartToExport.measures.count),
                             "duration_ms": .double(Date().timeIntervalSince(exportStartedAt) * 1_000),
                             "error_code": .string("export_error")
                         ]
@@ -3392,224 +3326,18 @@ struct EditorView: View {
         return measure.rhythmMap != nil || measure.handwrittenRhythmicNotationData != nil
     }
 
-    private static func pdfSizeBucket(_ byteCount: Int) -> String {
-        switch byteCount {
-        case ..<100_000:
-            return "lt_100kb"
-        case ..<500_000:
-            return "100kb_500kb"
-        case ..<1_000_000:
-            return "500kb_1mb"
-        case ..<5_000_000:
-            return "1mb_5mb"
-        default:
-            return "gt_5mb"
-        }
-    }
-
     private static func chordTelemetryProperties(
         confirmation: PendingChordInkConfirmation,
-        resolution: ChordEntryDiagnosticResolution,
+        resolution _: ChordEntryDiagnosticResolution,
         errorCode: String? = nil
     ) -> IChartTelemetryProperties {
-        var properties = chordTelemetryProperties(
-            result: confirmation.result,
-            candidateCount: confirmation.candidateTexts.count,
-            decision: confirmation.decision,
-            timing: confirmation.recognitionTiming,
-            flow: .tapToConfirm
-        )
-        properties["decision"] = .string(resolution.rawValue)
-        properties["result"] = .string(errorCode == nil ? "committed" : "failed")
-        if let errorCode {
-            properties["error_code"] = .string(errorCode)
-        }
-        return properties
-    }
-
-    private static func chordTelemetryProperties(
-        result: ChordInkRecognitionResult,
-        candidateCount: Int,
-        decision: ChordInkRecognitionDecision,
-        timing: ChordInkRecognitionTiming?,
-        flow: ChordInkRecognitionFlow
-    ) -> IChartTelemetryProperties {
         var properties: IChartTelemetryProperties = [
-            "candidate_count": .int(candidateCount),
-            "confidence_bucket": .string(confidenceBucket(result.confidence)),
-            "decision": .string(decision.action.rawValue),
-            "flow": .string(flow.telemetryValue),
-            "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
-            "review_candidate_count": .int(result.reviewCandidateScores.count),
-            "render_action": .string(decision.action.rawValue),
-            "result": .string(result.match == nil ? "unmatched" : "matched"),
-            "stroke_count": .int(result.metrics.strokeCount)
+            "error_code": .string(errorCode ?? "recognition_failed")
         ]
-
-        if let timing {
-            properties["recognition_ms"] = .double(timing.recognitionMilliseconds)
+        if let timing = confirmation.recognitionTiming {
+            properties["duration_ms"] = .double(timing.recognitionMilliseconds)
         }
-
-        if let evidence = result.trustEvidence {
-            properties["trust_outcome"] = .string(evidence.outcome.rawValue)
-            properties["trust_probe_count"] = .int(evidence.completedProbeCount)
-            properties["trust_symbol_support_count"] = .int(evidence.symbolSupportCount)
-            properties["trust_validation_ms"] = .double(evidence.validationMilliseconds)
-        }
-
         return properties
-    }
-
-    private static func chordDraftPreviewTelemetryProperties(
-        payloads: [ChordInkRecognitionProposalPayload],
-        inputs: [ChordInkDraftInput],
-        updatedState: ChordPreviewState,
-        layoutStyle: String
-    ) -> IChartTelemetryProperties {
-        let decisions = payloads.map { ChordInkRecognitionPolicy.decision(for: $0.result) }
-        let matchedCount = payloads.filter { $0.result.match != nil }.count
-        let noReadCount = payloads.count - matchedCount
-        let trustedCount = decisions.filter { $0.action == .trusted && $0.acceptedText != nil }.count
-        let confirmCount = decisions.filter { $0.action == .confirm }.count
-        let closeRaceCount = decisions.filter(\.isCloseRace).count
-        let generatedSequenceLimitCount = payloads.filter {
-            $0.result.metrics.compositionMetrics.hitGeneratedSequenceLimit
-        }.count
-        let issueBuckets = ChordInkPreviewIssueBucketPolicy.counts(
-            results: payloads.map(\.result),
-            decisions: decisions,
-            barlineCount: updatedState.draftBarlines.count
-        )
-        let matchedConfidences = payloads.compactMap { payload -> Double? in
-            payload.result.match == nil ? nil : payload.result.confidence
-        }
-        let recognitionMilliseconds = payloads.reduce(0) { partialResult, payload in
-            partialResult + payload.timing.recognitionMilliseconds
-        }
-        let trustEvidence = payloads.compactMap(\.result.trustEvidence)
-        let trustCorroboratedCount = trustEvidence.filter(\.isCorroborated).count
-        let trustRejectedCount = trustEvidence.count - trustCorroboratedCount
-
-        var properties: IChartTelemetryProperties = [
-            "batch_size": .int(payloads.count),
-            "barline_count": .int(updatedState.draftBarlines.count),
-            "barline_sequence_issue_count": .int(issueBuckets.barlineSequenceIssueCount),
-            "candidate_count": .int(inputs.reduce(0) { $0 + $1.candidateTexts.count }),
-            "candidate_limit_issue_count": .int(issueBuckets.candidateLimitIssueCount),
-            "close_race_count": .int(closeRaceCount),
-            "cluster_count": .int(payloads.reduce(0) { $0 + $1.result.metrics.clusterCount }),
-            "confirm_count": .int(confirmCount),
-            "decision": .string(previewDecisionSummary(
-                totalCount: payloads.count,
-                trustedCount: trustedCount,
-                confirmCount: confirmCount,
-                noReadCount: noReadCount
-            )),
-            "draft_count": .int(updatedState.draftChords.count),
-            "flow": .string(ChordInkRecognitionFlow.draftPreview.telemetryValue),
-            "generated_sequence_limit_count": .int(generatedSequenceLimitCount),
-            "alteration_issue_count": .int(issueBuckets.alterationIssueCount),
-            "dim_quality_issue_count": .int(issueBuckets.dimQualityIssueCount),
-            "extension_issue_count": .int(issueBuckets.extensionIssueCount),
-            "issue_count": .int(issueBuckets.issueCount),
-            "layout_style": .string(layoutStyle),
-            "matched_count": .int(matchedCount),
-            "no_read_count": .int(noReadCount),
-            "quality_issue_count": .int(issueBuckets.qualityIssueCount),
-            "raw_candidate_count": .int(payloads.reduce(0) { $0 + $1.result.rawCandidates.count }),
-            "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
-            "recognition_target_count": .int(payloads.count),
-            "review_candidate_count": .int(payloads.reduce(0) {
-                $0 + $1.result.reviewCandidateScores.count
-            }),
-            "result": .string(previewResultSummary(
-                totalCount: payloads.count,
-                matchedCount: matchedCount,
-                noReadCount: noReadCount
-            )),
-            "root_accidental_issue_count": .int(issueBuckets.rootAccidentalIssueCount),
-            "root_issue_count": .int(issueBuckets.rootIssueCount),
-            "slash_bass_issue_count": .int(issueBuckets.slashBassIssueCount),
-            "stroke_count": .int(inputs.reduce(0) { $0 + $1.strokeCount }),
-            "triangle_quality_issue_count": .int(issueBuckets.triangleQualityIssueCount),
-            "trust_corroborated_count": .int(trustCorroboratedCount),
-            "trust_probe_count": .int(trustEvidence.reduce(0) { $0 + $1.completedProbeCount }),
-            "trust_rejected_count": .int(trustRejectedCount),
-            "trust_validation_ms": .double(trustEvidence.reduce(0) { $0 + $1.validationMilliseconds }),
-            "trusted_count": .int(trustedCount),
-            "unknown_issue_count": .int(issueBuckets.unknownIssueCount),
-            "unresolved_count": .int(updatedState.unresolvedChordCount)
-        ]
-
-        if recognitionMilliseconds > 0 {
-            properties["recognition_ms"] = .double(recognitionMilliseconds)
-        }
-
-        if let minimumMatchedConfidence = matchedConfidences.min() {
-            properties["confidence_bucket"] = .string(confidenceBucket(minimumMatchedConfidence))
-        }
-
-        return properties
-    }
-
-    private static func previewDecisionSummary(
-        totalCount: Int,
-        trustedCount: Int,
-        confirmCount: Int,
-        noReadCount: Int
-    ) -> String {
-        guard totalCount > 0 else {
-            return "none"
-        }
-
-        if noReadCount == totalCount {
-            return "no_read"
-        }
-
-        if trustedCount == totalCount {
-            return "trusted"
-        }
-
-        if confirmCount == totalCount {
-            return "confirm"
-        }
-
-        return "mixed"
-    }
-
-    private static func previewResultSummary(
-        totalCount: Int,
-        matchedCount: Int,
-        noReadCount: Int
-    ) -> String {
-        guard totalCount > 0 else {
-            return "empty"
-        }
-
-        if matchedCount == totalCount {
-            return "matched"
-        }
-
-        if noReadCount == totalCount {
-            return "unmatched"
-        }
-
-        return "partial"
-    }
-
-    private static func confidenceBucket(_ confidence: Double) -> String {
-        switch confidence {
-        case ..<1:
-            return "lt_1"
-        case ..<2:
-            return "1_2"
-        case ..<3:
-            return "2_3"
-        case ..<4:
-            return "3_4"
-        default:
-            return "gte_4"
-        }
     }
 
     private var canRemoveRepeatAtSelectedMeasure: Bool {
@@ -5309,32 +5037,10 @@ struct EditorView: View {
                 "drafts": "\(updatedPreviewState.draftChords.count)",
                 "cache_hits": "\(payloads.filter { $0.timing.cacheHit }.count)",
                 "reused_resolutions": "\(reusedResolutionCount)",
-                "layout_style": chart.layoutStyle.rawValue
+
             ]
         )
 
-        let layoutStyle = chart.layoutStyle.rawValue
-        let workflowProperties = ChordWritingWorkflowTelemetry.previewTimingProperties(
-            batchID: chordWritingBatchID,
-            lastStrokeToPreviewMilliseconds: payloads.contains(where: { !$0.timing.cacheHit })
-                ? ChordWritingWorkflowTelemetry.elapsedMilliseconds(
-                    from: chordDraftRenderCoordinator.lastInputAt, to: Date()) : nil
-        )
-        if !payloads.contains(where: { $0.targetLifecycle?.stage == .collecting }) {
-            // Ownership placeholders describe unfinished writing, not a failed
-            // recognition attempt. Publish quality metrics only after reading.
-            Self.chordPreviewTelemetryQueue.async {
-                IChartTelemetry.record(
-                    "chord.preview_updated",
-                    properties: Self.chordDraftPreviewTelemetryProperties(
-                        payloads: payloads,
-                        inputs: inputs,
-                        updatedState: updatedPreviewState,
-                        layoutStyle: layoutStyle
-                    ).merging(workflowProperties) { _, value in value }
-                )
-            }
-        }
         if !isReplayingAutomaticChordCensus { scheduleAutomaticChordRendering() }
     }
 
@@ -5347,16 +5053,6 @@ struct EditorView: View {
         chordPreviewState = updatedPreviewState
 
         if barlines.count > previousCount {
-            IChartTelemetry.record(
-                "chord.draft_barline_added",
-                properties: [
-                    "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
-                    "barline_count": .int(barlines.count),
-                    "draft_count": .int(updatedPreviewState.draftChords.count),
-                    "unresolved_count": .int(updatedPreviewState.unresolvedBarlineCount),
-                    "layout_style": .string(chart.layoutStyle.rawValue)
-                ]
-            )
         }
         if !isReplayingAutomaticChordCensus { scheduleAutomaticChordRendering() }
     }
@@ -5462,6 +5158,7 @@ struct EditorView: View {
         pendingAutomaticChordRenderWorkItem = nil
         let now = Date()
 
+        let renderStartedAt = ProcessInfo.processInfo.systemUptime
         let attempt = chordDraftRenderCoordinator.attemptAutomatically(
             chart: chart, state: chordPreviewState, now: now, lastInputAt: inputAt
         )
@@ -5481,20 +5178,13 @@ struct EditorView: View {
             IChartTelemetry.record(
                 "chord.preview_rendered",
                 properties: [
-                    "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
-                    "draft_count": .int(outcome.result.renderedChordCount + outcome.result.renderedBarlineCount + outcome.result.renderedEndingCount),
-                    "rendered_count": .int(outcome.result.renderedChordCount),
-                    "barline_count": .int(outcome.result.renderedBarlineCount),
-                    "unresolved_count": .int(outcome.remainingState.unresolvedChordCount + outcome.remainingState.unresolvedBarlineCount + outcome.remainingState.unresolvedEndingCount),
-                    "decision": .string("automatic"),
-                    "layout_style": .string(outcome.chart.layoutStyle.rawValue)
-                ].merging(ChordWritingWorkflowTelemetry.batchProperties(batchID: chordWritingBatchID)) { _, value in value }
+                    "rendered_count": .int(outcome.result.renderedChordCount + outcome.result.renderedBarlineCount + outcome.result.renderedEndingCount),
+                    "duration_ms": .double((ProcessInfo.processInfo.systemUptime - renderStartedAt) * 1_000)
+                ]
             )
             if outcome.drawing.strokes.isEmpty {
                 chordDraftRenderCoordinator.lastInputAt = nil
                 chordDraftRenderCoordinator.renderSessionReadyAt = nil
-                chordWritingBatchID = UUID()
-                chordReviewStartedAt = nil
                 chordReviewEditCache.removeAll()
                 cancelAutomaticChordRendering()
                 resetAutomaticChordFeedback()
@@ -5618,19 +5308,6 @@ struct EditorView: View {
             }
 
             pendingChordInkBatchConfirmation = batch
-            chordReviewStartedAt = Date()
-            IChartTelemetry.record(
-                "chord.confirmation_presented",
-                properties: [
-                    "batch_size": .int(batch.confirmations.count),
-                    "confirm_count": .int(
-                        batch.confirmations.filter { $0.decision.action == .confirm }.count
-                    ),
-                    "result": .string("draft_review"),
-                    "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
-                    "layout_style": .string(chart.layoutStyle.rawValue)
-                ].merging(ChordWritingWorkflowTelemetry.batchProperties(batchID: chordWritingBatchID)) { _, value in value }
-            )
             return
         }
 
@@ -5649,10 +5326,10 @@ struct EditorView: View {
     @discardableResult
     private func renderChordPreviewState(
         _ state: ChordPreviewState,
-        reviewResult: String,
-        workflowProperties: IChartTelemetryProperties = [:],
+        reviewResult _: String,
         independentOnly: Bool = false
     ) -> Bool {
+        let renderStartedAt = ProcessInfo.processInfo.systemUptime
         let hasEndingToReview = ChordDraftEndingReviewPolicy.firstEndingNeedingReview(chart: chart, state: state) != nil
         // The independent toolbar action may commit safe structural marks
         // while an unrelated ending still needs review. Its live
@@ -5696,9 +5373,6 @@ struct EditorView: View {
             preparedOutcome = ChordInkDraftRenderCoordinator.explicitOutcome(automaticOutcome)
         }
         guard let outcome = preparedOutcome else {
-            LeadSheetInkFeatureContract.recordRenderGuard(
-                chart: chart, reason: "render_canvas_unavailable", unavailable: true
-            )
             presentChordRenderError("The chord canvas is not ready to render. Finish the current stroke and try again. Your ink has not been erased.")
             return false
         }
@@ -5753,20 +5427,10 @@ struct EditorView: View {
         IChartTelemetry.record(
             "chord.preview_rendered",
             properties: [
-                "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
-                "draft_count": .int(renderResult.renderedChordCount + renderResult.renderedBarlineCount + renderResult.renderedEndingCount),
-                "rendered_count": .int(renderResult.renderedChordCount),
-                "barline_count": .int(renderResult.renderedBarlineCount),
-                "unresolved_count": .int(outcome.retainedDraft.map {
-                    $0.state.unresolvedChordCount + $0.state.unresolvedBarlineCount + $0.state.unresolvedEndingCount
-                } ?? renderResult.unresolvedDraftIDs.count),
-                "decision": .string(reviewResult),
-                "layout_style": .string(updatedChart.layoutStyle.rawValue)
-            ].merging(ChordWritingWorkflowTelemetry.batchProperties(batchID: chordWritingBatchID)) { _, value in value }
-                .merging(workflowProperties) { _, value in value }
+                "rendered_count": .int(renderResult.renderedChordCount + renderResult.renderedBarlineCount + renderResult.renderedEndingCount),
+                "duration_ms": .double((ProcessInfo.processInfo.systemUptime - renderStartedAt) * 1_000)
+            ]
         )
-        if outcome.retainedDraft == nil { chordWritingBatchID = UUID() }
-        chordReviewStartedAt = nil
         chordDraftRenderCoordinator.lastInputAt = nil
         chordDraftRenderCoordinator.renderSessionReadyAt = nil
         resetAutomaticChordFeedback()
@@ -5884,17 +5548,6 @@ struct EditorView: View {
         chordDraftRenderInvalidationRequestID = UUID()
         chordPreviewState.discard()
 
-        IChartTelemetry.record(
-            "chord.preview_discarded",
-            properties: [
-                "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
-                "draft_count": .int(discardedDraftCount),
-                "barline_count": .int(discardedBarlineCount),
-                "layout_style": .string(updatedChart.layoutStyle.rawValue)
-            ].merging(ChordWritingWorkflowTelemetry.rewriteProperties(batchID: chordWritingBatchID, outcome: .discard)) { _, value in value }
-        )
-        chordWritingBatchID = UUID()
-        chordReviewStartedAt = nil
         chordReviewEditCache.removeAll()
         chordDraftRenderCoordinator.lastInputAt = nil
         chordDraftRenderCoordinator.renderSessionReadyAt = nil
@@ -5954,16 +5607,6 @@ struct EditorView: View {
             decisionMilliseconds: proposalDecisionMilliseconds
         )
         #endif
-        IChartTelemetry.record(
-            "chord.recognition_proposed",
-            properties: Self.chordTelemetryProperties(
-                result: result,
-                candidateCount: resolution.candidateTexts.count,
-                decision: resolution.decision,
-                timing: timing,
-                flow: flow
-            )
-        )
 
         handleTapConfirmedChordRecognition(confirmation)
     }
@@ -6022,17 +5665,6 @@ struct EditorView: View {
         }
 
         let batch = PendingChordInkBatchConfirmation(confirmations: confirmations)
-        IChartTelemetry.record(
-            "chord.recognition_proposed",
-            properties: [
-                "batch_size": .int(confirmations.count),
-                "flow": .string(flow.telemetryValue),
-                "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
-                "result": .string("batch"),
-                "layout_style": .string(chart.layoutStyle.rawValue),
-                "measure_count": .int(chart.measures.count)
-            ]
-        )
         let isGuidedChordConfirmation = editorGuidedTourStep == .writeChords
             || editorGuidedTourStep == .renderChords
         let trustedTextsByID = Dictionary(
@@ -6057,15 +5689,6 @@ struct EditorView: View {
         }
 
         pendingChordInkBatchConfirmation = batch
-        IChartTelemetry.record(
-            "chord.confirmation_presented",
-            properties: [
-                "batch_size": .int(confirmations.count),
-                "result": .string("batch_confirmation"),
-                "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
-                "layout_style": .string(chart.layoutStyle.rawValue)
-            ]
-        )
     }
 
     private func handleChordInkBatchAccepted(
@@ -6158,19 +5781,7 @@ struct EditorView: View {
             return false
         }
 
-        let observations = chordPreviewState.draftChords.map { draft in
-            let previous = draft.previewText.flatMap { ChordRecognitionCompendium.match($0)?.displayText }
-            let accepted = candidateTextByID[draft.id].flatMap { ChordRecognitionCompendium.match($0)?.displayText }
-            return ChordWritingWorkflowTelemetry.ReviewObservation(
-                hadSupportedRead: previous != nil, didChangeRead: previous != accepted
-            )
-        }
-        return renderChordPreviewState(reviewedState, reviewResult: "confirmed",
-            workflowProperties: ChordWritingWorkflowTelemetry.reviewProperties(
-                batchID: chordWritingBatchID, observations: observations,
-                durationMilliseconds: ChordWritingWorkflowTelemetry.elapsedMilliseconds(
-                    from: chordReviewStartedAt, to: Date())
-            ))
+        return renderChordPreviewState(reviewedState, reviewResult: "confirmed")
     }
 
     private func recordChordReviewRejection(
@@ -6181,7 +5792,6 @@ struct EditorView: View {
         let expected = batch.reviewedDraftState
         IChartPerformanceTrace.record("chord.review.rejected", metadata: [
             "reason": reason.rawValue,
-            "layout_style": chart.layoutStyle.rawValue,
             "current_drafts": "\(chordPreviewState.draftChords.count)",
             "reviewed_drafts": "\(expected?.draftChords.count ?? 0)",
             "current_barlines": "\(chordPreviewState.draftBarlines.count)",
@@ -6251,13 +5861,6 @@ struct EditorView: View {
         }
 
         pendingChordInkConfirmation = confirmation
-        IChartTelemetry.record(
-            "chord.confirmation_presented",
-            properties: Self.chordTelemetryProperties(
-                confirmation: confirmation,
-                resolution: .confirmedSuggestion
-            )
-        )
     }
 
     private func handleChordInkCandidateAccepted(
@@ -6385,13 +5988,6 @@ struct EditorView: View {
         )
         #endif
 
-        IChartTelemetry.record(
-            resolution == .manualCorrection ? "chord.correction_applied" : "chord.recognition_committed",
-            properties: Self.chordTelemetryProperties(
-                confirmation: confirmation,
-                resolution: resolution
-            )
-        )
         return true
     }
 
@@ -6422,8 +6018,6 @@ struct EditorView: View {
             IChartTelemetry.record(
                 "chord.recognition_failed",
                 properties: [
-                    "batch_size": .int(batch.confirmations.count),
-                    "result": .string("batch_failed"),
                     "error_code": .string("unsupported_candidate")
                 ]
             )
@@ -6450,8 +6044,6 @@ struct EditorView: View {
                 IChartTelemetry.record(
                     "chord.recognition_failed",
                     properties: [
-                        "batch_size": .int(batch.confirmations.count),
-                        "result": .string("batch_failed"),
                         "error_code": .string("missing_measure")
                     ]
                 )
@@ -6496,16 +6088,6 @@ struct EditorView: View {
         completeEditorGuidedTourStep(.writeChords)
         completeEditorGuidedTourStep(.renderChords)
 
-        IChartTelemetry.record(
-            "chord.batch_committed",
-            properties: [
-                "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
-                "layout_style": .string(chart.layoutStyle.rawValue),
-                "batch_size": .int(committedEvents.count),
-                "decision": .string(resolution.rawValue),
-                "result": .string("committed")
-            ]
-        )
         return true
     }
 
@@ -6595,19 +6177,13 @@ struct EditorView: View {
         IChartTelemetry.record(
             "chord.rendered_correction_applied",
             properties: [
-                "candidate_count": .int(originalChordEvent.sourceCandidateSignature.count),
                 "decision": .string(Self.renderedChordCorrectionFeedbackKind(
                     previousRecognitionText: previousRecognitionText,
                     previousRenderedText: correction.currentText,
                     acceptedText: trimmedCandidateText,
                     candidateTexts: originalChordEvent.sourceCandidateSignature
-                )),
-                "layout_style": .string(updatedChart.layoutStyle.rawValue),
-                "result": .string(didUpdateCorrectionMemory ? "memory_updated" : "edit_only")
-            ].merging(ChordInkCorrectionTelemetry.sourceProperties(
-                hasSourceInk: originalChordEvent.sourceInkData != nil,
-                sourceRecognitionPipelineVersion: originalChordEvent.sourceRecognitionPipelineVersion
-            )) { _, sourceValue in sourceValue }
+                ))
+            ]
         )
 
         #if DEBUG && targetEnvironment(simulator)
@@ -6900,8 +6476,6 @@ struct EditorView: View {
     #endif
 
     private func handleChordInkRewriteRequested() {
-        IChartTelemetry.record("chord.preview_rewritten", properties:
-            ChordWritingWorkflowTelemetry.rewriteProperties(batchID: chordWritingBatchID, outcome: .page))
         chordInkAutomaticRewriteFailures.reset()
         clearChordInkForRewrite()
     }
@@ -6911,7 +6485,6 @@ struct EditorView: View {
         chordRenderStatus = nil
         pendingChordInkConfirmation = nil
         pendingChordInkBatchConfirmation = nil
-        chordReviewStartedAt = nil
         automaticReviewFocusedDraftID = nil
         canvasMode = .chordEntry
     }
@@ -6951,8 +6524,6 @@ struct EditorView: View {
         chordReviewEditCache.removeEdit(for: confirmation, chartID: chart.id)
         chordPreviewState.discard()
         resetAutomaticChordFeedback()
-        IChartTelemetry.record("chord.preview_rewritten", properties:
-            ChordWritingWorkflowTelemetry.rewriteProperties(batchID: chordWritingBatchID, outcome: .local))
     }
 
     private func clearChordInkForRewrite() {
@@ -6964,8 +6535,6 @@ struct EditorView: View {
         chordDraftRenderInvalidationRequestID = UUID()
         chordPreviewState.discard()
         canvasMode = .chordEntry
-        chordWritingBatchID = UUID()
-        chordReviewStartedAt = nil
         chordReviewEditCache.removeAll()
         chordDraftRenderCoordinator.lastInputAt = nil
         chordDraftRenderCoordinator.renderSessionReadyAt = nil

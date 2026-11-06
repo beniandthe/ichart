@@ -1,10 +1,5 @@
 import Foundation
-import CryptoKit
 import CoreFoundation
-
-#if canImport(UIKit)
-import UIKit
-#endif
 
 enum IChartTelemetryValue: Codable, Equatable {
     case string(String)
@@ -136,110 +131,205 @@ enum IChartTelemetryBuildSource {
     }
 }
 
+/// Best-effort admission for basic scalar diagnostics. A busy or full buffer
+/// drops an observation. Callers never wait for storage, consent cleanup or HTTP.
 enum IChartTelemetry {
-    private static let lock = NSLock()
-    private static var configuredService: IChartTelemetryService?
+    private static let admission = IChartTelemetryAdmission()
 
     static func configure(_ service: IChartTelemetryService?) {
-        lock.lock()
-        configuredService = service
-        lock.unlock()
+        admission.configure(service)
     }
 
     static func setConsentGranted(_ isGranted: Bool) {
-        let configured = service
-        (configured?.consentStore ?? .shared).setConsentGranted(isGranted)
-        Task.detached(priority: .utility) {
-            await configured?.consentDidChange()
-        }
+        admission.setConsentGranted(isGranted)
     }
 
-    /// Lets diagnostic callers skip expensive read-only capture while opted out.
-    static var isRecordingEnabled: Bool {
-        guard let configured = service else { return false }
-        return configured.consentStore.cachedSnapshotForScheduling.isGranted
-    }
+    /// Legacy live-capture callers stay disabled, including when basic error
+    /// reporting is consented. Basic recording checks consent at admission.
+    static var isRecordingEnabled: Bool { false }
 
-    static func record(
-        _ eventName: String,
-        properties: IChartTelemetryProperties = [:],
-        chartID: UUID? = nil
-    ) {
-        guard let service = service else {
-            return
-        }
-
-        let consent = service.consentStore.cachedSnapshotForScheduling
-        guard consent.isGranted else {
-            Task.detached(priority: .utility) { await service.consentDidChange() }
-            return
-        }
-        Task.detached(priority: .utility) {
-            await service.record(eventName, properties: properties, chartID: chartID, expectedConsent: consent)
-        }
-    }
-
-    struct DiagnosticAuthorization {
+    struct BasicRecordingAuthorization {
         fileprivate let service: IChartTelemetryService
         fileprivate let consent: IChartTelemetryConsentSnapshot
 
         var isCurrent: Bool {
-            consent.isGranted && service.consentStore.cachedSnapshotForScheduling == consent
-        }
-
-        func matches(_ other: Self) -> Bool {
-            service === other.service && consent == other.consent
+            admission.configuredService === service && service.consentStore.trySnapshotForScheduling() == consent
         }
     }
 
-    /// Capture before copying live values. Deferred analysis cannot adopt a
-    /// later opt-in generation after withdrawal or namespace rotation.
-    static func diagnosticAuthorization() -> DiagnosticAuthorization? {
-        guard let configured = service else { return nil }
-        let consent = configured.consentStore.cachedSnapshotForScheduling
-        guard consent.isGranted else { return nil }
-        return DiagnosticAuthorization(service: configured, consent: consent)
+    static func basicRecordingAuthorization() -> BasicRecordingAuthorization? {
+        guard let service = admission.configuredService,
+              let consent = service.consentStore.trySnapshotForScheduling(), consent.isGranted else { return nil }
+        return BasicRecordingAuthorization(service: service, consent: consent)
     }
+
+    static var isBasicRecordingEnabled: Bool { basicRecordingAuthorization() != nil }
+
+    static func record(_ eventName: String, properties: IChartTelemetryProperties = [:], chartID: UUID? = nil) {
+        admission.record(eventName, properties: properties)
+    }
+
+    struct DiagnosticAuthorization {
+        var isCurrent: Bool { false }
+        func matches(_ other: Self) -> Bool { false }
+    }
+
+    static func diagnosticAuthorization() -> DiagnosticAuthorization? { nil }
 
     static func recordDeferredDiagnostic(
         _ eventName: String, chartID: UUID?, authorization: DiagnosticAuthorization,
         onCompletion: @escaping @Sendable () -> Void = {},
         properties: @escaping @Sendable () -> IChartTelemetryProperties?
     ) {
-        let callID = authorization.service.recordingTraceID()
-        authorization.service.traceRecording(.deferredScheduled, callID: callID, eventName: eventName)
-        Task.detached(priority: .utility) {
-            authorization.service.traceRecording(.deferredStarted, callID: callID, eventName: eventName)
-            defer {
-                authorization.service.traceRecording(.deferredCompleted, callID: callID, eventName: eventName)
-                onCompletion()
-            }
-            await authorization.service.recordDiagnosticObservation(eventName, chartID: chartID,
-                expectedConsent: authorization.consent, traceID: callID, properties: properties)
-        }
+        // Complete an obsolete caller's bookkeeping without evaluating its
+        // capture closure or retaining charts/drawings in background work.
+        onCompletion()
     }
 
-    static func flush() {
-        guard let service = service else {
+    static func flush() { admission.requestFlush() }
+
+    static func flushPendingEventsIfNeeded() async { admission.requestFlush() }
+}
+
+/// One utility drain owns the bounded buffer. No closure supplied by a canvas
+/// or persistence caller crosses this boundary, only sanitized scalar values.
+final class IChartTelemetryAdmission: @unchecked Sendable {
+    private enum Command {
+        case event(IChartTelemetryService, IChartTelemetryConsentSnapshot, String, IChartTelemetryProperties)
+        case flush(IChartTelemetryService, IChartTelemetryConsentSnapshot)
+    }
+
+    private let lock = NSLock()
+    private let capacity: Int
+    private var service: IChartTelemetryService?
+    private var commands: [Command] = []
+    private var isDraining = false
+    private var flushQueued = false
+    private var consentRefreshQueued = false
+    private var isRefreshingConsent = false
+    private var dropped = 0
+
+    init(capacity: Int = 64) { self.capacity = max(1, min(capacity, 64)) }
+
+    var configuredService: IChartTelemetryService? {
+        guard lock.try() else { return nil }
+        defer { lock.unlock() }
+        return service
+    }
+
+    var pendingCount: Int {
+        guard lock.try() else { return 0 }
+        defer { lock.unlock() }
+        return commands.count
+    }
+
+    var droppedCount: Int {
+        guard lock.try() else { return 0 }
+        defer { lock.unlock() }
+        return dropped
+    }
+
+    func configure(_ service: IChartTelemetryService?) {
+        // Configuration happens outside product work. Admission never holds
+        // this lock while accessing an actor, preferences, storage or network.
+        lock.lock()
+        self.service = service
+        commands.removeAll(keepingCapacity: true)
+        flushQueued = false
+        consentRefreshQueued = false
+        lock.unlock()
+    }
+
+    func record(_ name: String, properties: IChartTelemetryProperties) {
+        guard IChartTelemetryPrivacy.allowedEventNames.contains(name) else { return }
+        let values = IChartTelemetryPrivacy.sanitizedProperties(properties, forEventName: name)
+        guard lock.try() else { return }
+        guard let service, let consent = service.consentStore.trySnapshotForScheduling(), consent.isGranted else {
+            lock.unlock()
             return
         }
+        appendLocked(.event(service, consent, name, values))
+    }
 
-        let consent = service.consentStore.cachedSnapshotForScheduling
-        Task.detached(priority: .utility) {
-            await service.flush(expectedConsent: consent)
+    func setConsentGranted(_ isGranted: Bool) {
+        lock.lock()
+        let configured = service
+        lock.unlock()
+        (configured?.consentStore ?? .shared).setConsentGranted(isGranted)
+        requestConsentRefresh()
+    }
+
+    func requestFlush() {
+        guard lock.try() else { return }
+        guard !flushQueued, let service,
+              let consent = service.consentStore.trySnapshotForScheduling(), consent.isGranted else {
+            lock.unlock()
+            return
+        }
+        guard commands.count < capacity else { dropLocked(); return }
+        flushQueued = true
+        appendLocked(.flush(service, consent))
+    }
+
+    func requestConsentRefresh() {
+        // This coalesced control lane can cancel a request while the data drain
+        // awaits HTTP. The admission lock itself never encloses optional I/O.
+        lock.lock()
+        guard service != nil else { lock.unlock(); return }
+        consentRefreshQueued = true
+        let startsRefresh = !isRefreshingConsent
+        isRefreshingConsent = true
+        lock.unlock()
+        if startsRefresh {
+            Task.detached(priority: .utility) {
+                while let service = self.nextConsentRefresh() { await service.consentDidChange() }
+            }
         }
     }
 
-    static func flushPendingEventsIfNeeded() async {
-        guard let service = service else { return }
-        let consent = service.consentStore.cachedSnapshotForScheduling
-        await service.flushIfNeeded(expectedConsent: consent)
-    }
-
-    private static var service: IChartTelemetryService? {
+    private func nextConsentRefresh() -> IChartTelemetryService? {
         lock.lock()
         defer { lock.unlock() }
-        return configuredService
+        guard consentRefreshQueued else { isRefreshingConsent = false; return nil }
+        consentRefreshQueued = false
+        guard let service else { isRefreshingConsent = false; return nil }
+        return service
+    }
+
+    private func dropLocked() {
+        dropped = min(1_000_000_000, dropped + 1)
+        lock.unlock()
+    }
+
+    private func appendLocked(_ command: Command) {
+        guard commands.count < capacity else { dropLocked(); return }
+        commands.append(command)
+        let startsDrain = !isDraining
+        isDraining = true
+        lock.unlock()
+        if startsDrain {
+            Task.detached(priority: .utility) { await self.drain() }
+        }
+    }
+
+    private func nextCommand() -> Command? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !commands.isEmpty else { isDraining = false; return nil }
+        let command = commands.removeFirst()
+        if case .flush = command { flushQueued = false }
+        return command
+    }
+
+    private func drain() async {
+        while let command = nextCommand() {
+            switch command {
+            case let .event(service, consent, name, values):
+                await service.record(name, properties: values, expectedConsent: consent)
+            case let .flush(service, consent):
+                await service.flushIfNeeded(expectedConsent: consent)
+            }
+        }
     }
 }
 
@@ -248,7 +338,6 @@ actor IChartTelemetryService {
     private nonisolated let recordingObserver: (@Sendable (IChartTelemetryRecordingTrace) -> Void)?
     private let endpointURL: URL
     private let publishableKey: String
-    private let sessionStore: IChartSupabaseSessionStore?
     private let queueStore: IChartTelemetryQueueStore
     private let suppliedInstallationID: UUID?
     private let suppliedSessionID: UUID?
@@ -259,6 +348,7 @@ actor IChartTelemetryService {
     private var isFlushing = false
     private var lastFlushAttemptAt: Date?
     private var observedConsent: IChartTelemetryConsentSnapshot?
+    private var didInitialize = false
     private var inFlightRequest: IChartTelemetryRequest?
 
     private static let opportunisticFlushInterval: TimeInterval = 20
@@ -281,7 +371,6 @@ actor IChartTelemetryService {
     ) {
         self.endpointURL = endpointURL
         self.publishableKey = publishableKey
-        self.sessionStore = sessionStore
         self.queueStore = queueStore
         self.consentStore = consentStore
         suppliedInstallationID = installationID
@@ -291,24 +380,7 @@ actor IChartTelemetryService {
         self.urlSession = urlSession
         self.now = now
         self.recordingObserver = recordingObserver
-        let consent = consentStore.snapshot
-        if consent.isGranted && !consentStore.requiresQueueReset {
-            observedConsent = consent
-        } else {
-            // A queue from builds that collected without this explicit consent
-            // must never become eligible merely because the user later opts in.
-            do {
-                if try consentStore.clearQueuedEvents(matching: consent, {
-                    try queueStore.clear()
-                }) {
-                    observedConsent = consent
-                } else {
-                    observedConsent = nil
-                }
-            } catch {
-                observedConsent = nil
-            }
-        }
+
     }
 
     static func live(
@@ -353,19 +425,9 @@ actor IChartTelemetryService {
         traceID: UUID? = nil,
         properties: @Sendable () -> IChartTelemetryProperties?
     ) async {
-        let traceID = traceID ?? recordingTraceID()
-        traceRecording(.observationEntered, callID: traceID, eventName: eventName)
-        guard expectedConsent.isGranted,
-              consentStore.cachedSnapshotForScheduling == expectedConsent else {
-            traceRecording(.observationRejected, callID: traceID, eventName: eventName)
-            return
-        }
-        guard let values = properties() else {
-            traceRecording(.propertiesUnavailable, callID: traceID, eventName: eventName)
-            return
-        }
-        await record(eventName, properties: values, chartID: chartID, expectedConsent: expectedConsent,
-                     traceID: traceID)
+        // Live/content diagnostics are retired. In particular, do not invoke
+        // the supplied closure even if the current consent is granted.
+        return
     }
 
     func consentDidChange() {
@@ -411,29 +473,10 @@ actor IChartTelemetryService {
             enrichedProperties["queue_quarantine_overflow_count"] = .int(min(maximumCount, health.quarantineOverflowDroppedEventCount))
             enrichedProperties["queue_unacknowledged_batch_count"] = .int(min(maximumCount, health.unacknowledgedBatchCount))
         }
-        // References identify one chart only inside this consented installation.
-        // Neither raw chart IDs nor content fingerprints leave the device.
-        enrichedProperties.removeValue(forKey: "chart_reference")
-        if let chartID {
-            let key = SymmetricKey(data: Data(context.installationID.uuidString.lowercased().utf8))
-            let authentication = HMAC<SHA256>.authenticationCode(
-                for: Data(("ichart-chart-reference-v1:" + chartID.uuidString.lowercased()).utf8),
-                using: key
-            )
-            enrichedProperties["chart_reference"] = .string(authentication.map { String(format: "%02x", $0) }.joined())
-        }
         let sanitizedProperties = IChartTelemetryPrivacy.sanitizedProperties(
             enrichedProperties,
             forEventName: eventName
         )
-        if eventName == "feature.contract_checked",
-           !IChartTelemetryPrivacy.hasRequiredContractFields(sanitizedProperties) {
-            traceRecording(.contractPropertiesRejected, callID: traceID, eventName: eventName)
-            try? consentStore.performIfGranted(matching: consent) {
-                try queueStore.recordLocalRejection()
-            }
-            return
-        }
 
         let event = IChartTelemetryEvent(
             clientEventID: UUID(),
@@ -538,7 +581,8 @@ actor IChartTelemetryService {
 
     private func nextBatch(for consent: IChartTelemetryConsentSnapshot) throws -> (events: [IChartTelemetryEvent], body: Data)? {
         guard let loadedEvents = try consentStore.performIfGranted(matching: consent, {
-            try queueStore.loadEvents()
+            try queueStore.retainBasicEvents()
+            return try queueStore.loadEvents()
         }) else { return nil }
         let queuedEvents = loadedEvents.prefix(Self.maxBatchSize)
         guard !queuedEvents.isEmpty else {
@@ -576,11 +620,6 @@ actor IChartTelemetryService {
         request.timeoutInterval = 15
         request.setValue(publishableKey, forHTTPHeaderField: "apikey")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        if let accessToken = try? await sessionStore?.accessToken(),
-           !accessToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        }
 
         request.httpBody = body
 
@@ -652,15 +691,35 @@ actor IChartTelemetryService {
                 platform: Self.platformName,
                 osVersion: Self.osVersion,
                 deviceModel: Self.deviceModel,
-                localeLanguage: Locale.current.identifier,
-                timeZoneOffsetMinutes: TimeZone.current.secondsFromGMT() / 60
+                localeLanguage: "unknown",
+                timeZoneOffsetMinutes: 0
             )
         }
         if context != nil { traceRecording(.contextReady, callID: traceID, eventName: eventName) }
         return context
     }
 
+    /// Called only on this worker actor. Startup never awaits queue migration.
+    func initialize() { _ = preparedConsent() }
+
+    private func initializeIfNeeded() -> Bool {
+        guard !didInitialize else { return true }
+        let consent = consentStore.snapshot
+        do {
+            if consent.isGranted && !consentStore.requiresQueueReset {
+                do { try queueStore.retainBasicEvents() }
+                catch { try queueStore.clear() }
+                observedConsent = consent
+            }
+            didInitialize = true
+            return true
+        } catch {
+            return false
+        }
+    }
+
     private func preparedConsent(traceID: UUID? = nil, eventName: String = "") -> IChartTelemetryConsentSnapshot? {
+        guard initializeIfNeeded() else { return nil }
         let consent = consentStore.snapshot
         if consent != observedConsent || !consent.isGranted || consentStore.requiresQueueReset {
             let resetTraceID = traceID ?? recordingTraceID()
@@ -707,32 +766,27 @@ actor IChartTelemetryService {
     }
 
     private static var platformName: String {
-        #if canImport(UIKit)
-        UIDevice.current.userInterfaceIdiom == .pad ? "iPadOS" : "iOS"
+        #if os(iOS)
+        return "iOS"
+        #elseif os(macOS)
+        return "macOS"
         #else
-        "macOS"
+        return "unknown"
         #endif
     }
 
     private static var osVersion: String {
-        #if canImport(UIKit)
-        UIDevice.current.systemVersion
-        #else
-        ProcessInfo.processInfo.operatingSystemVersionString
-        #endif
+        let version = ProcessInfo.processInfo.operatingSystemVersion
+        return "\(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"
     }
 
     private static var deviceModel: String {
-        #if canImport(UIKit)
-        var systemInfo = utsname()
-        uname(&systemInfo)
-        return withUnsafePointer(to: &systemInfo.machine) {
-            $0.withMemoryRebound(to: CChar.self, capacity: 1) {
-                String(validatingUTF8: $0) ?? UIDevice.current.model
-            }
-        }
+        #if os(iOS)
+        return "iOS device"
+        #elseif os(macOS)
+        return "Mac"
         #else
-        Host.current().localizedName ?? "mac"
+        return "unknown"
         #endif
     }
 
@@ -835,11 +889,12 @@ final class IChartTelemetryQueueStore {
     private let url: URL
     private let fileManager: FileManager
     private let maxEventCount: Int
+    private static let maximumFileBytes = 512_000
 
     init(url: URL, fileManager: FileManager = .default, maxEventCount: Int = 1_000) {
         self.url = url
         self.fileManager = fileManager
-        self.maxEventCount = max(1, maxEventCount)
+        self.maxEventCount = max(1, min(maxEventCount, 1_000))
     }
 
     static func live(fileManager: FileManager = .default) -> IChartTelemetryQueueStore {
@@ -902,6 +957,38 @@ final class IChartTelemetryQueueStore {
         try save(state)
     }
 
+    /// Legacy optional diagnostics are filtered on the worker before upload.
+    /// Keeping the original IDs preserves idempotent retries and acknowledgments.
+    func retainBasicEvents() throws {
+        var state = try loadState()
+        let retained = state.events.compactMap { event -> IChartTelemetryEvent? in
+            guard IChartTelemetryPrivacy.allowedEventNames.contains(event.eventName) else { return nil }
+            let platform: String
+            let device: String
+            switch event.platform {
+            case "iOS", "iPadOS":
+                platform = "iOS"
+                device = "iOS device"
+            case "macOS":
+                platform = "macOS"
+                device = "Mac"
+            default:
+                platform = "unknown"
+                device = "unknown"
+            }
+            return IChartTelemetryEvent(clientEventID: event.clientEventID, eventName: event.eventName,
+                occurredAt: event.occurredAt, installationID: event.installationID, sessionID: event.sessionID,
+                appVersion: event.appVersion, buildNumber: event.buildNumber, platform: platform,
+                osVersion: event.osVersion, deviceModel: device,
+                localeLanguage: "unknown", timeZoneOffsetMinutes: 0,
+                properties: IChartTelemetryPrivacy.sanitizedProperties(event.properties, forEventName: event.eventName))
+        }
+        guard retained != state.events || !state.quarantinedEvents.isEmpty else { return }
+        state.events = retained
+        state.quarantinedEvents = []
+        try save(state)
+    }
+
     func recordLocalRejection() throws {
         var state = try loadState()
         state.locallyRejectedEventCount += 1
@@ -919,7 +1006,10 @@ final class IChartTelemetryQueueStore {
             return IChartTelemetryQueueState()
         }
 
-        let data = try Data(contentsOf: url)
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        let data = try handle.read(upToCount: Self.maximumFileBytes + 1) ?? Data()
+        guard data.count <= Self.maximumFileBytes else { throw CocoaError(.fileReadCorruptFile) }
         guard !data.isEmpty else {
             return IChartTelemetryQueueState()
         }
@@ -962,6 +1052,7 @@ final class IChartTelemetryQueueStore {
         }
 
         let data = try Self.encoder.encode(state)
+        guard data.count <= Self.maximumFileBytes else { throw CocoaError(.fileWriteOutOfSpace) }
         try data.write(to: url, options: .atomic)
     }
 
@@ -980,401 +1071,79 @@ final class IChartTelemetryQueueStore {
 }
 
 enum IChartTelemetryPrivacy {
-    private static let maximumPropertyCount = 64
-
     static let allowedEventNames: Set<String> = [
-        "feature.contract_checked",
-        "app.launched",
-        "app.bootstrap_completed",
-        "app.open_chart",
-        "app.error",
-        "auth.bootstrap",
-        "auth.state_changed",
-        "auth.signup_started",
-        "auth.signup_completed",
-        "auth.signup_failed",
-        "auth.signin_started",
-        "auth.signin_completed",
-        "auth.signin_failed",
-        "auth.verification_email_requested",
-        "auth.verification_email_failed",
-        "auth.callback_received",
-        "auth.callback_completed",
-        "auth.callback_failed",
-        "auth.password_reset_requested",
-        "auth.password_reset_failed",
-        "auth.signout_completed",
-        "auth.account_deleted",
-        "library.chart_created",
-        "library.chart_deleted",
-        "library.chart_duplicated",
-        "library.project_created",
-        "library.project_deleted",
-        "library.pdf_library_opened",
-        "editor.opened",
-        "editor.closed",
-        "editor.mode_changed",
-        "editor.chart_setup_completed",
-        "ink.persisted",
-        "ink.normalization_applied",
-        "ink.visibility_probe",
-        "ink.coordinate_space_reprojected",
-        "chord.recognition_proposed",
-        "chord.recognition_committed",
-        "chord.recognition_failed",
-        "chord.confirmation_presented",
-        "chord.correction_applied",
-        "chord.rendered_correction_applied",
-        "chord.batch_committed",
-        "chord.preview_updated",
-        "chord.preview_rendered",
-        "chord.preview_discarded",
-        "chord.preview_rewritten",
-        "chord.draft_barline_added",
-        "rhythm.preview_changed",
-        "rhythm.confirmed",
-        "pdf.export_started",
-        "pdf.export_succeeded",
-        "pdf.export_failed",
-        "cloud.push_started",
-        "cloud.push_succeeded",
-        "cloud.push_failed",
-        "cloud.restore_started",
-        "cloud.restore_succeeded",
-        "cloud.restore_failed",
-        "subscription.entitlement_changed",
-        "subscription.purchase_started",
-        "subscription.purchase_succeeded",
-        "subscription.purchase_failed",
-        "subscription.restore_started",
-        "subscription.restore_succeeded",
-        "subscription.restore_failed",
-        "forum.opened",
-        "forum.post_started",
-        "forum.post_succeeded",
-        "forum.post_failed",
-        "forum.pdf_download_started",
-        "forum.pdf_download_succeeded",
-        "forum.pdf_download_failed",
+        "app.launched", "app.bootstrap_completed", "app.error",
+        "chord.recognition_failed", "chord.preview_rendered", "chord.rendered_correction_applied",
+        "pdf.export_succeeded", "pdf.export_failed",
+        "cloud.push_succeeded", "cloud.push_failed", "cloud.restore_succeeded", "cloud.restore_failed",
+        "auth.signup_failed", "auth.signin_failed", "auth.verification_email_failed",
+        "auth.callback_failed", "auth.password_reset_failed",
+        "subscription.purchase_failed", "subscription.restore_failed",
+        "forum.post_failed", "forum.pdf_download_failed"
     ]
 
-    private static let allowedPropertyKeys: Set<String> = [
-        "actual_bytes",
-        "actual_count",
-        "actual_point_count",
-        "build_source",
-        "chart_reference",
-        "content_matches",
-        "contract_id",
-        "render_mode",
-        "source_stroke_count", "consumed_stroke_count", "retained_stroke_count",
-        "contract_version",
-        "expected_bytes",
-        "expected_count",
-        "expected_point_count",
-        "operation",
-        "operation_id",
-        "outcome",
-        "queue_overflow_count",
-        "queue_rejected_count",
-        "queue_quarantine_overflow_count",
-        "queue_unacknowledged_batch_count",
-        "app_phase",
-        "auth_state",
-        "alteration_issue_count",
-        "batch_size",
-        "build_seen",
-        "canvas_alpha",
-        "canvas_background_alpha",
-        "canvas_bounds_height",
-        "canvas_bounds_width",
-        "canvas_content_scale",
-        "canvas_drawing_policy",
-        "canvas_is_first_responder",
-        "canvas_is_hidden",
-        "canvas_is_opaque",
-        "canvas_override_user_interface_style",
-        "canvas_superview_user_interface_style",
-        "canvas_user_interaction_enabled",
-        "canvas_user_interface_style",
-        "canvas_window_user_interface_style",
-        "candidate_count",
-        "candidate_limit_issue_count",
-        "barline_count",
-        "barline_sequence_issue_count",
-        "chart_count",
-        "chart_count_after",
-        "chart_count_before",
-        "changed_chord_count",
-        "close_race_count",
-        "cloud_backed_up_count",
-        "cluster_count",
-        "confidence_bucket",
-        "confirm_count",
-        "decision",
-        "dim_quality_issue_count",
-        "duration_ms",
-        "draft_count",
-        "error_code",
-        "extension_issue_count",
-        "feature_area",
-        "flow",
-        "from_mode",
-        "generated_sequence_limit_count",
-        "has_mask",
-        "ink_tool_mode",
-        "issue_count",
-        "layout_style",
-        "last_stroke_to_preview_ms",
-        "light_stroke_count",
-        "local_chart_limit",
-        "live_canvas_light_trait_guard_enabled",
-        "measure_count",
-        "median_opacity",
-        "median_width",
-        "min_opacity",
-        "min_width",
-        "max_opacity",
-        "max_width",
-        "matched_count",
-        "mode",
-        "no_read_count",
-        "normalized_before_save",
-        "normalization_needed",
-        "page_count",
-        "pdf_size_bucket",
-        "plan",
-        "point_count",
-        "project_count",
-        "quality_issue_count",
-        "reason",
-        "recognition_ms",
-        "recognition_pipeline_version",
-        "recognition_target_count",
-        "review_candidate_count",
-        "raw_candidate_count",
-        "render_action",
-        "rendered_count",
-        "rendered_ink_light_pixel_ratio",
-        "rendered_ink_median_luminance",
-        "rendered_ink_sample_count",
-        "repaired_no_read_count",
-        "result",
-        "review_duration_ms",
-        "reviewed_count",
-        "rewrite_outcome",
-        "scope",
-        "source",
-        "source_coordinate_height",
-        "source_coordinate_width",
-        "root_accidental_issue_count",
-        "root_issue_count",
-        "slash_bass_issue_count",
-        "stroke_color_max_luminance",
-        "stroke_color_median_luminance",
-        "stroke_color_min_luminance",
-        "stroke_count",
-        "subscription_status",
-        "target",
-        "tool_color_luminance",
-        "tool_ink_type",
-        "tool_is_inking",
-        "tool_matches_persistent_ink",
-        "tool_width",
-        "target_coordinate_height",
-        "target_coordinate_width",
-        "to_mode",
-        "triangle_quality_issue_count",
-        "trust_corroborated_count",
-        "trust_outcome",
-        "trust_probe_count",
-        "trust_rejected_count",
-        "trust_symbol_support_count",
-        "trust_validation_ms",
-        "trusted_count",
-        "unknown_issue_count",
-        "unresolved_count",
-        "user_signed_in",
-        "writing_batch_id",
+    private static let errorCodes: Set<String> = [
+        "unknown", "library_load_failed", "library_save_failed", "load_error", "save_error", "render_error", "export_error", "reader_error", "recognition_error",
+        "unsupported_candidate", "missing_measure", "invalid_drawing_data", "weak_batch_targets", "weak_single_target", "no_recognition_target",
+        "authentication", "timeout", "server", "sync_error", "offline", "network", "permission",
+        "invalid_credentials", "email_not_confirmed", "password_error", "auth_error",
+        "purchase_error", "restore_error", "forum_error", "download_error", "storage_error"
+    ]
+    private static let operations: Set<String> = [
+        "launch", "library_load", "library_save", "load", "save", "write", "recognize", "render", "export", "backup", "restore",
+        "signup", "signin", "verification", "password_reset", "purchase", "forum", "download", "unknown"
+    ]
+    private static let countKeys = [
+        "rendered_count", "candidate_count", "queue_overflow_count", "queue_rejected_count",
+        "queue_quarantine_overflow_count", "queue_unacknowledged_batch_count"
     ]
 
-    private static let contractPropertyKeys: Set<String> = [
-        "contract_id", "contract_version", "operation_id", "operation", "outcome", "reason",
-        "build_source", "chart_reference", "expected_count", "actual_count", "expected_bytes",
-        "actual_bytes", "expected_point_count", "actual_point_count", "content_matches", "duration_ms",
-        "scope", "layout_style", "render_mode",
-        "source_stroke_count", "consumed_stroke_count", "retained_stroke_count"
-    ]
+    static func hasRequiredContractFields(_ properties: IChartTelemetryProperties) -> Bool { false }
 
-    private static let contractReasons: Set<String> = [
-        "save_completed", "save_failed", "load_completed", "load_failed", "first_launch",
-        "readback_matches", "readback_mismatch", "readback_failed", "baseline_missing", "baseline_changed",
-        "reopen_matches", "reopen_mismatch", "render_complete", "render_source_missing",
-        "render_incomplete_coverage", "render_unresolved", "render_empty", "render_canvas_unavailable",
-        "render_repeat_review_required", "render_rejected_mutated", "render_canvas_not_cleared",
-        "rotation_complete", "rotation_stroke_count_changed", "rotation_point_count_changed",
-        "rotation_nonfinite_geometry", "export_completed", "export_failed",
-        "render_retained_source_changed", "render_consumed_source_remaining",
-        "automatic_render_complete", "automatic_no_read", "automatic_recognition_review",
-        "automatic_needs_space", "automatic_placement_unavailable",
-        "automatic_unrepresented_ink", "automatic_adjacent_writing",
-        "authoring_completed_source_missing", "authoring_source_preserved",
-        "authoring_callback_stalled", "authoring_responsive",
-        "keyboard_focused_field_occluded", "keyboard_action_unreachable", "keyboard_controls_reachable",
-        "navigation_offset_mismatch", "navigation_policy_mismatch", "navigation_response_matches",
-        "render_prior_geometry_changed", "render_new_overlap", "render_geometry_preserved",
-        "authoring_canvas_invisible", "authoring_canvas_visible"
-    ]
-
-    static func hasRequiredContractFields(_ properties: IChartTelemetryProperties) -> Bool {
-        ["contract_id", "contract_version", "operation_id", "operation", "outcome", "reason", "build_source"].allSatisfy {
-            properties[$0] != nil
+    /// Iterate a fixed, small set of keys. Unknown keys, identities, free text,
+    /// chart context and ink measurements are neither copied nor serialized.
+    static func sanitizedProperties(_ properties: IChartTelemetryProperties,
+                                    forEventName eventName: String? = nil) -> IChartTelemetryProperties {
+        if let eventName, !allowedEventNames.contains(eventName) { return [:] }
+        var values: IChartTelemetryProperties = [:]
+        if case .string(let code) = properties["error_code"] {
+            values["error_code"] = .string(errorCodes.contains(code) ? code : "unknown")
         }
-    }
-
-    static func sanitizedProperties(
-        _ properties: IChartTelemetryProperties,
-        forEventName eventName: String? = nil
-    ) -> IChartTelemetryProperties {
-        let isContract = eventName == "feature.contract_checked"
-        return Dictionary(
-            uniqueKeysWithValues: properties
-                .filter { allowedPropertyKeys.contains($0.key) }
-                .filter { !isContract || contractPropertyKeys.contains($0.key) }
-                .sorted { $0.key < $1.key }
-                .prefix(maximumPropertyCount)
-                .compactMap { key, value -> (String, IChartTelemetryValue)? in
-                    guard let sanitized = sanitizedWorkflowValue(value, forKey: key, isContract: isContract) else {
-                        return nil
-                    }
-                    return (String(key.prefix(64)), sanitized)
-                }
-        )
-    }
-
-    // These new workflow fields have narrow scalar types, so arbitrary chord
-    // text cannot be smuggled through a count, duration or correlation field.
-    private static func sanitizedWorkflowValue(
-        _ value: IChartTelemetryValue,
-        forKey key: String,
-        isContract: Bool
-    ) -> IChartTelemetryValue? {
-        if isContract {
-            switch key {
-            case "reason":
-                guard case .string(let string) = value, contractReasons.contains(string) else { return nil }
-                return value
-            case "scope":
-                guard case .string(let string) = value,
-                      ["library", "chart", "page", "header", "chords", "rhythm", "chord_sources", "note_sources", "roadmap_sources"].contains(string) else { return nil }
-                return value
-            case "layout_style":
-                guard case .string(let string) = value,
-                      ["leadSheet", "simpleChordSheet", "rhythmSectionSheet"].contains(string) else { return nil }
-                return value
-            case "duration_ms":
-                let milliseconds: Double
-                switch value {
-                case .double(let number): milliseconds = number
-                case .int(let number): milliseconds = Double(number)
-                default: return nil
-                }
-                guard milliseconds.isFinite, (0...86_400_000).contains(milliseconds) else { return nil }
-                return sanitizedValue(value)
-            default: break
-            }
+        // The existing anonymous ingest reserves `operation` for legacy
+        // feature contracts. Send the fixed basic category through its
+        // generic `source` field, including when a queued event is filtered
+        // again before upload.
+        if case .string(let operation) = properties["operation"] ?? properties["source"], operations.contains(operation) {
+            values["source"] = .string(operation)
         }
-        switch key {
-        case "contract_id":
-            guard case .string(let string) = value,
-                  ["chart.save", "chart.load", "chart.save_readback", "ink.reopen_preservation",
-                   "ink.render_preservation", "ink.rotation_preservation", "chart.export",
-                   "ink.automatic_render_completion", "ink.authoring_integrity",
-                   "ink.authoring_responsiveness", "editor.keyboard_reachability",
-                   "editor.navigation_response", "ink.render_geometry",
-                   "ink.live_canvas_visibility"].contains(string) else { return nil }
-            return value
-        case "render_mode":
-            guard case .string(let string) = value,
-                  ["manual", "automatic", "reviewed_automatic"].contains(string) else { return nil }
-            return value
-        case "contract_version":
-            guard value == .int(1) else { return nil }
-            return value
-        case "build_source":
-            guard case .string(let string) = value,
-                  ["debug_build", "release_build"].contains(string) else { return nil }
-            return value
-        case "outcome":
-            guard case .string(let string) = value,
-                  ["passed", "violated", "unknown", "protected_rejection"].contains(string) else { return nil }
-            return value
-        case "operation":
-            if isContract {
-                guard case .string(let string) = value,
-                      ["save", "load", "save_readback", "reopen", "render", "rotate", "export",
-                       "write", "review", "navigate"].contains(string) else { return nil }
-            }
-            return sanitizedValue(value)
-        case "chart_reference":
-            guard case .string(let string) = value,
-                  string.range(of: #"\A[0-9a-f]{64}\z"#, options: .regularExpression) != nil else { return nil }
-            return value
-        case "expected_count", "actual_count", "expected_bytes", "actual_bytes", "expected_point_count", "actual_point_count",
-             "source_stroke_count", "consumed_stroke_count", "retained_stroke_count",
-             "queue_overflow_count", "queue_rejected_count", "queue_quarantine_overflow_count", "queue_unacknowledged_batch_count":
-            guard case .int(let count) = value, (0...1_000_000_000_000).contains(count) else { return nil }
-            return value
-        case "content_matches":
-            guard case .bool = value else { return nil }
-            return value
-        case "writing_batch_id", "operation_id":
-            guard case .string(let string) = value,
-                  string.range(
-                    of: #"\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\z"#,
-                    options: .regularExpression
-                  ) != nil else {
-                return nil
-            }
-            return .string(string.lowercased())
-        case "rewrite_outcome":
-            guard case .string(let string) = value,
-                  ["local", "page", "discard"].contains(string) else {
-                return nil
-            }
-            return .string(string)
-        case "changed_chord_count", "repaired_no_read_count", "reviewed_count":
-            guard case .int(let count) = value, (0...10_000).contains(count) else {
-                return nil
-            }
-            return .int(count)
-        case "last_stroke_to_preview_ms", "review_duration_ms":
+        if case .string(let result) = properties["result"], ["succeeded", "failed", "rendered"].contains(result) {
+            values["result"] = .string(result)
+        }
+        if case .string(let source) = properties["build_source"], ["debug_build", "release_build"].contains(source) {
+            values["build_source"] = .string(source)
+        }
+        if case .string(let decision) = properties["decision"] {
+            let allowed = eventName == "chord.rendered_correction_applied"
+                ? ["outside_candidates", "candidate_replacement", "equivalent_spelling", "display_space_mismatch"]
+                : ["automatic", "confirmed", "manual", "reviewed_automatic", "rendered"]
+            if allowed.contains(decision) { values["decision"] = .string(decision) }
+        }
+        for key in ["duration_ms", "recognition_ms"] {
             let milliseconds: Double
-            switch value {
-            case .double(let number): milliseconds = number
-            case .int(let number): milliseconds = Double(number)
-            default: return nil
+            switch properties[key] {
+            case .int(let count): milliseconds = Double(count)
+            case .double(let count): milliseconds = count
+            default: continue
             }
-            guard milliseconds.isFinite, (0...86_400_000).contains(milliseconds) else {
-                return nil
+            if milliseconds.isFinite, (0...86_400_000).contains(milliseconds) {
+                values[key] = .double((milliseconds * 1_000).rounded() / 1_000)
             }
-            return sanitizedValue(value)
-        default:
-            return sanitizedValue(value)
         }
-    }
-
-    private static func sanitizedValue(_ value: IChartTelemetryValue) -> IChartTelemetryValue {
-        switch value {
-        case .string(let string):
-            return .string(String(string.trimmingCharacters(in: .whitespacesAndNewlines).prefix(160)))
-        case .double(let double):
-            guard double.isFinite else {
-                return .double(0)
+        for key in countKeys {
+            if case .int(let count) = properties[key], (0...1_000_000_000).contains(count) {
+                values[key] = .int(count)
             }
-            return .double((double * 1_000).rounded() / 1_000)
-        case .int, .bool:
-            return value
         }
+        return values
     }
 }

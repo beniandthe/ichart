@@ -53,7 +53,6 @@ private struct ChordInkReviewButton: View {
     var style: PencilOnlyActionButton.Style = .bordered
     var role: PencilOnlyActionButton.Role = .standard
     var isEnabled = true
-    var isRequiredForKeyboardTelemetry = false
     var accessibilityLabel: String?
     let action: () -> Void
     @ScaledMetric(relativeTo: .body) private var buttonHeight: CGFloat = 44
@@ -71,8 +70,6 @@ private struct ChordInkReviewButton: View {
         )
         .frame(height: buttonHeight)
         .disabled(!isEnabled)
-        .background(ChartKeyboardActionTelemetryMarker(isRequired: isRequiredForKeyboardTelemetry,
-            isEnabled: isEnabled))
     }
 }
 
@@ -678,7 +675,7 @@ struct ChordInkBatchConfirmationSheetView: View {
 
                         HStack(spacing: 10) {
                             if let onBackToInk {
-                                ChordInkReviewButton(title: "Back to Writing", isRequiredForKeyboardTelemetry: true) {
+                                ChordInkReviewButton(title: "Back to Writing") {
                                     onEditedTextsChanged?(editedTextByID)
                                     focusedConfirmationID = nil
                                     onBackToInk()
@@ -689,8 +686,7 @@ struct ChordInkBatchConfirmationSheetView: View {
                             ChordInkReviewButton(
                                 title: batch.actionTitle,
                                 style: .borderedProminent,
-                                isEnabled: canRenderAll,
-                                isRequiredForKeyboardTelemetry: true
+                                isEnabled: canRenderAll
                             ) {
                                 guard canRenderAll else { return }
                                 onEditedTextsChanged?(editedTextByID)
@@ -715,7 +711,7 @@ struct ChordInkBatchConfirmationSheetView: View {
                     // Header, entries and actions share the keyboard-resized
                     // viewport. Fixed siblings must not squeeze chord entry
                     // into a sliver in landscape with the software keyboard.
-                    .background(IChartTypedSheetScrollSupport(monitorsKeyboardReachability: true))
+                    .background(IChartTypedSheetScrollSupport())
                 }
                 .scrollDismissesKeyboard(.interactively)
                 // Keep the focused field's border clear of a docked keyboard.
@@ -1069,7 +1065,7 @@ struct ChordInkConfirmationSheetView: View {
             .padding(.horizontal, 24)
             .padding(.vertical, 24)
             .frame(maxWidth: .infinity, alignment: .top)
-            .background(IChartTypedSheetScrollSupport(monitorsKeyboardReachability: true))
+            .background(IChartTypedSheetScrollSupport())
             }
             .scrollDismissesKeyboard(.interactively)
             .chordRenderStatusInset(renderStatus)
@@ -1123,8 +1119,7 @@ struct ChordInkConfirmationSheetView: View {
             ChordInkReviewButton(
                 title: "Confirm",
                 style: .borderedProminent,
-                isEnabled: ChordRecognitionCompendium.match(trimmedCandidateText) != nil,
-                isRequiredForKeyboardTelemetry: true
+                isEnabled: ChordRecognitionCompendium.match(trimmedCandidateText) != nil
             ) {
                 acceptTrimmedCandidate()
             }
@@ -1135,7 +1130,7 @@ struct ChordInkConfirmationSheetView: View {
             )
 
             if let onBackToInk {
-                ChordInkReviewButton(title: "Back to Writing", isRequiredForKeyboardTelemetry: true) {
+                ChordInkReviewButton(title: "Back to Writing") {
                     isManualEntryFocused = false
                     onBackToInk()
                 }
@@ -1294,7 +1289,7 @@ struct ChordCorrectionSheetView: View {
             .padding(.horizontal, 24)
             .padding(.vertical, 24)
             .frame(maxWidth: .infinity, alignment: .top)
-            .background(IChartTypedSheetScrollSupport(monitorsKeyboardReachability: true))
+            .background(IChartTypedSheetScrollSupport())
             }
             .scrollDismissesKeyboard(.interactively)
             .chordRenderStatusInset(renderStatus)
@@ -1356,14 +1351,13 @@ struct ChordCorrectionSheetView: View {
             ChordInkReviewButton(
                 title: "Save",
                 style: .borderedProminent,
-                isEnabled: ChordRecognitionCompendium.match(trimmedCandidateText) != nil,
-                isRequiredForKeyboardTelemetry: true
+                isEnabled: ChordRecognitionCompendium.match(trimmedCandidateText) != nil
             ) {
                 acceptTrimmedCandidate()
             }
             .frame(maxWidth: .infinity)
 
-            ChordInkReviewButton(title: "Cancel", isRequiredForKeyboardTelemetry: true) {
+            ChordInkReviewButton(title: "Cancel") {
                 isManualEntryFocused = false
                 onCancel()
             }

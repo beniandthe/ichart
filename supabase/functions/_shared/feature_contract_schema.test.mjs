@@ -18,15 +18,26 @@ const event = (clientEventID, overrides = {}) => ({
   event_name: "feature.contract_checked", properties, ...overrides,
 });
 
-test("shipping client and ingest agree on contract identifiers and reason vocabulary", () => {
+test("basic Swift client does not admit feature contracts while ingest retains legacy support", () => {
   const client = readFileSync(new URL("../../../iChart/App/Telemetry/IChartTelemetry.swift", import.meta.url), "utf8");
-  const reasons = client.match(/contractReasons: Set<String> = \[([\s\S]*?)\n    \]/);
-  const ids = client.match(/case "contract_id":([\s\S]*?)(?=\n\s*case ")/);
-  assert.ok(reasons);
-  assert.ok(ids);
-  const values = (text) => [...text.matchAll(/"([a-z0-9_.]+)"/g)].map((match) => match[1]).sort();
-  assert.deepEqual(values(reasons[1]), [...contractReasons].sort());
-  assert.deepEqual(values(ids[1]), [...contractIDs].sort());
+  const eventBlock = client.match(/allowedEventNames: Set<String> = \[([\s\S]*?)\n    \]/);
+  assert.ok(eventBlock, "missing basic client event allowlist");
+  const clientEvents = new Set([...eventBlock[1].matchAll(/"([a-z0-9_.]+)"/g)].map((match) => match[1]));
+  assert.equal(clientEvents.has("feature.contract_checked"), false);
+  assert.equal([...clientEvents].some((name) => name.startsWith("ink.")), false);
+  assert.match(client, /guard IChartTelemetryPrivacy\.allowedEventNames\.contains\(name\) else \{ return \}/,
+    "client admission must reject retired events before queueing");
+  assert.match(client, /static func hasRequiredContractFields\([^)]*\) -> Bool \{ false \}/);
+  assert.doesNotMatch(client, /contractReasons: Set<String>/);
+
+  // Older installed clients still use the strict server schema. Retiring the
+  // new client's probes must not silently retire their ingestion vocabulary.
+  assert.ok(contractIDs.has("ink.reopen_preservation"));
+  assert.ok(contractReasons.has("reopen_mismatch"));
+  const legacy = telemetryRowFromEvent(event(id), {});
+  assert.ok(legacy);
+  assert.equal(legacy.event_name, "feature.contract_checked");
+  assert.deepEqual(legacy.properties, properties);
 });
 
 test("strict contract envelope retains zero-valued loss evidence without source content", () => {

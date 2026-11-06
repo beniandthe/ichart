@@ -3630,8 +3630,9 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertEqual(chart.measures.count, 6)
     }
 
-    func testTelemetryAllowsOnlyAggregateDraftPreviewProperties() {
+    func testTelemetryRejectsRetiredPreviewObservationsAndKeepsBasicRenderCountAndTiming() {
         let sanitized = IChartTelemetryPrivacy.sanitizedProperties([
+            "duration_ms": .double(12.3456),
             "draft_count": .int(2),
             "barline_count": .int(1),
             "rendered_count": .int(2),
@@ -3659,39 +3660,29 @@ final class ChordInkDraftPreviewTests: XCTestCase {
             "cluster_count": .int(3),
             "raw_chord_text": .string("Cmaj7"),
             "drawing_payload": .string("not allowed")
-        ])
+        ], forEventName: "chord.preview_rendered")
 
-        XCTAssertEqual(sanitized["draft_count"], .int(2))
-        XCTAssertEqual(sanitized["barline_count"], .int(1))
-        XCTAssertEqual(sanitized["rendered_count"], .int(2))
-        XCTAssertEqual(sanitized["unresolved_count"], .int(0))
-        XCTAssertEqual(sanitized["trusted_count"], .int(1))
-        XCTAssertEqual(sanitized["confirm_count"], .int(1))
-        XCTAssertEqual(sanitized["matched_count"], .int(1))
-        XCTAssertEqual(sanitized["no_read_count"], .int(1))
-        XCTAssertEqual(sanitized["close_race_count"], .int(1))
-        XCTAssertEqual(sanitized["generated_sequence_limit_count"], .int(0))
-        XCTAssertEqual(sanitized["issue_count"], .int(2))
-        XCTAssertEqual(sanitized["root_issue_count"], .int(1))
-        XCTAssertEqual(sanitized["root_accidental_issue_count"], .int(1))
-        XCTAssertEqual(sanitized["quality_issue_count"], .int(1))
-        XCTAssertEqual(sanitized["triangle_quality_issue_count"], .int(1))
-        XCTAssertEqual(sanitized["dim_quality_issue_count"], .int(0))
-        XCTAssertEqual(sanitized["extension_issue_count"], .int(1))
-        XCTAssertEqual(sanitized["alteration_issue_count"], .int(0))
-        XCTAssertEqual(sanitized["slash_bass_issue_count"], .int(0))
-        XCTAssertEqual(sanitized["barline_sequence_issue_count"], .int(1))
-        XCTAssertEqual(sanitized["candidate_limit_issue_count"], .int(0))
-        XCTAssertEqual(sanitized["unknown_issue_count"], .int(0))
-        XCTAssertEqual(sanitized["raw_candidate_count"], .int(4))
-        XCTAssertEqual(sanitized["recognition_target_count"], .int(2))
-        XCTAssertEqual(sanitized["cluster_count"], .int(3))
-        XCTAssertNil(sanitized["raw_chord_text"])
-        XCTAssertNil(sanitized["drawing_payload"])
-        XCTAssertTrue(IChartTelemetryPrivacy.allowedEventNames.contains("chord.preview_updated"))
+        XCTAssertEqual(sanitized, [
+            "rendered_count": .int(2),
+            "duration_ms": .double(12.346)
+        ])
         XCTAssertTrue(IChartTelemetryPrivacy.allowedEventNames.contains("chord.preview_rendered"))
-        XCTAssertTrue(IChartTelemetryPrivacy.allowedEventNames.contains("chord.preview_discarded"))
-        XCTAssertTrue(IChartTelemetryPrivacy.allowedEventNames.contains("chord.draft_barline_added"))
+        for eventName in ["chord.preview_updated", "chord.preview_discarded", "chord.draft_barline_added"] {
+            XCTAssertFalse(IChartTelemetryPrivacy.allowedEventNames.contains(eventName), eventName)
+            XCTAssertTrue(IChartTelemetryPrivacy.sanitizedProperties([
+                "rendered_count": .int(2), "duration_ms": .double(12)
+            ], forEventName: eventName).isEmpty, eventName)
+        }
+        for invalidDuration: Double in [-1, 86_400_001, .infinity, .nan] {
+            XCTAssertTrue(IChartTelemetryPrivacy.sanitizedProperties([
+                "duration_ms": .double(invalidDuration)
+            ], forEventName: "chord.preview_rendered").isEmpty)
+        }
+        for invalidCount in [-1, 1_000_000_001] {
+            XCTAssertTrue(IChartTelemetryPrivacy.sanitizedProperties([
+                "rendered_count": .int(invalidCount)
+            ], forEventName: "chord.preview_rendered").isEmpty)
+        }
     }
 
     private func draftInput(

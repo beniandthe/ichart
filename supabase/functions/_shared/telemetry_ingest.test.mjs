@@ -21,6 +21,27 @@ const validContext = {
   time_zone_offset_minutes: -420,
 };
 
+const basicClientEvents = [
+  "app.launched", "app.bootstrap_completed", "app.error",
+  "chord.recognition_failed", "chord.preview_rendered", "chord.rendered_correction_applied",
+  "pdf.export_succeeded", "pdf.export_failed",
+  "cloud.push_succeeded", "cloud.push_failed", "cloud.restore_succeeded", "cloud.restore_failed",
+  "auth.signup_failed", "auth.signin_failed", "auth.verification_email_failed",
+  "auth.callback_failed", "auth.password_reset_failed",
+  "subscription.purchase_failed", "subscription.restore_failed",
+  "forum.post_failed", "forum.pdf_download_failed",
+];
+
+const basicClientPropertyKeys = [
+  "build_source", "candidate_count", "decision", "duration_ms", "error_code",
+  "queue_overflow_count", "queue_quarantine_overflow_count", "queue_rejected_count",
+  "queue_unacknowledged_batch_count", "recognition_ms", "rendered_count", "result", "source",
+];
+
+function quotedValues(text) {
+  return [...text.matchAll(/"([a-z0-9_.]+)"/g)].map((match) => match[1]);
+}
+
 function validEvent(overrides = {}) {
   return {
     client_event_id: "00000000-0000-4000-8000-000000000303",
@@ -238,17 +259,81 @@ test("explicit local rewrite, page rewrite and discard remain distinct", () => {
   }
 });
 
-test("Swift client and ingest event/property allowlists agree", () => {
+test("basic Swift client has the exact reduced vocabulary supported by legacy ingest", () => {
   const client = readFileSync(new URL("../../../iChart/App/Telemetry/IChartTelemetry.swift", import.meta.url), "utf8");
   const server = readFileSync(new URL("./telemetry_ingest.mjs", import.meta.url), "utf8");
-  for (const name of ["allowedEventNames", "allowedPropertyKeys"]) {
-    const clientBlock = client.match(new RegExp(`${name}: Set<String> = \\[([\\s\\S]*?)\\n    \\]`));
+  const eventBlock = client.match(/allowedEventNames: Set<String> = \[([\s\S]*?)\n    \]/);
+  const countBlock = client.match(/static let countKeys = \[([\s\S]*?)\n    \]/);
+  const sanitizer = client.slice(client.indexOf("static func sanitizedProperties("));
+  assert.ok(eventBlock, "missing Swift event allowlist");
+  assert.ok(countBlock, "missing bounded Swift count keys");
+  assert.match(sanitizer, /for key in countKeys/);
+  const clientEvents = new Set(quotedValues(eventBlock[1]));
+  const propertyAssignments = [...sanitizer.matchAll(/values\["([a-z0-9_]+)"\]\s*=/g)]
+    .map((match) => match[1]);
+  const literalKeyLoops = [...sanitizer.matchAll(/for key in \[([\s\S]*?)\]\s*\{/g)]
+    .flatMap((match) => quotedValues(match[1]));
+  const clientProperties = new Set([...propertyAssignments, ...literalKeyLoops, ...quotedValues(countBlock[1])]);
+  assert.deepEqual([...clientEvents].sort(), [...basicClientEvents].sort());
+  assert.deepEqual([...clientProperties].sort(), [...basicClientPropertyKeys].sort());
+  for (const [name, clientValues] of [
+    ["allowedEventNames", clientEvents], ["allowedPropertyKeys", clientProperties],
+  ]) {
     const serverBlock = server.match(new RegExp(`${name} = new Set\\(\\[([\\s\\S]*?)\\n\\]\\)`));
-    assert.ok(clientBlock, `missing Swift ${name}`);
     assert.ok(serverBlock, `missing ingest ${name}`);
-    const strings = (block) => [...block.matchAll(/"([a-z0-9_.]+)"/g)].map((match) => match[1]).sort();
-    assert.deepEqual(strings(clientBlock[1]), strings(serverBlock[1]), `${name} drift`);
+    const serverValues = new Set(quotedValues(serverBlock[1]));
+    for (const value of clientValues) assert.ok(serverValues.has(value), `ingest does not admit ${value}`);
+    assert.ok(serverValues.size > clientValues.size, `legacy ${name} must remain available to older clients`);
   }
+  for (const forbidden of [
+    "chart_id", "chart_reference", "chart_title", "raw_chord_text", "drawing_data", "contract_id",
+    "contract_version", "operation_id", "scope", "layout_style", "stroke_count", "point_count",
+    "feature_area", "recognition_pipeline_version", "writing_batch_id", "operation",
+  ]) {
+    assert.equal(clientProperties.has(forbidden), false, `basic client must not emit ${forbidden}`);
+  }
+  assert.equal([...clientEvents].some((name) => /^(feature|ink|editor|library)\./.test(name)), false);
+});
+
+test("every retained basic event round-trips error, timing and count fields through unchanged ingest", async () => {
+  const expectedProperties = {
+    build_source: "release_build", candidate_count: 3, decision: "automatic",
+    duration_ms: 12.346, error_code: "reader_error", queue_overflow_count: 2,
+    queue_quarantine_overflow_count: 0, queue_rejected_count: 1,
+    queue_unacknowledged_batch_count: 0, recognition_ms: 72.342,
+    rendered_count: 0, result: "failed", source: "recognize",
+  };
+  assert.deepEqual(Object.keys(expectedProperties).sort(), [...basicClientPropertyKeys].sort());
+  const events = basicClientEvents.map((eventName, index) => validEvent({
+    client_event_id: `00000000-0000-4000-8000-${String(index + 600).padStart(12, "0")}`,
+    event_name: eventName,
+    properties: {
+      ...expectedProperties,
+      decision: eventName === "chord.rendered_correction_applied" ? "candidate_replacement" : "automatic",
+      duration_ms: 12.3456, recognition_ms: 72.3416,
+      chart_title: "Private chart", raw_chord_text: "D/F#", drawing_data: "private bytes",
+      unknown_private_field: { private: true },
+    },
+  }));
+  let storedRows;
+  const response = await handleTelemetryIngestRequest(new Request("https://example.test", {
+    method: "POST", body: JSON.stringify({ context: validContext, events }),
+  }), { insertTelemetryEvents: async (rows) => { storedRows = rows; } });
+  const body = await response.json();
+  assert.equal(response.status, 202);
+  assert.equal(body.stored_count, basicClientEvents.length);
+  assert.equal(body.rejected_count, 0);
+  assert.deepEqual(body.accepted_event_ids, events.map((event) => event.client_event_id));
+  assert.deepEqual(body.rejected_event_ids, []);
+  assert.deepEqual(storedRows.map((row) => row.event_name), basicClientEvents);
+  for (const row of storedRows) {
+    const expected = row.event_name === "chord.rendered_correction_applied"
+      ? { ...expectedProperties, decision: "candidate_replacement" } : expectedProperties;
+    assert.deepEqual(row.properties, expected, row.event_name);
+    assert.equal(row.properties.operation, undefined, "fixed operation category uses the compatible source wire field");
+  }
+  assert.equal(JSON.stringify(storedRows).includes("Private chart"), false);
+  assert.equal(JSON.stringify(storedRows).includes("private bytes"), false);
 });
 
 test("telemetry row allows aggregate chord preview handwriting quality without content", () => {

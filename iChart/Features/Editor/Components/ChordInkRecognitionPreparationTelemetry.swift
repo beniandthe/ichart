@@ -4,8 +4,8 @@ import Foundation
 enum ChordInkRecognitionPreparationTelemetry {
     static func failureProperties(
         for result: ChordInkRecognitionPreparationResult,
-        flow: ChordInkRecognitionFlow,
-        layoutStyle: ChartLayoutStyle
+        flow _: ChordInkRecognitionFlow,
+        layoutStyle _: ChartLayoutStyle
     ) -> IChartTelemetryProperties? {
         let errorCode: String
         switch result.outcome {
@@ -27,14 +27,6 @@ enum ChordInkRecognitionPreparationTelemetry {
         // unknown chord denominator; do not invent a no_read_count of one.
         return [
             "error_code": .string(errorCode),
-            "result": .string("preparation_failed"),
-            "flow": .string(flow.telemetryValue),
-            "layout_style": .string(layoutStyle.rawValue),
-            "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
-            "stroke_count": .int(result.recognitionStrokeCount),
-            "recognition_target_count": .int(result.boundedBatchTargetCount),
-            "batch_size": .int(result.rawBatchTargetCount),
-            "barline_count": .int(result.barlines.count),
             "duration_ms": .double(result.durationMilliseconds)
         ]
     }

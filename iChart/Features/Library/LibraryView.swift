@@ -626,7 +626,7 @@ private struct IChartHelpArticleSection: Identifiable {
             bullets: [
                 "Local charts stay on the device unless you use cloud backup or publish a forum PDF.",
                 "Account information supports sign-in, email verification, password recovery, subscription identity, and support.",
-                "Privacy-limited diagnostics may include app/build/device context, workflow results, counts, timings, error categories, and aggregate ink appearance statistics, but not chart titles, emails, raw chord text, drawings, PDFs, screenshots, or chart documents.",
+                "Optional diagnostics include basic error counts, elapsed timings, correction categories, and app/build/device context, but not chart titles, emails, raw chord text, drawings, PDFs, screenshots, or chart documents. Manage sharing in Settings → Privacy.",
                 "Forum posts, comments, votes, reports, downloads, and moderation events are handled by the community service."
             ]
         ),
@@ -5159,10 +5159,16 @@ private struct IChartHelpArticlePage: View {
 private struct IChartPerformanceReportShareRow: View {
     let theme: IChartHomeTheme
     @State private var reportURL: URL?
+    @State private var isPreparingReport = true
+    @State private var isClearingReport = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let reportURL {
+            if isPreparingReport || isClearingReport {
+                ProgressView(isClearingReport ? "Clearing performance report..." : "Preparing performance report...")
+                    .font(.caption)
+                    .foregroundStyle(theme.panelSecondary)
+            } else if let reportURL {
                 ShareLink(
                     item: reportURL,
                     preview: SharePreview("iChart Performance Report")
@@ -5174,22 +5180,52 @@ private struct IChartPerformanceReportShareRow: View {
                 .buttonStyle(.bordered)
                 .controlSize(.regular)
                 .tint(IChartHomeBrand.blue)
+
             } else {
-                Label("No performance report yet", systemImage: "doc.badge.clock")
+                Label("No basic performance entries to share", systemImage: "doc.badge.clock")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(theme.panelSecondary)
             }
 
-            Text("Timing and diagnostic context. Stays on this iPad until you share it.")
+            Button("Clear Report", role: .destructive) {
+                Task { await clearReport() }
+            }
+            .font(.caption)
+            .disabled(isPreparingReport || isClearingReport)
+            .accessibilityHint("Removes local diagnostic history and prepared performance reports from this iPad.")
+
+            Text("Basic operation timings and error categories. Stays on this iPad until you share it.")
                 .font(.caption2)
                 .foregroundStyle(theme.panelSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .onAppear(perform: refreshReportURL)
+        .task { await refreshReportURL() }
     }
 
-    private func refreshReportURL() {
-        reportURL = IChartPerformanceTrace.hasReport ? IChartPerformanceTrace.reportURL : nil
+    @MainActor
+    private func refreshReportURL() async {
+        isPreparingReport = true
+        // This row exists only after the user opens Contact Us. Exporting here
+        // also finds retained reports before the memory-only availability probe
+        // finishes; disk work never runs in the view or on the main actor.
+        let preparedURL = await Task.detached(priority: .utility) {
+            IChartPerformanceTrace.reportURL
+        }.value
+        guard !Task.isCancelled else { return }
+        reportURL = preparedURL
+        isPreparingReport = false
+    }
+
+    @MainActor
+    private func clearReport() async {
+        guard !isPreparingReport, !isClearingReport else { return }
+        reportURL = nil
+        isClearingReport = true
+        await Task.detached(priority: .utility) {
+            IChartPerformanceTrace.resetReport()
+        }.value
+        guard !Task.isCancelled else { return }
+        isClearingReport = false
     }
 }
 

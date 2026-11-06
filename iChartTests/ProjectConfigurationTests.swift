@@ -1,7 +1,7 @@
 import XCTest
 
 final class ProjectConfigurationTests: XCTestCase {
-    func testTelemetryIsConfiguredBeforeStartupLibraryLoadCanScheduleReopenChecks() throws {
+    func testOptionalTelemetryStartsOffMainAfterLibraryInitializationWithoutAwaitingReadback() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
         let appText = try String(contentsOf: projectRoot.appendingPathComponent("iChart/App/IChartApp.swift"))
@@ -9,16 +9,23 @@ final class ProjectConfigurationTests: XCTestCase {
         let end = try XCTUnwrap(appText.range(of: "    var body: some Scene", range: start.upperBound..<appText.endIndex))
         let initialization = String(appText[start.upperBound..<end.lowerBound])
         let clients = try XCTUnwrap(initialization.range(of: "let supabaseClients = IChartSupabaseClientFactory.liveClients()"))
-        let telemetry = try XCTUnwrap(initialization.range(of: "IChartTelemetry.configure(IChartTelemetryService.live(clients: supabaseClients))"))
+        let telemetryTask = try XCTUnwrap(initialization.range(of: "Task.detached(priority: .utility)"))
+        let telemetry = try XCTUnwrap(initialization.range(of: "IChartTelemetryService.live(clients: supabaseClients)"))
         let library = try XCTUnwrap(initialization.range(of: "let libraryStore = ChartLibraryStore.live()"))
         let pdfLibrary = try XCTUnwrap(initialization.range(of: "let pdfLibraryStore = IChartPDFLibraryStore.live()"))
         let launched = try XCTUnwrap(initialization.range(of: "\"app.launched\""))
 
-        XCTAssertLessThan(clients.lowerBound, telemetry.lowerBound)
-        XCTAssertLessThan(telemetry.lowerBound, library.lowerBound,
-                          "The real library loader schedules chart.load/ink.reopen immediately; its destination must already exist")
-        XCTAssertLessThan(telemetry.lowerBound, pdfLibrary.lowerBound)
-        XCTAssertLessThan(library.lowerBound, launched.lowerBound, "Launch counts still come from the loaded library")
+        XCTAssertLessThan(clients.lowerBound, library.lowerBound)
+        XCTAssertLessThan(library.lowerBound, telemetryTask.lowerBound)
+        XCTAssertLessThan(pdfLibrary.lowerBound, telemetryTask.lowerBound)
+        XCTAssertLessThan(telemetryTask.lowerBound, telemetry.lowerBound)
+        XCTAssertLessThan(telemetry.lowerBound, launched.lowerBound)
+        XCTAssertFalse(initialization[..<telemetryTask.lowerBound].contains("IChartTelemetryService.live"))
+        XCTAssertFalse(appText.contains("await IChartTelemetry.flushPendingEventsIfNeeded()"))
+        let libraryText = try String(contentsOf: projectRoot.appendingPathComponent("iChart/Features/Library/ChartLibraryStore.swift"))
+        XCTAssertFalse(libraryText.contains("ChartExperienceContractTelemetry.makeDiagnostics"))
+        XCTAssertFalse(libraryText.contains("diagnostics.didLoad("))
+        XCTAssertFalse(libraryText.contains("diagnostics?.didSave("))
     }
 
     func testNativeDependencyLockRetainsVerifiedPackageGraph() throws {
@@ -198,7 +205,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(confirmationSheetText.contains("Chord Repeat"))
         XCTAssertTrue(confirmationSheetText.contains("Use chord repeat symbol"))
         XCTAssertTrue(batchSheetText.contains("IChartTypedTextField("))
-        XCTAssertTrue(batchSheetText.contains("IChartTypedSheetScrollSupport(monitorsKeyboardReachability: true)"))
+        XCTAssertTrue(batchSheetText.contains("IChartTypedSheetScrollSupport()"))
+        XCTAssertFalse(batchSheetText.contains("monitorsKeyboardReachability"))
         XCTAssertTrue(batchSheetText.contains(".presentationDetents([.large])"))
         XCTAssertFalse(batchSheetText.contains("title: \"Edit\""))
         XCTAssertTrue(batchSheetText.contains("onKeyboardRequested: { requestKeyboard(for: confirmation.id) }"))
@@ -212,7 +220,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(correctionSheetText.contains("Text(\"Change quality\")"))
         XCTAssertTrue(correctionSheetText.contains("_candidateText = State(initialValue: correction.currentDisplayText)"))
         XCTAssertTrue(correctionSheetText.contains("title: \"Save\""))
-        XCTAssertTrue(correctionSheetText.contains("ChordInkReviewButton(title: \"Cancel\", isRequiredForKeyboardTelemetry: true)"))
+        XCTAssertTrue(correctionSheetText.contains("ChordInkReviewButton(title: \"Cancel\")"))
+        XCTAssertFalse(correctionSheetText.contains("isRequiredForKeyboardTelemetry"))
         XCTAssertTrue(correctionSheetText.contains(".interactiveDismissDisabled(true)"))
         XCTAssertFalse(correctionSheetText.contains("Text(\"Update Chord\")"))
         XCTAssertFalse(correctionSheetText.contains("Text(\"Update\")"))
@@ -459,7 +468,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(pipelinePreviewText.contains("upload"))
     }
 
-    func testPerformanceTraceIsLocalSupportOnlyForTestFlightQA() throws {
+    func testBasicPerformanceReportRemainsExplicitLocalSupportWithoutNetworkOrHotPathExport() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -494,25 +503,19 @@ final class ProjectConfigurationTests: XCTestCase {
         )
 
         XCTAssertTrue(traceText.contains("performance-trace.jsonl"))
-        XCTAssertTrue(traceText.contains("applicationSupportDirectory"))
+        XCTAssertTrue(traceText.contains("Library/Application Support/iChart"))
         XCTAssertTrue(traceText.contains("maxTraceSizeBytes"))
-        XCTAssertTrue(traceText.contains("Bundle.main.bundleIdentifier == \"com.ichart.app\""))
+        XCTAssertTrue(traceText.contains("IChartTelemetry.basicRecordingAuthorization()"))
+        XCTAssertTrue(traceText.contains("authorization.isCurrent"))
         XCTAssertTrue(traceText.contains("IChartPerformanceTraceEvent"))
         XCTAssertTrue(appText.contains("IChartPerformanceTrace.start(\"app.init\")"))
         XCTAssertTrue(appText.contains("IChartPerformanceTrace.start(\"app.bootstrap\")"))
-        XCTAssertTrue(libraryText.contains("IChartPerformanceTrace.start("))
-        XCTAssertTrue(libraryText.contains("\"library.createNewChart\""))
         XCTAssertTrue(libraryText.contains("Share Performance Report"))
-        XCTAssertTrue(libraryText.contains("Timing and diagnostic context. Stays on this iPad until you share it."))
-        XCTAssertTrue(storeText.contains("\"chartLibrary.createBlankChart\""))
-        XCTAssertTrue(setupText.contains("\"chartSetup.applySetup\""))
-        XCTAssertTrue(setupText.contains("\"chartSetup.completeInitialSetup\""))
-        XCTAssertTrue(editorText.contains("\"editor.canvas.firstAppear\""))
-        XCTAssertTrue(hostText.contains("\"editor.canvas.layout\""))
-        XCTAssertTrue(hostText.contains("\"editor.canvas.firstDraw\""))
-        XCTAssertTrue(hostText.contains("\"editor.renderer.drawStaffLines\""))
-        XCTAssertTrue(hostText.contains("\"editor.renderer.drawClef\""))
-        XCTAssertTrue(hostText.contains("\"editor.renderer.drawTimeSignature\""))
+        XCTAssertTrue(libraryText.contains("Basic operation timings and error categories. Stays on this iPad until you share it."))
+        for productPath in [appText, storeText, setupText, editorText, hostText] {
+            XCTAssertFalse(productPath.contains("IChartPerformanceTrace.reportURL"))
+            XCTAssertFalse(productPath.contains("IChartPerformanceTrace.resetReport()"))
+        }
         XCTAssertFalse(traceText.contains("Supabase"))
         XCTAssertFalse(traceText.contains("URLSession"))
         XCTAssertFalse(traceText.contains(".upload("))

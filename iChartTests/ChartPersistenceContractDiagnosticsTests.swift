@@ -490,7 +490,7 @@ final class ChartPersistenceContractDiagnosticsTests: XCTestCase {
         XCTAssertEqual(events.first?.reason, "first_launch")
     }
 
-    func testActualSynchronousSaveFailureRecordsWithoutChangingLibraryBehavior() {
+    func testActualSynchronousSaveFailureRemainsVisibleWithoutLegacyDiagnostics() {
         let repository = Repository()
         repository.saveError = Failure.save
         var events: [ChartPersistenceContractCheck] = []
@@ -504,7 +504,8 @@ final class ChartPersistenceContractDiagnosticsTests: XCTestCase {
 
         store.selectedChartID = value.charts[0].id
 
-        XCTAssertEqual(events.last?.reason, "save_failed")
+        XCTAssertTrue(events.isEmpty, "The removed optional diagnostic callback must not run on the save path")
+        XCTAssertEqual(repository.loadCount, 0, "A failed save must not trigger a diagnostic persistence reread")
         XCTAssertEqual(store.charts, value.charts)
         guard case .failed = store.persistenceStatus else { return XCTFail("Save failure must remain visible") }
     }

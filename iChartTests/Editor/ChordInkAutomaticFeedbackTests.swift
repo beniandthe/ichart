@@ -77,87 +77,69 @@ final class ChordInkAutomaticFeedbackTests: XCTestCase {
 
     func testEndingReviewRetainsSupportedCandidateAndSourceWithoutReportingAutomaticNoRead() throws {
         for scored in [true, false] {
-                var chart = makeChart()
-                let sourceLayout = layout(chart)
-                let system = try XCTUnwrap(sourceLayout.systems.first)
-                let measure = try XCTUnwrap(system.measures.first)
-                let frame = LeadSheetActiveInkScope.chordWritingFrame(for: sourceLayout)
-                let lane = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
-                    for: system, paperFrame: sourceLayout.paperFrame(for: system)))
-                func mark(_ points: [CGPoint], seed: UInt32, width: CGFloat = 2.5) -> PKStroke {
-                    let controls = points.enumerated().map { index, point in
-                        PKStrokePoint(location: point, timeOffset: Double(index) * 0.1,
-                            size: CGSize(width: width, height: width), opacity: 1, force: 1,
-                            azimuth: 0, altitude: .pi / 2)
-                    }
-                    return PKStroke(ink: PKInk(.pen, color: LeadSheetPersistentInkColorPolicy.inkColor),
-                        path: PKStrokePath(controlPoints: controls,
-                            creationDate: Date(timeIntervalSinceReferenceDate: Double(seed))),
-                        transform: .identity, mask: nil, randomSeed: seed)
+            var chart = makeChart()
+            let sourceLayout = layout(chart)
+            let system = try XCTUnwrap(sourceLayout.systems.first)
+            let measure = try XCTUnwrap(system.measures.first)
+            let frame = LeadSheetActiveInkScope.chordWritingFrame(for: sourceLayout)
+            let lane = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
+                for: system, paperFrame: sourceLayout.paperFrame(for: system)))
+            func mark(_ points: [CGPoint], seed: UInt32, width: CGFloat = 2.5) -> PKStroke {
+                let controls = points.enumerated().map { index, point in
+                    PKStrokePoint(location: point, timeOffset: Double(index) * 0.1,
+                        size: CGSize(width: width, height: width), opacity: 1, force: 1,
+                        azimuth: 0, altitude: .pi / 2)
                 }
-                let chordX = measure.staffFrame.minX + measure.staffFrame.width * 0.20 - frame.minX
-                // Keep this chord body below the ending-label header. A mark
-                // crossing that header is intentionally ambiguous source.
-                let chordY = lane.minY + lane.height * 0.78 - frame.minY
-                let chordHalfHeight = min(10, lane.height * 0.08)
-                let chordSource = PKDrawing(strokes: [mark([
-                    CGPoint(x: chordX, y: chordY + chordHalfHeight),
-                    CGPoint(x: chordX + 20, y: chordY - chordHalfHeight)
-                ], seed: 1)])
-                let left = measure.staffFrame.minX + 3 - frame.minX
-                let right = measure.staffFrame.maxX - 3 - frame.minX
-                let top = lane.minY + lane.height * 0.12 - frame.minY
-                let structuralStrokes = [
-                    mark([CGPoint(x: left, y: top + lane.height * 0.20), CGPoint(x: left, y: top)], seed: 2),
-                    mark([CGPoint(x: left, y: top), CGPoint(x: right, y: top)], seed: 3)
-                ]
-                let source = PKDrawing(strokes: chordSource.strokes + structuralStrokes)
-                _ = chart.setPageHandwrittenChordDrawing(source.dataRepresentation())
-                var draft = makeDraft(chart, text: nil, trusted: false, drawing: chordSource)
-                draft.recognitionResult = .init(rawCandidates: scored ? [] : ["D/F#"], glyphCandidates: [],
-                    match: nil, confidence: 0,
-                    candidateScores: scored ? [.init(text: "D/F#", displayText: "D/F#", confidence: 0.01)] : [])
-                XCTAssertFalse(draft.isRenderable)
-                let prepared = ChordInkRecognitionPreparation.prepare(.init(requestID: UUID(), scheduledAt: now,
-                    requestedDelay: 0, drawingData: source.dataRepresentation(), chordFrame: frame,
-                    pageLayout: sourceLayout, flow: .draftPreview, options: .live, layoutStyle: chart.layoutStyle))
-                let state = ChordPreviewState(draftChords: [draft], draftBarlines: prepared.barlines,
-                    draftEndings: prepared.endings, layoutPageSize: pageSize)
-                XCTAssertEqual(state.draftEndings.count, 1)
-                XCTAssertTrue(state.draftBarlines.isEmpty)
-                XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasCompleteCoverage(chart: chart, state: state))
-                let originalChart = chart
-                let originalState = state
-                let originalSource = source.dataRepresentation()
-                let attempt = ChordInkDraftRenderCoordinator.prepareAutomaticAttempt(chart: chart, state: state,
-                    currentDrawing: source, coordinateSpace: .init(size: frame.size), now: now,
-                    lastInputAt: now.addingTimeInterval(-4), isUsingTool: false,
-                    sourcePageLayout: sourceLayout, sourceChordFrame: frame)
-                XCTAssertNil(attempt.outcome)
-                XCTAssertNotEqual(attempt.feedback.reasonsByDraftID[draft.id], .noRead)
-                XCTAssertEqual(attempt.feedback.globalReason, .endingReview)
-                XCTAssertNil(completion(chart, feedback: attempt.feedback, strokeCount: source.strokes.count))
-                XCTAssertEqual(chart, originalChart)
-                XCTAssertEqual(state, originalState)
-                XCTAssertEqual(source.dataRepresentation(), originalSource)
+                return PKStroke(ink: PKInk(.pen, color: LeadSheetPersistentInkColorPolicy.inkColor),
+                    path: PKStrokePath(controlPoints: controls,
+                        creationDate: Date(timeIntervalSinceReferenceDate: Double(seed))),
+                    transform: .identity, mask: nil, randomSeed: seed)
+            }
+            let chordX = measure.staffFrame.minX + measure.staffFrame.width * 0.20 - frame.minX
+            // Keep this chord body below the ending-label header. A mark
+            // crossing that header is intentionally ambiguous source.
+            let chordY = lane.minY + lane.height * 0.78 - frame.minY
+            let chordHalfHeight = min(10, lane.height * 0.08)
+            let chordSource = PKDrawing(strokes: [mark([
+                CGPoint(x: chordX, y: chordY + chordHalfHeight),
+                CGPoint(x: chordX + 20, y: chordY - chordHalfHeight)
+            ], seed: 1)])
+            let left = measure.staffFrame.minX + 3 - frame.minX
+            let right = measure.staffFrame.maxX - 3 - frame.minX
+            let top = lane.minY + lane.height * 0.12 - frame.minY
+            let structuralStrokes = [
+                mark([CGPoint(x: left, y: top + lane.height * 0.20), CGPoint(x: left, y: top)], seed: 2),
+                mark([CGPoint(x: left, y: top), CGPoint(x: right, y: top)], seed: 3)
+            ]
+            let source = PKDrawing(strokes: chordSource.strokes + structuralStrokes)
+            _ = chart.setPageHandwrittenChordDrawing(source.dataRepresentation())
+            var draft = makeDraft(chart, text: nil, trusted: false, drawing: chordSource)
+            draft.recognitionResult = .init(rawCandidates: scored ? [] : ["D/F#"], glyphCandidates: [],
+                match: nil, confidence: 0,
+                candidateScores: scored ? [.init(text: "D/F#", displayText: "D/F#", confidence: 0.01)] : [])
+            XCTAssertFalse(draft.isRenderable)
+            let prepared = ChordInkRecognitionPreparation.prepare(.init(requestID: UUID(), scheduledAt: now,
+                requestedDelay: 0, drawingData: source.dataRepresentation(), chordFrame: frame,
+                pageLayout: sourceLayout, flow: .draftPreview, options: .live, layoutStyle: chart.layoutStyle))
+            let state = ChordPreviewState(draftChords: [draft], draftBarlines: prepared.barlines,
+                draftEndings: prepared.endings, layoutPageSize: pageSize)
+            XCTAssertEqual(state.draftEndings.count, 1)
+            XCTAssertTrue(state.draftBarlines.isEmpty)
+            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasCompleteCoverage(chart: chart, state: state))
+            let originalChart = chart
+            let originalState = state
+            let originalSource = source.dataRepresentation()
+            let attempt = ChordInkDraftRenderCoordinator.prepareAutomaticAttempt(chart: chart, state: state,
+                currentDrawing: source, coordinateSpace: .init(size: frame.size), now: now,
+                lastInputAt: now.addingTimeInterval(-4), isUsingTool: false,
+                sourcePageLayout: sourceLayout, sourceChordFrame: frame)
+            XCTAssertNil(attempt.outcome)
+            XCTAssertNotEqual(attempt.feedback.reasonsByDraftID[draft.id], .noRead)
+            XCTAssertEqual(attempt.feedback.globalReason, .endingReview)
+            XCTAssertEqual(chart, originalChart)
+            XCTAssertEqual(state, originalState)
+            XCTAssertEqual(source.dataRepresentation(), originalSource)
         }
-    }
-
-    func testBlockingStructuralReviewTakesPrecedenceOverAnUnrelatedExhaustedChordReason() {
-        let chart = makeChart()
-        let draft = makeDraft(chart, text: nil, trusted: false)
-        XCTAssertNil(ChordInkAutomaticRenderPolicy.automaticCandidateText(for: draft))
-        XCTAssertEqual(ChordInkAutomaticFeedbackPolicy.recognitionReason(for: draft), .noRead)
-        for reason: ChordInkAutomaticRenderReason in [.endingReview] {
-            let feedback = ChordInkAutomaticRenderFeedback(reasonsByDraftID: [draft.id: .noRead],
-                globalReason: reason)
-            XCTAssertNil(completion(chart, feedback: feedback, strokeCount: 2))
-        }
-        let actualNoRead = completion(chart,
-            feedback: .init(reasonsByDraftID: [draft.id: .noRead]), strokeCount: 1)
-        XCTAssertEqual(actualNoRead?["reason"], .string("automatic_no_read"),
-            "A genuinely exhausted current input still reports friction when structural review does not block it")
-        XCTAssertEqual(actualNoRead?["retained_stroke_count"], .int(1))
     }
 
     func testStaleOrSourceRefreshFeedbackNeverPresentsTheOldChordAsACurrentRead() throws {
@@ -594,15 +576,6 @@ final class ChordInkAutomaticFeedbackTests: XCTestCase {
         pending: Int = 0, age: TimeInterval?) -> ChordInkAutomaticActivity {
         .init(chartID: chart.id, sourceRevision: 1, hasSourceInk: true, phase: phase,
             pendingTargetCount: pending, inputAt: age.map { now.addingTimeInterval(-$0) })
-    }
-
-    private func completion(_ chart: Chart, feedback: ChordInkAutomaticRenderFeedback,
-        strokeCount: Int) -> IChartTelemetryProperties? {
-        var current = activity(chart, phase: .settled, age: 4)
-        current.feedback = feedback
-        return ChordInkAutomaticRenderTelemetry.completionProperties(isEnabled: true,
-            chart: chart, mode: .automatic, activity: current, now: now, isForeground: true,
-            foregroundObservationDuration: 3.1, remainingStrokeCount: strokeCount, madeProgress: false)
     }
 
     private func makeChart() -> Chart {

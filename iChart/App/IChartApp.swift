@@ -13,25 +13,11 @@ struct IChartApp: App {
     @StateObject private var setlistStore: IChartPDFSetlistStore
 
     init() {
+        let initializationStartedAt = ProcessInfo.processInfo.systemUptime
         let appInitSpan = IChartPerformanceTrace.start("app.init")
         let supabaseClients = IChartSupabaseClientFactory.liveClients()
-        // Loading schedules background chart/ink reopen checks immediately.
-        // Configure their consented destination before that work can begin.
-        IChartTelemetry.configure(IChartTelemetryService.live(clients: supabaseClients))
         let libraryStore = ChartLibraryStore.live()
         let pdfLibraryStore = IChartPDFLibraryStore.live()
-        IChartTelemetry.record(
-            "app.launched",
-            properties: [
-                "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
-                // Join this startup source to the same installation/session
-                // when separating customer Release data from Debug device QA.
-                "source": .string(IChartTelemetryBuildSource.value),
-                "app_phase": .string("init"),
-                "chart_count": .int(libraryStore.charts.count),
-                "project_count": .int(libraryStore.projects.count)
-            ]
-        )
         libraryStore.onSnapshotSaved = nil
         _store = StateObject(wrappedValue: libraryStore)
         _authStore = StateObject(wrappedValue: IChartAuthStore.live(clients: supabaseClients))
@@ -48,6 +34,22 @@ struct IChartApp: App {
         #endif
 
         IChartPerformanceTrace.end(appInitSpan)
+        let initializationMilliseconds = (ProcessInfo.processInfo.systemUptime - initializationStartedAt) * 1_000
+        let libraryLoadOutcome = libraryStore.initialLoadOutcome
+        // Optional diagnostics begin after the app's stores exist. Construction,
+        // consent preferences, old queue migration, disk I/O and network work
+        // all stay on this utility task; launch never awaits them.
+        Task.detached(priority: .utility) {
+            guard let telemetry = IChartTelemetryService.live(clients: supabaseClients) else { return }
+            IChartTelemetry.configure(telemetry)
+            await telemetry.initialize()
+            if let libraryLoadOutcome {
+                ChartLibraryStore.recordBasicLoadOutcome(libraryLoadOutcome)
+            }
+            IChartTelemetry.record("app.launched", properties: [
+                "duration_ms": .double(initializationMilliseconds)
+            ])
+        }
     }
 
     var body: some Scene {
@@ -64,6 +66,7 @@ struct IChartApp: App {
                 .environment(\.betaProRetryAction, { await retryBetaAccess() })
                 .modifier(IChartBetaProNoticePresenter(store: betaProStore))
                 .task {
+                    let bootstrapStartedAt = ProcessInfo.processInfo.systemUptime
                     let bootstrapSpan = IChartPerformanceTrace.start("app.bootstrap")
                     synchronizeBetaAccess(authStore.state)
                     await retryBetaAccess()
@@ -75,9 +78,7 @@ struct IChartApp: App {
                     IChartTelemetry.record(
                         "app.bootstrap_completed",
                         properties: [
-                            "auth_state": .string(authStore.state.telemetryValue),
-                            "plan": .string(subscriptionStore.entitlement.effectivePlan.rawValue),
-                            "subscription_status": .string(subscriptionStore.entitlement.status.rawValue)
+                            "duration_ms": .double((ProcessInfo.processInfo.systemUptime - bootstrapStartedAt) * 1_000)
                         ]
                     )
                     IChartTelemetry.flush()
@@ -85,13 +86,6 @@ struct IChartApp: App {
                 .onChange(of: subscriptionStore.entitlement) { _, entitlement in
                     applySubscriptionState(entitlement)
                     cloudSyncStore.authStateChanged(authStore.state)
-                    IChartTelemetry.record(
-                        "subscription.entitlement_changed",
-                        properties: [
-                            "plan": .string(entitlement.effectivePlan.rawValue),
-                            "subscription_status": .string(entitlement.status.rawValue)
-                        ]
-                    )
                 }
                 .onChange(of: betaProStore.freeProAccess) { _, _ in
                     applyBetaAccessPolicy()
@@ -103,17 +97,9 @@ struct IChartApp: App {
                     }
                     synchronizeBetaAccess(authStore.state)
                     await retryBetaAccess()
-                    // Retry a persisted diagnostic backlog while the app is
-                    // active, even if the musician generates no further events.
-                    // No network request is made when the queue is empty.
-                    while !Task.isCancelled {
-                        await IChartTelemetry.flushPendingEventsIfNeeded()
-                        do {
-                            try await Task.sleep(nanoseconds: 20_000_000_000)
-                        } catch {
-                            return
-                        }
-                    }
+                    // One best-effort request; optional delivery is never an
+                    // awaited foreground loop or an app-readiness condition.
+                    IChartTelemetry.flush()
                 }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .background {
@@ -126,13 +112,6 @@ struct IChartApp: App {
                     // Apply the new account's choice before scheduling cloud work.
                     synchronizeBetaAccess(state)
                     cloudSyncStore.authStateChanged(state)
-                    IChartTelemetry.record(
-                        "auth.state_changed",
-                        properties: [
-                            "auth_state": .string(state.telemetryValue),
-                            "user_signed_in": .bool(state.signedInSession != nil)
-                        ]
-                    )
                     Task {
                         await retryBetaAccess()
                         await subscriptionStore.refreshEntitlements()
@@ -141,15 +120,6 @@ struct IChartApp: App {
                     }
                 }
                 .onOpenURL { url in
-                    if IChartSupabaseClientFactory.isAuthCallbackURL(url) {
-                        IChartTelemetry.record(
-                            "auth.callback_received",
-                            properties: [
-                                "flow": .string(url.telemetryAuthFlow),
-                                "source": .string("url_open")
-                            ]
-                        )
-                    }
                     Task {
                         await authStore.handleAuthCallback(url: url)
                         synchronizeBetaAccess(authStore.state)

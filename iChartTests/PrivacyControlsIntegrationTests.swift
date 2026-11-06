@@ -11,19 +11,23 @@ final class PrivacyControlsIntegrationTests: XCTestCase {
         XCTAssertEqual(IChartLegalLinks.privacyURL.absoluteString, "https://useichart.com/privacy.html")
         XCTAssertEqual(IChartLegalLinks.termsURL.absoluteString, "https://useichart.com/terms.html")
         XCTAssertTrue(IChartLegalLinks.subscriptionNotice.contains("renew automatically"))
-        XCTAssertTrue(IChartLegalLinks.diagnosticsNotice.contains("account identifier"))
-        XCTAssertTrue(IChartLegalLinks.diagnosticsNotice.contains("same chart"))
-        XCTAssertTrue(IChartLegalLinks.diagnosticsNotice.contains("ink counts and data sizes"))
+        XCTAssertTrue(IChartLegalLinks.diagnosticsNotice.contains("basic error counts"))
+        XCTAssertTrue(IChartLegalLinks.diagnosticsNotice.contains("elapsed timings"))
+        XCTAssertTrue(IChartLegalLinks.diagnosticsNotice.contains("correction categories"))
+        XCTAssertFalse(IChartLegalLinks.diagnosticsNotice.contains("account identifier"))
+        XCTAssertFalse(IChartLegalLinks.diagnosticsNotice.contains("same chart"))
+        XCTAssertFalse(IChartLegalLinks.diagnosticsNotice.contains("ink counts and data sizes"))
         XCTAssertTrue(IChartLegalLinks.diagnosticsNotice.contains("No chart text, chords, handwriting, PDFs, screenshots, or source-content hashes are sent."))
         XCTAssertTrue(IChartLegalLinks.diagnosticsWithdrawalNotice.contains("already sent may finish"))
         XCTAssertTrue(IChartLegalLinks.diagnosticsWithdrawalNotice.contains("does not delete reports already received"))
     }
 
-    func testPublicPolicySeparatesTechnicalChartChecksFromRawContentAndResearch() throws {
+    func testPublicPolicySeparatesBasicDiagnosticsFromHistoricalExpandedChecksAndResearch() throws {
         let policy = try String(contentsOf: root.appendingPathComponent("public-site/useichart/privacy.html"))
-        XCTAssertTrue(policy.contains("opaque chart reference"))
-        XCTAssertTrue(policy.contains("fingerprints and original chart identifiers are not uploaded"))
-        XCTAssertTrue(policy.contains("local diagnostic checkpoints"))
+        XCTAssertTrue(policy.contains("error counts, elapsed timings, and fixed correction categories"))
+        XCTAssertTrue(policy.contains("Older versions with expanded diagnostics"))
+        XCTAssertTrue(policy.contains("fingerprints and original chart identifiers were not uploaded"))
+        XCTAssertTrue(policy.contains("Basic diagnostics do not create these checkpoints"))
         XCTAssertTrue(policy.contains("do not grant permission to use saved handwriting for recognition research or model training"))
         XCTAssertTrue(policy.contains("technical task history can remain after its event evidence is removed"))
         XCTAssertTrue(policy.contains("Earlier app versions did not include this switch"))
@@ -47,14 +51,14 @@ final class PrivacyControlsIntegrationTests: XCTestCase {
 
     func testAppReportExportNeverFallsBackToSharingTheOriginalTrace() throws {
         let source = try String(contentsOf: root.appendingPathComponent("iChart/Services/IChartPerformanceTrace.swift"))
-        XCTAssertTrue(source.contains("return try recorder.exportReport()"))
+        XCTAssertTrue(source.contains("recorder.exportReport()"))
         XCTAssertFalse(source.contains("return recorder.url"))
-        XCTAssertFalse(source.contains("ProcessInfo.processInfo.systemUptime"))
+        XCTAssertTrue(source.contains("IChartPerformanceTraceReportSanitizer"))
     }
 
-    func testExplicitSupportReportDisclosureAndManifestDoNotClaimTimingOnly() throws {
+    func testExplicitSupportReportDisclosureAndManifestMatchBasicDiagnostics() throws {
         let library = try String(contentsOf: root.appendingPathComponent("iChart/Features/Library/LibraryView.swift"))
-        XCTAssertTrue(library.contains("Timing and diagnostic context. Stays on this iPad until you share it."))
+        XCTAssertTrue(library.contains("Basic operation timings and error categories. Stays on this iPad until you share it."))
         XCTAssertFalse(library.contains("Timing only. Stays on this iPad until shared."))
 
         let data = try Data(contentsOf: root.appendingPathComponent("iChart/Resources/PrivacyInfo.xcprivacy"))

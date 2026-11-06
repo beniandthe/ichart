@@ -4,21 +4,9 @@ import Foundation
 /// never imports the telemetry service or exposes local checkpoint digests.
 enum ChartExperienceContractTelemetry {
     static func makeDiagnostics(repository: ChartRepository?) -> ChartPersistenceContractDiagnostics? {
-        guard let repository = repository as? FileChartRepository else { return nil }
-        let consentStore = IChartTelemetryConsentStore.shared
-        consentStore.registerDiagnosticFile(ChartPersistenceContractDiagnostics.checkpointURL(for: repository.url))
-        return ChartPersistenceContractDiagnostics(
-            fileURL: repository.url,
-            identity: "consent-required",
-            currentAuthorization: {
-                consentStore.checkpointAuthorization()
-            },
-            publishCheckpoint: { data, url, authorization in
-                try consentStore.publishDiagnosticCheckpoint(data, to: url, authorization: authorization)
-            },
-            isEnabled: { IChartTelemetry.isRecordingEnabled && consentStore.snapshot.isGranted },
-            record: record
-        )
+        // Retired. Loading/saving the actual library must not create a second
+        // readback, content fingerprint, diagnostic checkpoint, or file binding.
+        nil
     }
 
     static func properties(_ check: ChartPersistenceContractCheck) -> IChartTelemetryProperties {

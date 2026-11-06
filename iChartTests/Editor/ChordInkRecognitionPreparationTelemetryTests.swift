@@ -3,7 +3,7 @@ import XCTest
 @testable import iChart
 
 final class ChordInkRecognitionPreparationTelemetryTests: XCTestCase {
-    func testFailuresRemainContentFreeAndVersionedInBothChartStyles() throws {
+    func testPreparationErrorsContainOnlyBoundedCodeAndElapsedTimeInBothChartStyles() throws {
         let outcomes: [ChordInkRecognitionPreparationOutcome] = [
             .invalidDrawingData, .skippedWeakBatchTargets, .skippedSingleTarget, .noTarget
         ]
@@ -13,13 +13,10 @@ final class ChordInkRecognitionPreparationTelemetryTests: XCTestCase {
                 let properties = try XCTUnwrap(ChordInkRecognitionPreparationTelemetry.failureProperties(
                     for: result, flow: .draftPreview, layoutStyle: style
                 ))
-                XCTAssertEqual(properties["layout_style"], .string(style.rawValue))
-                XCTAssertEqual(properties["recognition_pipeline_version"], .string(ChordInkRecognitionPipelineIdentity.version))
-                XCTAssertEqual(properties["recognition_target_count"], .int(0))
-                XCTAssertEqual(properties["stroke_count"], .int(3))
+                XCTAssertEqual(Set(properties.keys), ["error_code", "duration_ms"])
                 XCTAssertEqual(properties["duration_ms"], .double(12.345))
                 XCTAssertNil(properties["no_read_count"])
-                XCTAssertEqual(properties, IChartTelemetryPrivacy.sanitizedProperties(properties))
+                XCTAssertEqual(properties, IChartTelemetryPrivacy.sanitizedProperties(properties, forEventName: "chord.recognition_failed"))
                 XCTAssertFalse(properties.values.contains(.string(result.requestID.uuidString)))
                 XCTAssertNil(properties["drawing_data"])
                 XCTAssertNil(properties["chart_title"])
