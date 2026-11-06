@@ -52,7 +52,7 @@ Validation for this candidate is recorded separately from the prior Build 147 re
 | Simulator: both chart layouts and Automatic/Manual modes | PASSED — hosted editor workflow and feedback checks across both layouts and render settings |
 | Simulator: Measure Layout wrapping, scrolling, disabled reasons, and target behavior | PASSED — 400-point viewport at accessibility5 in dark mode; full reasons, five reachable actions and one real action callback |
 | Simulator: narrow/larger-text layout and light/dark readability | PASSED — 400-point Guide header at standard/light and accessibility5/dark; physical default-size tool screenshots and Simulator light/dark Library screenshots reviewed |
-| Physical iPad: candidate installation and saved-data readback | NOT PERFORMED — personal Build 147 retained while latest saved-work confirmation is pending; separate synthetic QA chart readback passed |
+| Physical iPad: candidate installation and saved-data readback | PASSED — Build 148 installed after fresh saved-work confirmation and independently matching stopped backups. Prelaunch and postlaunch preservation checks passed for 17 charts, 334 ink archives, 21 PDFs, the 15-entry setlist, and 3 correction/profile files |
 | Physical iPad: native tool-entry and new sheet acceptance | PASSED — 3 native UI tests with two blank synthetic charts in a separate QA app; eight Write & Render entries across both layouts and both render modes, Free Ink symbols/Guide in both layouts, all five Layout explanations and availability reasons in both layouts |
 | Fresh physical Pencil input and symbol recognition | NOT ESTABLISHED by source review or automated UI tests |
 
@@ -63,3 +63,11 @@ The initial test build had one test-only identifier lookup corrected to use the 
 Final handoff should identify the committed candidate source and its installation/readback evidence if installed. Physical checks must identify whether they used synthetic QA charts or the user's saved library. No fresh Pencil recognition or full-container byte-identity claim follows from a successful UI construction test.
 
 Final packaging: device compile/link passed. Xcode signing encountered existing File Provider FinderInfo metadata; a clean copied artifact was signed with the existing development identity and generated entitlements and passed deep/strict verification. The verified Build 148 artifact is recorded in the local manifest. Personal ML comparison resources are absent.
+
+## Personal iPad installation
+
+Build 148 was installed after the user confirmed current edits and review text were saved. The fresh before snapshots match byte for byte, and the independent postlaunch snapshots also match each other. Saved chart fields, encoded and decoded ink, PDF/setlist files and correction/profile files passed the strict comparison. Intentional deletion records are preserved; only their ordering changed.
+
+Two other library fields were explicitly reviewed with fresh snapshot/leaf bindings: an absent selection became the first saved chart, matching the existing startup sanitization, and the subscription verification date changed from a recent local date to an older date consistent with the existing remote-entitlement mapping. Other subscription fields are exact. This is not an assertion of backend subscription correctness or access health. The telemetry queue rotation, URL-cache SQLite storage, performance trace and platform cache/SplashBoard differences are classified separately. The full container is not byte-identical after startup; the retired diagnostic checkpoint remains unchanged with its existing stale binding.
+
+Installation evidence: `.build/clarity-polish-20261106/install-postlaunch-preservation-final.json`, `install-library-metadata-evidence148.json`, `install-independent-postlaunch-preservation.json`, and `installation148-receipt.json`.
