@@ -14,9 +14,7 @@ enum IChartTelemetryConsentAdmissionDenial: String, Sendable {
 /// Only the current, explicitly selected consent value enables diagnostics.
 /// The generation also distinguishes withdrawal followed by another opt-in.
 final class IChartTelemetryConsentStore: @unchecked Sendable {
-    static let shared = IChartTelemetryConsentStore(diagnosticFileURLs: [
-        ChartPersistenceContractDiagnostics.checkpointURL(for: FileChartRepository.live().url)
-    ])
+    static let shared = IChartTelemetryConsentStore(cleansLegacyLiveCheckpoint: true)
     static let preferenceKey = "iChart.telemetry.consent-version"
     static let currentVersion = "telemetry-consent-v1"
     static let installationIDPreferenceKey = "iChart.telemetry.installation-id.v1"
@@ -24,11 +22,13 @@ final class IChartTelemetryConsentStore: @unchecked Sendable {
     private static let diagnosticCleanupRequiredPreferenceKey = "iChart.telemetry.checkpoint-reset-required.v1"
 
     private let lock = NSLock()
+    private let diagnosticCleanupQueue = DispatchQueue(label: "com.ichart.retired-diagnostic-cleanup", qos: .utility)
     // Scheduling must never wait for the authoritative lock, which also orders
     // queue/checkpoint disk writes with consent withdrawal. This lock protects
     // only a two-field copy; code holding it never acquires `lock` or does I/O.
     private let schedulingLock = NSLock()
     private var schedulingSnapshot: IChartTelemetryConsentSnapshot
+    private var pendingSchedulingTransition: IChartTelemetryConsentSnapshot?
     private let defaults: UserDefaults
     private var observedVersion: String?
     private var generation: UInt64 = 0
@@ -42,7 +42,7 @@ final class IChartTelemetryConsentStore: @unchecked Sendable {
     private var cachedInstallationID: UUID?
     private var diagnosticFileURLs: Set<URL>
     private let removeDiagnosticFile: (URL) throws -> Void
-    private let writeDiagnosticFile: (Data, URL) throws -> Void
+    private let cleansLegacyLiveCheckpoint: Bool
 
     init(
         defaults: UserDefaults = .standard,
@@ -53,12 +53,13 @@ final class IChartTelemetryConsentStore: @unchecked Sendable {
         },
         writeDiagnosticFile: @escaping (Data, URL) throws -> Void = { data, url in
             try data.write(to: url, options: .atomic)
-        }
+        },
+        cleansLegacyLiveCheckpoint: Bool = false
     ) {
         self.defaults = defaults
-        self.diagnosticFileURLs = Set(diagnosticFileURLs.map(\.standardizedFileURL))
+        self.diagnosticFileURLs = Set(diagnosticFileURLs.filter(Self.isLegacyCheckpoint).map(\.standardizedFileURL))
         self.removeDiagnosticFile = removeDiagnosticFile
-        self.writeDiagnosticFile = writeDiagnosticFile
+        self.cleansLegacyLiveCheckpoint = cleansLegacyLiveCheckpoint
         let version = defaults.string(forKey: Self.preferenceKey)
         let persistedInstallationID = defaults.string(forKey: Self.installationIDPreferenceKey)
         let persistedDiagnosticCleanup = defaults.bool(forKey: Self.diagnosticCleanupRequiredPreferenceKey)
@@ -70,10 +71,9 @@ final class IChartTelemetryConsentStore: @unchecked Sendable {
         schedulingSnapshot = IChartTelemetryConsentSnapshot(
             isGranted: version == Self.currentVersion, generation: 0
         )
-        if observedVersion != Self.currentVersion {
-            diagnosticCleanupRequired = true
-        }
-        if diagnosticCleanupRequired { retryDiagnosticCleanupLocked() }
+        if !self.diagnosticFileURLs.isEmpty { diagnosticCleanupRequired = true }
+        if diagnosticCleanupRequired != persistedDiagnosticCleanup { stateRevision &+= 1 }
+        if diagnosticCleanupRequired { scheduleLegacyCleanup() }
         // Most launches require no preference change. A no-op main projection
         // would block unrelated admission and could wait behind queue/file I/O.
         // Startup cleanup which did change preferences remains asynchronous:
@@ -85,6 +85,10 @@ final class IChartTelemetryConsentStore: @unchecked Sendable {
     }
 
     var snapshot: IChartTelemetryConsentSnapshot {
+        schedulingLock.lock()
+        let pending = pendingSchedulingTransition
+        schedulingLock.unlock()
+        if let pending { return pending }
         refreshPersistedState()
         lock.lock()
         defer { lock.unlock() }
@@ -96,6 +100,12 @@ final class IChartTelemetryConsentStore: @unchecked Sendable {
     /// `snapshot` before handling a scheduled event or request.
     var cachedSnapshotForScheduling: IChartTelemetryConsentSnapshot {
         schedulingLock.lock()
+        defer { schedulingLock.unlock() }
+        return schedulingSnapshot
+    }
+
+    func trySnapshotForScheduling() -> IChartTelemetryConsentSnapshot? {
+        guard schedulingLock.try() else { return nil }
         defer { schedulingLock.unlock() }
         return schedulingSnapshot
     }
@@ -115,88 +125,98 @@ final class IChartTelemetryConsentStore: @unchecked Sendable {
     /// Registration also removes a leftover when diagnostics are disabled.
     /// The shared store registers the standard library path at startup, so this
     /// does not depend on a configured network telemetry service.
+    /// Only retired checkpoint sidecars are eligible for cleanup. Charts and
+    /// their source ink are never a cleanup target, even for an invalid caller.
+    private static func isLegacyCheckpoint(_ url: URL) -> Bool {
+        url.isFileURL && url.lastPathComponent.hasSuffix(".experience-checkpoint.json")
+    }
+
     func registerDiagnosticFile(_ url: URL) {
-        refreshPersistedState()
+        guard Self.isLegacyCheckpoint(url) else { return }
         lock.lock()
         diagnosticFileURLs.insert(url.standardizedFileURL)
-        if !snapshotLocked().isGranted { diagnosticCleanupRequired = true }
-        if diagnosticCleanupRequired { retryDiagnosticCleanupLocked() }
+        diagnosticCleanupRequired = true
         stateRevision &+= 1
         lock.unlock()
-        persistCurrentState()
+        retryDiagnosticCleanup()
+    }
+
+    private func scheduleLegacyCleanup() {
+        if cleansLegacyLiveCheckpoint {
+            diagnosticCleanupQueue.async { [self] in
+                registerDiagnosticFile(ChartPersistenceContractDiagnostics.checkpointURL(for: FileChartRepository.live().url))
+            }
+        } else { retryDiagnosticCleanup() }
     }
 
     func retryDiagnosticCleanup() {
-        refreshPersistedState()
-        lock.lock()
-        if !snapshotLocked().isGranted { diagnosticCleanupRequired = true }
-        if diagnosticCleanupRequired { retryDiagnosticCleanupLocked() }
-        stateRevision &+= 1
-        lock.unlock()
-        persistCurrentState()
+        diagnosticCleanupQueue.async { [self] in
+            lock.lock()
+            guard preferenceAuthorizationBlockDepth == 0 else {
+                lock.unlock()
+                diagnosticCleanupQueue.asyncAfter(deadline: .now() + 0.01) { [self] in retryDiagnosticCleanup() }
+                return
+            }
+            if diagnosticCleanupRequired { retryDiagnosticCleanupLocked() }
+            stateRevision &+= 1
+            lock.unlock()
+            persistCurrentState(asynchronously: true)
+        }
     }
 
-    /// Captured before background readback/hash work. A generation is never
-    /// persisted in the checkpoint; its stable identity remains usable after a
-    /// normal app launch without permitting an old in-flight write after opt-in.
-    func checkpointAuthorization() -> ChartPersistenceDiagnosticAuthorization? {
-        let consent = snapshot
-        guard consent.isGranted, !requiresDiagnosticCleanup,
-              let id = installationID(for: consent) else { return nil }
-        lock.lock()
-        defer { lock.unlock() }
-        guard preferenceAuthorizationBlockDepth == 0, snapshotLocked() == consent,
-              !diagnosticCleanupRequired, cachedInstallationID == id else { return nil }
-        return ChartPersistenceDiagnosticAuthorization(
-            identity: id.uuidString.lowercased(), generation: consent.generation
-        )
-    }
+    /// Content checkpoint collection has been retired for every consent state.
+    func checkpointAuthorization() -> ChartPersistenceDiagnosticAuthorization? { nil }
 
-    /// Only a small pre-encoded checkpoint is written while holding this lock.
-    /// Withdrawal invalidates the generation and removes the file under the
-    /// same lock, so it cannot return before an admitted write is removed.
     @discardableResult
     func publishDiagnosticCheckpoint(
         _ data: Data, to url: URL, authorization: ChartPersistenceDiagnosticAuthorization
-    ) throws -> Bool {
-        refreshPersistedState()
-        lock.lock()
-        defer { lock.unlock() }
-        diagnosticFileURLs.insert(url.standardizedFileURL)
-        let consent = snapshotLocked()
-        guard preferenceAuthorizationBlockDepth == 0, consent.isGranted,
-              consent.generation == authorization.generation,
-              !diagnosticCleanupRequired,
-              cachedInstallationID?.uuidString.lowercased() == authorization.identity else {
-            return false
-        }
-        try writeDiagnosticFile(data, url)
-        return true
-    }
+    ) throws -> Bool { false }
 
+    /// Publish withdrawal before any optional disk work. The reset marker is
+    /// persisted before the selected value so a crash/regrant cannot revive an
+    /// old queue. A pending transition never waits on the I/O admission lock.
     func setConsentGranted(_ isGranted: Bool) {
-        refreshPersistedState()
-        lock.lock()
-        let version = isGranted ? Self.currentVersion : nil
-        if observedVersion != version { generation &+= 1 }
-        observedVersion = version
-        updateSchedulingSnapshotLocked(isGranted: isGranted)
-        if !isGranted {
-            queueResetRequired = true
-            diagnosticCleanupRequired = true
-            cachedInstallationID = nil
-            // Retain the same atomic boundary as checkpoint publication. Once
-            // withdrawal returns, every admitted checkpoint has been removed.
-            retryDiagnosticCleanupLocked()
+        schedulingLock.lock()
+        let previous = schedulingSnapshot
+        let transition = IChartTelemetryConsentSnapshot(isGranted: isGranted,
+            generation: previous.generation &+ 1)
+        schedulingSnapshot = transition
+        pendingSchedulingTransition = transition
+        schedulingLock.unlock()
+
+        let projectSelection = { [self] in
+            guard cachedSnapshotForScheduling == transition else { return }
+            defaults.set(true, forKey: Self.queueResetRequiredPreferenceKey)
+            guard cachedSnapshotForScheduling == transition else { return }
+            defaults.removeObject(forKey: Self.installationIDPreferenceKey)
+            guard cachedSnapshotForScheduling == transition else { return }
+            if isGranted { defaults.set(Self.currentVersion, forKey: Self.preferenceKey) }
+            else { defaults.removeObject(forKey: Self.preferenceKey) }
         }
-        stateRevision &+= 1
-        let transition = snapshotLocked()
-        pendingConsentProjectionGeneration = transition.generation
-        lock.unlock()
-        // Queue/reset markers are persisted before the selected preference.
-        // UserDefaults observers now see the cached state without reentering a
-        // lock held by the preference writer.
-        persistCurrentState(consentTransition: transition)
+        if Thread.isMainThread { projectSelection() }
+        else { DispatchQueue.main.async(execute: projectSelection) }
+
+        diagnosticCleanupQueue.async { [self] in
+            lock.lock()
+            guard cachedSnapshotForScheduling == transition else { lock.unlock(); return }
+            observedVersion = isGranted ? Self.currentVersion : nil
+            generation = transition.generation
+            queueResetRequired = true
+            cachedInstallationID = nil
+            if !isGranted { diagnosticCleanupRequired = true }
+            stateRevision &+= 1
+            pendingConsentProjectionGeneration = transition.generation
+            schedulingLock.lock()
+            if pendingSchedulingTransition == transition { pendingSchedulingTransition = nil }
+            schedulingLock.unlock()
+            lock.unlock()
+            persistCurrentState(consentTransition: transition, asynchronously: true)
+            if !isGranted {
+                // Only the known optional sidecar is eligible. Resolving it is
+                // deferred until actual withdrawal or a retained cleanup marker.
+                scheduleLegacyCleanup()
+            }
+        }
     }
 
     func installationID(for consent: IChartTelemetryConsentSnapshot) -> UUID? {
@@ -233,6 +253,10 @@ final class IChartTelemetryConsentStore: @unchecked Sendable {
         onDenied: ((IChartTelemetryConsentAdmissionDenial) -> Void)? = nil,
         _ operation: () throws -> Value
     ) rethrows -> Value? {
+        guard trySnapshotForScheduling() == consent else {
+            onDenied?(.consentChanged)
+            return nil
+        }
         refreshPersistedState()
         lock.lock()
         let denial: IChartTelemetryConsentAdmissionDenial?
@@ -240,7 +264,7 @@ final class IChartTelemetryConsentStore: @unchecked Sendable {
             denial = .preferenceProjectionInProgress
         } else if !consent.isGranted {
             denial = .capturedConsentNotGranted
-        } else if snapshotLocked() != consent {
+        } else if snapshotLocked() != consent || trySnapshotForScheduling() != consent {
             denial = .consentChanged
         } else {
             denial = nil
@@ -262,7 +286,8 @@ final class IChartTelemetryConsentStore: @unchecked Sendable {
     ) rethrows -> Bool {
         refreshPersistedState()
         lock.lock()
-        guard preferenceAuthorizationBlockDepth == 0, snapshotLocked() == consent else {
+        guard preferenceAuthorizationBlockDepth == 0, snapshotLocked() == consent,
+              trySnapshotForScheduling() == consent else {
             lock.unlock()
             return false
         }
@@ -293,12 +318,19 @@ final class IChartTelemetryConsentStore: @unchecked Sendable {
         let mayReadPreferences = preferenceWriteDepth == 0
         lock.unlock()
         guard mayReadPreferences else { return }
+        schedulingLock.lock()
+        let hasPendingTransition = pendingSchedulingTransition != nil
+        schedulingLock.unlock()
+        guard !hasPendingTransition else { return }
         let version = defaults.string(forKey: Self.preferenceKey)
         let persistedID = defaults.string(forKey: Self.installationIDPreferenceKey).flatMap(UUID.init(uuidString:))
         let persistedQueueReset = defaults.bool(forKey: Self.queueResetRequiredPreferenceKey)
         let persistedDiagnosticCleanup = defaults.bool(forKey: Self.diagnosticCleanupRequiredPreferenceKey)
         lock.lock()
-        guard preferenceWriteDepth == 0, stateRevision == revision else {
+        schedulingLock.lock()
+        let transitionIsPending = pendingSchedulingTransition != nil
+        schedulingLock.unlock()
+        guard preferenceWriteDepth == 0, stateRevision == revision, !transitionIsPending else {
             lock.unlock()
             return
         }
@@ -331,11 +363,6 @@ final class IChartTelemetryConsentStore: @unchecked Sendable {
             cachedInstallationID = persistedID
             changed = true
         }
-        if diagnosticCleanupRequired {
-            let previous = diagnosticCleanupRequired
-            retryDiagnosticCleanupLocked()
-            changed = changed || previous != diagnosticCleanupRequired
-        }
         if changed { stateRevision &+= 1 }
         lock.unlock()
         if changed { persistCurrentState() }
@@ -350,10 +377,9 @@ final class IChartTelemetryConsentStore: @unchecked Sendable {
         asynchronously: Bool = false,
         deferredConsent: IChartTelemetryConsentSnapshot? = nil
     ) {
-        let queuedConsent = asynchronously
-            ? (deferredConsent ?? cachedSnapshotForScheduling) : nil
+        let queuedConsent = deferredConsent ?? cachedSnapshotForScheduling
         let project = { [self] in
-            if let queuedConsent {
+            do {
                 // Withdrawal publishes this mirror before checkpoint cleanup.
                 // Obsolete startup work must not wait on that cleanup on main.
                 guard cachedSnapshotForScheduling == queuedConsent else { return }
@@ -365,14 +391,14 @@ final class IChartTelemetryConsentStore: @unchecked Sendable {
                         let isCurrent = snapshotLocked() == queuedConsent
                         lock.unlock()
                         if isCurrent {
-                            persistCurrentState(asynchronously: true, deferredConsent: queuedConsent)
+                            persistCurrentState(consentTransition: consentTransition,
+                                                asynchronously: true, deferredConsent: queuedConsent)
                         }
                     }
                     return
                 }
-            } else {
-                lock.lock()
             }
+            guard snapshotLocked() == queuedConsent else { lock.unlock(); return }
             // Establish the block under the successful try-lock; a separate
             // preflight unlock would allow I/O to start before this boundary.
             preferenceAuthorizationBlockDepth += 1
@@ -451,12 +477,15 @@ final class IChartTelemetryConsentStore: @unchecked Sendable {
         }
         if asynchronously { DispatchQueue.main.async(execute: project) }
         else if Thread.isMainThread { project() }
-        else { DispatchQueue.main.sync(execute: project) }
+        else { DispatchQueue.main.async(execute: project) }
     }
 
     /// Wait for projections queued by initialization before a relaunch/readback
     /// assertion. Normal consent mutations remain synchronously durable.
     func waitForPendingPersistence() async {
+        await withCheckedContinuation { continuation in
+            diagnosticCleanupQueue.async { continuation.resume() }
+        }
         await withCheckedContinuation { continuation in
             DispatchQueue.main.async { continuation.resume() }
         }
@@ -465,7 +494,9 @@ final class IChartTelemetryConsentStore: @unchecked Sendable {
     /// Call only while holding `lock`; the scheduling reader never takes it.
     private func updateSchedulingSnapshotLocked(isGranted: Bool) {
         schedulingLock.lock()
-        schedulingSnapshot = IChartTelemetryConsentSnapshot(isGranted: isGranted, generation: generation)
+        if pendingSchedulingTransition == nil {
+            schedulingSnapshot = IChartTelemetryConsentSnapshot(isGranted: isGranted, generation: generation)
+        }
         schedulingLock.unlock()
     }
 

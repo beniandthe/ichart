@@ -226,386 +226,98 @@ final class ChordInkAutomaticLiveRenderTests: XCTestCase {
         XCTAssertEqual(outcome.remainingState.draftChords.count, 2)
     }
 
-    func testSettledNoReadAndUnchangedSourceRecoveryShareProductionOperationEvidence() async throws {
-        let telemetry = try makeAutomaticTelemetryFixture()
+    func testSyntheticWritingAndSelectiveRenderingStayIndependentOfOptionalDiagnosticsAndPendingTransport() async throws {
+        let telemetry = try await makeAutomaticTelemetryFixture()
         defer { telemetry.cleanup() }
-        let host = try makeHost(chart(), recognizer: AutomaticLiveRenderNoReadRecognizer())
-        let previousKeyWindow = try attachToForegroundScene(host)
-        defer {
-            host.view.recognizesChordInk = false
-            host.window.isHidden = true
-            previousKeyWindow?.makeKeyAndVisible()
+        let requestStarted = expectation(forNotification: .init("AutomaticLiveRenderTelemetryRequestStarted"),
+            object: nil)
+        // The URL protocol intentionally keeps this optional upload pending.
+        // Canvas work must finish without waiting for its response.
+        let upload = Task {
+            await telemetry.service.record("app.error", properties: ["error_code": .string("synthetic_test")])
+            await telemetry.service.flush()
         }
-        let unread = try await installSettledNoRead(on: host)
-        let source = host.canvas.drawing
-        let sourceBytes = source.dataRepresentation()
-        let sourceRevision = host.view.automaticChordInputRevision
-        let noRead = try await waitForAutomaticTelemetryEvent(in: telemetry.queue) {
-            $0.properties["contract_id"] == .string("ink.automatic_render_completion")
-                && $0.properties["reason"] == .string("automatic_no_read")
-        }
-        let operation = try XCTUnwrap(noRead.properties["operation_id"])
-        XCTAssertEqual(noRead.properties["outcome"], .string("protected_rejection"))
-        XCTAssertEqual(noRead.properties["retained_stroke_count"], .int(source.strokes.count))
-        XCTAssertEqual(host.canvas.drawing.dataRepresentation(), sourceBytes)
-        XCTAssertEqual(host.view.automaticChordInputRevision, sourceRevision)
-        XCTAssertTrue(host.view.chart.measures.flatMap(\.chordEvents).isEmpty)
+        defer { upload.cancel() }
+        await fulfillment(of: [requestStarted], timeout: 3)
 
-        // This re-arms the owner's actual three-second observation for exactly
-        // the same settled input. Admission must suppress the repeated event.
-        NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
-        try await Task.sleep(nanoseconds: 3_250_000_000)
-        XCTAssertEqual(try telemetry.queue.loadEvents().filter {
-            $0.properties["contract_id"] == .string("ink.automatic_render_completion")
-                && $0.properties["reason"] == .string("automatic_no_read")
-        }.count, 1)
-        XCTAssertEqual(host.canvas.drawing.dataRepresentation(), sourceBytes)
-        XCTAssertEqual(host.view.automaticChordInputRevision, sourceRevision)
-
-        // Decisions are controlled; resident source, consumption, source
-        // archive receipts, and the telemetry queue use production paths.
-        var recovered = state(host.view.chart, drawing: source)
-        for index in recovered.draftChords.indices {
-            recovered.draftChords[index].id = unread.draftChords[index].id
-            recovered.draftChords[index].targetLifecycle = unread.draftChords[index].targetLifecycle
-        }
-        host.view.chordPreviewState = recovered
-        let outcome = try XCTUnwrap(host.view.attemptChordDraftAutomatically(chart: host.view.chart,
-            state: recovered, now: Date(), lastInputAt: host.coordinator.lastInputAt).outcome)
-        XCTAssertEqual(outcome.result.renderedChordCount, source.strokes.count)
-        XCTAssertTrue(host.canvas.drawing.strokes.isEmpty)
-        XCTAssertNil(host.view.chart.pageHandwrittenChordData)
-        let archivedSource = try PKDrawing(strokes: host.view.chart.measures.flatMap(\.chordEvents)
-            .flatMap { try PKDrawing(data: XCTUnwrap($0.sourceInkData)).strokes })
-        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
-            expected: source, current: archivedSource))
-
-        let preservation = try await waitForAutomaticTelemetryEvent(in: telemetry.queue) {
-            $0.properties["contract_id"] == .string("ink.render_preservation")
-                && $0.properties["outcome"] == .string("passed")
-        }
-        XCTAssertEqual(preservation.properties["operation_id"], operation)
-        XCTAssertEqual(preservation.properties["reason"], .string("render_complete"))
-        XCTAssertEqual(preservation.properties["consumed_stroke_count"], .int(source.strokes.count))
-        XCTAssertEqual(preservation.properties["retained_stroke_count"], .int(0))
-        XCTAssertEqual(preservation.properties["content_matches"], .bool(true))
-        let geometry = try await waitForAutomaticTelemetryEvent(in: telemetry.queue) {
-            $0.properties["contract_id"] == .string("ink.render_geometry")
-                && $0.properties["operation_id"] == operation
-        }
-        XCTAssertEqual(geometry.properties["outcome"], .string("passed"))
-        XCTAssertEqual(preservation.installationID, noRead.installationID)
-        XCTAssertEqual(preservation.sessionID, noRead.sessionID)
-        XCTAssertEqual(preservation.properties["chart_reference"], noRead.properties["chart_reference"])
-    }
-
-    func testOldNoReadTimerCannotAdoptRegrantedConsentAndFreshObservationStartsNewOperation() async throws {
-        let telemetry = try makeAutomaticTelemetryFixture()
-        defer { telemetry.cleanup() }
-        let host = try makeHost(chart(), recognizer: AutomaticLiveRenderNoReadRecognizer())
-        let previousKeyWindow = try attachToForegroundScene(host)
-        defer {
-            host.view.recognizesChordInk = false
-            host.window.isHidden = true
-            previousKeyWindow?.makeKeyAndVisible()
-        }
-        _ = try await installSettledNoRead(on: host)
-        let observationReturnedAt = ProcessInfo.processInfo.systemUptime
-        let sourceBytes = host.canvas.drawing.dataRepresentation()
-        let sourceRevision = host.view.automaticChordInputRevision
-        let refusal = try await waitForAutomaticTelemetryEvent(in: telemetry.queue) {
-            $0.properties["contract_id"] == .string("ink.render_preservation")
-                && $0.properties["outcome"] == .string("protected_rejection")
-        }
-        let previousOperation = try XCTUnwrap(refusal.properties["operation_id"])
-        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - observationReturnedAt, 2.5,
-            "Consent must be withdrawn while the real three-second work item is still pending")
-        XCTAssertFalse(try telemetry.queue.loadEvents().contains {
-            $0.properties["contract_id"] == .string("ink.automatic_render_completion")
-        })
-        telemetry.consent.setConsentGranted(false)
-        await telemetry.service.consentDidChange()
-        XCTAssertTrue(try telemetry.queue.loadEvents().isEmpty)
-        telemetry.consent.setConsentGranted(true)
-        await telemetry.service.consentDidChange()
-
-        // No new source/UI observation occurs before this wait. The work item
-        // captured under the withdrawn grant must not adopt the later grant.
-        try await Task.sleep(nanoseconds: 3_250_000_000)
-        XCTAssertFalse(try telemetry.queue.loadEvents().contains {
-            $0.properties["contract_id"] == .string("ink.automatic_render_completion")
-        })
-        XCTAssertEqual(host.canvas.drawing.dataRepresentation(), sourceBytes)
-        XCTAssertEqual(host.view.automaticChordInputRevision, sourceRevision)
-
-        NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
-        let current = try await waitForAutomaticTelemetryEvent(in: telemetry.queue) {
-            $0.properties["contract_id"] == .string("ink.automatic_render_completion")
-                && $0.properties["reason"] == .string("automatic_no_read")
-        }
-        XCTAssertNotEqual(current.properties["operation_id"], previousOperation)
-        XCTAssertEqual(host.canvas.drawing.dataRepresentation(), sourceBytes)
-        XCTAssertTrue(host.view.chart.measures.flatMap(\.chordEvents).isEmpty)
-    }
-
-    func testAutomaticAndReviewedCanvasTransactionsQueuePreservationEvidenceOnlyWithCurrentConsent() async throws {
-        let suiteName = "iChart-automatic-live-telemetry-\(UUID().uuidString)"
-        let preferences = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("automatic-live-telemetry-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let consent = IChartTelemetryConsentStore(defaults: preferences)
-        consent.setConsentGranted(true)
-        let originalGrant = consent.cachedSnapshotForScheduling
-        let queue = IChartTelemetryQueueStore(url: directory.appendingPathComponent("queue.json"))
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [AutomaticLiveRenderTelemetryOfflineProtocol.self]
-        let session = URLSession(configuration: configuration)
-        let service = IChartTelemetryService(
-            endpointURL: URL(string: "https://telemetry.invalid/automatic-render-test")!,
-            publishableKey: "synthetic-client-key", sessionStore: nil, queueStore: queue,
-            consentStore: consent, urlSession: session
-        )
         var windows: [UIWindow] = []
-        defer {
-            IChartTelemetry.configure(nil)
-            consent.setConsentGranted(false)
-            session.invalidateAndCancel()
-            windows.forEach { $0.isHidden = true }
-            preferences.removePersistentDomain(forName: suiteName)
-            try? FileManager.default.removeItem(at: directory)
-        }
-        IChartTelemetry.configure(service)
-
-        let automatic = try makeHost(chart())
-        windows.append(automatic.window)
-        installDrawing(on: automatic)
-        let originalSource = automatic.canvas.drawing.dataRepresentation()
-        var partialState = state(automatic.view.chart, drawing: automatic.canvas.drawing)
-        makeCollecting(&partialState.draftChords[1])
-        automatic.coordinator.lastInputAt = inputAt
-        installCensus(partialState, on: automatic)
-        let partial = try XCTUnwrap(automatic.view.renderChordDraftAutomatically(
-            chart: automatic.view.chart, state: partialState,
-            now: inputAt.addingTimeInterval(0.05), lastInputAt: inputAt
-        ))
-        XCTAssertEqual(partial.result.renderedChordCount, 1)
-        XCTAssertEqual(automatic.canvas.drawing.strokes.count, 1,
-            "A legitimate partial automatic transaction must retain the unfinished target")
-
-        let reviewed = try makeHost(chart())
-        windows.append(reviewed.window)
-        installDrawing(on: reviewed)
-        let reviewedState = state(reviewed.view.chart, drawing: reviewed.canvas.drawing)
-        installCensus(reviewedState, on: reviewed)
-        let reviewedAttempt = reviewed.view.attemptReviewedChordDraftAutomatically(
-            chart: reviewed.view.chart, state: reviewedState
-        )
-        XCTAssertEqual(try XCTUnwrap(reviewedAttempt.outcome).result.renderedChordCount, 2)
-        XCTAssertTrue(reviewed.canvas.drawing.strokes.isEmpty)
-
-        let events = try await automaticPreservationEvents(in: queue)
-        var geometryEvents: [IChartTelemetryEvent] = []
-        for _ in 0..<100 {
-            geometryEvents = try queue.loadEvents().filter { $0.properties["contract_id"] == .string("ink.render_geometry") }
-            if geometryEvents.count >= 2 { break }
-            try await Task.sleep(nanoseconds: 20_000_000)
-        }
-        XCTAssertFalse(geometryEvents.isEmpty, "Actual applied canvas geometry must reach the production queue")
-        XCTAssertTrue(geometryEvents.allSatisfy { $0.properties["outcome"] == .string("passed") })
-        let automaticEvent = try XCTUnwrap(events.first {
-            $0.properties["render_mode"] == .string("automatic")
-        })
-        let reviewedEvent = try XCTUnwrap(events.first {
-            $0.properties["render_mode"] == .string("reviewed_automatic")
-        })
-        for event in [automaticEvent, reviewedEvent] {
-            XCTAssertEqual(event.properties["contract_id"], .string("ink.render_preservation"))
-            XCTAssertEqual(event.properties["outcome"], .string("passed"))
-            XCTAssertEqual(event.properties["reason"], .string("render_complete"))
-            XCTAssertEqual(event.properties["expected_count"], .int(2))
-            XCTAssertEqual(event.properties["actual_count"], .int(2))
-            XCTAssertEqual(event.properties["source_stroke_count"], .int(2))
-            XCTAssertEqual(event.properties["content_matches"], .bool(true))
-            XCTAssertNotNil(event.properties["chart_reference"])
-        }
-        XCTAssertEqual(automaticEvent.properties["consumed_stroke_count"], .int(1))
-        XCTAssertEqual(automaticEvent.properties["retained_stroke_count"], .int(1))
-        XCTAssertEqual(reviewedEvent.properties["consumed_stroke_count"], .int(2))
-        XCTAssertEqual(reviewedEvent.properties["retained_stroke_count"], .int(0))
-        let automaticOperation = try XCTUnwrap(automaticEvent.properties["operation_id"])
-        let reviewedOperation = try XCTUnwrap(reviewedEvent.properties["operation_id"])
-        XCTAssertNotEqual(automaticOperation, reviewedOperation)
-        XCTAssertEqual(automaticEvent.installationID, reviewedEvent.installationID)
-        XCTAssertEqual(automaticEvent.sessionID, reviewedEvent.sessionID)
-
-        let serialized = String(decoding: try JSONEncoder().encode([automaticEvent, reviewedEvent]), as: UTF8.self)
-        for privateValue in [automatic.view.chart.title, reviewed.view.chart.title,
-                             automatic.view.chart.id.uuidString.lowercased(),
-                             reviewed.view.chart.id.uuidString.lowercased(), originalSource.base64EncodedString()] {
-            XCTAssertFalse(serialized.lowercased().contains(privateValue.lowercased()))
-        }
-        for forbiddenKey in ["drawing", "drawingData", "sourceInkData", "rawInput", "raw_chord_text",
-                             "chart_title", "points", "strokes", "candidate_texts"] {
-            XCTAssertFalse(serialized.contains("\"\(forbiddenKey)\""), forbiddenKey)
-        }
-        XCTAssertFalse(serialized.contains("\"C\""), "Synthetic recognized text must remain local")
-
-        // The caller can carry a same-ID model update which the resident host
-        // has not applied yet. A refused attempt must compare the actual host
-        // before/after, rather than reporting that earlier difference as loss.
-        let refused = try makeHost(chart())
-        windows.append(refused.window)
-        installDrawing(on: refused)
-        var collecting = state(refused.view.chart, drawing: refused.canvas.drawing)
-        for index in collecting.draftChords.indices { makeCollecting(&collecting.draftChords[index]) }
-        refused.coordinator.lastInputAt = inputAt
-        installCensus(collecting, on: refused)
-        let actualChartBeforeAttempt = refused.view.chart
-        let actualSourceBeforeAttempt = refused.canvas.drawing.dataRepresentation()
-        var incomingChart = actualChartBeforeAttempt
-        incomingChart.title = "Unapplied incoming title update"
-        XCTAssertEqual(incomingChart.id, actualChartBeforeAttempt.id)
-        XCTAssertNotEqual(incomingChart, actualChartBeforeAttempt)
-        XCTAssertNil(refused.view.attemptChordDraftAutomatically(
-            chart: incomingChart, state: collecting,
-            now: inputAt.addingTimeInterval(2), lastInputAt: inputAt
-        ).outcome)
-        XCTAssertEqual(refused.view.chart, actualChartBeforeAttempt)
-        XCTAssertEqual(refused.canvas.drawing.dataRepresentation(), actualSourceBeforeAttempt)
-        var refusalEvents: [IChartTelemetryEvent] = []
-        for _ in 0..<60 {
-            refusalEvents = try queue.loadEvents().filter {
-                $0.properties["contract_id"] == .string("ink.render_preservation")
-                    && $0.properties["render_mode"] == .string("automatic")
-                    && $0.properties["outcome"] == .string("protected_rejection")
+        defer { windows.forEach { $0.isHidden = true } }
+        for diagnosticsEnabled in [true, false] {
+            if !diagnosticsEnabled {
+                telemetry.consent.setConsentGranted(false)
+                await telemetry.service.consentDidChange()
             }
-            if !refusalEvents.isEmpty { break }
-            try await Task.sleep(nanoseconds: 50_000_000)
-        }
-        let refusalEvent = try XCTUnwrap(refusalEvents.first)
-        XCTAssertEqual(refusalEvent.properties["reason"], .string("render_unresolved"))
-        XCTAssertEqual(refusalEvent.properties["content_matches"], .bool(true))
-        XCTAssertEqual(refusalEvent.properties["consumed_stroke_count"], .int(0))
-        XCTAssertEqual(refusalEvent.properties["retained_stroke_count"], .int(2))
-        XCTAssertFalse(try queue.loadEvents().contains {
-            $0.properties["contract_id"] == .string("ink.render_preservation")
-                && $0.properties["outcome"] == .string("violated")
-        }, "A pre-existing incoming model difference is not a mutation made by a rejected transaction")
+            for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+                let automatic = try makeHost(chart(style), recognizer: AutomaticLiveRenderNoReadRecognizer())
+                windows.append(automatic.window)
+                automatic.view.canvasViewDidBeginUsingTool(automatic.canvas)
+                installDrawing(on: automatic)
+                automatic.view.canvasViewDidEndUsingTool(automatic.canvas)
+                let source = automatic.canvas.drawing
+                var partialState = state(automatic.view.chart, drawing: source)
+                makeCollecting(&partialState.draftChords[1])
+                automatic.coordinator.lastInputAt = inputAt
+                installCensus(partialState, on: automatic)
+                let startedAt = ProcessInfo.processInfo.systemUptime
+                let partial = try XCTUnwrap(automatic.view.renderChordDraftAutomatically(
+                    chart: automatic.view.chart, state: partialState,
+                    now: inputAt.addingTimeInterval(0.05), lastInputAt: inputAt))
+                XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - startedAt, 1,
+                    "Optional diagnostics must not hold up source validation and consumption")
+                XCTAssertEqual(partial.result.renderedChordCount, 1)
+                XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+                    expected: PKDrawing(strokes: [source.strokes[1]]), current: automatic.canvas.drawing))
+                let committed = try XCTUnwrap(automatic.view.chart.measures.flatMap(\.chordEvents).first)
+                XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+                    expected: PKDrawing(strokes: [source.strokes[0]]),
+                    current: try PKDrawing(data: XCTUnwrap(committed.sourceInkData))))
 
-        let authoring = try makeHost(chart())
-        windows.append(authoring.window)
-        installDrawing(on: authoring)
-        let stableSource = authoring.canvas.drawing
-        authoring.view.canvasViewDidBeginUsingTool(authoring.canvas)
-        // Controlled application-level replacement while pen input is active:
-        // the earlier completed stroke vanishes, with no erase/render action.
-        authoring.canvas.drawing = PKDrawing(strokes: [try XCTUnwrap(stableSource.strokes.last)])
-        authoring.view.canvasViewDrawingDidChange(authoring.canvas)
-        authoring.view.canvasViewDidEndUsingTool(authoring.canvas)
-        var authoringEvidence: IChartTelemetryEvent?
-        for _ in 0..<100 {
-            authoringEvidence = try queue.loadEvents().first {
-                $0.properties["contract_id"] == .string("ink.authoring_integrity")
-                    && $0.properties["outcome"] == .string("violated")
+                let reviewed = try makeHost(chart(style), recognizer: AutomaticLiveRenderNoReadRecognizer())
+                windows.append(reviewed.window)
+                installDrawing(on: reviewed)
+                let reviewedSource = reviewed.canvas.drawing
+                let reviewedState = state(reviewed.view.chart, drawing: reviewedSource)
+                installCensus(reviewedState, on: reviewed)
+                let outcome = try XCTUnwrap(reviewed.view.attemptReviewedChordDraftAutomatically(
+                    chart: reviewed.view.chart, state: reviewedState).outcome)
+                XCTAssertEqual(outcome.result.renderedChordCount, 2)
+                XCTAssertTrue(reviewed.canvas.drawing.strokes.isEmpty)
+                let archives = try reviewed.view.chart.measures.flatMap(\.chordEvents).flatMap {
+                    try PKDrawing(data: XCTUnwrap($0.sourceInkData)).strokes
+                }
+                XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+                    expected: reviewedSource, current: PKDrawing(strokes: archives)))
+
+                let refused = try makeHost(chart(style), recognizer: AutomaticLiveRenderNoReadRecognizer())
+                windows.append(refused.window)
+                installDrawing(on: refused)
+                var unfinished = state(refused.view.chart, drawing: refused.canvas.drawing)
+                for index in unfinished.draftChords.indices { makeCollecting(&unfinished.draftChords[index]) }
+                installCensus(unfinished, on: refused)
+                let unchangedChart = refused.view.chart
+                let unchangedDrawing = refused.canvas.drawing
+                XCTAssertNil(refused.view.attemptChordDraftAutomatically(chart: unchangedChart,
+                    state: unfinished, now: inputAt.addingTimeInterval(2), lastInputAt: inputAt).outcome)
+                XCTAssertEqual(refused.view.chart, unchangedChart)
+                XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+                    expected: unchangedDrawing, current: refused.canvas.drawing))
+
+                // A pending same-ID model update is not part of a refused canvas
+                // transaction. Keep the resident model and its source untouched.
+                var incomingChart = unchangedChart
+                incomingChart.title = "Unapplied incoming title update"
+                XCTAssertEqual(incomingChart.id, unchangedChart.id)
+                XCTAssertNotEqual(incomingChart, unchangedChart)
+                let sourceBytes = refused.canvas.drawing.dataRepresentation()
+                XCTAssertNil(refused.view.attemptChordDraftAutomatically(chart: incomingChart,
+                    state: unfinished, now: inputAt.addingTimeInterval(2), lastInputAt: inputAt).outcome)
+                XCTAssertEqual(refused.view.chart, unchangedChart)
+                XCTAssertEqual(refused.view.chart.pageHandwrittenChordData, unchangedChart.pageHandwrittenChordData)
+                XCTAssertEqual(refused.canvas.drawing.dataRepresentation(), sourceBytes)
             }
-            if authoringEvidence != nil { break }
-            try await Task.sleep(nanoseconds: 20_000_000)
         }
-        XCTAssertEqual(try XCTUnwrap(authoringEvidence).properties["reason"],
-            .string("authoring_completed_source_missing"))
-
-        let undoControl = try makeHost(chart())
-        windows.append(undoControl.window)
-        installDrawing(on: undoControl)
-        let undoSource = undoControl.canvas.drawing
-        let undo = try XCTUnwrap(undoControl.canvas.undoManager)
-        undo.beginUndoGrouping()
-        undo.registerUndo(withTarget: undoControl.canvas) { canvas in
-            canvas.drawing = PKDrawing(strokes: [undoSource.strokes[1]])
-        }
-        undo.endUndoGrouping()
-        undoControl.view.canvasViewDidBeginUsingTool(undoControl.canvas)
-        undo.undo()
-        XCTAssertFalse(undo.isUndoing, "The authorized undo has finished before pen end")
-        undoControl.view.canvasViewDrawingDidChange(undoControl.canvas)
-        undoControl.view.canvasViewDidEndUsingTool(undoControl.canvas)
-        try await Task.sleep(nanoseconds: 200_000_000)
-        let sourceViolations = try queue.loadEvents().filter {
-            $0.properties["contract_id"] == .string("ink.authoring_integrity")
-                && $0.properties["outcome"] == .string("violated")
-        }
-        XCTAssertEqual(sourceViolations.count, 1, "Completed undo must not become a source-loss task")
-
-        let visibility = try makeHost(chart())
-        windows.append(visibility.window)
-        visibility.view.manualRenderWithPreview = true
-        installDrawing(on: visibility)
-        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-            .first { $0.activationState == .foregroundActive })
-        let priorKeyWindow = scene.windows.first { $0.isKeyWindow }
-        defer { priorKeyWindow?.makeKeyAndVisible() }
-        visibility.window.isHidden = true
-        visibility.window.windowScene = scene
-        visibility.window.frame = scene.coordinateSpace.bounds
-        visibility.window.makeKeyAndVisible()
-        visibility.view.setNeedsLayout()
-        visibility.view.layoutIfNeeded()
-        visibility.canvas.isHidden = true
-        visibility.view.setNeedsLayout()
-        visibility.view.layoutIfNeeded()
-        var hiddenCanvasEvidence: IChartTelemetryEvent?
-        for _ in 0..<120 {
-            hiddenCanvasEvidence = try queue.loadEvents().first {
-                $0.properties["contract_id"] == .string("ink.live_canvas_visibility")
-                    && $0.properties["outcome"] == .string("violated")
-            }
-            if hiddenCanvasEvidence != nil { break }
-            try await Task.sleep(nanoseconds: 20_000_000)
-        }
-        XCTAssertEqual(try XCTUnwrap(hiddenCanvasEvidence).properties["reason"],
-            .string("authoring_canvas_invisible"))
-        // An intentionally hidden window/editor route is unknown, not a second
-        // canvas defect, even while this application's other window is active.
-        visibility.window.isHidden = true
-        visibility.view.layoutSubviews()
-        try await Task.sleep(nanoseconds: 700_000_000)
-        visibility.window.makeKeyAndVisible()
-        visibility.view.isHidden = true
-        visibility.view.layoutSubviews()
-        try await Task.sleep(nanoseconds: 700_000_000)
-        XCTAssertEqual(try queue.loadEvents().filter {
-            $0.properties["contract_id"] == .string("ink.live_canvas_visibility")
-                && $0.properties["outcome"] == .string("violated")
-        }.count, 1)
-
-        consent.setConsentGranted(false)
-        await service.consentDidChange()
-        XCTAssertTrue(try queue.loadEvents().isEmpty)
-        let optedOut = try makeHost(chart())
-        windows.append(optedOut.window)
-        installDrawing(on: optedOut)
-        let optedOutState = state(optedOut.view.chart, drawing: optedOut.canvas.drawing)
-        optedOut.coordinator.lastInputAt = inputAt
-        installCensus(optedOutState, on: optedOut)
-        let optedOutOutcome = try XCTUnwrap(optedOut.view.renderChordDraftAutomatically(
-            chart: optedOut.view.chart, state: optedOutState,
-            now: inputAt.addingTimeInterval(2), lastInputAt: inputAt
-        ))
-        XCTAssertEqual(optedOutOutcome.result.renderedChordCount, 2)
-        XCTAssertTrue(optedOut.canvas.drawing.strokes.isEmpty,
-            "Withdrawing diagnostics must not change the automatic rendering operation")
-        await service.consentDidChange()
-        XCTAssertTrue(try queue.loadEvents().isEmpty)
-
-        // A delayed event from the earlier grant cannot revive when this
-        // synthetic installation opts back in; the actor revalidates generation.
-        consent.setConsentGranted(true)
-        XCTAssertNotEqual(consent.cachedSnapshotForScheduling, originalGrant)
-        await service.record("feature.contract_checked", properties: automaticEvent.properties,
-            chartID: automatic.view.chart.id, expectedConsent: originalGrant)
-        await service.flush(expectedConsent: originalGrant)
-        XCTAssertTrue(try queue.loadEvents().isEmpty)
+        await Task.yield()
+        XCTAssertFalse(try telemetry.queue.loadEvents().contains { $0.eventName == "feature.contract_checked" })
     }
 
     private struct AutomaticTelemetryFixture {
@@ -627,101 +339,34 @@ final class ChordInkAutomaticLiveRenderTests: XCTestCase {
         }
     }
 
-    private func makeAutomaticTelemetryFixture() throws -> AutomaticTelemetryFixture {
+    private func makeAutomaticTelemetryFixture() async throws -> AutomaticTelemetryFixture {
         let suiteName = "iChart-automatic-completion-telemetry-\(UUID().uuidString)"
         let preferences = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        // Model an already-consented installation. This test exercises an
+        // actual pending upload, not first-grant preference projection or
+        // first-event identity creation, which may legitimately drop an event.
+        preferences.set(IChartTelemetryConsentStore.currentVersion,
+            forKey: IChartTelemetryConsentStore.preferenceKey)
+        preferences.set(UUID().uuidString,
+            forKey: IChartTelemetryConsentStore.installationIDPreferenceKey)
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("automatic-completion-telemetry-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let consent = IChartTelemetryConsentStore(defaults: preferences)
-        consent.setConsentGranted(true)
+        await consent.waitForPendingPersistence()
         let queue = IChartTelemetryQueueStore(url: directory.appendingPathComponent("queue.json"))
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [AutomaticLiveRenderTelemetryOfflineProtocol.self]
+        configuration.protocolClasses = [AutomaticLiveRenderTelemetryPendingProtocol.self]
         let session = URLSession(configuration: configuration)
         let service = IChartTelemetryService(endpointURL: URL(string: "https://telemetry.invalid/automatic-completion-test")!,
             publishableKey: "synthetic-client-key", sessionStore: nil, queueStore: queue,
             consentStore: consent, urlSession: session)
+        await service.initialize()
+        await consent.waitForPendingPersistence()
+        XCTAssertTrue(consent.snapshot.isGranted)
         IChartTelemetry.configure(service)
         return AutomaticTelemetryFixture(suiteName: suiteName, preferences: preferences, directory: directory,
             consent: consent, queue: queue, session: session, service: service)
-    }
-
-    private func waitForAutomaticTelemetryEvent(in queue: IChartTelemetryQueueStore,
-        matching predicate: (IChartTelemetryEvent) -> Bool) async throws -> IChartTelemetryEvent {
-        for _ in 0..<120 {
-            if let event = try queue.loadEvents().first(where: predicate) { return event }
-            try await Task.sleep(nanoseconds: 50_000_000)
-        }
-        return try XCTUnwrap(try queue.loadEvents().first(where: predicate),
-            "The actual canvas observation did not reach the production telemetry queue")
-    }
-
-    private func attachToForegroundScene(_ host: Host) throws -> UIWindow? {
-        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-            .first { $0.activationState == .foregroundActive })
-        let previousKeyWindow = scene.windows.first { $0.isKeyWindow }
-        let frame = host.window.frame
-        host.window.isHidden = true
-        host.window.windowScene = scene
-        host.window.frame = frame
-        host.window.makeKeyAndVisible()
-        host.view.setNeedsLayout()
-        host.view.layoutIfNeeded()
-        return previousKeyWindow
-    }
-
-    private func installSettledNoRead(on host: Host) async throws -> ChordPreviewState {
-        host.coordinator.lastInputAt = Date().addingTimeInterval(-4)
-        installDrawing(on: host)
-        // Let the owner's normal drawing-change preparation finish first, so
-        // no outstanding preparation can replace the controlled exact census.
-        for _ in 0..<120 {
-            if host.view.currentAutomaticChordActivity?.phase == .settled { break }
-            try await Task.sleep(nanoseconds: 20_000_000)
-        }
-        XCTAssertEqual(host.view.currentAutomaticChordActivity?.phase, .settled)
-        var unread = state(host.view.chart, drawing: host.canvas.drawing)
-        for index in unread.draftChords.indices {
-            makeCollecting(&unread.draftChords[index])
-            unread.draftChords[index].targetLifecycle?.stage = .frozen
-        }
-        installCensus(unread, on: host)
-        for _ in 0..<120 {
-            if host.view.currentAutomaticChordActivity?.phase == .settled,
-               host.view.currentAutomaticChordActivity?.pendingTargetCount == 0 { break }
-            try await Task.sleep(nanoseconds: 20_000_000)
-        }
-        XCTAssertTrue(host.view.hasCurrentAutomaticChordCensus)
-        XCTAssertEqual(host.view.currentAutomaticChordActivity?.pendingTargetCount, 0)
-        host.view.chordPreviewState = unread
-        let source = host.canvas.drawing.dataRepresentation()
-        let sourceRevision = host.view.automaticChordInputRevision
-        let attempt = host.view.attemptChordDraftAutomatically(chart: host.view.chart,
-            state: unread, now: Date(), lastInputAt: host.coordinator.lastInputAt)
-        XCTAssertNil(attempt.outcome)
-        XCTAssertTrue(attempt.feedback.reasonsByDraftID.values.contains(.noRead))
-        XCTAssertEqual(host.view.currentAutomaticChordActivity?.phase, .settled)
-        XCTAssertEqual(host.view.currentAutomaticChordActivity?.pendingTargetCount, 0)
-        XCTAssertEqual(host.canvas.drawing.dataRepresentation(), source)
-        XCTAssertEqual(host.view.automaticChordInputRevision, sourceRevision)
-        return unread
-    }
-
-    private func automaticPreservationEvents(in queue: IChartTelemetryQueueStore) async throws -> [IChartTelemetryEvent] {
-        var events: [IChartTelemetryEvent] = []
-        for _ in 0..<60 {
-            events = try queue.loadEvents().filter {
-                $0.properties["contract_id"] == .string("ink.render_preservation")
-            }
-            if events.contains(where: { $0.properties["render_mode"] == .string("automatic") })
-                && events.contains(where: { $0.properties["render_mode"] == .string("reviewed_automatic") }) {
-                return events
-            }
-            try await Task.sleep(nanoseconds: 50_000_000)
-        }
-        XCTFail("Actual automatic and reviewed canvas transactions did not reach the production telemetry queue")
-        return events
     }
 
     private struct Host {
@@ -798,8 +443,8 @@ final class ChordInkAutomaticLiveRenderTests: XCTestCase {
         draft.requiresManualReviewOnly = false
     }
 
-    private func chart() -> Chart {
-        var chart = Chart.draft(title: "Automatic live render", layoutStyle: .simpleChordSheet)
+    private func chart(_ style: ChartLayoutStyle = .simpleChordSheet) -> Chart {
+        var chart = Chart.draft(title: "Automatic live render", layoutStyle: style)
         chart.completeInitialSetup(title: chart.title, key: .cMajor,
             meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine, startingMeasureCount: 1)
         return chart
@@ -845,11 +490,11 @@ private struct AutomaticLiveRenderNoReadRecognizer: ChordInkRecognizing {
     }
 }
 
-private final class AutomaticLiveRenderTelemetryOfflineProtocol: URLProtocol {
+private final class AutomaticLiveRenderTelemetryPendingProtocol: URLProtocol {
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
-        client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+        NotificationCenter.default.post(name: .init("AutomaticLiveRenderTelemetryRequestStarted"), object: nil)
     }
     override func stopLoading() {}
 }

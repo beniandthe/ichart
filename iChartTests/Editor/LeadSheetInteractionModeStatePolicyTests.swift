@@ -93,64 +93,6 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertFalse(canvasView.isOpaque)
     }
 
-    func testInkTelemetryCapturesLiveCanvasCompositingState() throws {
-        let canvasView = PKCanvasView(frame: CGRect(x: 0, y: 0, width: 320, height: 240))
-        canvasView.contentScaleFactor = 2
-        canvasView.drawingPolicy = .anyInput
-        canvasView.tool = LeadSheetPersistentInkColorPolicy.inkingTool(width: 3.5)
-        let drawing = PKDrawing(strokes: [
-            stroke(
-                points: [
-                    CGPoint(x: 8, y: 26),
-                    CGPoint(x: 22, y: 8),
-                    CGPoint(x: 38, y: 34)
-                ],
-                creationDate: Date(timeIntervalSince1970: 35),
-                color: LeadSheetPersistentInkColorPolicy.inkColor
-            )
-        ])
-        var snapshot: LeadSheetInkTelemetrySnapshot?
-
-        UITraitCollection(userInterfaceStyle: .dark).performAsCurrent {
-            LeadSheetLiveInkCanvasAppearancePolicy.configure(canvasView)
-            snapshot = LeadSheetInkTelemetrySnapshot.capture(
-                drawing: drawing,
-                canvasView: canvasView
-            )
-        }
-
-        let telemetrySnapshot = try XCTUnwrap(snapshot)
-        XCTAssertEqual(telemetrySnapshot.canvasUserInterfaceStyle, "light")
-        XCTAssertEqual(telemetrySnapshot.canvasOverrideUserInterfaceStyle, "light")
-        XCTAssertEqual(telemetrySnapshot.canvasSuperviewUserInterfaceStyle, "unknown")
-        XCTAssertEqual(telemetrySnapshot.canvasWindowUserInterfaceStyle, "unknown")
-        XCTAssertEqual(telemetrySnapshot.canvasDrawingPolicy, "any_input")
-        XCTAssertEqual(telemetrySnapshot.canvasAlpha, 1, accuracy: 0.001)
-        XCTAssertEqual(telemetrySnapshot.canvasBackgroundAlpha, 0, accuracy: 0.001)
-        XCTAssertFalse(telemetrySnapshot.canvasIsOpaque)
-        XCTAssertFalse(telemetrySnapshot.canvasIsHidden)
-        XCTAssertTrue(telemetrySnapshot.canvasUserInteractionEnabled)
-        XCTAssertFalse(telemetrySnapshot.canvasIsFirstResponder)
-        XCTAssertEqual(telemetrySnapshot.canvasContentScale, 2, accuracy: 0.001)
-        XCTAssertEqual(telemetrySnapshot.canvasBoundsWidth, 320, accuracy: 0.001)
-        XCTAssertEqual(telemetrySnapshot.canvasBoundsHeight, 240, accuracy: 0.001)
-        XCTAssertTrue(telemetrySnapshot.liveCanvasLightTraitGuardEnabled)
-        XCTAssertTrue(telemetrySnapshot.toolIsInking)
-        XCTAssertTrue(telemetrySnapshot.toolMatchesPersistentInk)
-        XCTAssertEqual(telemetrySnapshot.toolWidth, 3.5, accuracy: 0.001)
-        XCTAssertLessThan(telemetrySnapshot.toolColorLuminance, 0.25)
-
-        let properties = telemetrySnapshot.telemetryProperties(
-            scope: .page(frame: CGRect(x: 0, y: 0, width: 320, height: 240)),
-            normalizedBeforeSave: true
-        )
-        XCTAssertEqual(properties["canvas_override_user_interface_style"], .string("light"))
-        XCTAssertEqual(properties["canvas_drawing_policy"], .string("any_input"))
-        XCTAssertEqual(properties["live_canvas_light_trait_guard_enabled"], .bool(true))
-        XCTAssertEqual(properties["tool_matches_persistent_ink"], .bool(true))
-        XCTAssertEqual(properties["tool_width"], .double(3.5))
-    }
-
     func testPersistentInkNormalizationRecolorsWhiteInkWithoutChangingGeometry() throws {
         let sourceDrawing = PKDrawing(strokes: [
             stroke(
@@ -1150,87 +1092,6 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertLessThan(medianLuminance, 0.25)
         XCTAssertGreaterThan(pixelCoverage, 0)
         XCTAssertLessThan(pixelCoverage, 0.5)
-    }
-
-    func testInkTelemetryRenderDiagnosticsStayDarkWhenCurrentTraitIsDark() throws {
-        let drawing = PKDrawing(strokes: [
-            stroke(
-                points: [
-                    CGPoint(x: 8, y: 26),
-                    CGPoint(x: 22, y: 8),
-                    CGPoint(x: 38, y: 34)
-                ],
-                creationDate: Date(timeIntervalSince1970: 75),
-                color: LeadSheetPersistentInkColorPolicy.inkColor
-            )
-        ])
-        var snapshot: LeadSheetInkTelemetrySnapshot?
-
-        UITraitCollection(userInterfaceStyle: .dark).performAsCurrent {
-            snapshot = LeadSheetInkTelemetrySnapshot.capture(drawing: drawing)
-        }
-
-        let telemetrySnapshot = try XCTUnwrap(snapshot)
-        XCTAssertGreaterThan(telemetrySnapshot.renderedInkSampleCount, 0)
-        XCTAssertLessThan(telemetrySnapshot.renderedInkMedianLuminance, 0.25)
-        XCTAssertLessThan(telemetrySnapshot.renderedInkLightPixelRatio, 0.1)
-    }
-
-    func testInkTelemetryCanSkipBitmapRenderingOnThePersistenceHotPath() {
-        let drawing = PKDrawing(strokes: [
-            stroke(
-                points: [CGPoint(x: 8, y: 26), CGPoint(x: 38, y: 34)],
-                creationDate: Date(timeIntervalSince1970: 76),
-                color: LeadSheetPersistentInkColorPolicy.inkColor
-            )
-        ])
-
-        let snapshot = LeadSheetInkTelemetrySnapshot.capture(
-            drawing: drawing,
-            includesRenderedInkDiagnostics: false
-        )
-
-        XCTAssertEqual(snapshot.renderedInkSampleCount, 0)
-        XCTAssertEqual(snapshot.renderedInkMedianLuminance, -1)
-        XCTAssertEqual(snapshot.renderedInkLightPixelRatio, 0)
-        XCTAssertEqual(snapshot.strokeCount, 1)
-    }
-
-    func testInkTelemetrySamplingAvoidsQuadraticDenseDrawingScans() {
-        let checkpoint = LeadSheetInkTelemetrySamplingCheckpoint(strokeCount: 48, uptime: 100)
-
-        XCTAssertFalse(
-            LeadSheetInkTelemetrySamplingPolicy.shouldCapture(
-                strokeCount: 53,
-                uptime: 105,
-                previous: checkpoint,
-                normalizationNeeded: false
-            )
-        )
-        XCTAssertTrue(
-            LeadSheetInkTelemetrySamplingPolicy.shouldCapture(
-                strokeCount: 60,
-                uptime: 105,
-                previous: checkpoint,
-                normalizationNeeded: false
-            )
-        )
-        XCTAssertTrue(
-            LeadSheetInkTelemetrySamplingPolicy.shouldCapture(
-                strokeCount: 53,
-                uptime: 112,
-                previous: checkpoint,
-                normalizationNeeded: false
-            )
-        )
-        XCTAssertTrue(
-            LeadSheetInkTelemetrySamplingPolicy.shouldCapture(
-                strokeCount: 49,
-                uptime: 101,
-                previous: checkpoint,
-                normalizationNeeded: true
-            )
-        )
     }
 
     func testInkSerializationSessionRunsWorkOffMainAndDeliversOnMain() {
@@ -4562,9 +4423,11 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
                 let instruction = EditorCanvasMode.chordEntry.activeToolInstruction(
                     layoutStyle: style, manualRenderWithPreview: manualRenderWithPreview
                 )
-                XCTAssertTrue(instruction.contains("1–2 upright bars at least half a lane tall"))
-                XCTAssertTrue(instruction.contains("stacked dots beside the middle"))
-                XCTAssertTrue(instruction.contains("Right dots start; left dots end."))
+                XCTAssertTrue(instruction.contains("Use Tools > Repeats for measure repeats or ranges."))
+                XCTAssertTrue(instruction.contains("chord-repeat symbols (%)"))
+                XCTAssertTrue(instruction.contains("Drawn bar-and-dot repeat signs are not recognized."))
+                XCTAssertFalse(instruction.contains("stacked dots beside the middle"))
+                XCTAssertFalse(instruction.contains("Right dots start; left dots end."))
                 XCTAssertTrue(instruction.contains("Unplaced ink stays on the page."))
             }
         }

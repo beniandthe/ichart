@@ -31,25 +31,6 @@ final class LeadSheetDocumentViewport: UIScrollView, UIScrollViewDelegate {
     private var hasPendingDocumentDisplayRefresh = false
     private var verticalScrollStartingOffset = CGPoint.zero
     private var verticalScrollStartWasAccepted = false
-    private struct NavigationContractObservation {
-        var authorization: IChartTelemetry.DiagnosticAuthorization
-        var operationID = UUID()
-        var documentID: UUID?
-        var documentSize: CGSize
-        var boundsSize: CGSize
-        var contentSize: CGSize
-        var inset: UIEdgeInsets
-        var zoomScale: CGFloat
-        var startingOffset: CGPoint
-        var admitted: Bool
-        var observedChange = false
-        var appliedTranslation = CGPoint.zero
-        var maximumContactCount = 1
-        var handedOff = false
-    }
-    private var navigationContractObservation: NavigationContractObservation?
-    private var lastNavigationPolicyAssessment: LeadSheetInkFeatureContract.Assessment?
-    private var navigationPolicyAuthorization: IChartTelemetry.DiagnosticAuthorization?
     private let verticalScrollGestureDelegate = VerticalScrollGestureDelegate()
     private lazy var documentVerticalScrollRecognizer: UIPanGestureRecognizer = {
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handleDocumentVerticalScroll(_:)))
@@ -85,16 +66,6 @@ final class LeadSheetDocumentViewport: UIScrollView, UIScrollViewDelegate {
         documentContainerView.addSubview(documentView)
         addGestureRecognizer(documentVerticalScrollRecognizer)
         configureDirectTouchNavigation(interactionMode: .browse)
-        NotificationCenter.default.addObserver(self, selector: #selector(cancelNavigationTelemetryObservation),
-            name: UIApplication.willResignActiveNotification, object: nil)
-    }
-
-    deinit { NotificationCenter.default.removeObserver(self) }
-
-    @objc private func cancelNavigationTelemetryObservation() {
-        navigationContractObservation = nil
-        navigationPolicyAuthorization = nil
-        lastNavigationPolicyAssessment = nil
     }
 
     @available(*, unavailable)
@@ -110,13 +81,10 @@ final class LeadSheetDocumentViewport: UIScrollView, UIScrollViewDelegate {
         let hasDocumentSizeChange = self.documentSize != documentSize
         guard isNewDocument || hasDocumentSizeChange else { return }
 
-        navigationContractObservation = nil
         self.documentID = documentID
         self.documentSize = documentSize
         needsDocumentLayout = true
         if isNewDocument {
-            navigationPolicyAuthorization = nil
-            lastNavigationPolicyAssessment = nil
             hasActiveZoomInteraction = false
             hasActivePanInteraction = false
             hasActiveVerticalScrollInteraction = false
@@ -142,7 +110,6 @@ final class LeadSheetDocumentViewport: UIScrollView, UIScrollViewDelegate {
         } else {
             recordSettledViewportState()
         }
-        recordNavigationPolicyIfNeeded()
     }
 
     func viewForZooming(in scrollView: UIScrollView) -> UIView? {
@@ -161,7 +128,6 @@ final class LeadSheetDocumentViewport: UIScrollView, UIScrollViewDelegate {
         if !scrollView.isDecelerating {
             isWaitingForDeceleration = false
         }
-        navigationContractObservation?.handedOff = true
         hasActiveZoomInteraction = true
     }
 
@@ -173,7 +139,6 @@ final class LeadSheetDocumentViewport: UIScrollView, UIScrollViewDelegate {
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
-        navigationContractObservation?.handedOff = true
         hasActivePanInteraction = true
         isWaitingForDeceleration = false
     }
@@ -193,7 +158,6 @@ final class LeadSheetDocumentViewport: UIScrollView, UIScrollViewDelegate {
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window == nil {
-            navigationContractObservation = nil
             // An interrupted gesture must not defer display refresh forever
             // when SwiftUI later reattaches the same document viewport.
             hasActiveZoomInteraction = false
@@ -406,7 +370,6 @@ final class LeadSheetDocumentViewport: UIScrollView, UIScrollViewDelegate {
 
     @objc func handleDocumentVerticalScroll(_ gesture: UIPanGestureRecognizer) {
         guard isScrollEnabled, panGestureRecognizer.isEnabled else {
-            navigationContractObservation = nil
             verticalScrollStartWasAccepted = false
             hasActiveVerticalScrollInteraction = false
             refreshDocumentDisplayIfSettled()
@@ -414,23 +377,11 @@ final class LeadSheetDocumentViewport: UIScrollView, UIScrollViewDelegate {
         }
         switch gesture.state {
         case .began:
-            if let authorization = IChartTelemetry.diagnosticAuthorization() {
-                navigationContractObservation = NavigationContractObservation(authorization: authorization,
-                    documentID: documentID, documentSize: documentSize, boundsSize: bounds.size,
-                    contentSize: contentSize, inset: adjustedContentInset, zoomScale: zoomScale,
-                    startingOffset: contentOffset, admitted: verticalScrollStartWasAccepted)
-            } else { navigationContractObservation = nil }
             verticalScrollStartingOffset = contentOffset
             setContentOffset(contentOffset, animated: false)
             hasActiveVerticalScrollInteraction = true
             isWaitingForDeceleration = false
         case .changed:
-            if var observation = navigationContractObservation {
-                observation.observedChange = true
-                observation.maximumContactCount = max(observation.maximumContactCount, gesture.numberOfTouches)
-                if gesture.numberOfTouches > 1 { observation.handedOff = true }
-                navigationContractObservation = observation
-            }
             if gesture.numberOfTouches > 1 { return }
             let inset = adjustedContentInset
             let minimumY = -inset.top
@@ -439,71 +390,12 @@ final class LeadSheetDocumentViewport: UIScrollView, UIScrollViewDelegate {
             let y = min(maximumY, max(minimumY,
                 verticalScrollStartingOffset.y - appliedTranslation.y))
             setContentOffset(CGPoint(x: verticalScrollStartingOffset.x, y: y), animated: false)
-            navigationContractObservation?.appliedTranslation = appliedTranslation
         case .ended, .cancelled, .failed:
-            if gesture.state == .ended { recordNavigationResponse() }
-            navigationContractObservation = nil
             verticalScrollStartWasAccepted = false
             hasActiveVerticalScrollInteraction = false
             refreshDocumentDisplayIfSettled()
         default:
             break
-        }
-    }
-
-    private func recordNavigationResponse() {
-        guard let observation = navigationContractObservation, observation.authorization.isCurrent else { return }
-        let snapshot = ChartInteractionContractTelemetry.NavigationSnapshot(
-            startingOffset: observation.startingOffset, observedOffset: contentOffset, translation: observation.appliedTranslation,
-            contentHeight: observation.contentSize.height, viewportHeight: observation.boundsSize.height,
-            topInset: observation.inset.top, bottomInset: observation.inset.bottom,
-            admitted: observation.admitted, observedChange: observation.observedChange,
-            configurationIsStable: observation.documentID == documentID && observation.documentSize == documentSize
-                && observation.boundsSize == bounds.size && observation.contentSize == contentSize
-                && observation.inset == adjustedContentInset && observation.zoomScale == zoomScale,
-            isForeground: UIApplication.shared.applicationState == .active
-                && window?.windowScene?.activationState == .foregroundActive,
-            wasLocked: !isScrollEnabled || !panGestureRecognizer.isEnabled,
-            handedOffToPanOrPinch: observation.handedOff,
-            maximumContactCount: observation.maximumContactCount)
-        IChartTelemetry.recordDeferredDiagnostic("feature.contract_checked", chartID: observation.documentID,
-            authorization: observation.authorization) {
-            guard let assessment = ChartInteractionContractTelemetry.navigationAssessment(snapshot) else { return nil }
-            return ChartInteractionContractTelemetry.properties(for: assessment, contract: .navigation,
-                operationID: observation.operationID)
-        }
-    }
-
-    private func recordNavigationPolicyIfNeeded() {
-        guard Self.isValidSize(bounds.size), Self.isValidSize(documentSize),
-              settledViewportSize == bounds.size, !needsDocumentLayout, !isApplyingViewportGeometry,
-              let pinch = pinchGestureRecognizer,
-              window?.windowScene?.activationState == .foregroundActive,
-              UIApplication.shared.applicationState == .active,
-              let authorization = IChartTelemetry.diagnosticAuthorization() else { return }
-        let direct = Set([UITouch.TouchType.direct.rawValue])
-        let vertical = Set([UITouch.TouchType.direct.rawValue, UITouch.TouchType.pencil.rawValue])
-        let pan = panGestureRecognizer
-        let policy = ChartInteractionContractTelemetry.NavigationPolicySnapshot(
-            verticalMinimumContacts: documentVerticalScrollRecognizer.minimumNumberOfTouches,
-            verticalMaximumContacts: documentVerticalScrollRecognizer.maximumNumberOfTouches,
-            verticalAllowsDirectAndPencilOnly: Set(documentVerticalScrollRecognizer.allowedTouchTypes.map(\.intValue)) == vertical,
-            verticalRequiresExclusiveTouch: documentVerticalScrollRecognizer.requiresExclusiveTouchType,
-            hasExpectedRoutingDelegate: documentVerticalScrollRecognizer.delegate === verticalScrollGestureDelegate,
-            panMinimumContacts: pan.minimumNumberOfTouches, panMaximumContacts: pan.maximumNumberOfTouches,
-            panAllowsDirectOnly: Set(pan.allowedTouchTypes.map(\.intValue)) == direct,
-            panRequiresExclusiveTouch: pan.requiresExclusiveTouchType,
-            pinchAllowsDirectOnly: Set(pinch.allowedTouchTypes.map(\.intValue)) == direct,
-            pinchRequiresExclusiveTouch: pinch.requiresExclusiveTouchType)
-        guard let assessment = ChartInteractionContractTelemetry.navigationPolicyAssessment(policy) else { return }
-        guard navigationPolicyAuthorization?.matches(authorization) != true || lastNavigationPolicyAssessment != assessment else { return }
-        navigationPolicyAuthorization = authorization
-        lastNavigationPolicyAssessment = assessment
-        let operationID = UUID()
-        let chartID = documentID
-        IChartTelemetry.recordDeferredDiagnostic("feature.contract_checked", chartID: chartID,
-            authorization: authorization) {
-            ChartInteractionContractTelemetry.properties(for: assessment, contract: .navigation, operationID: operationID)
         }
     }
 

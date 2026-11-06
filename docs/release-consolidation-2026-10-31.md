@@ -1,5 +1,11 @@
 # Regular iChart consolidation — 1.2.4 (103)
 
+**Historical build record.** Bar-and-dot measure/range repeat ingestion described
+below was [retired on November 5, 2026](handwritten-repeat-ingestion-retirement-2026-11-05.md).
+Chord-repeat symbols (`%` / dot-slash-dot) remain supported under the corrected
+scope. Measure-based **Tools > Repeats**, saved repeat notation/source ink and
+ending editing remain supported. These results predate the corrected candidate.
+
 This candidate brings the regular app work into a single source tree based on
 main. It preserves the existing chart, source-ink, PDF-library and setlist storage
 contracts. Device backups and private test captures remain local.

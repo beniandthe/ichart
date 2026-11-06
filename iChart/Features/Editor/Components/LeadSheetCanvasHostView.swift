@@ -85,9 +85,6 @@ enum ChordDraftBarlinePresentationPolicy {
     static func previewText(for kind: DraftBarlineKind) -> String {
         switch kind {
         case .single: return "|"
-        case .repeatStart: return "||:"
-        case .repeatEnd: return ":||"
-        case .repeatBoth: return ":||:"
         }
     }
 }
@@ -96,42 +93,14 @@ enum ChordDraftBarlinePreviewDrawing {
     struct Geometry {
         let boundaryX: CGFloat
         let barXs: [CGFloat]
-        let dotFrames: [CGRect]
         let lineWidth: CGFloat
     }
 
     static func geometry(for barline: DraftBarline, in frame: CGRect, chart: Chart, selected: Bool) -> Geometry {
         let x = frame.minX + frame.width * CGFloat(barline.laneFraction)
         let metrics = LeadSheetRepeatReadabilityMetrics(chart: chart, staffHeight: frame.height)
-        let lineXs = barline.kind.isRepeat ? [x - metrics.separation / 2, x + metrics.separation / 2] : [x]
         let lineWidth = selected ? max(3, metrics.lineWidth) : max(2, metrics.lineWidth)
-        guard barline.kind.isRepeat else { return Geometry(boundaryX: x, barXs: lineXs, dotFrames: [], lineWidth: lineWidth) }
-        let staffSpace = max(1, (frame.height - 4) / 4)
-        let radius = max(1.8, metrics.dotRadius)
-        let dotOffset = max(metrics.dotOffset, lineWidth / 2 + radius + 0.8)
-        var dotXs = [CGFloat]()
-        if barline.kind.endsRepeat { dotXs.append(x - metrics.separation / 2 - dotOffset) }
-        if barline.kind.startsRepeat { dotXs.append(x + metrics.separation / 2 + dotOffset) }
-        let dotFrames = dotXs.flatMap { dotX in
-            [frame.midY - staffSpace / 2, frame.midY + staffSpace / 2].map { dotY in
-                CGRect(x: dotX - radius, y: dotY - radius, width: radius * 2, height: radius * 2)
-            }
-        }
-        return Geometry(boundaryX: x, barXs: lineXs, dotFrames: dotFrames, lineWidth: lineWidth)
-    }
-
-    static func sourceHighlightFrame(for barline: DraftBarline, sourceOrigin: CGPoint) -> CGRect? {
-        ChordDraftBarlineOverlayGeometry.sourceHighlightFrame(for: barline, sourceOrigin: sourceOrigin)
-    }
-
-    static func drawSourceHighlight(_ barline: DraftBarline, sourceOrigin: CGPoint, color: UIColor, selected: Bool) {
-        guard let frame = sourceHighlightFrame(for: barline, sourceOrigin: sourceOrigin) else { return }
-        // A single outline identifies the owned ink. Keep its handwritten bars
-        // and dots as the only sign on the page until the user renders it.
-        let path = UIBezierPath(roundedRect: frame, cornerRadius: 4)
-        color.setStroke()
-        path.lineWidth = selected ? 2 : 1
-        path.stroke()
+        return Geometry(boundaryX: x, barXs: [x], lineWidth: lineWidth)
     }
 
     static func draw(_ barline: DraftBarline, in frame: CGRect, chart: Chart, color: UIColor, selected: Bool) {
@@ -146,8 +115,6 @@ enum ChordDraftBarlinePreviewDrawing {
         path.lineCapStyle = .round
         if !selected { path.setLineDash([6, 3], count: 2, phase: 0) }
         path.stroke()
-        color.setFill()
-        for dotFrame in geometry.dotFrames { UIBezierPath(ovalIn: dotFrame).fill() }
     }
 }
 
@@ -171,7 +138,7 @@ enum ChordDraftBarlineDeletionPolicy {
                 && PencilKitInkAdapter.visibleStrokeFragments(from: currentDrawing.strokes[$0]).count == 1 }) else { return nil }
 
         let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: pageLayout)
-        let context = ChordInkDraftVisibleStrokePolicy.repeatAwareVisibleDrawingContext(
+        let context = ChordInkDraftVisibleStrokePolicy.structuralVisibleDrawingContext(
             from: currentDrawing, chordFrame: chordFrame, pageLayout: pageLayout)
         let detected = ChordDraftEndingRecognizer.recognizeBarlinesExcludingEndings(
             strokes: PencilKitInkAdapter.inkStrokes(from: context.drawing), chordFrame: chordFrame, pageLayout: pageLayout)
@@ -179,9 +146,7 @@ enum ChordDraftBarlineDeletionPolicy {
         let current = context.remappedBarlineRecognition(safe).barlines.filter { $0.identitySignature == barline.identitySignature }
         guard current.count == 1,
               let verified = current.first,
-              // Removing an exactly re-detected unfinished repeat is a
-              // recovery action, not permission to render its structure.
-              (verified.isRenderable || (verified.kind.isRepeat && verified.ambiguity == .incompleteRepeat)),
+              verified.isRenderable,
               ChordDraftBarlinePresentationPolicy.DetectionSignature(verified) == ChordDraftBarlinePresentationPolicy.DetectionSignature(barline) else { return nil }
         return indices
     }
@@ -1833,18 +1798,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 cancelFreeInkArticulationDrag()
                 cancelAutomaticFreeInkArticulation()
                 cancelEndingEditDrag()
-                cancelCanvasVisibilityTelemetryObservation()
-                cancelAuthoringTelemetryObservation()
-                automaticTelemetryCompletionWorkItem?.cancel()
-                automaticTelemetryCompletionWorkItem = nil
                 pageInkCanvasView.resignFirstResponder()
                 unlockParentScrollForChordMove()
             } else {
                 requestActiveInkFocusIfNeeded()
-                scheduleCanvasVisibilityTelemetryObservation()
-                if let activity = currentAutomaticChordActivity {
-                    scheduleAutomaticRenderCompletionObservation(activity)
-                }
             }
             refreshFreeInkArticulationDeleteButton()
         }
@@ -1936,67 +1893,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     var onChordInkDraftPreviewChanged: (([ChordInkRecognitionProposalPayload]) -> Void)?
     var onChordInkAutomaticActivityChanged: ((ChordInkAutomaticActivity) -> Void)?
     private(set) var currentAutomaticChordActivity: ChordInkAutomaticActivity?
-    private var automaticTelemetryAdmission = ChordInkAutomaticRenderTelemetry.Admission()
-    private var automaticTelemetryOperationContext = ChordInkAutomaticRenderTelemetry.OperationContext()
-    private var automaticTelemetryAuthorization: IChartTelemetry.DiagnosticAuthorization?
-    private var automaticTelemetryCompletionWorkItem: DispatchWorkItem?
-    private struct AuthoringTelemetryContext: Equatable {
-        var authorization: IChartTelemetry.DiagnosticAuthorization
-        var chartID: UUID
-        var scope: LeadSheetActiveInkScope.Identity
-        var coordinateSpace: PersistentInkCoordinateSpace?
-        var canvasSize: CGSize
-        var windowIdentity: ObjectIdentifier
-
-        static func == (lhs: Self, rhs: Self) -> Bool {
-            lhs.authorization.matches(rhs.authorization) && lhs.chartID == rhs.chartID
-                && lhs.scope == rhs.scope && lhs.coordinateSpace == rhs.coordinateSpace
-                && lhs.canvasSize == rhs.canvasSize && lhs.windowIdentity == rhs.windowIdentity
-        }
-    }
-    private typealias AuthoringTelemetryLifecycle =
-        LeadSheetInkTelemetryLifecycle.AuthoringOperation<AuthoringTelemetryContext>
-    private struct AuthoringTelemetryObservation {
-        var context: AuthoringTelemetryContext
-        var chart: Chart
-        var completedBaseline: PKDrawing
-        var ticket: AuthoringTelemetryLifecycle.Ticket
-    }
-    private var authoringTelemetryObservation: AuthoringTelemetryObservation?
-    private var authoringTelemetryLifecycle = AuthoringTelemetryLifecycle()
-    private var authoringTelemetryFinalizer: DispatchWorkItem?
-    private var authoringTelemetryFinalizerID: UUID?
-    private var authoringTelemetryPenEndedAt: TimeInterval?
-    private var lastAuthoringTelemetryCoverageAt: TimeInterval?
-    private let authoringTelemetryAnalysis = LeadSheetInkAuthoringTelemetry.DeferredObservationCoalescer()
-    private var visibilityTelemetryWorkItem: DispatchWorkItem?
-    private var visibilityTelemetryWorkItemID: UUID?
-    private var lastVisibilityTelemetryCoverageAt: TimeInterval?
-    private struct VisibilityTelemetrySnapshot: Equatable {
-        var authorization: IChartTelemetry.DiagnosticAuthorization
-        var chartID: UUID
-        var scope: LeadSheetActiveInkScope.Identity
-        var sourceRevision: UInt64
-        var windowIdentity: ObjectIdentifier
-        var coordinateSpace: PersistentInkCoordinateSpace?
-        var frame: CGRect
-        var canvasSize: CGSize
-        var sourceCount: Int
-        var hidden: Bool
-        var alpha: Double
-
-        static func == (lhs: Self, rhs: Self) -> Bool {
-            lhs.authorization.matches(rhs.authorization) && lhs.chartID == rhs.chartID
-                && lhs.scope == rhs.scope && lhs.sourceRevision == rhs.sourceRevision
-                && lhs.windowIdentity == rhs.windowIdentity && lhs.coordinateSpace == rhs.coordinateSpace
-                && lhs.frame == rhs.frame && lhs.canvasSize == rhs.canvasSize
-                && lhs.sourceCount == rhs.sourceCount && lhs.hidden == rhs.hidden && lhs.alpha == rhs.alpha
-        }
-    }
-    private typealias VisibilityTelemetryLifecycle =
-        LeadSheetInkTelemetryLifecycle.StableVisibility<VisibilityTelemetrySnapshot>
-    private var visibilityTelemetryLifecycle = VisibilityTelemetryLifecycle()
-
     weak var chordDraftRenderCoordinator: ChordInkDraftRenderCoordinator?
     var onChordInkDraftBarlinesChanged: (([DraftBarline]) -> Void)?
     var onChordInkDraftEndingsChanged: (([DraftEnding]) -> Void)?
@@ -2111,10 +2007,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         label: "com.ichart.chord-ink-preparation",
         qos: .userInitiated
     )
-    private let inkTelemetryQueue = DispatchQueue(
-        label: "com.ichart.ink-telemetry-snapshot",
-        qos: .utility
-    )
     private lazy var chordInkRecognitionSession = ChordInkRecognitionSession(
         queue: chordInkRecognitionQueue,
         recognizer: chordInkRecognizer,
@@ -2188,14 +2080,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         target: self,
         action: #selector(handleChordInkConfirmTap(_:))
     )
-    private var isSyncingInkCanvasFromModel = false {
-        didSet {
-            guard isSyncingInkCanvasFromModel, !oldValue else { return }
-            // A model load or other owner-driven edit ends the append-only
-            // observation even when the canvas scope and geometry stay equal.
-            cancelAuthoringTelemetryObservation()
-        }
-    }
+    private var isSyncingInkCanvasFromModel = false
     private struct ManualChordPreviewContext: Equatable {
         let revision: UInt64
         let scope: ChordInkEditedTargetSessionState.Scope
@@ -2207,7 +2092,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private var inkDrawingRevision: UInt64 = 0
     // PKDrawing.strokes may materialize the complete stroke array. The delegate
     // and every programmatic drawing mutation already know the resulting count,
-    // so retain it once for main-thread scheduling, telemetry, and empty checks.
+    // so retain it once for main-thread scheduling and empty checks.
     private var activeCanvasStrokeCount = 0
     private var inkAuthoringSessionState = LeadSheetInkAuthoringSessionState()
     private var inkSchedulingCoordinator = LeadSheetInkSchedulingCoordinator()
@@ -2238,9 +2123,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private var pendingSavedHeaderInkCanvasState: LeadSheetSavedInkCanvasState?
     private var pendingSavedPageInkCanvasState: LeadSheetSavedInkCanvasState?
     private var inkPersistenceCoordinator = LeadSheetInkPersistenceCoordinator()
-    private var inkTelemetryCheckpointByScope: [
-        LeadSheetActiveInkScope.Identity: LeadSheetInkTelemetrySamplingCheckpoint
-    ] = [:]
     private var activeChartUpdateReason: LeadSheetCanvasChartUpdateReason?
     private var chordObjectEditingSuppressedUntil: Date?
     private var lastHandledChordDraftRenderInvalidationRequestID: UUID?
@@ -2332,9 +2214,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     deinit {
-        automaticTelemetryCompletionWorkItem?.cancel()
-        authoringTelemetryFinalizer?.cancel()
-        visibilityTelemetryWorkItem?.cancel()
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -2349,10 +2228,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             cancelFreeInkArticulationDrag()
             cancelAutomaticFreeInkArticulation()
             cancelEndingEditDrag()
-            cancelCanvasVisibilityTelemetryObservation()
-            cancelAuthoringTelemetryObservation()
-            automaticTelemetryCompletionWorkItem?.cancel()
-            automaticTelemetryCompletionWorkItem = nil
             persistDirtyActiveInkIfNeeded()
             editorPerformanceMetrics.flush(reason: "removed_from_window")
             inkPersistenceCoordinator.flushMetrics(reason: "removed_from_window")
@@ -2378,7 +2253,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
         refreshFreeInkArticulationDeleteButton()
         updateParentScrollGestureGate()
-        scheduleCanvasVisibilityTelemetryObservation()
     }
 
     func updateDocumentDisplayScale(for zoomScale: CGFloat) {
@@ -2703,12 +2577,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             name: UIApplication.willResignActiveNotification,
             object: nil
         )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleApplicationDidBecomeActiveForTelemetry),
-            name: UIApplication.didBecomeActiveNotification,
-            object: nil
-        )
         for name in [Notification.Name.NSUndoManagerWillUndoChange, .NSUndoManagerWillRedoChange] {
             NotificationCenter.default.addObserver(self,
                 selector: #selector(handleAuthoringUndoRedoMutation(_:)), name: name, object: nil)
@@ -2733,10 +2601,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func handleApplicationWillResignActive() {
         cancelFreeInkArticulationDrag()
         cancelAutomaticFreeInkArticulation()
-        cancelAuthoringTelemetryObservation()
-        cancelCanvasVisibilityTelemetryObservation()
-        automaticTelemetryCompletionWorkItem?.cancel()
-        automaticTelemetryCompletionWorkItem = nil
         persistDirtyActiveInkIfNeeded()
     }
 
@@ -2745,15 +2609,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         guard let manager = notification.object as? UndoManager,
               manager === pageInkCanvasView.undoManager || manager === undoManager else { return }
         cancelAutomaticFreeInkArticulation()
-        cancelAuthoringTelemetryObservation()
-    }
-
-    @objc
-    private func handleApplicationDidBecomeActiveForTelemetry() {
-        scheduleCanvasVisibilityTelemetryObservation()
-        if let activity = currentAutomaticChordActivity {
-            scheduleAutomaticRenderCompletionObservation(activity)
-        }
     }
 
     private func persistDirtyActiveInkIfNeeded() {
@@ -3698,14 +3553,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             ? UIColor(red: 0.08, green: 0.36, blue: 0.82, alpha: 0.72)
             : UIColor(red: 0.9, green: 0.46, blue: 0.12, alpha: 0.64)
         let selected = selectedDraftBarlineID == barline.id
-        if barline.kind.isRepeat {
-            if let pageLayout {
-                let sourceOrigin = LeadSheetActiveInkScope.chordWritingFrame(for: pageLayout).origin
-                ChordDraftBarlinePreviewDrawing.drawSourceHighlight(barline, sourceOrigin: sourceOrigin, color: color, selected: selected)
-            }
-        } else {
-            ChordDraftBarlinePreviewDrawing.draw(barline, in: laneFrame, chart: chart, color: color, selected: selected)
-        }
+        ChordDraftBarlinePreviewDrawing.draw(barline, in: laneFrame, chart: chart, color: color, selected: selected)
 
         guard selected else { return }
 
@@ -4690,237 +4538,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         )
     }
 
-    private func currentAuthoringTelemetryContext(
-        authorization: IChartTelemetry.DiagnosticAuthorization
-    ) -> AuthoringTelemetryContext? {
-        guard authorization.isCurrent, !isSyncingInkCanvasFromModel,
-              pageInkCanvasView.tool is PKInkingTool,
-              interactionMode.allowsAnyInkEditing, !pageInkCanvasView.isHidden,
-              !isInteractionSuspended, !hasDeferredActiveInkGeometrySync,
-              pageInkCanvasView.undoManager?.isUndoing != true,
-              pageInkCanvasView.undoManager?.isRedoing != true,
-              let window, !window.isHidden, window.alpha > 0.01,
-              UIApplication.shared.applicationState == .active,
-              let scope = activeCanvasScope else { return nil }
-        return AuthoringTelemetryContext(authorization: authorization, chartID: chart.id,
-            scope: scope.identity, coordinateSpace: activeCanvasCoordinateSpace,
-            canvasSize: pageInkCanvasView.bounds.size, windowIdentity: ObjectIdentifier(window))
-    }
-
-    private func cancelAuthoringTelemetryObservation() {
-        authoringTelemetryFinalizer?.cancel()
-        authoringTelemetryFinalizer = nil
-        authoringTelemetryFinalizerID = nil
-        authoringTelemetryPenEndedAt = nil
-        authoringTelemetryObservation = nil
-        authoringTelemetryLifecycle.invalidate()
-    }
-
-    private func beginAuthoringTelemetryObservation() {
-        // A new real pen operation closes a valid prior settling observation
-        // before installing its own ticket. Prior callbacks cannot spill over.
-        if let observation = authoringTelemetryObservation,
-           authoringTelemetryLifecycle.isSettling(ticket: observation.ticket, context: observation.context) {
-            publishSettledAuthoringTelemetryObservation(ticket: observation.ticket)
-        }
-        cancelAuthoringTelemetryObservation()
-        cancelCanvasVisibilityTelemetryObservation()
-        guard let authorization = IChartTelemetry.diagnosticAuthorization(),
-              let context = currentAuthoringTelemetryContext(authorization: authorization) else { return }
-        let ticket = authoringTelemetryLifecycle.begin(context: context)
-        // Copy the immutable drawing value only. Point comparison stays on the
-        // utility diagnostic path and excludes the newest prior stroke.
-        authoringTelemetryObservation = AuthoringTelemetryObservation(context: context,
-            chart: chart, completedBaseline: pageInkCanvasView.drawing, ticket: ticket)
-    }
-
-    private func finishAuthoringTelemetryObservation() {
-        defer { scheduleCanvasVisibilityTelemetryObservation() }
-        guard let observation = authoringTelemetryObservation,
-              currentAuthoringTelemetryContext(authorization: observation.context.authorization) == observation.context,
-              authoringTelemetryLifecycle.end(ticket: observation.ticket, context: observation.context) else {
-            cancelAuthoringTelemetryObservation()
-            return
-        }
-        authoringTelemetryPenEndedAt = ProcessInfo.processInfo.systemUptime
-        scheduleAuthoringTelemetryFinalization()
-    }
-
-    private func scheduleAuthoringTelemetryFinalization() {
-        guard let observation = authoringTelemetryObservation,
-              authoringTelemetryLifecycle.isSettling(ticket: observation.ticket, context: observation.context),
-              let endedAt = authoringTelemetryPenEndedAt else { return }
-        let now = ProcessInfo.processInfo.systemUptime
-        // Await final real drawing callbacks for 50 ms of quiet, but never
-        // extend this operation beyond 250 ms after pen-end on an available
-        // main queue. This delay is not recorded as callback cost.
-        let delay = max(0, min(now + 0.05, endedAt + 0.25) - now)
-        authoringTelemetryFinalizer?.cancel()
-        let finalizerID = UUID()
-        authoringTelemetryFinalizerID = finalizerID
-        let ticket = observation.ticket
-        let work = DispatchWorkItem { [weak self] in
-            guard let self, self.authoringTelemetryFinalizerID == finalizerID else { return }
-            self.publishSettledAuthoringTelemetryObservation(ticket: ticket)
-        }
-        authoringTelemetryFinalizer = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
-    }
-
-    private func publishSettledAuthoringTelemetryObservation(ticket: AuthoringTelemetryLifecycle.Ticket) {
-        defer { scheduleCanvasVisibilityTelemetryObservation() }
-        guard let observation = authoringTelemetryObservation, observation.ticket == ticket else { return }
-        let completed = authoringTelemetryLifecycle.finish(ticket: ticket, context: observation.context)
-        cancelAuthoringTelemetryObservation()
-        guard let completed,
-              currentAuthoringTelemetryContext(authorization: observation.context.authorization) == observation.context else { return }
-        let scope: String
-        switch observation.context.scope {
-        case .page: scope = "page"
-        case .header: scope = "header"
-        case .chords: scope = "chords"
-        case .rhythmicMeasure, .noteSelection: scope = "rhythm"
-        }
-        let current = pageInkCanvasView.drawing
-        let observedChart = chart
-        let now = ProcessInfo.processInfo.systemUptime
-        let allowsPass = lastAuthoringTelemetryCoverageAt.map { now - $0 >= 30 } ?? true
-        if allowsPass { lastAuthoringTelemetryCoverageAt = now }
-        let analysis = authoringTelemetryAnalysis
-        analysis.submit {
-            IChartTelemetry.recordDeferredDiagnostic("feature.contract_checked", chartID: observedChart.id,
-                authorization: observation.context.authorization, onCompletion: { analysis.complete() }) {
-                guard let values = LeadSheetInkAuthoringTelemetry.sourceProperties(isEnabled: true,
-                    chart: observedChart, scope: scope,
-                    completedBaseline: PKDrawing(strokes: Array(observation.completedBaseline.strokes.dropLast())),
-                    currentDrawing: current, isComparable: true, operationID: completed.ticket.operationID),
-                      allowsPass || values["outcome"] == .string("violated") else { return nil }
-                return values
-            }
-        }
-        if let values = LeadSheetInkAuthoringTelemetry.responsivenessProperties(isEnabled: true,
-            chart: observedChart, scope: scope, window: completed.callbacks,
-            allowsPassingObservation: allowsPass, operationID: completed.ticket.operationID) {
-            IChartTelemetry.recordDeferredDiagnostic("feature.contract_checked", chartID: observedChart.id,
-                authorization: observation.context.authorization) { values }
-        }
-    }
-
-    private func cancelCanvasVisibilityTelemetryObservation() {
-        visibilityTelemetryWorkItem?.cancel()
-        visibilityTelemetryWorkItem = nil
-        visibilityTelemetryWorkItemID = nil
-        visibilityTelemetryLifecycle.invalidate()
-    }
-
-    private func canvasVisibilityTelemetrySnapshot(
-        authorization: IChartTelemetry.DiagnosticAuthorization
-    ) -> VisibilityTelemetrySnapshot? {
-        guard authorization.isCurrent,
-              let window, !window.isHidden, window.alpha > 0.01,
-              window.windowScene?.activationState == .foregroundActive,
-              UIApplication.shared.applicationState == .active,
-              !isInteractionSuspended, !isUsingInkTool,
-              interactionMode.allowsAnyInkEditing, activeCanvasStrokeCount > 0,
-              let scope = activeCanvasScope, scope.identity != .noteSelection else { return nil }
-        let frame = pageInkCanvasView.convert(pageInkCanvasView.bounds, to: window)
-        guard frame.minX.isFinite, frame.minY.isFinite, frame.maxX.isFinite, frame.maxY.isFinite,
-              frame.width.isFinite, frame.height.isFinite,
-              frame.width > 0, frame.height > 0, frame.intersects(window.bounds) else { return nil }
-        var ancestor = pageInkCanvasView.superview
-        while let view = ancestor {
-            guard !view.isHidden, view.alpha > 0.01 else { return nil }
-            if view === window { break }
-            ancestor = view.superview
-        }
-        return VisibilityTelemetrySnapshot(authorization: authorization,
-            chartID: chart.id, scope: scope.identity, sourceRevision: inkDrawingRevision,
-            windowIdentity: ObjectIdentifier(window), coordinateSpace: activeCanvasCoordinateSpace,
-            frame: frame, canvasSize: pageInkCanvasView.bounds.size,
-            sourceCount: activeCanvasStrokeCount,
-            hidden: pageInkCanvasView.isHidden, alpha: Double(pageInkCanvasView.alpha))
-    }
-
-    private func scheduleCanvasVisibilityTelemetryObservation() {
-        guard let authorization = IChartTelemetry.diagnosticAuthorization(),
-              let snapshot = canvasVisibilityTelemetrySnapshot(authorization: authorization) else {
-            cancelCanvasVisibilityTelemetryObservation()
-            return
-        }
-        let action = visibilityTelemetryLifecycle.update(snapshot: snapshot,
-            at: ProcessInfo.processInfo.systemUptime)
-        handleCanvasVisibilityTelemetryAction(action, authorization: authorization)
-    }
-
-    private func handleCanvasVisibilityTelemetryAction(
-        _ action: VisibilityTelemetryLifecycle.Action,
-        authorization: IChartTelemetry.DiagnosticAuthorization
-    ) {
-        switch action {
-        case .unchanged, .ignored:
-            // Identical layout calls retain their existing ticket and deadline.
-            return
-        case .cancelled:
-            cancelCanvasVisibilityTelemetryObservation()
-        case .schedule(let ticket, let delay):
-            visibilityTelemetryWorkItem?.cancel()
-            let workItemID = UUID()
-            visibilityTelemetryWorkItemID = workItemID
-            let work = DispatchWorkItem { [weak self] in
-                guard let self, self.visibilityTelemetryWorkItemID == workItemID else { return }
-                self.visibilityTelemetryWorkItem = nil
-                self.visibilityTelemetryWorkItemID = nil
-                // Never let a timer captured under an older consent generation
-                // adopt a later opt-in. A fresh UI/source observation must start it.
-                guard authorization.isCurrent else {
-                    self.cancelCanvasVisibilityTelemetryObservation()
-                    return
-                }
-                let snapshot = self.canvasVisibilityTelemetrySnapshot(authorization: authorization)
-                let next = self.visibilityTelemetryLifecycle.sample(ticket: ticket,
-                    currentSnapshot: snapshot, at: ProcessInfo.processInfo.systemUptime)
-                self.handleCanvasVisibilityTelemetryAction(next, authorization: authorization)
-            }
-            visibilityTelemetryWorkItem = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
-        case .ready(let observation):
-            let snapshot = observation.snapshot
-            guard snapshot.authorization.isCurrent,
-                  canvasVisibilityTelemetrySnapshot(authorization: snapshot.authorization) == snapshot else {
-                cancelCanvasVisibilityTelemetryObservation()
-                return
-            }
-            let now = ProcessInfo.processInfo.systemUptime
-            let allowsPass = lastVisibilityTelemetryCoverageAt.map { now - $0 >= 30 } ?? true
-            let scope: String
-            switch snapshot.scope {
-            case .page: scope = "page"
-            case .header: scope = "header"
-            case .chords: scope = "chords"
-            case .rhythmicMeasure, .noteSelection: scope = "rhythm"
-            }
-            guard let values = LeadSheetInkAuthoringTelemetry.visibilityProperties(isEnabled: true,
-                chart: chart, scope: scope, sourceStrokeCount: snapshot.sourceCount,
-                expectsVisibleAuthoringCanvas: true, isComparable: true, isForeground: true,
-                hasWindow: true, hasFiniteNonemptyGeometry: true, intersectsVisibleViewport: true,
-                isHidden: snapshot.hidden, alpha: snapshot.alpha,
-                stableObservationCount: observation.stableObservationCount,
-                stableDuration: observation.stableDuration, allowsPassingObservation: allowsPass,
-                operationID: observation.ticket.operationID), case .string(let reason) = values["reason"] else { return }
-            prepareAutomaticTelemetryAdmission(snapshot.authorization)
-            guard automaticTelemetryAdmission.admit(chartID: snapshot.chartID,
-                sourceRevision: snapshot.sourceRevision, mode: .automatic, reason: reason) else { return }
-            if values["outcome"] == .string("passed") { lastVisibilityTelemetryCoverageAt = now }
-            IChartTelemetry.recordDeferredDiagnostic("feature.contract_checked", chartID: snapshot.chartID,
-                authorization: snapshot.authorization) { values }
-        }
-    }
-
     func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
         guard canvasView === pageInkCanvasView else { return }
         beginAutomaticFreeInkArticulationInput()
         isUsingInkTool = true
-        beginAuthoringTelemetryObservation()
         if activeInkAuthoringSessionRole() == .chord {
             // Invalidate a deadline even before PencilKit sends the first
             // drawing-change callback for this stroke.
@@ -4935,7 +4556,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         guard canvasView === pageInkCanvasView else { return }
         isUsingInkTool = false
         scheduleAutomaticFreeInkArticulation()
-        finishAuthoringTelemetryObservation()
         let resumesDeferredGeometry = hasDeferredActiveInkGeometrySync
         if resumesDeferredGeometry {
             // The completed stroke still belongs to the old canvas geometry.
@@ -4967,18 +4587,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
-        let callbackStartedAt = ProcessInfo.processInfo.systemUptime
-        let telemetryContextAtEntry: AuthoringTelemetryContext?
-        if canvasView === pageInkCanvasView, !isSyncingInkCanvasFromModel,
-           let observation = authoringTelemetryObservation {
-            telemetryContextAtEntry = currentAuthoringTelemetryContext(
-                authorization: observation.context.authorization)
-        } else {
-            telemetryContextAtEntry = nil
-        }
-        let telemetryTicketAtEntry = telemetryContextAtEntry.flatMap {
-            authoringTelemetryLifecycle.callbackTicket(context: $0)
-        }
         guard !isSyncingInkCanvasFromModel else {
             ChordLaneLocalBreadcrumbs.record(
                 "canvas_drawing_change_ignored_model_sync",
@@ -4997,39 +4605,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         let strokes = drawing.strokes
         let strokeCount = strokes.count
         updateActiveCanvasStrokeCount(strokeCount)
-        defer {
-            let durationMilliseconds =
-                (ProcessInfo.processInfo.systemUptime - callbackStartedAt) * 1_000
-            if let ticket = telemetryTicketAtEntry, let context = telemetryContextAtEntry,
-               authoringTelemetryObservation?.ticket == ticket {
-                if currentAuthoringTelemetryContext(authorization: context.authorization) == context {
-                    authoringTelemetryLifecycle.recordCallback(ticket: ticket, context: context,
-                        durationMilliseconds: durationMilliseconds)
-                    if authoringTelemetryLifecycle.isSettling(ticket: ticket, context: context) {
-                        scheduleAuthoringTelemetryFinalization()
-                    }
-                } else {
-                    cancelAuthoringTelemetryObservation()
-                }
-            }
-            if canvasView === pageInkCanvasView, !isUsingInkTool, !isSyncingInkCanvasFromModel {
-                // A final drawing callback can follow tool-end. Observe its
-                // actual source revision/count even when no later layout occurs.
-                scheduleCanvasVisibilityTelemetryObservation()
-            }
-            if durationMilliseconds >= 4 {
-                IChartPerformanceTrace.record(
-                    "ink.input.slow_callback",
-                    durationMilliseconds: durationMilliseconds,
-                    metadata: canvasPerformanceTraceMetadata(
-                        extra: [
-                            "strokeCount": "\(strokeCount)",
-                            "execution": "main"
-                        ]
-                    )
-                )
-            }
-        }
 
         handleActiveCanvasDrawingChange(
             eventName: "canvas_drawing_changed",
@@ -7422,7 +6997,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return false
         }
 
-        cancelAuthoringTelemetryObservation()
         let currentDrawing = pageInkCanvasView.drawing
         let strokeCount = currentDrawing.strokes.count
         guard strokeCount > 0 else {
@@ -7455,56 +7029,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             targetCoordinateSpace: targetCoordinateSpace
         )
         isSyncingInkCanvasFromModel = false
-        if activeInkScope.persistsDrawingData, IChartTelemetry.isRecordingEnabled,
-           !LeadSheetPersistentInkCoordinateSpacePolicy.changesStaffEngraving(
-                from: sourceCoordinateSpace, to: targetCoordinateSpace) {
-            LeadSheetInkFeatureContract.record(
-                LeadSheetInkFeatureContract.rotationAssessment(
-                    source: currentDrawing, projected: pageInkCanvasView.drawing
-                ),
-                contractID: "ink.rotation_preservation",
-                chart: chart,
-                scope: activeInkScope.telemetryValue
-            )
-        }
         invalidatePendingInkWorkAfterProgrammaticCanvasChange(
             strokeCount: strokeCount,
             preservesPageInkReprojectionSource: activeInkScope.identity == .page
         )
         activeCanvasCoordinateSpace = targetCoordinateSpace
-        recordInkCoordinateSpaceReprojection(
-            activeInkScope: activeInkScope,
-            strokeCount: strokeCount,
-            sourceCoordinateSpace: sourceCoordinateSpace,
-            targetCoordinateSpace: targetCoordinateSpace
-        )
         return true
-    }
-
-    private func recordInkCoordinateSpaceReprojection(
-        activeInkScope: LeadSheetActiveInkScope,
-        strokeCount: Int,
-        sourceCoordinateSpace: PersistentInkCoordinateSpace,
-        targetCoordinateSpace: PersistentInkCoordinateSpace
-    ) {
-        guard strokeCount > 0,
-              activeInkScope.persistsDrawingData else {
-            return
-        }
-
-        IChartTelemetry.record(
-            "ink.coordinate_space_reprojected",
-            properties: [
-                "scope": .string(activeInkScope.telemetryValue),
-                "stroke_count": .int(strokeCount),
-                "source_coordinate_width": .double(sourceCoordinateSpace.width),
-                "source_coordinate_height": .double(sourceCoordinateSpace.height),
-                "target_coordinate_width": .double(targetCoordinateSpace.width),
-                "target_coordinate_height": .double(targetCoordinateSpace.height),
-                "canvas_bounds_width": .double(Double(pageInkCanvasView.bounds.width)),
-                "canvas_bounds_height": .double(Double(pageInkCanvasView.bounds.height))
-            ]
-        )
     }
 
     private func updateChordInkConfirmOverlayVisibility() {
@@ -7991,79 +7521,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             strokeCount: strokeCount,
             changedChart: true
         )
-        if strokeCount > 0,
-           activeInkRole != nil,
-           let drawingData {
-            recordPersistedInkTelemetry(
-                drawingData: drawingData,
-                activeInkScope: activeInkScope,
-                strokeCount: strokeCount,
-                normalizationNeeded: serialization.normalizationNeeded
-            )
-        }
         if clearsDirtyAuthoringRole {
             clearDirtyInkAuthoringRole(activeInkRole)
-        }
-    }
-
-    private func recordPersistedInkTelemetry(
-        drawingData: Data,
-        activeInkScope: LeadSheetActiveInkScope,
-        strokeCount: Int,
-        normalizationNeeded: Bool
-    ) {
-        // Do not decode or inspect source ink for diagnostics while sharing is
-        // disabled. This admission check never waits for diagnostic disk work;
-        // the telemetry worker still validates consent before storing/sending.
-        guard IChartTelemetry.isRecordingEnabled else { return }
-        let now = ProcessInfo.processInfo.systemUptime
-        guard LeadSheetInkTelemetrySamplingPolicy.shouldCapture(
-            strokeCount: strokeCount,
-            uptime: now,
-            previous: inkTelemetryCheckpointByScope[activeInkScope.identity],
-            normalizationNeeded: normalizationNeeded
-        ) else {
-            return
-        }
-        inkTelemetryCheckpointByScope[activeInkScope.identity] = LeadSheetInkTelemetrySamplingCheckpoint(
-            strokeCount: strokeCount,
-            uptime: now
-        )
-
-        let canvasSnapshot = LeadSheetInkTelemetrySnapshot.capture(
-            drawing: PKDrawing(),
-            canvasView: pageInkCanvasView,
-            includesRenderedInkDiagnostics: false
-        )
-        let canvasProperties = canvasSnapshot.telemetryProperties(
-            scope: activeInkScope,
-            normalizedBeforeSave: activeInkScope.persistsDrawingData
-        ).filter { key, _ in
-            key.hasPrefix("tool_")
-                || key.hasPrefix("canvas_")
-                || key.hasPrefix("live_canvas_")
-        }
-
-        inkTelemetryQueue.async {
-            guard let drawing = try? PKDrawing(data: drawingData) else {
-                return
-            }
-            let telemetrySnapshot = LeadSheetInkTelemetrySnapshot.capture(
-                drawing: drawing,
-                includesRenderedInkDiagnostics: normalizationNeeded
-            )
-            var properties = telemetrySnapshot.telemetryProperties(
-                scope: activeInkScope,
-                normalizedBeforeSave: activeInkScope.persistsDrawingData
-            )
-            for (key, value) in canvasProperties {
-                properties[key] = value
-            }
-            properties["normalization_needed"] = .bool(normalizationNeeded)
-            IChartTelemetry.record("ink.persisted", properties: properties)
-            if normalizationNeeded {
-                IChartTelemetry.record("ink.visibility_probe", properties: properties)
-            }
         }
     }
 
@@ -9229,7 +8688,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             coordinateSpace: coordinateSpace, assumesNormalizedPersistentInk: true)
         updated.updatedAt = .now
 
-        cancelAuthoringTelemetryObservation()
         isSyncingInkCanvasFromModel = true
         pageInkCanvasView.drawing = drawing
         isSyncingInkCanvasFromModel = false
@@ -9274,20 +8732,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 sourcePageLayout: pageLayout, sourceChordFrame: scope.frame)
         }
         guard outcome.canConsumeSource else {
-            if IChartTelemetry.isRecordingEnabled {
-                LeadSheetInkFeatureContract.record(
-                    LeadSheetInkFeatureContract.renderAssessment(
-                        originalChart: incomingChart,
-                        state: state,
-                        sourceDrawing: sourceDrawing,
-                        outcome: outcome,
-                        remainingCanvasDrawing: pageInkCanvasView.drawing
-                    ),
-                    contractID: "ink.render_preservation",
-                    chart: incomingChart,
-                    scope: "chords"
-                )
-            }
             return outcome
         }
 
@@ -9304,20 +8748,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             )
             updateActiveCanvasStrokeCount(pageInkCanvasView.drawing.strokes.count)
             clearChordDraftInkCanvas()
-        }
-        if IChartTelemetry.isRecordingEnabled {
-            LeadSheetInkFeatureContract.record(
-                LeadSheetInkFeatureContract.renderAssessment(
-                    originalChart: incomingChart,
-                    state: state,
-                    sourceDrawing: sourceDrawing,
-                    outcome: outcome,
-                    remainingCanvasDrawing: pageInkCanvasView.drawing
-                ),
-                contractID: "ink.render_preservation",
-                chart: incomingChart,
-                scope: "chords"
-            )
         }
         return outcome
     }
@@ -9368,21 +8798,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
               activeCanvasScope?.identity == scope.identity else {
             return .init(feedback: .init(globalReason: .needsSourceRefresh))
         }
-        let telemetryAuthorization = IChartTelemetry.diagnosticAuthorization()
-        let telemetrySource = telemetryAuthorization == nil ? nil : pageInkCanvasView.drawing
-        let telemetryChartBeforeAttempt = chart
-        let telemetryLayoutBeforeAttempt = pageLayout
-        let telemetryRevision = inkDrawingRevision
         let attempt = ChordInkDraftRenderCoordinator.prepareAutomaticAttempt(
             chart: incomingChart, state: state, currentDrawing: pageInkCanvasView.drawing,
             coordinateSpace: persistedCoordinateSpace(for: scope), now: now, lastInputAt: lastInputAt,
             isUsingTool: isUsingInkTool, allowsImmediateSpatialCompletion: usesIncrementalChordRecognition,
             sourcePageLayout: pageLayout, sourceChordFrame: scope.frame)
         if let outcome = attempt.outcome { consumeAutomaticChordOutcome(outcome, scope: scope) }
-        recordAutomaticRenderTransaction(originalChart: incomingChart, state: state,
-            source: telemetrySource, chartBeforeAttempt: telemetryChartBeforeAttempt,
-            layoutBeforeAttempt: telemetryLayoutBeforeAttempt,
-            sourceRevision: telemetryRevision, authorization: telemetryAuthorization, attempt: attempt, mode: .automatic)
         publishAutomaticChordActivity(
             phase: incrementalChordDraftState.pendingRequests.isEmpty ? .settled : .reading,
             feedback: attempt.feedback)
@@ -9402,20 +8823,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
               activeCanvasScope?.identity == scope.identity else {
             return .init(feedback: .init(globalReason: .needsSourceRefresh))
         }
-        let telemetryAuthorization = IChartTelemetry.diagnosticAuthorization()
-        let telemetrySource = telemetryAuthorization == nil ? nil : pageInkCanvasView.drawing
-        let telemetryChartBeforeAttempt = chart
-        let telemetryLayoutBeforeAttempt = pageLayout
-        let telemetryRevision = inkDrawingRevision
         let attempt = ChordInkDraftRenderCoordinator.prepareReviewedAutomaticAttempt(
             chart: incomingChart, state: state, currentDrawing: pageInkCanvasView.drawing,
             coordinateSpace: persistedCoordinateSpace(for: scope), isUsingTool: isUsingInkTool,
             sourcePageLayout: pageLayout, sourceChordFrame: scope.frame)
         if let outcome = attempt.outcome { consumeAutomaticChordOutcome(outcome, scope: scope) }
-        recordAutomaticRenderTransaction(originalChart: incomingChart, state: state,
-            source: telemetrySource, chartBeforeAttempt: telemetryChartBeforeAttempt,
-            layoutBeforeAttempt: telemetryLayoutBeforeAttempt,
-            sourceRevision: telemetryRevision, authorization: telemetryAuthorization, attempt: attempt, mode: .reviewedAutomatic)
         publishAutomaticChordActivity(phase: .settled, feedback: attempt.feedback)
         return attempt
     }
@@ -9430,7 +8842,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func consumeSelectiveChordOutcome(
         chart updatedChart: Chart, drawing: PKDrawing, state: ChordPreviewState, scope: LeadSheetActiveInkScope
     ) {
-        cancelAuthoringTelemetryObservation()
         // Selective consumption has the same synchronous live-source authority
         // as manual rendering. Retained ink is recorded before publishing the
         // new model so an older pending writeback cannot restore used strokes.
@@ -9458,107 +8869,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
     }
 
-    private func recordAutomaticRenderTransaction(
-        originalChart: Chart, state: ChordPreviewState, source: PKDrawing?, chartBeforeAttempt: Chart,
-        layoutBeforeAttempt: LeadSheetPageLayout?,
-        sourceRevision: UInt64, authorization: IChartTelemetry.DiagnosticAuthorization?,
-        attempt: ChordInkDraftRenderCoordinator.AutomaticAttempt, mode: ChordInkAutomaticRenderTelemetry.Mode
-    ) {
-        guard let source, let authorization, authorization.isCurrent else { return }
-        prepareAutomaticTelemetryAdmission(authorization)
-        // Admit a repeated refusal before any point inspection. A pre-existing
-        // pending model update is not a mutation made by a rejected attempt.
-        guard attempt.outcome != nil || automaticTelemetryAdmission.admit(
-            chartID: originalChart.id, sourceRevision: sourceRevision, mode: mode,
-            reason: "render_refusal_observation") else { return }
-        let before = attempt.outcome == nil ? chartBeforeAttempt : originalChart
-        let observedChart = chart
-        let observedDrawing = pageInkCanvasView.drawing
-        let outcome = attempt.outcome
-        // Consumption has already advanced the resident source revision. Link
-        // this transaction using the exact pre-consumption source it assessed.
-        let operationID = automaticTelemetryOperationContext.operationID(
-            chartID: originalChart.id, sourceRevision: sourceRevision)
-        IChartTelemetry.recordDeferredDiagnostic("feature.contract_checked", chartID: originalChart.id,
-            authorization: authorization) {
-            ChordInkAutomaticRenderTelemetry.transactionProperties(isEnabled: true,
-                originalChart: before, state: state, sourceDrawing: source, outcome: outcome,
-                observedChart: observedChart, observedDrawing: observedDrawing, mode: mode, operationID: operationID)
-        }
-        if let outcome, chartBeforeAttempt == originalChart,
-           let layoutBeforeAttempt, let observedLayout = pageLayout,
-           let observedScope = activeCanvasScope {
-            let preservedIDs = Set(originalChart.measures.map(\.id))
-            let renderedIDs = Set(outcome.result.renderedChordIDs)
-            let hasStructuralChange = !outcome.result.renderedBarlineIDs.isEmpty
-                || !outcome.result.renderedEndingIDs.isEmpty
-            let frame = observedScope.frame
-            IChartTelemetry.recordDeferredDiagnostic("feature.contract_checked", chartID: originalChart.id,
-                authorization: authorization) {
-                let retainedFrames = observedDrawing.strokes.flatMap {
-                    PencilKitInkAdapter.visibleStrokeFragments(from: $0)
-                }.map { $0.renderBounds.offsetBy(dx: frame.minX, dy: frame.minY) }
-                let beforeGeometry = ChordInkRenderGeometryTelemetry.snapshot(layout: layoutBeforeAttempt,
-                    coordinateEpoch: 0, configurationEpoch: 0, retainedInkFrames: [])
-                let afterGeometry = ChordInkRenderGeometryTelemetry.snapshot(layout: observedLayout,
-                    coordinateEpoch: 0, configurationEpoch: 0, retainedInkFrames: retainedFrames)
-                guard let assessment = ChordInkRenderGeometryTelemetry.assessment(before: beforeGeometry,
-                    after: afterGeometry, preservedMeasureIDs: preservedIDs, renderedChordIDs: renderedIDs,
-                    isCommitted: observedChart == outcome.chart, hasIntentionalStructuralChange: hasStructuralChange)
-                else { return nil }
-                return ChordInkRenderGeometryTelemetry.properties(for: assessment, chart: observedChart,
-                    mode: mode, operationID: operationID)
-            }
-        }
-    }
-
-    private func prepareAutomaticTelemetryAdmission(_ authorization: IChartTelemetry.DiagnosticAuthorization) {
-        if automaticTelemetryAuthorization?.matches(authorization) != true {
-            automaticTelemetryAdmission.reset()
-            automaticTelemetryOperationContext.reset()
-            automaticTelemetryAuthorization = authorization
-        }
-    }
-
-    private func scheduleAutomaticRenderCompletionObservation(_ activity: ChordInkAutomaticActivity) {
-        automaticTelemetryCompletionWorkItem?.cancel()
-        automaticTelemetryCompletionWorkItem = nil
-        guard let authorization = IChartTelemetry.diagnosticAuthorization(),
-              activity.phase == .settled, activity.hasSourceInk,
-              activity.inputAt != nil, !isUsingInkTool, !isInteractionSuspended,
-              incrementalChordDraftState.pendingRequests.isEmpty,
-              UIApplication.shared.applicationState == .active,
-              window?.windowScene?.activationState == .foregroundActive else { return }
-        prepareAutomaticTelemetryAdmission(authorization)
-        let operationID = automaticTelemetryOperationContext.operationID(
-            chartID: activity.chartID, sourceRevision: activity.sourceRevision)
-        let observationStartedAt = ProcessInfo.processInfo.systemUptime
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self, authorization.isCurrent, self.currentAutomaticChordActivity == activity,
-                  self.inkDrawingRevision == activity.sourceRevision,
-                  self.chordDraftRenderCoordinator?.lastInputAt == activity.inputAt,
-                  !self.manualRenderWithPreview, !self.isUsingInkTool, !self.isInteractionSuspended,
-                  self.interactionMode.allowsChordInkEditing,
-                  self.incrementalChordDraftState.pendingRequests.isEmpty,
-                  let properties = ChordInkAutomaticRenderTelemetry.completionProperties(
-                    isEnabled: IChartTelemetry.isRecordingEnabled, chart: self.chart, mode: .automatic,
-                    activity: activity, now: Date(),
-                    isForeground: UIApplication.shared.applicationState == .active
-                        && self.window?.windowScene?.activationState == .foregroundActive,
-                    foregroundObservationDuration: ProcessInfo.processInfo.systemUptime - observationStartedAt,
-                    remainingStrokeCount: self.activeCanvasStrokeCount, madeProgress: false,
-                    operationID: operationID),
-                  case .string(let reason) = properties["reason"] else { return }
-            self.prepareAutomaticTelemetryAdmission(authorization)
-            guard self.automaticTelemetryAdmission.admit(chartID: activity.chartID,
-                sourceRevision: activity.sourceRevision, mode: .automatic, reason: reason) else { return }
-            IChartTelemetry.recordDeferredDiagnostic("feature.contract_checked", chartID: activity.chartID,
-                authorization: authorization) { properties }
-        }
-        automaticTelemetryCompletionWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.01, execute: workItem)
-    }
-
     /// Phase changes are bounded to pen begin/end, preparation, result, and
     /// render/clear. Drawing-point callbacks never invalidate the whole editor.
     private func publishAutomaticChordActivity(
@@ -9573,7 +8883,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             renderReadyAt: chordDraftRenderCoordinator?.renderSessionReadyAt, feedback: hasInk ? feedback : .init())
         guard currentAutomaticChordActivity != activity else { return }
         currentAutomaticChordActivity = activity
-        scheduleAutomaticRenderCompletionObservation(activity)
         onChordInkAutomaticActivityChanged?(activity)
     }
 
@@ -9601,7 +8910,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 coordinateSpace: persistedCoordinateSpace(for: scope)
               ) else { return nil }
 
-        cancelAuthoringTelemetryObservation()
         cancelPendingInkSessionScheduledWork()
         inkPersistenceCoordinator.recordPendingPersistedInk(
             activeInkScope: scope, drawingData: outcome.chart.pageHandwrittenChordData,
@@ -9652,7 +8960,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func clearChordDraftInkCanvas() {
-        cancelAuthoringTelemetryObservation()
         chordInkEditedTargetState.reset()
         ChordLaneLocalBreadcrumbs.record(
             "clear_chord_draft_ink_canvas",
@@ -10069,27 +9376,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        cancelAuthoringTelemetryObservation()
-        let telemetrySnapshot = LeadSheetInkTelemetrySnapshot.capture(
-            drawing: pageInkCanvasView.drawing,
-            canvasView: pageInkCanvasView
-        )
+        let strokeCount = pageInkCanvasView.drawing.strokes.count
         isSyncingInkCanvasFromModel = true
-        updateActiveCanvasStrokeCount(telemetrySnapshot.strokeCount)
+        updateActiveCanvasStrokeCount(strokeCount)
         pageInkCanvasView.drawing = LeadSheetPersistentInkColorPolicy.normalizedDrawing(pageInkCanvasView.drawing)
         isSyncingInkCanvasFromModel = false
         invalidatePendingInkWorkAfterProgrammaticCanvasChange(
-            strokeCount: telemetrySnapshot.strokeCount
+            strokeCount: strokeCount
         )
-        if telemetrySnapshot.strokeCount > 0 {
-            IChartTelemetry.record(
-                "ink.normalization_applied",
-                properties: telemetrySnapshot.telemetryProperties(
-                    scope: activeInkScope,
-                    normalizedBeforeSave: false
-                )
-            )
-        }
     }
 
     private func updateInteractionMode() {

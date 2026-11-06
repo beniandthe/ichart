@@ -23,9 +23,11 @@ final class ChartLibraryStoreTests: XCTestCase {
         var loadError: Error?
         var saveError: Error?
         private(set) var saveAttemptCount = 0
+        private(set) var loadAttemptCount = 0
         private(set) var savedSnapshots: [ChartLibrarySnapshot] = []
 
         func loadSnapshot() throws -> ChartLibrarySnapshot? {
+            loadAttemptCount += 1
             if let loadError {
                 throw loadError
             }
@@ -391,6 +393,46 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertEqual(repository.savedSnapshots.last?.selectedChartID, store.selectedChartID)
     }
 
+    func testRetiredDiagnosticObserverCannotInspectOrGateLibraryLoadAndSave() throws {
+        let repository = RecordingChartRepository()
+        var chart = Chart.blank(title: "Synthetic preserved chart", layoutStyle: .rhythmSectionSheet)
+        let sourceBytes = Data([0x10, 0x20, 0x30, 0x40])
+        chart.setPageHandwrittenChordDrawing(sourceBytes)
+        chart.pageHandwrittenNotationData = Data([0x50, 0x60])
+        let snapshot = ChartLibrarySnapshot(charts: [chart], selectedChartID: chart.id,
+                                            entitlements: .free)
+        repository.snapshotToLoad = snapshot
+        var diagnosticAdmissionCount = 0
+        let retiredObserver = ChartPersistenceContractDiagnostics(
+            identity: "synthetic-retired-observer",
+            isEnabled: {
+                diagnosticAdmissionCount += 1
+                XCTFail("Retired diagnostics must not inspect load/save state")
+                return true
+            },
+            record: { _ in XCTFail("No persistence contract should be emitted") }
+        )
+
+        let store = ChartLibraryStore.live(repository: repository,
+                                           persistenceDiagnostics: retiredObserver)
+        XCTAssertEqual(store.snapshot, snapshot)
+        XCTAssertEqual(repository.loadAttemptCount, 1, "Load the real library exactly once")
+        store.charts[0].title = "Synthetic edited title"
+
+        XCTAssertEqual(repository.saveAttemptCount, 1)
+        XCTAssertEqual(repository.loadAttemptCount, 1, "Saving must not trigger diagnostic readback")
+        let saved = try XCTUnwrap(repository.savedSnapshots.last)
+        XCTAssertEqual(saved.charts[0].id, chart.id)
+        XCTAssertEqual(saved.charts[0].pageHandwrittenChordData, sourceBytes)
+        XCTAssertEqual(saved.charts[0].pageHandwrittenNotationData, chart.pageHandwrittenNotationData)
+        XCTAssertEqual(saved.charts[0].measures, chart.measures)
+        XCTAssertEqual(saved.selectedChartID, chart.id)
+        XCTAssertEqual(diagnosticAdmissionCount, 0)
+        guard case .saved = store.persistenceStatus else {
+            return XCTFail("The actual successful save remains authoritative")
+        }
+    }
+
     func testAsyncRepositoryDoesNotBlockChartCreation() {
         let repository = BlockingAsyncChartRepository()
         let store = ChartLibraryStore(charts: [], repository: repository)
@@ -542,6 +584,9 @@ final class ChartLibraryStoreTests: XCTestCase {
 
         XCTAssertEqual(repository.saveAttemptCount, 0, "Retry must not persist the fallback over an unread library")
         XCTAssertEqual(store.persistenceStatus, .failed(message: message))
+        XCTAssertEqual(store.initialLoadOutcome?.succeeded, false,
+                       "Retain only the scalar failure for reporting after optional startup")
+        XCTAssertGreaterThanOrEqual(store.initialLoadOutcome?.durationMilliseconds ?? -1, 0)
     }
 
     func testMutatingChartElementPersistsEditedChartSnapshot() throws {

@@ -1,5 +1,20 @@
 # Project state and next Apple build
 
+## Current scope: chord repeats retained; measure-repeat handwriting retired — November 5, 2026
+
+The user clarified that chord-repeat symbols were not part of the retirement.
+Restore handwritten `%` / dot-slash-dot chord repeats in **Write & Render**. Keep
+handwritten bar-and-dot measure/range repeat signs retired and use **Tools >
+Repeats** with selected measures for that structure. Preserve saved repeat
+notation/source ink, normal barlines and handwritten ending brackets. The full
+basic telemetry reduction remains in place. See the [corrected scope](handwritten-repeat-ingestion-retirement-2026-11-05.md)
+and [current correction handoff](qa/chord-repeat-scope-correction-2026-11-05.md).
+
+The sealed `936aa2ab` candidate and consolidation records below remain historical
+provenance. Their tests predate the chord-repeat scope correction and do not
+validate it. The corrected candidate needs its own checks; no source change
+updates the installed Build 143 or establishes fresh physical Pencil acceptance.
+
 ## Non-ML source consolidation — November 5, 2026
 
 [PR #95](https://github.com/beniandthe/ichart/pull/95) is the integration lane

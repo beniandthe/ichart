@@ -121,7 +121,7 @@ final class ChordInkIndependentStructuralRenderTests: XCTestCase {
                 let geometry = try self.geometry(chart)
                 let first = try XCTUnwrap(geometry.system.measures.first { $0.sourceMeasureID == ids[0] })
                 let last = try XCTUnwrap(geometry.system.measures.first { $0.sourceMeasureID == ids[2] })
-                let line = barline(at: first.staffFrame.midX, kind: .single, geometry: geometry, seed: 1)
+                let line = barline(at: first.staffFrame.midX, geometry: geometry, seed: 1)
                 let unknown = unreadChord(at: last.staffFrame.midX, geometry: geometry, seed: 20)
                 let source = normalized(line + unknown)
                 let state = try prepare(source, in: &chart, geometry: geometry)
@@ -144,40 +144,6 @@ final class ChordInkIndependentStructuralRenderTests: XCTestCase {
                 let after = try XCTUnwrap(destination.system.measures.first { $0.sourceMeasureID == ids[2] })
                 XCTAssertEqual(after.staffFrame, last.staffFrame)
                 XCTAssertEqual(after.chordWritingFrame, last.chordWritingFrame)
-            }
-        }
-    }
-
-    func testCompleteRepeatRendersWhileUnreviewedEndingStaysAvailable() throws {
-        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
-            for manual in [true, false] {
-                var chart = makeChart(style)
-                let geometry = try self.geometry(chart)
-                let first = try XCTUnwrap(geometry.system.measures.first)
-                let last = try XCTUnwrap(geometry.system.measures.last)
-                let repeatStrokes = barline(at: first.staffFrame.minX + 1, kind: .repeatStart,
-                    geometry: geometry, seed: 30)
-                    + barline(at: first.staffFrame.maxX - 1, kind: .repeatEnd, geometry: geometry, seed: 40)
-                let endingStrokes = ending(over: last, geometry: geometry, seed: 50)
-                let source = normalized(repeatStrokes + endingStrokes)
-                let state = try prepare(source, in: &chart, geometry: geometry)
-                XCTAssertEqual(state.draftBarlines.map(\.kind), [.repeatStart, .repeatEnd])
-                XCTAssertEqual(state.draftEndings.count, 1)
-                XCTAssertFalse(state.draftEndings[0].isReviewed)
-                XCTAssertTrue(state.draftChords.isEmpty)
-
-                let outcome = try render(chart, state: state, source: source, geometry: geometry, manual: manual)
-                XCTAssertEqual(outcome.result.renderedBarlineCount, 2)
-                XCTAssertEqual(outcome.chart.measures.map(\.id), chart.measures.map(\.id))
-                let span = try XCTUnwrap(outcome.chart.roadmapObjects.first { $0.type == .repeatSpan })
-                let archive = try PKDrawing(data: XCTUnwrap(span.sourceInkData))
-                XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
-                    expected: normalized(repeatStrokes), current: archive))
-                let retained = try XCTUnwrap(outcome.retainedDraft)
-                XCTAssertEqual(retained.state.draftEndings.map(\.id), state.draftEndings.map(\.id))
-                XCTAssertFalse(retained.state.draftEndings[0].isReviewed)
-                XCTAssertTrue(retained.state.draftBarlines.isEmpty)
-                try assertRetained(normalized(endingStrokes), outcome: outcome)
             }
         }
     }
@@ -256,7 +222,7 @@ final class ChordInkIndependentStructuralRenderTests: XCTestCase {
                 let first = try XCTUnwrap(geometry.system.measures.first)
                 let last = try XCTUnwrap(geometry.system.measures.last)
                 let selected = rendersDivider
-                    ? barline(at: first.staffFrame.midX, kind: .single, geometry: geometry, seed: 110)
+                    ? barline(at: first.staffFrame.midX, geometry: geometry, seed: 110)
                     : unreadChord(at: first.staffFrame.midX, geometry: geometry, seed: 110)
                 let unknown = unreadChord(at: last.staffFrame.midX, geometry: geometry, seed: 120)
                 let source = normalized(selected + unknown)
@@ -290,40 +256,6 @@ final class ChordInkIndependentStructuralRenderTests: XCTestCase {
                 }
             }
         }
-    }
-
-    func testConflictingClosingRepeatsCannotRenderAnArbitrarySubset() throws {
-        var chart = makeChart(.rhythmSectionSheet)
-        let ids = chart.measures.map(\.id)
-        XCTAssertTrue(chart.insertSystemBreak(before: ids[1]))
-        let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize,
-            includesChordInkContinuationLanes: true)
-        let frame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
-        let firstSystem = try XCTUnwrap(layout.systems.first { $0.measures.contains { $0.sourceMeasureID == ids[0] } })
-        let secondSystem = try XCTUnwrap(layout.systems.first { $0.measures.contains { $0.sourceMeasureID == ids[1] } })
-        let firstLane = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
-            for: firstSystem, paperFrame: layout.paperFrame(for: firstSystem)))
-        let secondLane = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
-            for: secondSystem, paperFrame: layout.paperFrame(for: secondSystem)))
-        let first = try XCTUnwrap(firstSystem.measures.first { $0.sourceMeasureID == ids[0] })
-        let second = try XCTUnwrap(secondSystem.measures.first { $0.sourceMeasureID == ids[1] })
-        let firstGeometry = Geometry(layout: layout, system: firstSystem, frame: frame, lane: firstLane)
-        let secondGeometry = Geometry(layout: layout, system: secondSystem, frame: frame, lane: secondLane)
-        let source = normalized(barline(at: first.staffFrame.maxX - 1, kind: .repeatEnd, geometry: firstGeometry, seed: 220)
-            + barline(at: second.staffFrame.minX + 1, kind: .repeatEnd, geometry: secondGeometry, seed: 230))
-        let state = try prepare(source, in: &chart, geometry: firstGeometry)
-        XCTAssertEqual(state.draftBarlines.map(\.kind), [.repeatEnd, .repeatEnd])
-        let original = chart
-        let manual = ChordInkDraftRenderCoordinator.prepareManual(chart: chart, state: state,
-            currentDrawing: source, coordinateSpace: PersistentInkCoordinateSpace(size: frame.size),
-            sourcePageLayout: layout, sourceChordFrame: frame)
-        XCTAssertFalse(manual.canConsumeSource)
-        XCTAssertEqual(manual.chart, original)
-        let automatic = ChordInkDraftRenderCoordinator.prepareAutomaticAttempt(chart: chart, state: state,
-            currentDrawing: source, coordinateSpace: PersistentInkCoordinateSpace(size: frame.size),
-            now: inputAt.addingTimeInterval(10), lastInputAt: inputAt, isUsingTool: false,
-            sourcePageLayout: layout, sourceChordFrame: frame)
-        XCTAssertNil(automatic.outcome)
     }
 
     private struct Geometry {
@@ -404,18 +336,11 @@ final class ChordInkIndependentStructuralRenderTests: XCTestCase {
         XCTAssertEqual(reopened, outcome.chart)
     }
 
-    private func barline(at x: CGFloat, kind: DraftBarlineKind, geometry: Geometry, seed: Int) -> [PKStroke] {
+    private func barline(at x: CGFloat, geometry: Geometry, seed: Int) -> [PKStroke] {
         let height = geometry.lane.height * 0.84
         let center = CGPoint(x: x - geometry.frame.minX, y: geometry.lane.midY - geometry.frame.minY)
-        var strokes = [stroke([CGPoint(x: center.x, y: center.y - height / 2),
+        return [stroke([CGPoint(x: center.x, y: center.y - height / 2),
             CGPoint(x: center.x, y: center.y + height / 2)], seed: seed)]
-        for side in [-1.0, 1.0] where side < 0 ? kind.endsRepeat : kind.startsRepeat {
-            for vertical in [-1.0, 1.0] {
-                strokes.append(stroke([CGPoint(x: center.x + CGFloat(side) * height * 0.20,
-                    y: center.y + CGFloat(vertical) * height * 0.18)], seed: seed + strokes.count, width: 1.4))
-            }
-        }
-        return strokes
     }
 
     private func unreadChord(at x: CGFloat, geometry: Geometry, seed: Int) -> [PKStroke] {

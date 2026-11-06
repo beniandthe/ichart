@@ -11,6 +11,12 @@ missed reads, render editable chart objects, save, and export. Recognition is
 assisted entry with explicit correction; near-perfect automatic recognition is
 not a release requirement or a demonstrated capability.
 
+Write chord-repeat symbols (`%` / dot-slash-dot) in **Write & Render** alongside
+chords. Add measure repeats and repeat ranges with **Tools > Repeats** by
+selecting measures. Only handwritten bar-and-dot measure/range repeat signs are
+[retired](docs/handwritten-repeat-ingestion-retirement-2026-11-05.md). Existing
+saved repeats, source ink and ordinary Free Ink remain preserved.
+
 The shipping branch is `main`. Recognition research is
 retained in place and on named parking branches. See
 [Parked recognition research](docs/parked-recognition/README.md) for the inventory

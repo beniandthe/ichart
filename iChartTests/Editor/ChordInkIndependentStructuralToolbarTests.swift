@@ -9,18 +9,11 @@ import XCTest
 /// Synthetic structural strokes are not fresh physical Pencil acceptance.
 @MainActor
 final class ChordInkIndependentStructuralToolbarTests: XCTestCase {
-    func testSimpleManualToolbarRendersRepeatWhileUnreviewedEndingStays() async throws {
-        try await assertIndependentRepeat(style: .simpleChordSheet)
-    }
-
-    func testRhythmManualToolbarRendersRepeatWhileUnreviewedEndingStays() async throws {
-        try await assertIndependentRepeat(style: .rhythmSectionSheet)
-    }
 
     func testOnlyUnreviewedEndingStillRequiresReviewInBothStyles() async throws {
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
             let mounted = try await mount(style)
-            let source = try structuralSource(in: mounted, includesRepeat: false)
+            let source = try structuralSource(in: mounted)
             write(source.all, in: mounted)
             try await waitUntil(in: mounted.window) {
                 mounted.canvas.chordPreviewState.draftEndings.count == 1
@@ -42,45 +35,7 @@ final class ChordInkIndependentStructuralToolbarTests: XCTestCase {
         }
     }
 
-    private func assertIndependentRepeat(style: ChartLayoutStyle) async throws {
-        let mounted = try await mount(style)
-        let source = try structuralSource(in: mounted, includesRepeat: true)
-        let measureIDs = mounted.store.charts[0].measures.map(\.id)
-        write(source.all, in: mounted)
-        try await waitUntil(in: mounted.window) {
-            let state = mounted.canvas.chordPreviewState
-            return state.draftChords.isEmpty && state.draftBarlines.map(\.kind) == [.repeatStart, .repeatEnd]
-                && state.draftEndings.count == 1 && !state.draftEndings[0].isReviewed
-        }
-        let before = mounted.canvas.chordPreviewState
-        XCTAssertFalse(ChordInkDraftRenderCoordinator.independentlyRenderableStructuralIDs(in: before).isEmpty)
-        let render = try await button("Render Chords", in: mounted.window)
-        XCTAssertTrue(render.isEnabled)
-        try activate(render)
-
-        try await waitUntil(in: mounted.window) {
-            guard let saved = try? mounted.repository.loadSnapshot()?.charts.first else { return false }
-            return saved.roadmapObjects.filter { $0.type == .repeatSpan }.count == 1
-                && mounted.canvas.chordPreviewState.draftBarlines.isEmpty
-        }
-        let saved = try XCTUnwrap(mounted.repository.loadSnapshot()?.charts.first)
-        XCTAssertEqual(saved.layoutStyle, style)
-        XCTAssertEqual(saved.measures.map(\.id), measureIDs)
-        XCTAssertTrue(saved.measures.flatMap(\.chordEvents).isEmpty)
-        XCTAssertEqual(saved.roadmapObjects.count, 1, "The unrelated ending must remain unrendered")
-        let repeatSpan = try XCTUnwrap(saved.roadmapObjects.first { $0.type == .repeatSpan })
-        assertSameInk(source.repeats, try PKDrawing(data: XCTUnwrap(repeatSpan.sourceInkData)))
-        assertSameInk(source.ending, try PKDrawing(data: XCTUnwrap(saved.pageHandwrittenChordData)))
-        assertSameInk(source.ending, mounted.live.drawing)
-        XCTAssertEqual(mounted.canvas.chordPreviewState.draftEndings.count, 1)
-        XCTAssertFalse(try XCTUnwrap(mounted.canvas.chordPreviewState.draftEndings.first).isReviewed)
-        XCTAssertNil(mounted.window.rootViewController?.presentedViewController,
-            "Independent structural progress must not require an unrelated review sheet")
-        let review = try await button("Review & Render", in: mounted.window)
-        XCTAssertTrue(review.isEnabled, "The retained ending must remain available for deliberate review")
-    }
-
-    private func structuralSource(in mounted: Mounted, includesRepeat: Bool) throws -> Source {
+    private func structuralSource(in mounted: Mounted) throws -> Source {
         let chart = mounted.store.charts[0]
         let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: mounted.canvas.bounds.size,
             includesChordInkContinuationLanes: true)
@@ -100,30 +55,16 @@ final class ChordInkIndependentStructuralToolbarTests: XCTestCase {
             return PKStroke(ink: PKInk(.pen, color: LeadSheetPersistentInkColorPolicy.inkColor),
                 path: path, transform: .identity, mask: nil, randomSeed: seed)
         }
-        func repeatSign(at x: CGFloat, starts: Bool, seed: UInt32) -> [PKStroke] {
-            let height = lane.height * 0.84
-            let side: CGFloat = starts ? 1 : -1
-            return [stroke([CGPoint(x: x, y: lane.midY - height / 2),
-                CGPoint(x: x, y: lane.midY + height / 2)], seed: seed),
-                stroke([CGPoint(x: x + side * height * 0.20, y: lane.midY - height * 0.18)],
-                    seed: seed + 1, width: 1.4),
-                stroke([CGPoint(x: x + side * height * 0.20, y: lane.midY + height * 0.18)],
-                    seed: seed + 2, width: 1.4)]
-        }
         let roof = lane.minY + lane.height * 0.12
         let left = last.staffFrame.minX + 3
         let right = last.staffFrame.maxX - 3
         let bracket = [stroke([CGPoint(x: left, y: roof + lane.height * 0.20),
             CGPoint(x: left, y: roof)], seed: 50),
             stroke([CGPoint(x: left, y: roof), CGPoint(x: right, y: roof)], seed: 51)]
-        let repeats = includesRepeat
-            ? repeatSign(at: first.staffFrame.minX + 1, starts: true, seed: 10)
-                + repeatSign(at: first.staffFrame.maxX - 1, starts: false, seed: 20)
-            : []
         func normalized(_ strokes: [PKStroke]) -> PKDrawing {
             LeadSheetPersistentInkColorPolicy.normalizedDrawing(PKDrawing(strokes: strokes))
         }
-        return Source(all: normalized(repeats + bracket), repeats: normalized(repeats), ending: normalized(bracket))
+        return Source(all: normalized(bracket))
     }
 
     private func write(_ source: PKDrawing, in mounted: Mounted) {
@@ -224,7 +165,7 @@ final class ChordInkIndependentStructuralToolbarTests: XCTestCase {
         let store: ChartLibraryStore
         let repository: FileChartRepository
     }
-    private struct Source { let all: PKDrawing; let repeats: PKDrawing; let ending: PKDrawing }
+    private struct Source { let all: PKDrawing }
     private enum FixtureFailure: Error { case missingControl, stateNotReached }
 }
 

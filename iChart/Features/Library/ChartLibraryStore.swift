@@ -9,6 +9,13 @@ enum ChartLibraryPersistenceStatus: Equatable {
     case failed(message: String)
 }
 
+/// Enough to report a startup I/O failure after optional telemetry is ready.
+/// It contains no chart, ink, repository, identifier, or error description.
+struct ChartLibraryLoadOutcome: Equatable, Sendable {
+    let succeeded: Bool
+    let durationMilliseconds: Double
+}
+
 final class ChartLibraryStore: ObservableObject {
     @Published var charts: [Chart] {
         didSet { persistIfNeeded() }
@@ -32,12 +39,12 @@ final class ChartLibraryStore: ObservableObject {
     // Updated before persistenceStatus publishes so observers can tell a
     // failed write from a failed startup load, even for a repeated error.
     private(set) var retryableSaveFailureMessage: String?
+    private(set) var initialLoadOutcome: ChartLibraryLoadOutcome?
 
     var onSnapshotSaved: ((ChartLibrarySnapshot) -> Void)?
 
     private let repository: ChartRepository?
     private let chordDiagnosticsResetter: (() -> Void)?
-    private let persistenceDiagnostics: ChartPersistenceContractDiagnostics?
     private var persistenceEnabled = false
     private var cloudSyncNotificationsEnabled = true
     private let asyncPersistenceQueue = DispatchQueue(label: "com.ichart.chart-library-store.persistence", qos: .utility)
@@ -68,12 +75,10 @@ final class ChartLibraryStore: ObservableObject {
         self.projects = Self.normalizedProjects(projects, charts: charts)
         self.repository = repository
         self.chordDiagnosticsResetter = chordDiagnosticsResetter
-        #if canImport(UIKit)
-        self.persistenceDiagnostics = persistenceDiagnostics
-            ?? ChartExperienceContractTelemetry.makeDiagnostics(repository: repository)
-        #else
-        self.persistenceDiagnostics = persistenceDiagnostics
-        #endif
+        // Legacy callers may supply the former observer. It is intentionally
+        // never retained or invoked: diagnostics cannot reread/hash the library
+        // or occupy the serial queue needed by the next real save.
+        _ = persistenceDiagnostics
         self.persistenceStatus = repository == nil ? .notTracking : .ready
         persistenceEnabled = true
     }
@@ -614,11 +619,10 @@ final class ChartLibraryStore: ObservableObject {
         } else if loadedSnapshot != nil {
             store.persistenceStatus = .saved(at: .now)
         }
-        if !showsEditorUIFixture, let diagnostics = store.persistenceDiagnostics {
-            // Reopen hashing and checkpoint reads never run on the UI thread.
-            store.asyncPersistenceQueue.async {
-                diagnostics.didLoad(loadedSnapshot, error: loadError, durationMilliseconds: loadDurationMilliseconds)
-            }
+        if !showsEditorUIFixture {
+            store.initialLoadOutcome = ChartLibraryLoadOutcome(
+                succeeded: loadError == nil, durationMilliseconds: loadDurationMilliseconds
+            )
         }
         return store
     }
@@ -671,7 +675,6 @@ final class ChartLibraryStore: ObservableObject {
 
         pendingAsyncPersistence = nil
         asyncPersistenceInFlight = true
-        let diagnostics = persistenceDiagnostics
         asyncPersistenceQueue.async { [weak self, repository] in
             let saveStartedAt = ProcessInfo.processInfo.systemUptime
             let result: Result<Void, Error>
@@ -705,15 +708,13 @@ final class ChartLibraryStore: ObservableObject {
 
                 self.scheduleAsyncPersistenceIfNeeded(repository: repository)
             }
-            let saveError: Error?
-            switch result {
-            case .success: saveError = nil
-            case let .failure(error): saveError = error
+            if case .success = result {
+                Self.recordPersistenceResult(.save, succeeded: true,
+                                             durationMilliseconds: saveDurationMilliseconds)
+            } else {
+                Self.recordPersistenceResult(.save, succeeded: false,
+                                             durationMilliseconds: saveDurationMilliseconds)
             }
-            diagnostics?.didSave(
-                pendingPersistence.snapshot, repository: repository, error: saveError,
-                durationMilliseconds: saveDurationMilliseconds
-            )
         }
     }
 
@@ -729,19 +730,49 @@ final class ChartLibraryStore: ObservableObject {
             if notifyCloudSync {
                 onSnapshotSaved?(snapshot)
             }
-            persistenceDiagnostics?.didSave(
-                snapshot, repository: repository, error: nil,
-                durationMilliseconds: (ProcessInfo.processInfo.systemUptime - saveStartedAt) * 1_000
-            )
+            Self.recordPersistenceResult(.save, succeeded: true,
+                durationMilliseconds: (ProcessInfo.processInfo.systemUptime - saveStartedAt) * 1_000)
             return true
         } catch {
             markSaveFailed(error)
-            persistenceDiagnostics?.didSave(
-                snapshot, repository: repository, error: error,
-                durationMilliseconds: (ProcessInfo.processInfo.systemUptime - saveStartedAt) * 1_000
-            )
+            Self.recordPersistenceResult(.save, succeeded: false,
+                durationMilliseconds: (ProcessInfo.processInfo.systemUptime - saveStartedAt) * 1_000)
             return false
         }
+    }
+
+    private enum PersistenceOperation: String {
+        case load, save
+    }
+
+    static func recordBasicLoadOutcome(_ outcome: ChartLibraryLoadOutcome) {
+        recordPersistenceResult(.load, succeeded: outcome.succeeded,
+                                 durationMilliseconds: outcome.durationMilliseconds)
+    }
+
+    /// Only scalar outcomes and elapsed time cross this boundary. Never pass a
+    /// snapshot, repository, chart identifier, error text, or ink to telemetry.
+    private static func recordPersistenceResult(
+        _ operation: PersistenceOperation,
+        succeeded: Bool,
+        durationMilliseconds: Double
+    ) {
+        IChartPerformanceTrace.record(
+            "library.\(operation.rawValue)",
+            durationMilliseconds: durationMilliseconds,
+            result: succeeded ? .succeeded : .failed,
+            errorCategory: succeeded ? nil : (operation == .load ? .storageRead : .storageWrite)
+        )
+        #if canImport(UIKit)
+        if !succeeded {
+            IChartTelemetry.record("app.error", properties: [
+                "operation": .string("library_\(operation.rawValue)"),
+                "result": .string("failed"),
+                "error_code": .string("library_\(operation.rawValue)_failed"),
+                "duration_ms": .double(durationMilliseconds)
+            ])
+        }
+        #endif
     }
 
     private func markSaveSucceeded() {

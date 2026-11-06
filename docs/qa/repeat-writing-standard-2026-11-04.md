@@ -1,6 +1,14 @@
-# Handwritten repeat standard and acceptance
+# Historical bar-and-dot repeat standard and acceptance — retired
 
-This local candidate keeps handwritten repeat entry and defines a broader,
+**Bar-and-dot measure/range repeat ingestion retired November 5, 2026.** The
+drawing rules, candidate descriptions and validation/install records below
+describe earlier revisions only. They are not current instructions or a promise
+to repair that reader. The user clarified that chord-repeat symbols (`%` /
+dot-slash-dot) remain supported; their corrected candidate needs separate
+validation. Use **Tools > Repeats** for measure repeats/ranges. Saved repeats and
+source ink remain preserved. See the [corrected scope](../handwritten-repeat-ingestion-retirement-2026-11-05.md).
+
+This historical local candidate kept handwritten repeat entry and defined a broader,
 tested geometric contract. Complete signs are recognized as structure before
 chord recognition. Identifiable unfinished signs keep their whole source group
 and offer repeat-specific recovery. This is a local repair based on the source
@@ -136,7 +144,7 @@ and **Right edge**. **Use Ending** confirms the draft; rendering replaces the
 owned bracket and label ink. **Back to Writing** keeps it. Incomplete repeat
 punctuation under a roof stays separately owned, never becoming label text.
 
-## Acceptance boundary
+## Historical acceptance boundary — withdrawn
 
 Native tests cover reconstructed screenshot signs across all three layouts
 and three page sizes, inclusive limits and outside-limit cases, handwriting
@@ -164,10 +172,11 @@ tests and production paths were not changed here; their pre-patch runtime
 status was not established. The focused pass is not a claim that the entire
 application test suite is green.
 
-Release acceptance still needs fresh physical Pencil attempts in both sheet
-styles, including natural pauses, incomplete/retraced signs, nearby chords,
-ending review, rotation, and save/reopen. A single successful retry does not
-satisfy that acceptance condition.
+At this historical checkpoint, release acceptance still required fresh physical
+Pencil attempts in both sheet styles, including natural pauses,
+incomplete/retraced signs, nearby chords, ending review, rotation, and
+save/reopen. The November 5 retirement withdraws this ingestion acceptance lane;
+it is not a pending test request or future repair promise.
 
 ## Build 139 device installation
 
@@ -254,8 +263,10 @@ are under `/private/tmp/ichart-repeat140-install-20261105/`; the persistent
 preinstall backup is `.build/repeat-install-20261105/current-app-data-before`.
 
 The replay results are not observation of automatic rendering on the physical
-iPad. Physical acceptance still requires entering Write & Render on that
-chart and observing its result.
+iPad. At that checkpoint, physical acceptance required entering Write & Render
+on that chart and observing its result. This requirement is historical; the
+November 5 retirement ends further acceptance work on bar-and-dot measure/range
+repeat ingestion; it does not retire chord-repeat symbols.
 
 ## GitHub consolidation provenance — November 5
 

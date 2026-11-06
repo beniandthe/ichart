@@ -1,7 +1,7 @@
 import XCTest
 
 final class ProjectConfigurationTests: XCTestCase {
-    func testTelemetryIsConfiguredBeforeStartupLibraryLoadCanScheduleReopenChecks() throws {
+    func testOptionalTelemetryStartsOffMainAfterLibraryInitializationWithoutAwaitingReadback() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
         let appText = try String(contentsOf: projectRoot.appendingPathComponent("iChart/App/IChartApp.swift"))
@@ -9,16 +9,23 @@ final class ProjectConfigurationTests: XCTestCase {
         let end = try XCTUnwrap(appText.range(of: "    var body: some Scene", range: start.upperBound..<appText.endIndex))
         let initialization = String(appText[start.upperBound..<end.lowerBound])
         let clients = try XCTUnwrap(initialization.range(of: "let supabaseClients = IChartSupabaseClientFactory.liveClients()"))
-        let telemetry = try XCTUnwrap(initialization.range(of: "IChartTelemetry.configure(IChartTelemetryService.live(clients: supabaseClients))"))
+        let telemetryTask = try XCTUnwrap(initialization.range(of: "Task.detached(priority: .utility)"))
+        let telemetry = try XCTUnwrap(initialization.range(of: "IChartTelemetryService.live(clients: supabaseClients)"))
         let library = try XCTUnwrap(initialization.range(of: "let libraryStore = ChartLibraryStore.live()"))
         let pdfLibrary = try XCTUnwrap(initialization.range(of: "let pdfLibraryStore = IChartPDFLibraryStore.live()"))
         let launched = try XCTUnwrap(initialization.range(of: "\"app.launched\""))
 
-        XCTAssertLessThan(clients.lowerBound, telemetry.lowerBound)
-        XCTAssertLessThan(telemetry.lowerBound, library.lowerBound,
-                          "The real library loader schedules chart.load/ink.reopen immediately; its destination must already exist")
-        XCTAssertLessThan(telemetry.lowerBound, pdfLibrary.lowerBound)
-        XCTAssertLessThan(library.lowerBound, launched.lowerBound, "Launch counts still come from the loaded library")
+        XCTAssertLessThan(clients.lowerBound, library.lowerBound)
+        XCTAssertLessThan(library.lowerBound, telemetryTask.lowerBound)
+        XCTAssertLessThan(pdfLibrary.lowerBound, telemetryTask.lowerBound)
+        XCTAssertLessThan(telemetryTask.lowerBound, telemetry.lowerBound)
+        XCTAssertLessThan(telemetry.lowerBound, launched.lowerBound)
+        XCTAssertFalse(initialization[..<telemetryTask.lowerBound].contains("IChartTelemetryService.live"))
+        XCTAssertFalse(appText.contains("await IChartTelemetry.flushPendingEventsIfNeeded()"))
+        let libraryText = try String(contentsOf: projectRoot.appendingPathComponent("iChart/Features/Library/ChartLibraryStore.swift"))
+        XCTAssertFalse(libraryText.contains("ChartExperienceContractTelemetry.makeDiagnostics"))
+        XCTAssertFalse(libraryText.contains("diagnostics.didLoad("))
+        XCTAssertFalse(libraryText.contains("diagnostics?.didSave("))
     }
 
     func testNativeDependencyLockRetainsVerifiedPackageGraph() throws {
@@ -198,7 +205,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(confirmationSheetText.contains("Chord Repeat"))
         XCTAssertTrue(confirmationSheetText.contains("Use chord repeat symbol"))
         XCTAssertTrue(batchSheetText.contains("IChartTypedTextField("))
-        XCTAssertTrue(batchSheetText.contains("IChartTypedSheetScrollSupport(monitorsKeyboardReachability: true)"))
+        XCTAssertTrue(batchSheetText.contains("IChartTypedSheetScrollSupport()"))
+        XCTAssertFalse(batchSheetText.contains("monitorsKeyboardReachability"))
         XCTAssertTrue(batchSheetText.contains(".presentationDetents([.large])"))
         XCTAssertFalse(batchSheetText.contains("title: \"Edit\""))
         XCTAssertTrue(batchSheetText.contains("onKeyboardRequested: { requestKeyboard(for: confirmation.id) }"))
@@ -212,7 +220,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(correctionSheetText.contains("Text(\"Change quality\")"))
         XCTAssertTrue(correctionSheetText.contains("_candidateText = State(initialValue: correction.currentDisplayText)"))
         XCTAssertTrue(correctionSheetText.contains("title: \"Save\""))
-        XCTAssertTrue(correctionSheetText.contains("ChordInkReviewButton(title: \"Cancel\", isRequiredForKeyboardTelemetry: true)"))
+        XCTAssertTrue(correctionSheetText.contains("ChordInkReviewButton(title: \"Cancel\")"))
+        XCTAssertFalse(correctionSheetText.contains("isRequiredForKeyboardTelemetry"))
         XCTAssertTrue(correctionSheetText.contains(".interactiveDismissDisabled(true)"))
         XCTAssertFalse(correctionSheetText.contains("Text(\"Update Chord\")"))
         XCTAssertFalse(correctionSheetText.contains("Text(\"Update\")"))
@@ -459,7 +468,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(pipelinePreviewText.contains("upload"))
     }
 
-    func testPerformanceTraceIsLocalSupportOnlyForTestFlightQA() throws {
+    func testBasicPerformanceReportRemainsExplicitLocalSupportWithoutNetworkOrHotPathExport() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -494,25 +503,19 @@ final class ProjectConfigurationTests: XCTestCase {
         )
 
         XCTAssertTrue(traceText.contains("performance-trace.jsonl"))
-        XCTAssertTrue(traceText.contains("applicationSupportDirectory"))
+        XCTAssertTrue(traceText.contains("Library/Application Support/iChart"))
         XCTAssertTrue(traceText.contains("maxTraceSizeBytes"))
-        XCTAssertTrue(traceText.contains("Bundle.main.bundleIdentifier == \"com.ichart.app\""))
+        XCTAssertTrue(traceText.contains("IChartTelemetry.basicRecordingAuthorization()"))
+        XCTAssertTrue(traceText.contains("authorization.isCurrent"))
         XCTAssertTrue(traceText.contains("IChartPerformanceTraceEvent"))
         XCTAssertTrue(appText.contains("IChartPerformanceTrace.start(\"app.init\")"))
         XCTAssertTrue(appText.contains("IChartPerformanceTrace.start(\"app.bootstrap\")"))
-        XCTAssertTrue(libraryText.contains("IChartPerformanceTrace.start("))
-        XCTAssertTrue(libraryText.contains("\"library.createNewChart\""))
         XCTAssertTrue(libraryText.contains("Share Performance Report"))
-        XCTAssertTrue(libraryText.contains("Timing and diagnostic context. Stays on this iPad until you share it."))
-        XCTAssertTrue(storeText.contains("\"chartLibrary.createBlankChart\""))
-        XCTAssertTrue(setupText.contains("\"chartSetup.applySetup\""))
-        XCTAssertTrue(setupText.contains("\"chartSetup.completeInitialSetup\""))
-        XCTAssertTrue(editorText.contains("\"editor.canvas.firstAppear\""))
-        XCTAssertTrue(hostText.contains("\"editor.canvas.layout\""))
-        XCTAssertTrue(hostText.contains("\"editor.canvas.firstDraw\""))
-        XCTAssertTrue(hostText.contains("\"editor.renderer.drawStaffLines\""))
-        XCTAssertTrue(hostText.contains("\"editor.renderer.drawClef\""))
-        XCTAssertTrue(hostText.contains("\"editor.renderer.drawTimeSignature\""))
+        XCTAssertTrue(libraryText.contains("Basic operation timings and error categories. Stays on this iPad until you share it."))
+        for productPath in [appText, storeText, setupText, editorText, hostText] {
+            XCTAssertFalse(productPath.contains("IChartPerformanceTrace.reportURL"))
+            XCTAssertFalse(productPath.contains("IChartPerformanceTrace.resetReport()"))
+        }
         XCTAssertFalse(traceText.contains("Supabase"))
         XCTAssertFalse(traceText.contains("URLSession"))
         XCTAssertFalse(traceText.contains(".upload("))
@@ -1243,7 +1246,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("Tap Undo Delete to bring back the last deleted converted mark."))
         XCTAssertTrue(libraryText.contains("Tap Done to leave the current tool and return to Select."))
         XCTAssertTrue(libraryText.contains("You can switch directly between Write & Render, Free Ink, Measures, and Tools without returning to Select first."))
-        XCTAssertTrue(libraryText.contains("Use Write & Render to turn handwritten chords, barlines, and repeat signs into chart notation."))
+        XCTAssertTrue(libraryText.contains("Use Write & Render to turn handwritten chords, chord-repeat symbols (%), barlines, and ending brackets into chart notation."))
         XCTAssertTrue(libraryText.contains("Write in the highlighted Corridor Lane above the staff."))
         XCTAssertTrue(libraryText.contains("On a Rhythm Section Sheet, the first chord in each measure renders on beat 1"))
         XCTAssertTrue(libraryText.contains("Turn on Manual Render with Preview in app Settings to check the small preview text"))
@@ -1255,25 +1258,31 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("Use Measures for other form edits."))
         XCTAssertTrue(libraryText.contains("Draw the line near an existing note onset when splitting a measure that already has rhythms."))
         XCTAssertTrue(libraryText.contains("Both new measures use the current meter. Written notes keep their lengths, and rests fill the unused beats."))
-        XCTAssertTrue(libraryText.contains("Dots on the right start a repeat. Dots on the left end a repeat."))
-        XCTAssertTrue(libraryText.contains("Writing Repeat Signs"))
-        XCTAssertTrue(libraryText.contains("To retry saved repeat ink in Automatic, open the chart, tap Write & Render, and pause."))
-        XCTAssertTrue(libraryText.contains("You do not need to add a stroke."))
-        XCTAssertTrue(libraryText.contains("If Fix Writing is already showing, tap Select, then Write & Render to check that ink again."))
+
+        XCTAssertTrue(libraryText.contains("Chord and Measure Repeats"))
+        XCTAssertTrue(libraryText.contains("Write chord-repeat symbols (%) in Write & Render. Use Tools > Repeats for measure repeats and repeat ranges."))
+        XCTAssertTrue(libraryText.contains("Write chord-repeat symbols (%) in the lane alongside chords. Keep separate symbols apart and follow review prompts when offered."))
+        XCTAssertTrue(libraryText.contains("Write & Render does not convert drawn bar-and-dot repeat barlines. Use Free Ink to keep those signs as handwriting."))
+        XCTAssertFalse(libraryText.contains("Writing Repeat Signs"))
+        XCTAssertFalse(libraryText.contains("To retry saved repeat ink"))
+        XCTAssertFalse(libraryText.contains("repeat-sign drawing rules"))
+
+
+
         XCTAssertTrue(libraryText.contains("Writing Ending Brackets"))
-        XCTAssertTrue(libraryText.contains("A complete end repeat with no earlier start repeats from the beginning of the chart."))
-        XCTAssertTrue(libraryText.contains("Nested or conflicting starts stay as draft ink until corrected."))
+
+
         XCTAssertTrue(libraryText.contains("When Review Chords opens, check each Recognition guess."))
         XCTAssertTrue(libraryText.contains("You can also rewrite just that chord."))
         XCTAssertTrue(libraryText.contains("Turn on Manual Render with Preview in app Settings when you want to review your writing before it becomes notation."))
         XCTAssertTrue(libraryText.contains("Use Review & Render to check chord guesses or enter missing chords."))
         XCTAssertTrue(libraryText.contains("Tap an ending preview to review its label and measures."))
-        XCTAssertTrue(libraryText.contains("When only an unreviewed repeat or ending remains, use Review & Render."))
+        XCTAssertTrue(libraryText.contains("When only an unreviewed ending remains, use Review & Render."))
         XCTAssertTrue(libraryText.contains("If a preview says Add chord, tap Review & Render and type the intended chord."))
         XCTAssertTrue(libraryText.contains("If you see Separate chords, go back to writing and rewrite those chords with more space between them."))
         XCTAssertTrue(libraryText.contains("Render All uses the text shown in every row."))
         XCTAssertTrue(libraryText.contains("Ink that cannot be placed stays on the page."))
-        XCTAssertTrue(libraryText.contains("Clear Draft Ink removes all unrendered chords, barlines, repeat signs, and endings after confirmation."))
+        XCTAssertTrue(libraryText.contains("Clear Draft Ink removes all unrendered writing in Write & Render after confirmation."))
         XCTAssertFalse(libraryText.contains("If Render Chords is disabled, fix the chord iChart could not read."))
         XCTAssertFalse(libraryText.contains("If the preview is wrong, erase or discard the writing and try again before rendering."))
         XCTAssertFalse(libraryText.contains("Use Discard to clear the current chord writing without changing the chart."))

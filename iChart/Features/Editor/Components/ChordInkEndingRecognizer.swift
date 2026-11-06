@@ -44,14 +44,14 @@ enum ChordDraftEndingRecognizer {
             strokeIndices: accepted.reduce(into: Set<Int>()) { $0.formUnion($1.sourceStrokeIndices) })
     }
 
-    /// Ending hooks and labels cannot become repeat bars or chord stems. The
+    /// Ending hooks and labels cannot become barlines or chord stems. The
     /// returned indices remain in the caller's original source index space.
     static func recognizeBarlinesExcludingEndings(
         strokes: [InkStroke], chordFrame: CGRect, pageLayout: LeadSheetPageLayout?
     ) -> ChordDraftBarlineRecognition {
         let endings = recognize(strokes: strokes, chordFrame: chordFrame, pageLayout: pageLayout)
         let remaining = strokes.indices.filter { !endings.strokeIndices.contains($0) }
-        let recognition = ChordDraftBarlineRecognizer.recognizeIncludingRepeats(
+        let recognition = ChordDraftBarlineRecognizer.recognize(
             strokes: remaining.map { strokes[$0] }, chordFrame: chordFrame, pageLayout: pageLayout)
         let barlines = recognition.barlines.map { draft -> DraftBarline in
             var result = draft
@@ -173,10 +173,10 @@ enum ChordDraftEndingRecognizer {
         members.formUnion(right)
 
         // Full-height written boundaries can meet or cross a bracket roof.
-        // They remain separate structural sources; neither their bars nor
-        // paired repeat dots are part of the ending's label ownership.
+        // They remain separate structural sources and are not part of the
+        // ending's label ownership.
         let otherIndices = strokes.indices.filter { !members.contains($0) }
-        let boundaries = ChordDraftBarlineRecognizer.recognizeIncludingRepeats(
+        let boundaries = ChordDraftBarlineRecognizer.recognize(
             strokes: otherIndices.map { strokes[$0] },
             chordFrame: CGRect(origin: origin, size: .zero), pageLayout: pageLayout)
         var structuralIndices = Set(boundaries.strokeIndices.map { otherIndices[$0] })
@@ -197,16 +197,6 @@ enum ChordDraftEndingRecognizer {
             let fullyEnclosed = bounds.minX >= labelLeft && bounds.maxX <= labelRight
                 && bounds.minY >= labelTop && bounds.maxY <= labelBottom
             if fullyEnclosed {
-                // A lone dot beside a boundary might be an incomplete repeat.
-                // Do not silently reinterpret it as an ending-label period.
-                let ambiguousPunctuation = fullHeightBars.contains { barIndex in
-                    let bar = strokes[barIndex].bounds.cgRect.offsetBy(dx: origin.x, dy: origin.y)
-                    let relativeY = (bounds.midY - bar.minY) / max(1, bar.height)
-                    return isCompactDot(strokes[index], barHeight: bar.height)
-                        && abs(bounds.midX - bar.midX) <= max(10, bar.height * 0.32)
-                        && relativeY >= 0.18 && relativeY <= 0.82
-                }
-                if ambiguousPunctuation { return nil }
                 members.insert(index)
                 continue
             }
@@ -289,18 +279,6 @@ enum ChordDraftEndingRecognizer {
         zip(stroke.points, stroke.points.dropFirst()).reduce(0) { length, pair in
             length + hypot(pair.1.x - pair.0.x, pair.1.y - pair.0.y)
         }
-    }
-
-    /// Match the repeat-sign detector's shape contract: short narrow numeral
-    /// stems and dashes are label ink, while stationary taps and compact loops
-    /// beside a boundary may be unfinished repeat punctuation.
-    private static func isCompactDot(_ stroke: InkStroke, barHeight: CGFloat) -> Bool {
-        let width = CGFloat(stroke.bounds.width), height = CGFloat(stroke.bounds.height)
-        let span = max(width, height)
-        guard span <= max(2, barHeight * 0.16),
-              pathLength(of: stroke) <= Double(max(4, barHeight * 0.55)) else { return false }
-        return span <= max(2, barHeight * 0.05)
-            || min(width, height) / max(0.001, span) >= 0.35
     }
 }
 

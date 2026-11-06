@@ -4,254 +4,134 @@ import XCTest
 @testable import iChart
 
 final class TelemetrySchedulingConsentTests: XCTestCase {
-    override func tearDown() {
-        IChartTelemetry.configure(nil)
-        super.tearDown()
-    }
+    override func tearDown() { IChartTelemetry.configure(nil); super.tearDown() }
 
-    func testMainEntryPointsReturnWhileQueueAppendHoldsAuthoritativeConsentLock() async throws {
-        let consent = try makeConsent(granted: true)
+    func testMainAdmissionAndWithdrawalReturnWhileActualQueueIOIsBlocked() async throws {
+        let consent = try makeConsent()
         let gate = TelemetrySchedulingIOGate()
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let queue = IChartTelemetryQueueStore(
-            url: directory.appendingPathComponent("queue.json"),
-            fileManager: TelemetrySchedulingBlockingFileManager(gate: gate)
-        )
+        let queue = IChartTelemetryQueueStore(url: FileManager.default.temporaryDirectory
+            .appendingPathComponent("basic-blocked-\(UUID())/queue.json"),
+            fileManager: TelemetrySchedulingBlockingFileManager(gate: gate))
         let service = makeService(consent: consent, queue: queue)
         IChartTelemetry.configure(service)
-        let recording = Task.detached { await service.record("pdf.export_succeeded") }
-        defer { gate.release() }
-        XCTAssertTrue(gate.waitUntilEntered(), "The actual queue append must reach its disk-write section")
-
-        await assertMainEntryPointsReturnBeforeReleasingIO()
-
-        gate.release()
-        await recording.value
-        consent.setConsentGranted(false)
-        await service.consentDidChange()
-        XCTAssertTrue(try queue.loadEvents().isEmpty)
-        try? FileManager.default.removeItem(at: directory)
-    }
-
-    func testMainEntryPointsReturnWhileCheckpointPublishHoldsAuthoritativeConsentLock() async throws {
-        let gate = TelemetrySchedulingIOGate()
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let checkpoint = directory.appendingPathComponent("library-state.json.experience-checkpoint.json")
-        let consent = IChartTelemetryConsentStore(
-            defaults: try makeDefaults(granted: true), diagnosticFileURLs: [checkpoint],
-            writeDiagnosticFile: { data, url in
-                try gate.block()
-                try data.write(to: url, options: .atomic)
-            }
-        )
-        let authorization = try XCTUnwrap(consent.checkpointAuthorization())
-        let queue = IChartTelemetryQueueStore(url: directory.appendingPathComponent("queue.json"))
-        let service = makeService(consent: consent, queue: queue)
-        IChartTelemetry.configure(service)
-        let publishing = Task.detached {
-            try consent.publishDiagnosticCheckpoint(Data([1, 2, 3]), to: checkpoint, authorization: authorization)
-        }
-        defer { gate.release() }
-        XCTAssertTrue(gate.waitUntilEntered(), "The actual checkpoint publisher must hold its consent lock")
-
-        await assertMainEntryPointsReturnBeforeReleasingIO()
-
-        gate.release()
-        let published = try await publishing.value
-        XCTAssertTrue(published)
-        consent.setConsentGranted(false)
-        await service.consentDidChange()
-        XCTAssertFalse(FileManager.default.fileExists(atPath: checkpoint.path))
-        XCTAssertTrue(try queue.loadEvents().isEmpty)
-        try? FileManager.default.removeItem(at: directory)
-    }
-
-    func testSchedulingMirrorTracksSupportedConsentTransitionsAndGeneration() throws {
-        let consent = try makeConsent(granted: false)
-        let disabled = consent.cachedSnapshotForScheduling
-        XCTAssertFalse(disabled.isGranted)
-        XCTAssertEqual(disabled, consent.snapshot)
-        consent.setConsentGranted(true)
-        let firstGrant = consent.cachedSnapshotForScheduling
-        XCTAssertTrue(firstGrant.isGranted)
-        XCTAssertEqual(firstGrant, consent.snapshot)
-        consent.setConsentGranted(false)
-        XCTAssertFalse(consent.cachedSnapshotForScheduling.isGranted)
-        XCTAssertEqual(consent.cachedSnapshotForScheduling, consent.snapshot)
-        consent.setConsentGranted(true)
-        XCTAssertNotEqual(consent.cachedSnapshotForScheduling, firstGrant)
-        XCTAssertEqual(consent.cachedSnapshotForScheduling, consent.snapshot)
-        XCTAssertNil(consent.performIfGranted(matching: firstGrant) { true })
-    }
-
-    func testDeferredDiagnosticWorkReturnsOnMainAndCannotAdoptALaterConsentGeneration() async throws {
-        let suiteName = "iChart-deferred-diagnostic-\(UUID().uuidString)"
-        let preferences = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        let consent = IChartTelemetryConsentStore(defaults: preferences)
-        consent.setConsentGranted(true)
-        let originalGrant = consent.cachedSnapshotForScheduling
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("deferred-diagnostic-\(UUID().uuidString)", isDirectory: true)
-        let queue = IChartTelemetryQueueStore(url: directory.appendingPathComponent("queue.json"))
-        let service = makeService(consent: consent, queue: queue)
-        let gate = TelemetrySchedulingIOGate()
-        defer {
-            gate.release()
-            IChartTelemetry.configure(nil)
-            consent.setConsentGranted(false)
-            preferences.removePersistentDomain(forName: suiteName)
-            try? FileManager.default.removeItem(at: directory)
-        }
-        IChartTelemetry.configure(service)
-        let originalAuthorization = try XCTUnwrap(IChartTelemetry.diagnosticAuthorization())
-        let returned = expectation(description: "main deferred diagnostic entry returned")
-        DispatchQueue.main.async {
-            IChartTelemetry.recordDeferredDiagnostic("pdf.export_succeeded", chartID: nil,
-                authorization: originalAuthorization) {
-                XCTAssertFalse(Thread.isMainThread, "Diagnostic comparison must execute away from PencilKit's main thread")
-                do { try gate.block() }
-                catch { XCTFail("Synthetic diagnostic gate failed: \(error)"); return nil }
-                return ["duration_ms": .int(123)]
-            }
-            returned.fulfill()
-        }
-        await fulfillment(of: [returned], timeout: 1)
-        XCTAssertTrue(gate.waitUntilEntered(), "The diagnostic comparison must actually start and block")
-        // Keep the comparison blocked while proving that ordinary scheduling
-        // and main-thread interaction still return without waiting for it.
-        await assertMainEntryPointsReturnBeforeReleasingIO()
-
-        consent.setConsentGranted(false)
-        XCTAssertNil(IChartTelemetry.diagnosticAuthorization())
-        consent.setConsentGranted(true)
-        XCTAssertNotEqual(consent.cachedSnapshotForScheduling, originalGrant)
-        gate.release()
-        await service.consentDidChange()
-        XCTAssertTrue(try queue.loadEvents().isEmpty,
-            "Comparison results and other queued callbacks from the old grant must be rejected after withdrawal")
-
-        let freshAuthorization = try XCTUnwrap(IChartTelemetry.diagnosticAuthorization())
-        IChartTelemetry.recordDeferredDiagnostic("pdf.export_succeeded", chartID: nil,
-            authorization: freshAuthorization) {
-            XCTAssertFalse(Thread.isMainThread)
-            return ["duration_ms": .int(37)]
-        }
-        var freshEvents: [IChartTelemetryEvent] = []
-        for _ in 0..<60 {
-            freshEvents = try queue.loadEvents()
-            if freshEvents.contains(where: { $0.properties["duration_ms"] == .int(37) }) { break }
-            try await Task.sleep(nanoseconds: 50_000_000)
-        }
-        XCTAssertEqual(freshEvents.count, 1)
-        XCTAssertEqual(freshEvents.first?.properties["duration_ms"], .int(37),
-            "Only a newly authorized diagnostic can reach the queue")
-        consent.setConsentGranted(false)
-        await service.consentDidChange()
-        XCTAssertTrue(try queue.loadEvents().isEmpty)
-    }
-
-    func testWithdrawalPublishesDisabledSchedulingStateBeforeCheckpointCleanupCompletes() async throws {
-        let gate = TelemetrySchedulingIOGate()
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let checkpoint = directory.appendingPathComponent("checkpoint.json")
-        let consent = IChartTelemetryConsentStore(
-            defaults: try makeDefaults(granted: true), diagnosticFileURLs: [checkpoint],
-            removeDiagnosticFile: { _ in try gate.block() }
-        )
-        let queue = IChartTelemetryQueueStore(url: directory.appendingPathComponent("queue.json"))
-        let service = makeService(consent: consent, queue: queue)
-        IChartTelemetry.configure(service)
-        let withdrawing = Task.detached { consent.setConsentGranted(false) }
+        let recording = Task.detached { await service.record("app.error", properties: ["error_code": .string("save_error")]) }
         defer { gate.release() }
         XCTAssertTrue(gate.waitUntilEntered())
-
-        await assertMainEntryPointsReturnBeforeReleasingIO(expectedEnabled: false)
-
-        gate.release()
-        await withdrawing.value
-        await service.consentDidChange()
-        XCTAssertFalse(consent.cachedSnapshotForScheduling.isGranted)
-        XCTAssertTrue(try queue.loadEvents().isEmpty)
-    }
-
-    func testCachedOffAndEarlierGenerationTasksCannotRecordOrSendAfterOptIn() async throws {
-        let consent = try makeConsent(granted: false)
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let queue = IChartTelemetryQueueStore(url: directory.appendingPathComponent("queue.json"))
-        let service = makeService(consent: consent, queue: queue)
-        let disabled = consent.cachedSnapshotForScheduling
-        consent.setConsentGranted(true)
-        await service.record("pdf.export_succeeded", expectedConsent: disabled)
-        let firstGrant = consent.cachedSnapshotForScheduling
-        consent.setConsentGranted(false)
-        consent.setConsentGranted(true)
-
-        await service.record("pdf.export_succeeded", expectedConsent: firstGrant)
-        await service.flush(expectedConsent: firstGrant)
-
-        XCTAssertTrue(try queue.loadEvents().isEmpty)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("queue.json").path))
-    }
-
-    func testAuthoritativeValidationRejectsDirectPreferenceWithdrawalAndRefreshesMirror() async throws {
-        let preferences = try makeDefaults(granted: true)
-        let consent = IChartTelemetryConsentStore(defaults: preferences)
-        let staleGrant = consent.cachedSnapshotForScheduling
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let queue = IChartTelemetryQueueStore(url: directory.appendingPathComponent("queue.json"))
-        let service = makeService(consent: consent, queue: queue)
-        preferences.removeObject(forKey: IChartTelemetryConsentStore.preferenceKey)
-        XCTAssertEqual(consent.cachedSnapshotForScheduling, staleGrant,
-                       "Scheduling does not synchronously read preferences or perform cleanup")
-
-        await service.record("pdf.export_succeeded", expectedConsent: staleGrant)
-        await service.flush(expectedConsent: staleGrant)
-
-        XCTAssertFalse(consent.cachedSnapshotForScheduling.isGranted)
-        XCTAssertEqual(consent.cachedSnapshotForScheduling, consent.snapshot)
-        XCTAssertTrue(try queue.loadEvents().isEmpty)
-        XCTAssertNil(preferences.string(forKey: IChartTelemetryConsentStore.installationIDPreferenceKey))
-    }
-
-    private func assertMainEntryPointsReturnBeforeReleasingIO(expectedEnabled: Bool = true) async {
-        let returned = expectation(description: "main telemetry scheduling returned while I/O is blocked")
+        let returned = expectation(description: "main returns before queue I/O release")
         DispatchQueue.main.async {
-            XCTAssertEqual(IChartTelemetry.isRecordingEnabled, expectedEnabled)
-            IChartTelemetry.record("pdf.export_succeeded")
+            XCTAssertTrue(IChartTelemetry.isBasicRecordingEnabled)
+            XCTAssertFalse(IChartTelemetry.isRecordingEnabled)
+            IChartTelemetry.record("app.error", properties: ["error_code": .string("save_error")])
             IChartTelemetry.flush()
+            IChartTelemetry.setConsentGranted(false)
+            XCTAssertFalse(IChartTelemetry.isBasicRecordingEnabled)
             returned.fulfill()
         }
-        // The test keeps the writer blocked until this expectation completes.
-        // A caller waiting on the I/O-bearing consent lock fails this deadline.
         await fulfillment(of: [returned], timeout: 1)
+        gate.release()
+        await recording.value
+        await consent.waitForPendingPersistence()
+        await service.consentDidChange()
+        XCTAssertTrue(try queue.loadEvents().isEmpty)
     }
 
-    private func makeDefaults(granted: Bool) throws -> UserDefaults {
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "iChart-scheduling-consent-\(UUID().uuidString)"))
-        if granted {
-            defaults.set(IChartTelemetryConsentStore.currentVersion, forKey: IChartTelemetryConsentStore.preferenceKey)
+    func testSingleDrainKeepsOnly64PendingScalarsWhileNetworkIsHeld() async throws {
+        let consent = try makeConsent()
+        let queue = IChartTelemetryQueueStore(url: FileManager.default.temporaryDirectory
+            .appendingPathComponent("basic-held-network-\(UUID())/queue.json"))
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [BasicHeldTelemetryProtocol.self]
+        let started = expectation(description: "network held")
+        BasicHeldTelemetryProtocol.onStart = { started.fulfill() }
+        defer { BasicHeldTelemetryProtocol.onStart = nil }
+        let service = IChartTelemetryService(endpointURL: URL(string: "https://telemetry.invalid/held")!,
+            publishableKey: "test", sessionStore: nil, queueStore: queue, installationID: UUID(),
+            consentStore: consent, urlSession: URLSession(configuration: configuration))
+        let admission = IChartTelemetryAdmission()
+        admission.configure(service)
+        admission.record("app.error", properties: ["error_code": .string("save_error")])
+        await fulfillment(of: [started], timeout: 2)
+        let returned = expectation(description: "bounded admission on main")
+        DispatchQueue.main.async {
+            for _ in 0..<1_000 { admission.record("app.error", properties: ["error_code": .string("save_error")]) }
+            XCTAssertEqual(admission.pendingCount, 64)
+            XCTAssertEqual(admission.droppedCount, 936)
+            returned.fulfill()
         }
-        return defaults
+        await fulfillment(of: [returned], timeout: 1)
+        consent.setConsentGranted(false)
+        await consent.waitForPendingPersistence()
+        await service.consentDidChange()
+        for _ in 0..<100 {
+            if admission.pendingCount == 0 { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(admission.pendingCount, 0)
+        XCTAssertTrue(try queue.loadEvents().isEmpty)
     }
 
-    private func makeConsent(granted: Bool) throws -> IChartTelemetryConsentStore {
-        IChartTelemetryConsentStore(defaults: try makeDefaults(granted: granted))
+    func testDisabledDiagnosticAPINeverEvaluatesItsCaptureClosure() async {
+        let completed = expectation(description: "obsolete diagnostic bookkeeping completes once")
+        completed.assertForOverFulfill = true
+        IChartTelemetry.recordDeferredDiagnostic("feature.contract_checked", chartID: UUID(),
+            authorization: .init(), onCompletion: { completed.fulfill() }) {
+                XCTFail("Retired diagnostics cannot inspect chart or source data")
+                return ["reason": .string("private content")]
+            }
+        await fulfillment(of: [completed], timeout: 1)
+        XCTAssertNil(IChartTelemetry.diagnosticAuthorization())
     }
 
-    private func makeService(
-        consent: IChartTelemetryConsentStore, queue: IChartTelemetryQueueStore
-    ) -> IChartTelemetryService {
+    func testCapturedOldGenerationCannotRecordAfterWithdrawalAndRegrant() async throws {
+        let consent = try makeConsent()
+        let original = consent.snapshot
+        let queue = IChartTelemetryQueueStore(url: FileManager.default.temporaryDirectory
+            .appendingPathComponent("basic-old-epoch-\(UUID())/queue.json"))
+        let service = makeService(consent: consent, queue: queue)
+        consent.setConsentGranted(false)
+        consent.setConsentGranted(true)
+        await consent.waitForPendingPersistence()
+        await service.record("app.error", properties: ["error_code": .string("save_error")], expectedConsent: original)
+        XCTAssertTrue(try queue.loadEvents().isEmpty)
+    }
+
+    func testBasicAuthorizationCannotSurviveWithdrawalRegrantOrServiceReplacement() throws {
+        let consent = try makeConsent()
+        let queue = IChartTelemetryQueueStore(url: FileManager.default.temporaryDirectory
+            .appendingPathComponent("basic-token-\(UUID())/queue.json"))
+        IChartTelemetry.configure(makeService(consent: consent, queue: queue))
+        let original = try XCTUnwrap(IChartTelemetry.basicRecordingAuthorization())
+        XCTAssertTrue(original.isCurrent)
+        consent.setConsentGranted(false)
+        XCTAssertFalse(original.isCurrent)
+        consent.setConsentGranted(true)
+        XCTAssertFalse(original.isCurrent)
+        let replacement = try XCTUnwrap(IChartTelemetry.basicRecordingAuthorization())
+        IChartTelemetry.configure(nil)
+        XCTAssertFalse(replacement.isCurrent)
+    }
+
+    private func makeConsent() throws -> IChartTelemetryConsentStore {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "basic-scheduling-\(UUID())"))
+        defaults.set(IChartTelemetryConsentStore.currentVersion, forKey: IChartTelemetryConsentStore.preferenceKey)
+        return IChartTelemetryConsentStore(defaults: defaults)
+    }
+
+    private func makeService(consent: IChartTelemetryConsentStore, queue: IChartTelemetryQueueStore) -> IChartTelemetryService {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [TelemetrySchedulingOfflineProtocol.self]
-        return IChartTelemetryService(
-            endpointURL: URL(string: "https://telemetry.invalid/ingest")!,
-            publishableKey: "test", sessionStore: nil, queueStore: queue,
-            consentStore: consent, urlSession: URLSession(configuration: configuration)
-        )
+        return IChartTelemetryService(endpointURL: URL(string: "https://telemetry.invalid/ingest")!,
+            publishableKey: "test", sessionStore: nil, queueStore: queue, installationID: UUID(),
+            consentStore: consent, urlSession: URLSession(configuration: configuration))
     }
+}
+
+private final class BasicHeldTelemetryProtocol: URLProtocol {
+    static var onStart: (() -> Void)?
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() { Self.onStart?() }
+    override func stopLoading() {}
 }
 
 private final class TelemetrySchedulingIOGate: @unchecked Sendable {

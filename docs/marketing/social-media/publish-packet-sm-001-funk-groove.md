@@ -194,7 +194,7 @@ Custom product page concept:
 - Promise: write clean gig charts quickly, then make player-ready versions.
 - Screenshot sequence:
   1. Handwrite clean gig charts.
-  2. Add repeats, form markings, and notes.
+  2. Select measures with the Repeats tool to add repeat ranges; add form markings and notes.
   3. Make Concert, Bb, and Eb chart versions.
   4. Export PDFs to the band.
 
@@ -203,7 +203,7 @@ App preview storyboard candidate:
 | Time | Visual | Copy |
 | --- | --- | --- |
 | 0-3s | `Funk Groove` chart opens on iPad. | Handwrite clean gig charts. |
-| 3-9s | Chords and repeat marks appear. | Fast like paper. Editable like software. |
+| 3-9s | Chords appear; selected measures receive repeat marks through the Repeats tool. | Fast like paper. Editable like software. |
 | 9-16s | Duplicate Variant / Bb Horn version. | Make chart versions for players. |
 | 16-23s | PDF preview/share view. | Export PDFs to the band. |
 | 23-30s | iChart logo / app page. | Built for working musicians. |

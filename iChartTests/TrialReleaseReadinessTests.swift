@@ -62,14 +62,26 @@ final class TrialReleaseReadinessTests: XCTestCase {
         #endif
     }
 
-    func testCustomerNoticeDisclosesIdentifiersAndRecognitionDiagnostics() throws {
+    func testCustomerNoticeDistinguishesBasicDiagnosticsFromHistoricalExpandedRecords() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let text = try String(contentsOf: root.appendingPathComponent("public-site/useichart/privacy.html"))
-        XCTAssertTrue(text.contains("random installation and diagnostic-session identifiers"))
-        XCTAssertTrue(text.contains("linked to your iChart account identifier"))
-        XCTAssertTrue(text.contains("recognition pipeline version"))
+        let basicStart = try XCTUnwrap(text.range(of: "<p>In versions with basic diagnostics,"))
+        let historicalStart = try XCTUnwrap(text.range(of: "<p>Older versions with expanded diagnostics"))
+        XCTAssertLessThan(basicStart.lowerBound, historicalStart.lowerBound)
+        let basic = String(text[basicStart.lowerBound..<historicalStart.lowerBound])
+        XCTAssertTrue(basic.contains("error counts, elapsed timings, and fixed correction categories"))
+        XCTAssertTrue(basic.contains("random installation and diagnostic-session identifiers"))
+        XCTAssertTrue(basic.contains("not advertising or tracking across other companies' apps or websites"))
+        XCTAssertTrue(basic.contains("do not inspect ink appearance, create chart references or source-content fingerprints"))
+        XCTAssertFalse(basic.contains("recognition pipeline version"))
+        XCTAssertFalse(basic.contains("opaque chart reference"))
+        XCTAssertTrue(text.contains("Older versions with expanded diagnostics could also send recognition pipeline versions"))
+        XCTAssertTrue(text.contains("those older diagnostic records could be linked to an iChart account identifier"))
         XCTAssertTrue(text.contains("telemetry does not collect chart titles"))
-        XCTAssertTrue(text.contains("handwritten drawing data"))
+        for excludedContent in ["raw chord text", "handwritten drawing data", "source-content hashes",
+                                "PDF files", "screenshots", "editable chart documents"] {
+            XCTAssertTrue(text.contains(excludedContent), excludedContent)
+        }
     }
 }
 #endif

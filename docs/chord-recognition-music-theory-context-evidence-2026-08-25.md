@@ -4,6 +4,13 @@ Date: 2026-08-25
 Branch: `codex/chord-recognition-accuracy`
 Status: research and architecture guidance only
 
+Current scope clarification — November 5, 2026: handwritten chord-repeat symbols
+(`%` / dot-slash-dot) remain supported; they were not part of the user-requested
+retirement. Only bar-and-dot measure/range repeat ingestion is retired. Use
+**Tools > Repeats** for that structure. The historical observations below do not
+establish fresh physical acceptance of the corrected candidate. Typed/manual
+and saved notation remain compatible. See the [corrected retirement decision](handwritten-repeat-ingestion-retirement-2026-11-05.md).
+
 ## Scope
 
 This document extracts music-theory context that should guide handwritten chord recognition without changing the current product boundary:
@@ -207,7 +214,7 @@ Recognizer use:
 - Slash should suppress new root grouping for the next `A-G` glyph.
 - Slash-bass candidates should be penalized when suspended context is stronger.
 
-### Chord Repeat
+### Chord Repeat recognition — historical evidence for a retained input
 
 Supports:
 

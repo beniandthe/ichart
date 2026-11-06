@@ -59,7 +59,11 @@ struct ChordDraftEndingRangeReviewContext: Hashable {
             sourceCoordinateSpace: chart.pageHandwrittenChordCoordinateSpace,
             layoutPageSize: pageSize,
             orderedBarlines: state.draftBarlines
-                .sorted(by: ChordInkRepeatSignPairingPolicy.precedesInSourceOrder)
+                .sorted { lhs, rhs in
+                    if lhs.visualOrder != rhs.visualOrder { return lhs.visualOrder < rhs.visualOrder }
+                    if lhs.measureIndex != rhs.measureIndex { return lhs.measureIndex < rhs.measureIndex }
+                    return lhs.id.uuidString < rhs.id.uuidString
+                }
                 .map(BarlineSnapshot.init),
             requiredSystemIndex: systemIndices.max() ?? 0
         )

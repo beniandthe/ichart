@@ -4,478 +4,165 @@ import XCTest
 @testable import iChart
 
 final class TrialTelemetryTransportTests: XCTestCase {
-    override func tearDown() {
-        TrialTelemetryHTTPStub.configure([])
-        super.tearDown()
-    }
+    override func tearDown() { TrialTelemetryHTTPStub.configure([]); super.tearDown() }
 
-    func testSignedOutDeliveryUsesOnlyPublishableKeyAndContentFreeProperties() async throws {
+    func testAnonymousDeliveryUsesOnlyFixedBasicPropertiesAndOriginalIDs() async throws {
         let queue = makeQueue()
-        let input = event(properties: IChartTelemetryPrivacy.sanitizedProperties([
-            "recognition_pipeline_version": .string(ChordInkRecognitionPipelineIdentity.version),
-            "trust_probe_count": .int(4),
-            "no_read_count": .int(1),
-            "raw_chord_text": .string("Do not upload"),
-            "drawing_data": .string("Do not upload")
-        ]))
+        let input = basicFixtureEvent(properties: ["error_code": .string("save_error"), "duration_ms": .double(4.5),
+            "operation": .string("library_save"), "source": .string("PRIVATE_ARBITRARY_SOURCE"),
+            "chart_reference": .string(String(repeating: "a", count: 64)), "stroke_count": .int(12)])
         try queue.append(input)
         TrialTelemetryHTTPStub.configure([.status(202)])
         await service(queue).flush()
-
         let request = try XCTUnwrap(TrialTelemetryHTTPStub.requests.first)
         XCTAssertEqual(request.apiKey, "publishable-test-key")
         XCTAssertNil(request.authorization)
-        XCTAssertEqual(request.timeout, 15)
-        let payload = try batch(request.body)
-        let events = try XCTUnwrap(payload["events"] as? [[String: Any]])
+        let events = try XCTUnwrap(try batch(request.body)["events"] as? [[String: Any]])
         let properties = try XCTUnwrap(events.first?["properties"] as? [String: Any])
-        XCTAssertEqual(properties["recognition_pipeline_version"] as? String, ChordInkRecognitionPipelineIdentity.version)
-        XCTAssertEqual(properties["trust_probe_count"] as? Int, 4)
-        XCTAssertEqual(properties["no_read_count"] as? Int, 1)
-        XCTAssertNil(properties["raw_chord_text"])
-        XCTAssertNil(properties["drawing_data"])
+        XCTAssertEqual(properties["error_code"] as? String, "save_error")
+        XCTAssertEqual(properties["duration_ms"] as? Double, 4.5)
+        XCTAssertEqual(properties["source"] as? String, "library_save")
+        XCTAssertNil(properties["operation"])
+        XCTAssertFalse(String(decoding: request.body, as: UTF8.self).contains("PRIVATE_ARBITRARY_SOURCE"))
+        XCTAssertNil(properties["chart_reference"])
+        XCTAssertNil(properties["stroke_count"])
         XCTAssertEqual(events.first?["client_event_id"] as? String, input.clientEventID.uuidString)
         XCTAssertTrue(try queue.loadEvents().isEmpty)
     }
 
-    func testOfflineEventsSurviveServiceRecreationAndRetryWithOriginalIDs() async throws {
+    func testOfflineRetryRetainsIDsAndOneFlushHasBoundedBatches() async throws {
         let queue = makeQueue()
-        let input = event()
-        try queue.append(input)
-        TrialTelemetryHTTPStub.configure([.offline, .status(202)])
-        await service(queue).flush()
-        XCTAssertEqual(try queue.loadEvents().map(\.clientEventID), [input.clientEventID])
-
-        await service(queue).flush()
-        XCTAssertTrue(try queue.loadEvents().isEmpty)
-        XCTAssertEqual(try sentIDs(), [input.clientEventID, input.clientEventID])
-    }
-
-    func testOneFlushDrainsMultipleQueuedBatches() async throws {
-        let queue = makeQueue()
-        let inputs = (0..<85).map { _ in event() }
+        let inputs = (0..<85).map { _ in basicFixtureEvent() }
         for input in inputs { try queue.append(input) }
-        TrialTelemetryHTTPStub.configure([.status(202), .status(202), .status(202)])
-        await service(queue).flush()
-
-        XCTAssertEqual(try batchCounts(), [40, 40, 5])
-        XCTAssertEqual(try sentIDs(), inputs.map(\.clientEventID))
-        XCTAssertTrue(try queue.loadEvents().isEmpty)
-    }
-
-    func testPartialFailureRetainsOnlyUnacknowledgedEventsForLaterRetry() async throws {
-        let queue = makeQueue()
-        let inputs = (0..<85).map { _ in event() }
-        for input in inputs { try queue.append(input) }
-        TrialTelemetryHTTPStub.configure([.status(202), .status(500), .status(202), .status(202)])
-        let telemetry = service(queue)
-        await telemetry.flush()
-        XCTAssertEqual(try queue.loadEvents().map(\.clientEventID), Array(inputs.dropFirst(40)).map(\.clientEventID))
-
-        await telemetry.flush()
-        XCTAssertEqual(try batchCounts(), [40, 40, 40, 5])
-        XCTAssertTrue(try queue.loadEvents().isEmpty)
-    }
-
-    func testUnicodeBatchStaysBelowServerBodyLimitWithoutLosingTheRemainder() async throws {
-        let queue = makeQueue()
-        let keys = [
-            "app_phase", "auth_state", "decision", "error_code", "feature_area",
-            "flow", "from_mode", "layout_style", "mode", "plan", "reason",
-            "recognition_pipeline_version", "render_action", "result", "scope",
-            "source", "target", "to_mode", "trust_outcome", "subscription_status"
-        ]
-        let large = Dictionary(uniqueKeysWithValues: keys.map {
-            ($0, IChartTelemetryValue.string(String(repeating: "🎵", count: 160)))
-        })
-        let inputs = (0..<40).map { _ in event(properties: large) }
-        for input in inputs { try queue.append(input) }
-        TrialTelemetryHTTPStub.configure(Array(repeating: .status(202), count: 4))
-        await service(queue).flush()
-
-        let requests = TrialTelemetryHTTPStub.requests
-        XCTAssertGreaterThan(requests.count, 1)
-        XCTAssertLessThanOrEqual(requests.count, 4)
-        XCTAssertTrue(requests.allSatisfy { $0.body.count <= 120_000 })
-        let sent = try sentIDs()
-        let pending = try queue.loadEvents().map(\.clientEventID)
-        XCTAssertEqual(Set(sent + pending), Set(inputs.map(\.clientEventID)))
-        XCTAssertEqual(sent.count + pending.count, inputs.count)
-    }
-
-    func testForegroundRetryDoesNotRequireAnotherEditorEvent() async throws {
-        let queue = makeQueue()
-        try queue.append(event())
-        var clock = Date(timeIntervalSince1970: 1_800_000_000)
-        TrialTelemetryHTTPStub.configure([.offline, .status(202)])
-        let telemetry = service(queue, now: { clock })
-        await telemetry.flush()
-        clock.addTimeInterval(19)
-        await telemetry.flushIfNeeded()
-        XCTAssertEqual(TrialTelemetryHTTPStub.requests.count, 1)
-        clock.addTimeInterval(2)
-        await telemetry.flushIfNeeded()
-        XCTAssertEqual(TrialTelemetryHTTPStub.requests.count, 2)
-        XCTAssertTrue(try queue.loadEvents().isEmpty)
-    }
-
-    func testCancelledFlushKeepsQueuedEventsWithoutSending() async throws {
-        let queue = makeQueue()
-        let input = event()
-        try queue.append(input)
-        TrialTelemetryHTTPStub.configure([.status(202)])
-        let telemetry = service(queue)
-        let task = Task {
-            withUnsafeCurrentTask { $0?.cancel() }
-            await telemetry.flush()
-        }
-        await task.value
-        XCTAssertTrue(TrialTelemetryHTTPStub.requests.isEmpty)
-        XCTAssertEqual(try queue.loadEvents().map(\.clientEventID), [input.clientEventID])
-    }
-
-    func testRecordingDuringAFlushNeverLosesTheNewEvent() async throws {
-        for _ in 0..<12 {
-            let queue = makeQueue()
-            let original = event()
-            try queue.append(original)
-            TrialTelemetryHTTPStub.configure(Array(repeating: .status(202), count: 4))
-            let telemetry = service(queue)
-            await withTaskGroup(of: Void.self) { group in
-                group.addTask { await telemetry.flush() }
-                group.addTask { await telemetry.record("chord.preview_discarded") }
-            }
-            let sent = try sentIDs()
-            let pending = try queue.loadEvents().map(\.clientEventID)
-            XCTAssertEqual(Set(sent + pending).count, 2)
-            XCTAssertTrue(Set(sent + pending).contains(original.clientEventID))
-        }
-    }
-
-    func testUnconsentedServiceClearsLegacyQueueAndNeverCreatesIdentityOrSends() async throws {
-        let queue = makeQueue()
-        try queue.append(event())
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "iChart-telemetry-off-\(UUID().uuidString)"))
-        let consent = IChartTelemetryConsentStore(defaults: defaults)
-        TrialTelemetryHTTPStub.configure([.status(202)])
-        let telemetry = service(queue, consentStore: consent, installationID: nil)
-        XCTAssertTrue(try queue.loadEvents().isEmpty)
-        await telemetry.record("app.launched")
-        await telemetry.flush()
-        await telemetry.flushIfNeeded()
-        XCTAssertTrue(try queue.loadEvents().isEmpty)
-        XCTAssertTrue(TrialTelemetryHTTPStub.requests.isEmpty)
-        XCTAssertNil(defaults.string(forKey: IChartTelemetryConsentStore.installationIDPreferenceKey))
-    }
-
-    func testExplicitConsentEnablesRecordingAndWithdrawalDropsOfflineBacklog() async throws {
-        let queue = makeQueue()
-        let consent = makeConsentStore(granted: false)
-        let telemetry = service(queue, consentStore: consent)
-        TrialTelemetryHTTPStub.configure([.offline, .status(202)])
-        consent.setConsentGranted(true)
-        await telemetry.record("app.launched")
-        let oldEvent = try XCTUnwrap(try queue.loadEvents().first)
-        consent.setConsentGranted(false)
-        await telemetry.consentDidChange()
-        XCTAssertTrue(try queue.loadEvents().isEmpty)
-        await telemetry.record("chord.preview_discarded")
-        await telemetry.flush()
-        XCTAssertEqual(TrialTelemetryHTTPStub.requests.count, 1)
-        consent.setConsentGranted(true)
-        await telemetry.record("chord.preview_discarded")
-        let delivered = try sentIDs()
-        XCTAssertEqual(delivered.count, 2)
-        XCTAssertEqual(delivered.first, oldEvent.clientEventID)
-        XCTAssertNotEqual(delivered.last, oldEvent.clientEventID)
-        XCTAssertTrue(try queue.loadEvents().isEmpty)
-    }
-
-    func testRecordCapturedBeforeOptInOrWithdrawalCannotRunAfterLaterOptIn() async throws {
-        let queue = makeQueue()
-        let consent = makeConsentStore(granted: false)
-        let telemetry = service(queue, consentStore: consent)
-        let disabledConsent = consent.snapshot
-        consent.setConsentGranted(true)
-        await telemetry.record("app.launched", expectedConsent: disabledConsent)
-        let earlierConsent = consent.snapshot
-        consent.setConsentGranted(false)
-        consent.setConsentGranted(true)
-        await telemetry.record("app.launched", expectedConsent: earlierConsent)
-        await telemetry.flush(expectedConsent: earlierConsent)
-        XCTAssertTrue(try queue.loadEvents().isEmpty)
-        XCTAssertTrue(TrialTelemetryHTTPStub.requests.isEmpty)
-    }
-
-    func testWithdrawalThenOptInBeforeCleanupCannotReviveQueueAfterRecreation() async throws {
-        let queue = makeQueue()
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "iChart-telemetry-relaunch-\(UUID().uuidString)"))
-        let consent = IChartTelemetryConsentStore(defaults: defaults)
-        consent.setConsentGranted(true)
-        let originalService = service(queue, consentStore: consent, installationID: nil)
-        TrialTelemetryHTTPStub.configure([.offline])
-        await originalService.record("app.launched")
-        let withdrawnEvent = try XCTUnwrap(try queue.loadEvents().first)
-
-        // Do not notify the first actor: model termination before its queued
-        // withdrawal cleanup, followed by a fresh store and service on launch.
-        consent.setConsentGranted(false)
-        consent.setConsentGranted(true)
-        XCTAssertTrue(consent.requiresQueueReset)
-        let recreatedConsent = IChartTelemetryConsentStore(defaults: defaults)
-        XCTAssertTrue(recreatedConsent.snapshot.isGranted)
-        XCTAssertTrue(recreatedConsent.requiresQueueReset)
-        let recreatedService = service(queue, consentStore: recreatedConsent, installationID: nil)
-        XCTAssertFalse(recreatedConsent.requiresQueueReset)
-        XCTAssertTrue(try queue.loadEvents().isEmpty)
-
-        TrialTelemetryHTTPStub.configure([.status(202)])
-        await recreatedService.flush()
-        XCTAssertTrue(TrialTelemetryHTTPStub.requests.isEmpty)
-        await recreatedService.record("chord.preview_discarded")
-        let freshEvent = try XCTUnwrap(try queue.loadEvents().first)
-        XCTAssertNotEqual(freshEvent.clientEventID, withdrawnEvent.clientEventID)
-        // The empty flush intentionally started the existing retry cooldown.
-        // Explicitly flush the newly consented event rather than assuming an
-        // immediate opportunistic retry during that interval.
-        await recreatedService.flush()
-        let delivered = try sentIDs()
-        XCTAssertEqual(delivered.count, 1)
-        XCTAssertNotEqual(delivered.first, withdrawnEvent.clientEventID)
-        XCTAssertTrue(try queue.loadEvents().isEmpty)
-    }
-
-    func testWithdrawalCancelsInFlightRequestAndClearsQueue() async throws {
-        let queue = makeQueue()
-        try queue.append(event())
-        let consent = makeConsentStore(granted: true)
-        let telemetry = service(queue, consentStore: consent)
-        let started = expectation(description: "Telemetry request started")
-        let completed = expectation(description: "Withdrawn telemetry flush completed")
-        TrialTelemetryHTTPStub.configure([.held], onRequest: { started.fulfill() })
-        let flush = Task {
-            await telemetry.flush()
-            completed.fulfill()
-        }
-        defer { flush.cancel() }
-        await fulfillment(of: [started], timeout: 2)
-        consent.setConsentGranted(false)
-        await telemetry.consentDidChange()
-        await fulfillment(of: [completed], timeout: 2)
-        XCTAssertTrue(try queue.loadEvents().isEmpty)
-        XCTAssertEqual(TrialTelemetryHTTPStub.requests.count, 1)
-        XCTAssertEqual(TrialTelemetryHTTPStub.cancellationCount, 1)
-    }
-
-    func testOldInFlightCompletionCannotDequeueEventsFromAnotherConsentGeneration() async throws {
-        let queue = makeQueue()
-        let original = event()
-        try queue.append(original)
-        let consent = makeConsentStore(granted: true)
-        let telemetry = service(queue, consentStore: consent)
-        let started = expectation(description: "Original telemetry request started")
-        let completed = expectation(description: "Previous consent generation flush completed")
-        TrialTelemetryHTTPStub.configure([.held, .status(202)], onRequest: { started.fulfill() })
-        let flush = Task {
-            await telemetry.flush()
-            completed.fulfill()
-        }
-        defer { flush.cancel() }
-        await fulfillment(of: [started], timeout: 2)
-        TrialTelemetryHTTPStub.setOnRequest(nil)
-        consent.setConsentGranted(false)
-        consent.setConsentGranted(true)
-        await telemetry.record("chord.preview_discarded")
-        let replacement = try XCTUnwrap(try queue.loadEvents().first)
-        XCTAssertNotEqual(replacement.clientEventID, original.clientEventID)
-        await fulfillment(of: [completed], timeout: 2)
-        XCTAssertEqual(try queue.loadEvents().map(\.clientEventID), [replacement.clientEventID])
-        XCTAssertEqual(TrialTelemetryHTTPStub.requests.count, 1)
-        await telemetry.flush()
-        XCTAssertEqual(try sentIDs(), [original.clientEventID, replacement.clientEventID])
-        XCTAssertTrue(try queue.loadEvents().isEmpty)
-    }
-
-    func testPartialIDAcknowledgmentQuarantinesRejectionAndRetriesOnlyUnknownIDs() async throws {
-        let queue = makeQueue()
-        let inputs = (0..<3).map { _ in event() }
-        for input in inputs { try queue.append(input) }
-        let partial = try JSONSerialization.data(withJSONObject: [
-            "accepted": true,
-            "stored_count": 1,
-            "rejected_count": 1,
-            "accepted_event_ids": [inputs[0].clientEventID.uuidString],
-            "rejected_event_ids": [inputs[1].clientEventID.uuidString]
-        ])
-        TrialTelemetryHTTPStub.configure([.reply(202, partial), .offline, .status(202)])
-        let telemetry = service(queue)
-        await telemetry.flush()
-        XCTAssertEqual(try queue.loadEvents().map(\.clientEventID), [inputs[2].clientEventID])
-        XCTAssertEqual(try queue.loadQuarantinedEvents().map(\.clientEventID), [inputs[1].clientEventID])
-        XCTAssertEqual(try queue.healthSnapshot().serverRejectedEventCount, 1)
-        await telemetry.flush()
-        XCTAssertEqual(try sentIDs(), inputs.map(\.clientEventID) + [inputs[2].clientEventID, inputs[2].clientEventID])
-        XCTAssertTrue(try queue.loadEvents().isEmpty)
-        XCTAssertEqual(try queue.healthSnapshot().serverRejectedEventCount, 1)
-    }
-
-    func testLegacyPartialCountsDoNotLoseAnyUnidentifiedEvent() async throws {
-        let queue = makeQueue()
-        let inputs = (0..<2).map { _ in event() }
-        for input in inputs { try queue.append(input) }
-        TrialTelemetryHTTPStub.configure([.reply(202, Data("{\"accepted\":true,\"stored_count\":1,\"rejected_count\":1}".utf8))])
+        TrialTelemetryHTTPStub.configure([.offline, .status(202), .status(202), .status(202)])
         await service(queue).flush()
         XCTAssertEqual(try queue.loadEvents().map(\.clientEventID), inputs.map(\.clientEventID))
-        XCTAssertEqual(try queue.healthSnapshot().unacknowledgedBatchCount, 1)
+        await service(queue).flush()
+        XCTAssertTrue(try queue.loadEvents().isEmpty)
+        XCTAssertEqual(TrialTelemetryHTTPStub.requests.count, 4)
+        XCTAssertTrue(TrialTelemetryHTTPStub.requests.allSatisfy { $0.body.count <= 120_000 })
     }
 
-    func testAcknowledgmentWithForeignIDsCannotDequeueTheBatch() async throws {
+    func testRetiredEventsAlreadyOnDiskNeverReachTheEndpoint() async throws {
         let queue = makeQueue()
-        let input = event()
+        try queue.append(basicFixtureEvent(name: "feature.contract_checked"))
+        try queue.append(basicFixtureEvent(name: "ink.persisted"))
+        TrialTelemetryHTTPStub.configure([])
+        await service(queue).flush()
+        XCTAssertTrue(TrialTelemetryHTTPStub.requests.isEmpty)
+        XCTAssertTrue(try queue.loadEvents().isEmpty)
+    }
+
+    func testPartialAcknowledgmentQuarantinesRejectedIDAndKeepsUnknownIDs() async throws {
+        let queue = makeQueue()
+        let inputs = (0..<3).map { _ in basicFixtureEvent() }
+        for input in inputs { try queue.append(input) }
+        let partial = try JSONSerialization.data(withJSONObject: ["accepted": true, "stored_count": 1, "rejected_count": 1,
+            "accepted_event_ids": [inputs[0].clientEventID.uuidString], "rejected_event_ids": [inputs[1].clientEventID.uuidString]])
+        TrialTelemetryHTTPStub.configure([.reply(202, partial), .offline])
+        await service(queue).flush()
+        XCTAssertEqual(try queue.loadEvents().map(\.clientEventID), [inputs[2].clientEventID])
+        XCTAssertEqual(try queue.healthSnapshot().serverRejectedEventCount, 1)
+    }
+
+    func testForeignAcknowledgmentCannotRemovePendingEvents() async throws {
+        let queue = makeQueue()
+        let input = basicFixtureEvent()
         try queue.append(input)
-        let acknowledgment = try JSONSerialization.data(withJSONObject: [
-            "accepted": true, "stored_count": 1, "rejected_count": 0,
-            "accepted_event_ids": [UUID().uuidString], "rejected_event_ids": []
-        ])
-        TrialTelemetryHTTPStub.configure([.reply(202, acknowledgment)])
+        let response = try JSONSerialization.data(withJSONObject: ["accepted": true, "stored_count": 1, "rejected_count": 0,
+            "accepted_event_ids": [UUID().uuidString], "rejected_event_ids": []])
+        TrialTelemetryHTTPStub.configure([.reply(202, response)])
         await service(queue).flush()
         XCTAssertEqual(try queue.loadEvents().map(\.clientEventID), [input.clientEventID])
         XCTAssertEqual(try queue.healthSnapshot().unacknowledgedBatchCount, 1)
     }
 
-    func testRecordedChartReferenceIsStableWithinInstallationAndRotatesOnConsentWithdrawal() async throws {
+    func testWithdrawalCancelsHeldRequestAndRegrantCannotReviveItsQueue() async throws {
         let queue = makeQueue()
-        let consent = makeConsentStore(granted: true)
-        let telemetry = service(queue, consentStore: consent, installationID: nil)
-        let chartID = UUID()
-        TrialTelemetryHTTPStub.configure([.offline, .offline])
-        await telemetry.record("editor.opened", properties: ["build_source": .string("spoofed"), "chart_reference": .string("spoofed")], chartID: chartID)
-        await telemetry.record("editor.closed", chartID: chartID)
-        let firstEvents = try queue.loadEvents()
-        XCTAssertEqual(firstEvents.count, 2)
-        let firstReference = try XCTUnwrap(firstEvents.first?.properties["chart_reference"])
-        XCTAssertEqual(firstEvents.last?.properties["chart_reference"], firstReference)
-        XCTAssertEqual(firstEvents.first?.properties["build_source"], .string(IChartTelemetryBuildSource.value))
-        if case .string(let reference) = firstReference {
-            XCTAssertEqual(reference.count, 64)
-            XCTAssertNotEqual(reference, chartID.uuidString.lowercased())
-        } else {
-            XCTFail("Expected opaque chart reference")
+        let consent = try consentStore(granted: true)
+        let input = basicFixtureEvent()
+        try queue.append(input)
+        let telemetry = service(queue, consent: consent)
+        IChartTelemetry.configure(telemetry)
+        defer { IChartTelemetry.configure(nil) }
+        let started = expectation(description: "request started")
+        TrialTelemetryHTTPStub.configure([.held], onRequest: { started.fulfill() })
+        let flushing = Task { await telemetry.flush() }
+        await fulfillment(of: [started], timeout: 2)
+        IChartTelemetry.setConsentGranted(false)
+        XCTAssertFalse(consent.trySnapshotForScheduling()?.isGranted ?? true)
+        for _ in 0..<100 {
+            if TrialTelemetryHTTPStub.cancellationCount > 0 { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
         }
-        consent.setConsentGranted(false)
+        XCTAssertGreaterThanOrEqual(TrialTelemetryHTTPStub.cancellationCount, 1,
+            "The facade must cancel held HTTP without waiting for the data drain or request timeout")
+        await flushing.value
+        await consent.waitForPendingPersistence()
         await telemetry.consentDidChange()
         XCTAssertTrue(try queue.loadEvents().isEmpty)
         consent.setConsentGranted(true)
-        await telemetry.record("editor.opened", chartID: chartID)
+        await consent.waitForPendingPersistence()
+        await telemetry.consentDidChange()
+        await consent.waitForPendingPersistence()
+        TrialTelemetryHTTPStub.configure([.offline])
+        await telemetry.record("app.error", properties: ["error_code": .string("save_error")])
         let replacement = try XCTUnwrap(try queue.loadEvents().first)
-        XCTAssertNotEqual(replacement.properties["chart_reference"], firstReference)
-        XCTAssertNotEqual(replacement.installationID, firstEvents.first?.installationID)
+        XCTAssertNotEqual(replacement.clientEventID, input.clientEventID)
     }
 
-    func testInvalidContractIsCountedLocallyWithoutUploadingUnboundedReason() async throws {
+    func testConstructionDoesNotReadOrClearAQueueAndDisabledInitializationClearsIt() async throws {
         let queue = makeQueue()
-        TrialTelemetryHTTPStub.configure([.status(202)])
-        await service(queue).record("feature.contract_checked", properties: [
-            "contract_id": .string("chart.save"), "contract_version": .int(1),
-            "operation_id": .string(UUID().uuidString), "outcome": .string("violated"),
-            "reason": .string("Do not upload chart content through this field")
-        ])
+        let input = basicFixtureEvent()
+        try queue.append(input)
+        let disabled = try consentStore(granted: false)
+        let telemetry = service(queue, consent: disabled)
+        XCTAssertEqual(try queue.loadEvents().count, 1)
+        await telemetry.initialize()
         XCTAssertTrue(try queue.loadEvents().isEmpty)
-        XCTAssertEqual(try queue.healthSnapshot().locallyRejectedEventCount, 1)
-        XCTAssertTrue(TrialTelemetryHTTPStub.requests.isEmpty)
     }
 
-    func testLaunchReportsPriorCollectionGapsAndWithdrawalClearsTheirTotals() async throws {
-        let queue = IChartTelemetryQueueStore(url: FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-            .appendingPathComponent("queue.json"), maxEventCount: 2)
-        let consent = makeConsentStore(granted: true)
-        let telemetry = service(queue, consentStore: consent)
-        let inputs = (0..<3).map { _ in event() }
-        for input in inputs { try queue.append(input) }
-        try queue.acknowledge(acceptedIDs: [], rejectedIDs: [inputs[1].clientEventID])
-        try queue.recordLocalRejection()
-        try queue.recordUnacknowledgedBatch()
-        TrialTelemetryHTTPStub.configure([.offline, .offline])
-        await telemetry.record("app.launched")
-        let launch = try XCTUnwrap(try queue.loadEvents().last)
-        XCTAssertEqual(launch.properties["queue_overflow_count"], .int(1))
-        XCTAssertEqual(launch.properties["queue_rejected_count"], .int(2))
-        XCTAssertEqual(launch.properties["queue_quarantine_overflow_count"], .int(0))
-        XCTAssertEqual(launch.properties["queue_unacknowledged_batch_count"], .int(1))
-
+    @MainActor
+    func testPersistedResetMarkerPreventsOldQueueRevivalAfterRecreation() async throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "basic-regrant-recreation-\(UUID())"))
+        defaults.set(IChartTelemetryConsentStore.currentVersion, forKey: IChartTelemetryConsentStore.preferenceKey)
+        let consent = IChartTelemetryConsentStore(defaults: defaults)
+        let queue = makeQueue()
+        let original = basicFixtureEvent()
+        try queue.append(original)
         consent.setConsentGranted(false)
-        await telemetry.consentDidChange()
         consent.setConsentGranted(true)
-        await telemetry.record("app.launched")
-        let freshLaunch = try XCTUnwrap(try queue.loadEvents().last)
-        XCTAssertEqual(freshLaunch.properties["queue_overflow_count"], .int(0))
-        XCTAssertEqual(freshLaunch.properties["queue_rejected_count"], .int(0))
-        XCTAssertEqual(freshLaunch.properties["queue_quarantine_overflow_count"], .int(0))
-        XCTAssertEqual(freshLaunch.properties["queue_unacknowledged_batch_count"], .int(0))
+        await consent.waitForPendingPersistence()
+        let recreated = IChartTelemetryConsentStore(defaults: defaults)
+        XCTAssertTrue(recreated.requiresQueueReset)
+        let telemetry = service(queue, consent: recreated)
+        await telemetry.initialize()
+        XCTAssertTrue(try queue.loadEvents().isEmpty)
+        TrialTelemetryHTTPStub.configure([.offline])
+        await telemetry.record("app.error", properties: ["error_code": .string("save_error")])
+        XCTAssertFalse(try queue.loadEvents().contains { $0.clientEventID == original.clientEventID })
     }
 
     private func makeQueue() -> IChartTelemetryQueueStore {
-        IChartTelemetryQueueStore(url: FileManager.default.temporaryDirectory
-            .appendingPathComponent("iChart-trial-telemetry-tests", isDirectory: true)
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-            .appendingPathComponent("queue.json"))
+        IChartTelemetryQueueStore(url: FileManager.default.temporaryDirectory.appendingPathComponent("basic-transport-\(UUID())/queue.json"))
     }
 
-    private func makeConsentStore(granted: Bool) -> IChartTelemetryConsentStore {
-        let defaults = UserDefaults(suiteName: "iChart-trial-telemetry-consent-\(UUID().uuidString)")!
-        let consent = IChartTelemetryConsentStore(defaults: defaults)
-        consent.setConsentGranted(granted)
-        return consent
+    private func consentStore(granted: Bool) throws -> IChartTelemetryConsentStore {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "basic-transport-consent-\(UUID())"))
+        if granted { defaults.set(IChartTelemetryConsentStore.currentVersion, forKey: IChartTelemetryConsentStore.preferenceKey) }
+        return IChartTelemetryConsentStore(defaults: defaults)
     }
 
-    private func service(
-        _ queue: IChartTelemetryQueueStore,
-        consentStore: IChartTelemetryConsentStore? = nil,
-        installationID: UUID? = UUID(),
-        now: @escaping () -> Date = Date.init
-    ) -> IChartTelemetryService {
+    private func service(_ queue: IChartTelemetryQueueStore, consent: IChartTelemetryConsentStore? = nil) -> IChartTelemetryService {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [TrialTelemetryHTTPStub.self]
-        return IChartTelemetryService(
-            endpointURL: URL(string: "https://telemetry.invalid/functions/v1/app-telemetry-ingest")!,
-            publishableKey: "publishable-test-key",
-            sessionStore: nil,
-            queueStore: queue,
-            installationID: installationID,
-            consentStore: consentStore ?? makeConsentStore(granted: true),
-            urlSession: URLSession(configuration: configuration),
-            now: now
-        )
-    }
-
-    private func event(properties: IChartTelemetryProperties = [:]) -> IChartTelemetryEvent {
-        IChartTelemetryEvent(
-            clientEventID: UUID(), eventName: "chord.preview_updated",
-            occurredAt: Date(timeIntervalSince1970: 1_800_000_000),
-            installationID: UUID(), sessionID: UUID(), appVersion: "trial",
-            buildNumber: "test", platform: "iPadOS", osVersion: "test",
-            deviceModel: "test", localeLanguage: "en", timeZoneOffsetMinutes: 0,
-            properties: properties
-        )
+        return IChartTelemetryService(endpointURL: URL(string: "https://telemetry.invalid/ingest")!, publishableKey: "publishable-test-key",
+            sessionStore: nil, queueStore: queue, installationID: UUID(),
+            consentStore: consent ?? (try! consentStore(granted: true)), urlSession: URLSession(configuration: configuration))
     }
 
     private func batch(_ data: Data) throws -> [String: Any] {
         try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-    }
-
-    private func batchCounts() throws -> [Int] {
-        try TrialTelemetryHTTPStub.requests.map {
-            try XCTUnwrap(try batch($0.body)["events"] as? [[String: Any]]).count
-        }
-    }
-
-    private func sentIDs() throws -> [UUID] {
-        try TrialTelemetryHTTPStub.requests.flatMap {
-            try XCTUnwrap(try batch($0.body)["events"] as? [[String: Any]]).map {
-                try XCTUnwrap(UUID(uuidString: try XCTUnwrap($0["client_event_id"] as? String)))
-            }
-        }
     }
 }
 

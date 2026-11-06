@@ -3,6 +3,13 @@
 Status: Local App Store/TestFlight metadata draft; build 75 privacy publication hold
 Last updated: 2026-10-09
 
+Repeat-copy scope clarified November 5, 2026: handwritten chord-repeat symbols
+(`%` / dot-slash-dot) remain supported in **Write & Render**. Do not promise
+recognition of bar-and-dot measure/range repeat signs; enter those through
+**Tools > Repeats** and selected measures. This is a local draft correction, not
+a claim that external Apple fields have been republished or fresh physical
+Pencil acceptance has passed.
+
 ## Build 75 Privacy Publication Hold — 2026-10-09
 
 The current native QA candidate is `1.2.1 (75)`. Signed installation and QA
@@ -181,7 +188,7 @@ Alternates:
 
 iChart helps musicians handwrite clean, reusable music charts on iPad, then transpose, organize, and export them as PDFs.
 
-Write practical charts by hand. Add chords, repeats, form markings, rhythm cues, and notes directly on the page, then keep the chart editable for the next rehearsal, singer, horn player, lesson, or gig.
+Write chord symbols by hand, add repeat ranges with the Repeats tool, and place form markings, rhythm cues, and notes on the page. Keep the chart editable for the next rehearsal, singer, horn player, lesson, or gig.
 
 Use iChart when paper is fast but not reusable, when quick chord-chart apps feel limiting, and when full notation software is more tool than the moment needs.
 
@@ -189,7 +196,8 @@ Core chart tools:
 
 - Create Simple Chord Sheet and Rhythm Section Sheet charts.
 - Write and edit recognized chord symbols.
-- Add repeats, text notes, meter, rhythm cues, and layout changes.
+- Add repeat ranges by selecting measures with the Repeats tool.
+- Add text notes, meter, rhythm cues, and layout changes.
 - Duplicate charts and transpose chord symbols for new keys or instruments.
 - Export readable PDFs for rehearsal, teaching, and performance prep.
 
@@ -214,6 +222,7 @@ chord,lead sheet,pdf,band,setlist,gig,musician,pencil,teacher,horn,wedding,trans
 - Use "handwrite clean charts at paper speed" as the core promise.
 - Use "Available on the App Store" and the official App Store badge only after the public product page or pre-order page is live.
 - Do not use public V1 copy to promise dedicated rhythm notation tools, rhythm recognition, or rhythm rendering.
+- Chord-repeat symbols (`%` / dot-slash-dot) may be described as part of Write & Render. Do not promise recognition of drawn bar-and-dot measure/range repeat signs; describe those through the Repeats tool and selected measures. Avoid claims of universal handwriting accuracy.
 - If rhythm notation comes up, frame it only as a planned V1.2 lane for select-input notation and future workflow expansion.
 
 ## Historical Apple Product Page Requirements — Checked 2026-07-20
@@ -402,7 +411,7 @@ Required iPad product-page set:
    - Caption direction: "Start a clean chart fast."
 2. Handwritten chart editor showing handwritten and recognized chord content.
    - Caption direction: "Handwrite chords directly on the page."
-3. Chord, repeat, text, and form-marking workflow on a simple chart.
+3. Chord entry, measure-based Repeats tool, text, and form-marking workflow on a simple chart.
    - Caption direction: "Build the chart musicians actually need."
 4. Transpose flow using the wedding-key-change example.
    - Caption direction: "Duplicate and transpose for the new key."

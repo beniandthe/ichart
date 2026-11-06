@@ -62,7 +62,7 @@ enum ChordInkDraftSourceCoveragePolicy {
             let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize,
                 includesChordInkContinuationLanes: true)
             let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
-            let context = ChordInkDraftVisibleStrokePolicy.repeatAwareVisibleDrawingContext(
+            let context = ChordInkDraftVisibleStrokePolicy.structuralVisibleDrawingContext(
                 from: source, chordFrame: chordFrame, pageLayout: layout)
             let strokes = PencilKitInkAdapter.inkStrokes(from: context.drawing)
             let freshEndings = ChordDraftEndingRecognizer.recognize(

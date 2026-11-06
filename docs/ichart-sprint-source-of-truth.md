@@ -1,5 +1,13 @@
 # iChart Sprint Source Of Truth
 
+November 5, 2026 corrected repeat-input scope: handwritten chord-repeat symbols
+(`%` / dot-slash-dot) remain supported in **Write & Render**. Only bar-and-dot
+measure/range repeat ingestion is retired; use **Tools > Repeats** and selected
+measures for that structure. Earlier implementation and acceptance notes remain
+historical evidence, not fresh validation of this correction. Basic telemetry
+reduction and parked ML scope remain unchanged. Current work starts at
+[Project state](project-state.md) and the [corrected retirement record](handwritten-repeat-ingestion-retirement-2026-11-05.md).
+
 Status: active living sprint document
 Created: 2026-05-20
 Repo: `beniandthe/ichart`

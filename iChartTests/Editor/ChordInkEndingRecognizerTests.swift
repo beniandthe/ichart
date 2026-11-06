@@ -167,56 +167,9 @@ final class ChordInkEndingRecognizerTests: XCTestCase {
         XCTAssertEqual(barlines.strokeIndices, Set(bracket.count..<source.count))
     }
 
-    func testRepeatDotsUnderTheRoofAreNotMistakenForCustomLabelPunctuation() throws {
-        let fixture = try Fixture()
-        let bracket = fixture.bracket()
-        let x = fixture.point(0.72, 0).x
-        let dotsX = x - fixture.lane.height * 0.12
-        let repeatSign = [
-            fixture.stroke([fixture.point(0.72, 0.07), fixture.point(0.72, 0.93)]),
-            fixture.stroke([CGPoint(x: dotsX, y: fixture.point(0, 0.38).y)]),
-            fixture.stroke([CGPoint(x: dotsX, y: fixture.point(0, 0.62).y)])
-        ]
-        let source = bracket + repeatSign
-        let ending = try XCTUnwrap(fixture.recognize(source).endings.first)
-        XCTAssertEqual(ending.sourceStrokeIndices, Set(bracket.indices))
-        let barlines = ChordDraftEndingRecognizer.recognizeBarlinesExcludingEndings(
-            strokes: source, chordFrame: fixture.chordFrame, pageLayout: fixture.layout)
-        XCTAssertEqual(barlines.barlines.map(\.kind), [.repeatEnd])
-        XCTAssertEqual(barlines.strokeIndices, Set(bracket.count..<source.count))
-    }
 
-    func testIncompleteRepeatDotNearABoundaryIsNotConsumedAsALabelPeriod() throws {
-        let fixture = try Fixture()
-        let bracket = fixture.bracket()
-        let bar = fixture.stroke([fixture.point(0.72, 0.07), fixture.point(0.72, 0.93)])
-        let dot = fixture.stroke([CGPoint(x: fixture.point(0.72, 0).x - fixture.lane.height * 0.12,
-            y: fixture.point(0, 0.38).y)])
-        let source = bracket + [bar, dot]
-        let endings = fixture.recognize(source)
-        let ending = try XCTUnwrap(endings.endings.first)
-        XCTAssertEqual(endings.endings.count, 1)
-        XCTAssertEqual(ending.sourceStrokeIndices, Set(bracket.indices))
-        XCTAssertEqual(ending.sourceStrokeGeometry, bracket)
-        XCTAssertTrue(ending.label.isEmpty, "The lone repeat dot must not become a label period")
-        XCTAssertFalse(ending.isRenderable)
 
-        let barlines = ChordDraftEndingRecognizer.recognizeBarlinesExcludingEndings(
-            strokes: source, chordFrame: fixture.chordFrame, pageLayout: fixture.layout)
-        let unfinished = try XCTUnwrap(barlines.barlines.first)
-        XCTAssertEqual(barlines.barlines.count, 1)
-        XCTAssertEqual(unfinished.kind, .repeatEnd)
-        XCTAssertEqual(unfinished.ambiguity, .incompleteRepeat)
-        XCTAssertFalse(unfinished.isRenderable)
-        XCTAssertEqual(unfinished.ownedSourceStrokeIndices, Set(bracket.count..<source.count))
-        XCTAssertEqual(unfinished.sourceStrokeGeometry, [bar, dot])
-        XCTAssertEqual(barlines.strokeIndices, unfinished.ownedSourceStrokeIndices)
-        XCTAssertTrue(ending.sourceStrokeIndices.isDisjoint(with: unfinished.ownedSourceStrokeIndices))
-        let state = ChordPreviewState(draftBarlines: barlines.barlines, draftEndings: endings.endings,
-            layoutPageSize: fixture.layout.pageBounds.size)
-        XCTAssertTrue(ChordDraftRepeatReviewPolicy.hasIncompleteRepeat(in: state))
-        XCTAssertNotNil(ChordDraftRepeatReviewPolicy.blockingMessage(for: state))
-    }
+
 
     func testShortVerticalEndingNumeralNearBoundaryIsNotARepeatDot() throws {
         let fixture = try Fixture()

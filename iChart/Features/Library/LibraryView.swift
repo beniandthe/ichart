@@ -354,9 +354,11 @@ private struct IChartHelpArticleSection: Identifiable {
             id: "editor-corridor-lane",
             title: "Write & Render",
             systemImageName: "pencil",
-            body: "Use Write & Render to turn handwritten chords, barlines, and repeat signs into chart notation.",
+            body: "Use Write & Render to turn handwritten chords, chord-repeat symbols (%), barlines, and ending brackets into chart notation.",
             bullets: [
                 "Write in the highlighted Corridor Lane above the staff.",
+                "Write chord-repeat symbols (%) in the lane alongside chords. Keep separate symbols apart and follow review prompts when offered.",
+                "Add measure repeats and repeat ranges with Tools > Repeats by selecting measures.",
                 "On a Rhythm Section Sheet, the first chord in each measure renders on beat 1 wherever you write it in that measure.",
                 "Chords render automatically after a pause. Keep the symbols for each chord together, with space before the next chord.",
                 "If a triangle is unclear, the ink stays on the chart. Tap Review Chord in Automatic, or Review & Render in Manual, to enter the intended chord.",
@@ -374,22 +376,14 @@ private struct IChartHelpArticleSection: Identifiable {
             ]
         ),
         IChartHelpArticleSection(
-            id: "editor-writing-repeat-signs",
-            title: "Writing Repeat Signs",
+            id: "editor-repeat-tools",
+            title: "Chord and Measure Repeats",
             systemImageName: "repeat",
-            body: "Use the same repeat-sign drawing rules in Automatic and Manual Render with Preview on every sheet layout.",
+            body: "Write chord-repeat symbols (%) in Write & Render. Use Tools > Repeats for measure repeats and repeat ranges.",
             bullets: [
-                "Draw one or two upright bars in the blue lane, at least half as tall as the lane. A little overshoot is allowed; the bars do not need different thicknesses.",
-                "Place two small, stacked dots beside the middle of the bars, with a clear gap between the dots and the bars.",
-                "You can tap, loop, fill, or retrace each dot. Keep two separate, compact dot areas. A third separate dot or dots that run into a bar still need correction.",
-                "Dots on the right start a repeat. Dots on the left end a repeat. A pair on each side ends one repeat and starts the next.",
-                "Draw the bars and dots in any order, upward or downward. Keep the sign separate from nearby chords and other marks.",
-                "Complete each start repeat with an end repeat. A complete end repeat with no earlier start repeats from the beginning of the chart. Nested or conflicting starts stay as draft ink until corrected.",
-                "In Automatic, finish both the bars and dots before pausing. A bare barline that has already rendered cannot gain repeat dots from later dot strokes; use Tools > Repeats to mark the intended measures. While the sign is still draft ink, you can erase the whole sign and redraw it.",
-                "To retry saved repeat ink in Automatic, open the chart, tap Write & Render, and pause. You do not need to add a stroke. If Fix Writing is already showing, tap Select, then Write & Render to check that ink again.",
-                "In Manual Render with Preview, check the repeat preview, then use Render Chords or Review & Render when offered.",
-                "If a repeat is shown as a chord, return to writing and erase just that sign before redrawing it. Correcting chord text does not turn it into a repeat sign.",
-                "Use Tools > Repeats to place repeat marks by selecting measures. Free Ink keeps handwritten repeat signs as ink."
+                "Select the first measure, then tap Start Repeat. Select the last measure and tap End Repeat.",
+                "Use One Bar for a single-measure repeat. Use Manage to edit or remove existing repeat marks.",
+                "Write & Render does not convert drawn bar-and-dot repeat barlines. Use Free Ink to keep those signs as handwriting."
             ]
         ),
         IChartHelpArticleSection(
@@ -405,7 +399,7 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Check Start measure and End measure, choose Open or Closed under Right edge, then tap Use Ending. You can correct the measure range without redrawing the bracket.",
                 "Use Ending confirms the draft. Rendering replaces the bracket and label ink with the reviewed notation. Back to Writing keeps the ink; changed writing may need another review.",
                 "If a mark blocks Review Ending, tap its name or Back to Writing to highlight it. Correct the highlighted mark, then review the same ending bracket again.",
-                "Clear Draft Ink removes all unrendered chords, barlines, repeat signs, and endings after confirmation. Use Erase to change only the mark you are fixing."
+                "Clear Draft Ink removes all unrendered writing in Write & Render after confirmation. Use Erase to change only the mark you are fixing."
             ]
         ),
         IChartHelpArticleSection(
@@ -415,14 +409,14 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Turn on Manual Render with Preview in app Settings when you want to review your writing before it becomes notation.",
             bullets: [
                 "Tap Render Chords to render ready ink. Use Review & Render to check chord guesses or enter missing chords. You can keep writing while unplaced ink stays on the page.",
-                "Tap an ending preview to review its label and measures. When only an unreviewed repeat or ending remains, use Review & Render.",
+                "Tap an ending preview to review its label and measures. When only an unreviewed ending remains, use Review & Render.",
                 "When adding △7 or −7 after a preview appears, write it close to its root and check the updated preview before rendering. Leave space between separate chords.",
                 "If a preview says Add chord, tap Review & Render and type the intended chord.",
                 "After Back to Writing, your corrections stay with the same handwriting. Check the updated rows if you return to review.",
                 "If new strokes make a chord unreadable, Add chord marks the combined writing. If you see Separate chords, go back to writing and rewrite those chords with more space between them.",
                 "In Review Chords, Recognition guess marks a prefilled read and Your edit marks text you typed or chose. Fill in any missing chords and check the guesses. Render All uses the text shown in every row. Ink that cannot be placed stays on the page.",
                 "Turn the setting off to return to automatic chord rendering after a pause.",
-                "Clear Draft Ink removes all unrendered chords, barlines, repeat signs, and endings after confirmation."
+                "Clear Draft Ink removes all unrendered writing in Write & Render after confirmation."
             ]
         ),
         IChartHelpArticleSection(
@@ -633,7 +627,7 @@ private struct IChartHelpArticleSection: Identifiable {
             bullets: [
                 "Local charts stay on the device unless you use cloud backup or publish a forum PDF.",
                 "Account information supports sign-in, email verification, password recovery, subscription identity, and support.",
-                "Privacy-limited diagnostics may include app/build/device context, workflow results, counts, timings, error categories, and aggregate ink appearance statistics, but not chart titles, emails, raw chord text, drawings, PDFs, screenshots, or chart documents.",
+                "Optional diagnostics include basic error counts, elapsed timings, correction categories, and app/build/device context, but not chart titles, emails, raw chord text, drawings, PDFs, screenshots, or chart documents. Manage sharing in Settings → Privacy.",
                 "Forum posts, comments, votes, reports, downloads, and moderation events are handled by the community service."
             ]
         ),
@@ -5166,10 +5160,16 @@ private struct IChartHelpArticlePage: View {
 private struct IChartPerformanceReportShareRow: View {
     let theme: IChartHomeTheme
     @State private var reportURL: URL?
+    @State private var isPreparingReport = true
+    @State private var isClearingReport = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let reportURL {
+            if isPreparingReport || isClearingReport {
+                ProgressView(isClearingReport ? "Clearing performance report..." : "Preparing performance report...")
+                    .font(.caption)
+                    .foregroundStyle(theme.panelSecondary)
+            } else if let reportURL {
                 ShareLink(
                     item: reportURL,
                     preview: SharePreview("iChart Performance Report")
@@ -5181,22 +5181,52 @@ private struct IChartPerformanceReportShareRow: View {
                 .buttonStyle(.bordered)
                 .controlSize(.regular)
                 .tint(IChartHomeBrand.blue)
+
             } else {
-                Label("No performance report yet", systemImage: "doc.badge.clock")
+                Label("No basic performance entries to share", systemImage: "doc.badge.clock")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(theme.panelSecondary)
             }
 
-            Text("Timing and diagnostic context. Stays on this iPad until you share it.")
+            Button("Clear Report", role: .destructive) {
+                Task { await clearReport() }
+            }
+            .font(.caption)
+            .disabled(isPreparingReport || isClearingReport)
+            .accessibilityHint("Removes local diagnostic history and prepared performance reports from this iPad.")
+
+            Text("Basic operation timings and error categories. Stays on this iPad until you share it.")
                 .font(.caption2)
                 .foregroundStyle(theme.panelSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .onAppear(perform: refreshReportURL)
+        .task { await refreshReportURL() }
     }
 
-    private func refreshReportURL() {
-        reportURL = IChartPerformanceTrace.hasReport ? IChartPerformanceTrace.reportURL : nil
+    @MainActor
+    private func refreshReportURL() async {
+        isPreparingReport = true
+        // This row exists only after the user opens Contact Us. Exporting here
+        // also finds retained reports before the memory-only availability probe
+        // finishes; disk work never runs in the view or on the main actor.
+        let preparedURL = await Task.detached(priority: .utility) {
+            IChartPerformanceTrace.reportURL
+        }.value
+        guard !Task.isCancelled else { return }
+        reportURL = preparedURL
+        isPreparingReport = false
+    }
+
+    @MainActor
+    private func clearReport() async {
+        guard !isPreparingReport, !isClearingReport else { return }
+        reportURL = nil
+        isClearingReport = true
+        await Task.detached(priority: .utility) {
+            IChartPerformanceTrace.resetReport()
+        }.value
+        guard !Task.isCancelled else { return }
+        isClearingReport = false
     }
 }
 

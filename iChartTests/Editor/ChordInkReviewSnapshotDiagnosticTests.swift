@@ -16,7 +16,7 @@ final class ChordInkReviewSnapshotDiagnosticTests: XCTestCase {
 
     func testRejectedRenderKeepsInlineStatusInReviewAndTypedEntry() async throws {
         let state = ReviewPresentationState()
-        let rejected = "The repeat signs could not be placed. Your ink is still on the page."
+        let rejected = "The notation could not be placed. Your ink is still on the page."
         state.submissionError = rejected
         let host = UIHostingController(rootView: ReviewPresentationHarness(state: state))
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 820, height: 1180))

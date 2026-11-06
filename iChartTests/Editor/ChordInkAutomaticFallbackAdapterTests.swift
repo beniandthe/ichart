@@ -4,6 +4,27 @@ import XCTest
 @testable import iChart
 
 final class ChordInkAutomaticFallbackAdapterTests: XCTestCase {
+    func testChordRepeatAliasesRemainAvailableToFallbackAndVisionReview() throws {
+        for text in ["%", "./.", "•/•"] {
+            let match = try XCTUnwrap(ChordRecognitionCompendium.match(text))
+            let candidate = ChordInkRecognitionResult(rawCandidates: [text], glyphCandidates: [],
+                match: match, confidence: 4.99,
+                candidateScores: [.init(text: text, displayText: match.displayText, confidence: 4.99)])
+            XCTAssertEqual(ChordInkAutomaticFallbackCandidatePolicy.candidateTexts(for: candidate), [match.displayText])
+            XCTAssertTrue(ChordInkAutomaticFallbackCandidatePolicy.hasCandidate(candidate))
+            XCTAssertEqual(ChordInkAutomaticVisionCandidateNormalizer().normalizedChord(from: text), match.displayText)
+            let output = RecognitionStudyVisionChordRecognizer.Result(
+                decision: .accepted(chord: text, confidenceFloor: 0.99),
+                candidates: [.init(rawText: text, rawConfidence: 0.99, normalizedChord: text,
+                    passIndex: 0, rank: 0)])
+            let mapped = try XCTUnwrap(ChordInkVisionAutomaticFallbackRecognizer.recognitionResult(
+                from: output, sourceStrokeCount: 3))
+            XCTAssertEqual(ChordInkAutomaticFallbackCandidatePolicy.candidateTexts(for: mapped), [match.displayText])
+            XCTAssertNil(mapped.match, "Fallback review candidates are not a primary recognition decision")
+            XCTAssertEqual(mapped.confidence, 0)
+        }
+    }
+
     func testNativeScaleUsesExistingTransformAndReturnsOnlyActualReviewCandidates() throws {
         let source = preparedInk()
         let originalSource = source

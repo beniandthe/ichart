@@ -234,7 +234,7 @@ enum ChordInkRecognitionPreparation {
         let sourceStrokeCount = sourceDrawing.strokes.count
 
         let visibleSourceContext = request.flow == .draftPreview
-            ? ChordInkDraftVisibleStrokePolicy.repeatAwareVisibleDrawingContext(
+            ? ChordInkDraftVisibleStrokePolicy.structuralVisibleDrawingContext(
                 from: sourceDrawing, chordFrame: request.chordFrame, pageLayout: request.pageLayout)
             : ChordInkDraftVisibleStrokePolicy.visibleDrawingContext(from: sourceDrawing)
         guard shouldContinue() else {

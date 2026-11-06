@@ -41,7 +41,7 @@ final class EditorCommandLayoutPolicyTests: XCTestCase {
         XCTAssertTrue(editor.contains("guard requestedChartID == chart.id else { return }"),
                        "A stale confirmation must not clear another chart")
         XCTAssertTrue(editor.contains("Button(\"Cancel\", role: .cancel) {}"))
-        XCTAssertTrue(editor.contains("This removes all unrendered chord, barline, repeat-sign, and ending writing. Rendered notation and Free Ink stay unchanged."))
+        XCTAssertTrue(editor.contains("This removes all unrendered writing in Write & Render. Rendered notation and Free Ink stay unchanged."))
     }
 
     func testQuickStartPreparesEnoughMeasuresForItsChordExercise() {
