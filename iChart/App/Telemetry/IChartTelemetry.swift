@@ -111,6 +111,7 @@ struct IChartTelemetryRecordingTrace: Sendable {
         case contextAdmissionRejected, contextReady, contractPropertiesRejected
         case queueAdmissionRejected, queueAppendFailed, queueAppended
         case queueResetStarted, queueResetRejected, queueResetFailed, queueResetCompleted
+        case queueResetRetryScheduled, queueResetRetryExhausted, queueResetRetryEnded
     }
 
     let callID: UUID
@@ -334,8 +335,11 @@ final class IChartTelemetryAdmission: @unchecked Sendable {
 }
 
 actor IChartTelemetryService {
+    private enum ConsentResetRetryOutcome: Sendable { case pending, finished, deadlineExceeded }
     nonisolated let consentStore: IChartTelemetryConsentStore
     private nonisolated let recordingObserver: (@Sendable (IChartTelemetryRecordingTrace) -> Void)?
+    private let sleepForConsentResetRetry: @Sendable (UInt64) async throws -> Void
+    private let consentResetRetryUptime: @Sendable () -> TimeInterval
     private let endpointURL: URL
     private let publishableKey: String
     private let queueStore: IChartTelemetryQueueStore
@@ -350,6 +354,13 @@ actor IChartTelemetryService {
     private var observedConsent: IChartTelemetryConsentSnapshot?
     private var didInitialize = false
     private var inFlightRequest: IChartTelemetryRequest?
+    private var consentResetRetryTask: Task<Void, Never>?
+    private var consentResetRetryEpoch: IChartTelemetryConsentSnapshot?
+    private var consentResetRetryID: UUID?
+
+    private static let consentResetRetryDelays: [UInt64] = [10_000_000, 25_000_000, 50_000_000,
+        100_000_000, 200_000_000, 400_000_000, 800_000_000]
+    private static let consentResetRetryBudget: TimeInterval = 2
 
     private static let opportunisticFlushInterval: TimeInterval = 20
     private static let opportunisticFlushQueueThreshold = 8
@@ -367,7 +378,11 @@ actor IChartTelemetryService {
         consentStore: IChartTelemetryConsentStore = .shared,
         urlSession: URLSession = .shared,
         now: @escaping () -> Date = Date.init,
-        recordingObserver: (@Sendable (IChartTelemetryRecordingTrace) -> Void)? = nil
+        recordingObserver: (@Sendable (IChartTelemetryRecordingTrace) -> Void)? = nil,
+        sleepForConsentResetRetry: @escaping @Sendable (UInt64) async throws -> Void = {
+            try await Task.sleep(nanoseconds: $0)
+        },
+        consentResetRetryUptime: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     ) {
         self.endpointURL = endpointURL
         self.publishableKey = publishableKey
@@ -380,6 +395,8 @@ actor IChartTelemetryService {
         self.urlSession = urlSession
         self.now = now
         self.recordingObserver = recordingObserver
+        self.sleepForConsentResetRetry = sleepForConsentResetRetry
+        self.consentResetRetryUptime = consentResetRetryUptime
 
     }
 
@@ -431,7 +448,11 @@ actor IChartTelemetryService {
     }
 
     func consentDidChange() {
+        let consent = consentStore.cachedSnapshotForScheduling
+        invalidateConsentResetRetry(unlessMatching: consent)
+        if !consent.isGranted { inFlightRequest?.cancel() }
         _ = preparedConsent()
+        scheduleConsentResetRetry(for: consent)
     }
 
     func record(
@@ -721,28 +742,126 @@ actor IChartTelemetryService {
     private func preparedConsent(traceID: UUID? = nil, eventName: String = "") -> IChartTelemetryConsentSnapshot? {
         guard initializeIfNeeded() else { return nil }
         let consent = consentStore.snapshot
+        invalidateConsentResetRetry(unlessMatching: consentStore.cachedSnapshotForScheduling)
         if consent != observedConsent || !consent.isGranted || consentStore.requiresQueueReset {
-            let resetTraceID = traceID ?? recordingTraceID()
-            traceRecording(.queueResetStarted, callID: resetTraceID, eventName: eventName)
-            inFlightRequest?.cancel()
-            do {
-                guard try consentStore.clearQueuedEvents(matching: consent, {
-                    try queueStore.clear()
-                }) else {
-                    traceRecording(.queueResetRejected, callID: resetTraceID, eventName: eventName)
-                    return nil
-                }
-            } catch {
-                traceRecording(.queueResetFailed, callID: resetTraceID, eventName: eventName, error: error)
+            guard applyConsentReset(for: consent, traceID: traceID, eventName: eventName) else {
+                scheduleConsentResetRetry(for: consent)
                 return nil
             }
-            traceRecording(.queueResetCompleted, callID: resetTraceID, eventName: eventName)
-            installationID = suppliedInstallationID
-            sessionID = suppliedSessionID
-            lastFlushAttemptAt = nil
-            observedConsent = consent
         }
         return consent.isGranted ? consent : nil
+    }
+
+    func applyConsentReset(for consent: IChartTelemetryConsentSnapshot,
+                           traceID: UUID? = nil, eventName: String = "") -> Bool {
+        guard consentStore.cachedSnapshotForScheduling == consent else { return false }
+        let resetTraceID = traceID ?? recordingTraceID()
+        traceRecording(.queueResetStarted, callID: resetTraceID, eventName: eventName)
+        inFlightRequest?.cancel()
+        do {
+            guard try consentStore.clearQueuedEvents(matching: consent, {
+                try queueStore.clear()
+            }) else {
+                traceRecording(.queueResetRejected, callID: resetTraceID, eventName: eventName)
+                return false
+            }
+        } catch {
+            traceRecording(.queueResetFailed, callID: resetTraceID, eventName: eventName, error: error)
+            return false
+        }
+        installationID = suppliedInstallationID
+        sessionID = suppliedSessionID
+        lastFlushAttemptAt = nil
+        observedConsent = consent
+        cancelConsentResetRetry(matching: consent)
+        traceRecording(.queueResetCompleted, callID: resetTraceID, eventName: eventName)
+        return true
+    }
+
+    private func needsConsentReset(matching consent: IChartTelemetryConsentSnapshot) -> Bool {
+        guard consentStore.cachedSnapshotForScheduling == consent else { return false }
+        // The published mirror can precede the durable reset marker. A changed
+        // epoch remains pending even before that marker has reached storage.
+        return observedConsent != consent || consentStore.requiresQueueReset
+    }
+
+    private func invalidateConsentResetRetry(unlessMatching consent: IChartTelemetryConsentSnapshot) {
+        guard let epoch = consentResetRetryEpoch, epoch != consent else { return }
+        cancelConsentResetRetry(matching: epoch)
+    }
+
+    private func cancelConsentResetRetry(matching consent: IChartTelemetryConsentSnapshot) {
+        guard consentResetRetryEpoch == consent else { return }
+        consentResetRetryTask?.cancel()
+        consentResetRetryTask = nil
+        consentResetRetryEpoch = nil
+        consentResetRetryID = nil
+    }
+
+    private func scheduleConsentResetRetry(for consent: IChartTelemetryConsentSnapshot) {
+        // An initializer migration failure is not evidence of a consent reset;
+        // valid unsent events must survive until ordinary initialization works.
+        guard didInitialize, needsConsentReset(matching: consent) else { return }
+        if consentResetRetryEpoch == consent, consentResetRetryTask != nil { return }
+        invalidateConsentResetRetry(unlessMatching: consent)
+        let id = UUID()
+        let sleep = sleepForConsentResetRetry
+        let uptime = consentResetRetryUptime
+        let deadline = uptime() + Self.consentResetRetryBudget
+        let observer = recordingObserver
+        consentResetRetryEpoch = consent
+        consentResetRetryID = id
+        consentResetRetryTask = Task.detached(priority: .utility) { [weak self] in
+            defer {
+                // This reports the real worker exit, including a cancelled
+                // noncooperative fixture sleeper, rather than handle removal.
+                observer?(IChartTelemetryRecordingTrace(callID: id, eventName: "", stage: .queueResetRetryEnded,
+                    errorDomain: nil, errorCode: nil, admissionDenial: nil))
+            }
+            var exhausted = true
+            retryLoop: for delay in Self.consentResetRetryDelays {
+                guard !Task.isCancelled else { exhausted = false; break }
+                guard uptime() < deadline else { break }
+                do { try await sleep(delay) }
+                catch { exhausted = false; break }
+                guard !Task.isCancelled else { exhausted = false; break }
+                guard let outcome = await self?.performConsentResetRetry(matching: consent, id: id, deadline: deadline) else {
+                    exhausted = false
+                    break
+                }
+                switch outcome {
+                case .pending: continue
+                case .finished: exhausted = false; break retryLoop
+                case .deadlineExceeded: break retryLoop
+                }
+            }
+            await self?.finishConsentResetRetry(matching: consent, id: id, exhausted: exhausted)
+        }
+        traceRecording(.queueResetRetryScheduled, callID: id, eventName: "")
+    }
+
+    private func performConsentResetRetry(matching consent: IChartTelemetryConsentSnapshot,
+                                         id: UUID, deadline: TimeInterval) -> ConsentResetRetryOutcome {
+        guard consentResetRetryID == id, consentResetRetryEpoch == consent, !Task.isCancelled,
+              consentStore.cachedSnapshotForScheduling == consent else { return .finished }
+        guard consentResetRetryUptime() < deadline else { return .deadlineExceeded }
+        guard needsConsentReset(matching: consent) else { return .finished }
+        // Never initialize, migrate, adopt a newer epoch or retry a send here.
+        // The captured epoch also reaches the authoritative clear guard.
+        return applyConsentReset(for: consent, traceID: id) ? .finished : .pending
+    }
+
+    private func finishConsentResetRetry(matching consent: IChartTelemetryConsentSnapshot,
+                                        id: UUID, exhausted: Bool) {
+        guard consentResetRetryID == id, consentResetRetryEpoch == consent else { return }
+        consentResetRetryTask = nil
+        consentResetRetryEpoch = nil
+        consentResetRetryID = nil
+        if exhausted, needsConsentReset(matching: consent) {
+            // Budget limits new attempts, not preemption of existing lock/I/O.
+            // A durable reset marker survives failure for later startup/work.
+            traceRecording(.queueResetRetryExhausted, callID: id, eventName: "")
+        }
     }
 
     nonisolated func recordingTraceID() -> UUID? {
