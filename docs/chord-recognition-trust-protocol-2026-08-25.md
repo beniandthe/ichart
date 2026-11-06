@@ -1,5 +1,11 @@
 # Chord Recognition Trust Protocol
 
+Current override — November 5, 2026: handwritten repeat ingestion is retired.
+The historical chord-repeat recognition and acceptance items below no longer
+apply to current handwriting input. This includes percent-style/dot-slash-dot
+symbols. Typed/manual and saved repeat notation remain compatible. See the
+[retirement decision](handwritten-repeat-ingestion-retirement-2026-11-05.md).
+
 Date: 2026-08-25
 Branch: `codex/chord-recognition-accuracy`
 Current authority: this document plus `docs/chord-recognition-accuracy-branch-plan-2026-08-25.md`
@@ -88,7 +94,7 @@ Physical iPad behavior is the final acceptance signal for handwritten recognitio
 - `C7(b9)`
 - `C7(#11)`
 - `C7alt`
-- chord repeat
+- historical chord-repeat handwriting (retired November 5, 2026; excluded from current handwriting acceptance)
 - chord-plus-draft-barline sequences
 
 Record each case as trusted, confirmed, no-read, wrong-read, or grouping failure. Do not count simulator or fixture proof as physical acceptance.

@@ -90,8 +90,8 @@ enum ChordInkAutomaticFallbackCandidatePolicy {
         var seen = Set<String>()
         return ordered.compactMap { score in
             guard score.confidence.isFinite, score.confidence >= 0,
-                  let match = ChordRecognitionCompendium.match(score.text),
-                  score.displayText.map({ ChordRecognitionCompendium.match($0)?.displayText == match.displayText }) ?? true,
+                  let match = ChordRecognitionCompendium.matchHandwritingCandidate(score.text),
+                  score.displayText.map({ ChordRecognitionCompendium.matchHandwritingCandidate($0)?.displayText == match.displayText }) ?? true,
                   seen.insert(match.displayText).inserted else { return nil }
             return .init(text: score.text, displayText: match.displayText, confidence: score.confidence)
         }
@@ -120,7 +120,9 @@ enum ChordInkAutomaticFallbackCandidatePolicy {
         guard !scores.isEmpty else { return nil }
         var metrics = result.metrics
         metrics.strokeCount = sourceStrokeCount
-        return ChordInkRecognitionResult(rawCandidates: Array(result.rawCandidates.prefix(64)),
+        return ChordInkRecognitionResult(rawCandidates: Array(result.rawCandidates.filter {
+                !ChordSymbolParser.isChordRepeatText($0)
+            }.prefix(64)),
             glyphCandidates: result.glyphCandidates, match: nil, confidence: 0,
             reviewCandidateScores: Array(scores.prefix(64)), metrics: metrics)
     }
@@ -157,7 +159,7 @@ struct ChordInkNativeScaleFallbackRecognizer: ChordInkAutomaticFallbackRecognizi
 /// altering the study recognizer's strict canonical default normalizer.
 struct ChordInkAutomaticVisionCandidateNormalizer: RecognitionStudyChordCandidateNormalizing {
     func normalizedChord(from rawText: String) -> String? {
-        ChordRecognitionCompendium.match(rawText)?.displayText
+        ChordRecognitionCompendium.matchHandwritingCandidate(rawText)?.displayText
     }
 }
 
@@ -216,12 +218,13 @@ struct ChordInkVisionAutomaticFallbackRecognizer: ChordInkAutomaticFallbackRecog
         // Raw confidence is preserved on review scores. The study's consensus
         // decision is not a production trust authority, even when accepted.
         let candidates = output.candidates.filter {
-            $0.rawConfidenceFloor.isFinite && (0...1).contains($0.rawConfidenceFloor)
+            !ChordSymbolParser.isChordRepeatText($0.rawText)
+                && $0.rawConfidenceFloor.isFinite && (0...1).contains($0.rawConfidenceFloor)
                 && !$0.rawComponentConfidences.isEmpty
                 && $0.rawComponentConfidences.allSatisfy({ $0.isFinite && (0...1).contains($0) })
         }
         let scores = candidates.compactMap { candidate -> ChordInkCandidateScore? in
-            guard let match = ChordRecognitionCompendium.match(candidate.rawText) else { return nil }
+            guard let match = ChordRecognitionCompendium.matchHandwritingCandidate(candidate.rawText) else { return nil }
             return .init(text: candidate.rawText, displayText: match.displayText,
                 confidence: Double(candidate.rawConfidenceFloor))
         }.sorted {

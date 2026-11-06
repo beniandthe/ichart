@@ -153,7 +153,6 @@ enum ChordInkAutomaticRenderTelemetry {
             add(fragments, to: &chordSource)
         }
         var ordinarySource: [Identity: Int] = [:]
-        var repeatSource: [Identity: Int] = [:]
         var endingSource: [Identity: Int] = [:]
         for barline in selectedBarlines {
             let indices = barline.ownedSourceStrokeIndices
@@ -161,8 +160,7 @@ enum ChordInkAutomaticRenderTelemetry {
                   let fragments = identities(PKDrawing(strokes: indices.sorted().map { sourceDrawing.strokes[$0] })) else {
                 return failure("render_source_missing", expected: sourceDrawing.strokes.count, actual: 0)
             }
-            if barline.kind.isRepeat { add(fragments, to: &repeatSource) }
-            else { add(fragments, to: &ordinarySource) }
+            add(fragments, to: &ordinarySource)
         }
         for ending in selectedEndings {
             let indices = ending.sourceStrokeIndices
@@ -175,7 +173,6 @@ enum ChordInkAutomaticRenderTelemetry {
         }
         var consumed = chordSource
         add(ordinarySource, to: &consumed)
-        add(repeatSource, to: &consumed)
         add(endingSource, to: &consumed)
         guard !consumed.isEmpty, let expectedRetained = subtract(consumed, from: source) else {
             return failure("render_source_missing", expected: source.values.reduce(0, +), actual: 0)
@@ -198,18 +195,9 @@ enum ChordInkAutomaticRenderTelemetry {
         let newRepeats = observedChart.roadmapObjects.filter {
             $0.type == .repeatSpan && !oldRoadmapIDs.contains($0.id)
         }
-        var repeatReceipts: [Identity: Int] = [:]
-        for repeatSpan in newRepeats {
-            guard let data = repeatSpan.sourceInkData, let drawing = try? PKDrawing(data: data),
-                  let fragments = identities(drawing), !fragments.isEmpty else {
-                receiptsValid = false
-                continue
-            }
-            add(fragments, to: &repeatReceipts)
-        }
-        // A combined repeat sign is intentionally attached to both spans.
-        receiptsValid = receiptsValid && repeatSource.allSatisfy { repeatReceipts[$0.key, default: 0] >= $0.value }
-            && repeatReceipts.keys.allSatisfy { repeatSource[$0] != nil }
+        // Handwriting cannot create repeat spans. Existing spans remain
+        // governed by the chart's normal roadmap and persistence contracts.
+        receiptsValid = receiptsValid && newRepeats.isEmpty
         let newEndings = observedChart.roadmapObjects.filter {
             $0.type.isEnding && !oldRoadmapIDs.contains($0.id)
         }
@@ -246,7 +234,7 @@ enum ChordInkAutomaticRenderTelemetry {
         } else { persistedRetained = [:] }
         guard receiptsValid, observedChart == outcome.chart else {
             return failure("render_source_missing", expected: consumed.values.reduce(0, +),
-                actual: chordReceipts.values.reduce(0, +) + repeatReceipts.values.reduce(0, +)
+                actual: chordReceipts.values.reduce(0, +)
                     + endingReceipts.values.reduce(0, +) + ordinarySource.values.reduce(0, +))
         }
         // First account for all intended retained source. A leftover consumed
@@ -294,8 +282,8 @@ enum ChordInkAutomaticRenderTelemetry {
         guard idleDuration.isFinite, idleDuration >= 3 else { return nil }
         // Structural review blocks the entire source transaction. A chord's
         // baseline reason cannot describe why this operation has not rendered
-        // while its repeat pairing or ending range still needs review.
-        if activity.feedback.globalReason == .repeatReview || activity.feedback.globalReason == .endingReview {
+        // while its ending range still needs review.
+        if activity.feedback.globalReason == .endingReview {
             return nil
         }
         var reasons = Array(activity.feedback.reasonsByDraftID.values)

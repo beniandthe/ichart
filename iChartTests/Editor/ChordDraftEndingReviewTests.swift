@@ -192,30 +192,6 @@ final class ChordDraftEndingReviewTests: XCTestCase {
         XCTAssertTrue(unchanged.draftEndings.allSatisfy { !$0.isReviewed })
     }
 
-    func testBeginningRepeatConfirmationRejectsAnyChangedEndingSnapshot() throws {
-        let (chart, initialState) = try fixture()
-        var state = initialState
-        state.draftBarlines = [DraftBarline(
-            measureID: chart.measures[0].id, measureIndex: 0, fraction: 0.8,
-            sourceStrokeIndex: 0,
-            metrics: .init(height: 60, width: 1, angleDegreesFromVertical: 0, straightness: 1, laneCoverage: 0.8),
-            kind: .repeatEnd)]
-        let request = try XCTUnwrap(ChordDraftRepeatReviewPolicy.confirmation(for: chart, state: state))
-        var changed = state
-        changed.draftEndings[0].label = "On cue"
-        XCTAssertNil(ChordDraftRepeatReviewPolicy.confirmedState(for: request, chart: chart, currentState: changed))
-        changed = state
-        changed.draftEndings[0].end.laneLocation.fraction -= 0.1
-        XCTAssertNil(ChordDraftRepeatReviewPolicy.confirmedState(for: request, chart: chart, currentState: changed))
-        changed = state
-        changed.draftEndings.removeLast()
-        XCTAssertNil(ChordDraftRepeatReviewPolicy.confirmedState(for: request, chart: chart, currentState: changed))
-        let confirmed = try XCTUnwrap(ChordDraftRepeatReviewPolicy.confirmedState(
-            for: request, chart: chart, currentState: state))
-        XCTAssertTrue(confirmed.draftBarlines[0].repeatFromBeginningConfirmed)
-        XCTAssertEqual(confirmed.draftEndings, state.draftEndings)
-    }
-
     func testExplicitMeasureChoiceCommitsAnUnsnappedBracketWithoutRedrawingInk() throws {
         let (originalChart, state) = try unsnappedFixture()
         let ending = try XCTUnwrap(state.draftEndings.first)
@@ -262,66 +238,62 @@ final class ChordDraftEndingReviewTests: XCTestCase {
         XCTAssertTrue(state.draftEndings.allSatisfy { $0.reviewedMeasureRange == nil && !$0.isReviewed })
     }
 
-    func testUnplaceableDividerOrRepeatIdentifiesOnlyItsDraftAndKeepsEndingInk() throws {
-        for kind in [DraftBarlineKind.single, .repeatStart] {
-            var (chart, state) = try unsnappedFixture()
-            let ending = try XCTUnwrap(state.draftEndings.first)
-            let endingSource = try PKDrawing(data: XCTUnwrap(chart.pageHandwrittenChordData))
-            let pageSize = try XCTUnwrap(state.layoutPageSize)
-            let validIndex = 2
-            let blockedIndex = kind == .single ? 3 : 0
-            if kind == .single {
-                XCTAssertTrue(chart.setMeasureRhythmMap([.quarter, .quarter, .quarter, .quarter],
-                    for: chart.measures[blockedIndex].id))
-            }
-            let divider = stroke([CGPoint(x: 430, y: 30), CGPoint(x: 430, y: 68)], seed: 31)
-            let blocked = stroke([CGPoint(x: 240, y: 30), CGPoint(x: 240, y: 68)], seed: 32)
-            let metrics = DraftBarlineGestureMetrics(height: 38, width: 1, angleDegreesFromVertical: 0,
-                straightness: 1, laneCoverage: 0.8)
-            let validMark = DraftBarline(measureID: chart.measures[validIndex].id, measureIndex: validIndex,
-                fraction: 0.5, layoutPageSize: pageSize, sourceStrokeIndex: 1, metrics: metrics,
-                sourceStrokeGeometry: PencilKitInkAdapter.inkStrokes(from: PKDrawing(strokes: [divider])))
-            let blocker = DraftBarline(measureID: chart.measures[blockedIndex].id, measureIndex: blockedIndex,
-                fraction: kind == .single ? 0.5 : 0, layoutPageSize: pageSize, sourceStrokeIndex: 2,
-                metrics: metrics, kind: kind,
-                sourceStrokeGeometry: PencilKitInkAdapter.inkStrokes(from: PKDrawing(strokes: [blocked])))
-            _ = chart.setPageHandwrittenChordDrawing(PKDrawing(strokes: endingSource.strokes + [divider, blocked]).dataRepresentation())
-            state.replaceDraftBarlines(with: [validMark, blocker])
-            let originalChart = chart
-            let originalState = state
+    func testUnplaceableDividerIdentifiesOnlyItsDraftAndKeepsEndingInk() throws {
+        var (chart, state) = try unsnappedFixture()
+        let ending = try XCTUnwrap(state.draftEndings.first)
+        let endingSource = try PKDrawing(data: XCTUnwrap(chart.pageHandwrittenChordData))
+        let pageSize = try XCTUnwrap(state.layoutPageSize)
+        let validIndex = 2
+        let blockedIndex = 3
+        XCTAssertTrue(chart.setMeasureRhythmMap([.quarter, .quarter, .quarter, .quarter],
+            for: chart.measures[blockedIndex].id))
+        let divider = stroke([CGPoint(x: 430, y: 30), CGPoint(x: 430, y: 68)], seed: 31)
+        let blocked = stroke([CGPoint(x: 240, y: 30), CGPoint(x: 240, y: 68)], seed: 32)
+        let metrics = DraftBarlineGestureMetrics(height: 38, width: 1, angleDegreesFromVertical: 0,
+            straightness: 1, laneCoverage: 0.8)
+        let validMark = DraftBarline(measureID: chart.measures[validIndex].id, measureIndex: validIndex,
+            fraction: 0.5, layoutPageSize: pageSize, sourceStrokeIndex: 1, metrics: metrics,
+            sourceStrokeGeometry: PencilKitInkAdapter.inkStrokes(from: PKDrawing(strokes: [divider])))
+        let blocker = DraftBarline(measureID: chart.measures[blockedIndex].id, measureIndex: blockedIndex,
+            fraction: 0.5, layoutPageSize: pageSize, sourceStrokeIndex: 2,
+            metrics: metrics,
+            sourceStrokeGeometry: PencilKitInkAdapter.inkStrokes(from: PKDrawing(strokes: [blocked])))
+        _ = chart.setPageHandwrittenChordDrawing(PKDrawing(strokes: endingSource.strokes + [divider, blocked]).dataRepresentation())
+        state.replaceDraftBarlines(with: [validMark, blocker])
+        let originalChart = chart
+        let originalState = state
 
-            let request = try XCTUnwrap(ChordDraftEndingReviewPolicy.request(for: chart, state: state), kind.rawValue)
-            XCTAssertEqual(request.blockingBarlines, [blocker], kind.rawValue)
-            XCTAssertEqual(request.endingID, ending.id)
-            XCTAssertNil(request.measureRange)
-            XCTAssertEqual(request.availableMeasureCount, 0)
-            XCTAssertNil(ChordDraftEndingReviewPolicy.reviewedState(for: request, chart: chart,
-                currentState: state, label: "1.", endStyle: .closed, measureRange: 2...3))
-            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: endingSource,
-                current: try PKDrawing(data: request.sourceEndingDrawingData)))
-            XCTAssertEqual(chart, originalChart)
-            XCTAssertEqual(state, originalState)
+        let request = try XCTUnwrap(ChordDraftEndingReviewPolicy.request(for: chart, state: state))
+        XCTAssertEqual(request.blockingBarlines, [blocker])
+        XCTAssertEqual(request.endingID, ending.id)
+        XCTAssertNil(request.measureRange)
+        XCTAssertEqual(request.availableMeasureCount, 0)
+        XCTAssertNil(ChordDraftEndingReviewPolicy.reviewedState(for: request, chart: chart,
+            currentState: state, label: "1.", endStyle: .closed, measureRange: 2...3))
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: endingSource,
+            current: try PKDrawing(data: request.sourceEndingDrawingData)))
+        XCTAssertEqual(chart, originalChart)
+        XCTAssertEqual(state, originalState)
 
-            _ = state.removeDraftBarline(id: blocker.id)
-            XCTAssertEqual(chart.draftEndingReviewMeasureCount(state: state), chart.measures.count + 1,
-                "The ordinary neighboring divider does not block the ending once the identified mark is removed")
-            _ = state.removeDraftBarline(id: validMark.id)
-            _ = chart.setPageHandwrittenChordDrawing(endingSource.dataRepresentation())
-            let reopened = try XCTUnwrap(ChordDraftEndingReviewPolicy.request(for: chart, state: state))
-            XCTAssertEqual(reopened.endingID, ending.id)
-            XCTAssertTrue(reopened.blockingBarlines.isEmpty)
-            let approved = try XCTUnwrap(ChordDraftEndingReviewPolicy.reviewedState(for: reopened, chart: chart,
-                currentState: state, label: "1.", endStyle: .closed, measureRange: 2...3))
-            let result = chart.commitChordInkDraftBatch(approved)
-            XCTAssertEqual(result.renderedEndingCount, 1)
-            XCTAssertTrue(result.unresolvedDraftIDs.isEmpty)
-            let committed = try XCTUnwrap(chart.roadmapObjects.first { $0.type.isEnding })
-            XCTAssertEqual(committed.startMeasureID, originalChart.measures[1].id)
-            XCTAssertEqual(committed.endMeasureID, originalChart.measures[2].id)
-            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: endingSource,
-                current: try PKDrawing(data: XCTUnwrap(committed.sourceInkData))))
-            XCTAssertNil(chart.pageHandwrittenChordData)
-        }
+        _ = state.removeDraftBarline(id: blocker.id)
+        XCTAssertEqual(chart.draftEndingReviewMeasureCount(state: state), chart.measures.count + 1,
+            "The ordinary neighboring divider does not block the ending once the identified mark is removed")
+        _ = state.removeDraftBarline(id: validMark.id)
+        _ = chart.setPageHandwrittenChordDrawing(endingSource.dataRepresentation())
+        let reopened = try XCTUnwrap(ChordDraftEndingReviewPolicy.request(for: chart, state: state))
+        XCTAssertEqual(reopened.endingID, ending.id)
+        XCTAssertTrue(reopened.blockingBarlines.isEmpty)
+        let approved = try XCTUnwrap(ChordDraftEndingReviewPolicy.reviewedState(for: reopened, chart: chart,
+            currentState: state, label: "1.", endStyle: .closed, measureRange: 2...3))
+        let result = chart.commitChordInkDraftBatch(approved)
+        XCTAssertEqual(result.renderedEndingCount, 1)
+        XCTAssertTrue(result.unresolvedDraftIDs.isEmpty)
+        let committed = try XCTUnwrap(chart.roadmapObjects.first { $0.type.isEnding })
+        XCTAssertEqual(committed.startMeasureID, originalChart.measures[1].id)
+        XCTAssertEqual(committed.endMeasureID, originalChart.measures[2].id)
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: endingSource,
+            current: try PKDrawing(data: XCTUnwrap(committed.sourceInkData))))
+        XCTAssertNil(chart.pageHandwrittenChordData)
     }
 
     func testEndingReviewAndCommitSurviveCloudBackupAcknowledgements() throws {
@@ -457,7 +429,7 @@ final class ChordDraftEndingReviewTests: XCTestCase {
         points[3].x -= 50
         _ = chart.setPageHandwrittenChordDrawing(PKDrawing(strokes: [stroke(points)]).dataRepresentation())
         let source = try PKDrawing(data: XCTUnwrap(chart.pageHandwrittenChordData))
-        let context = ChordInkDraftVisibleStrokePolicy.repeatAwareVisibleDrawingContext(
+        let context = ChordInkDraftVisibleStrokePolicy.structuralVisibleDrawingContext(
             from: source, chordFrame: frame, pageLayout: layout)
         let detection = ChordDraftEndingRecognizer.recognize(
             strokes: PencilKitInkAdapter.inkStrokes(from: context.drawing), chordFrame: frame, pageLayout: layout)

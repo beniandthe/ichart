@@ -151,7 +151,7 @@ final class ChordInkEndingRenderTelemetryTests: XCTestCase {
         _ = chart.setPageHandwrittenChordDrawing(PKDrawing(strokes: strokes).dataRepresentation(),
             coordinateSpace: .init(size: pageSize))
         let source = try PKDrawing(data: XCTUnwrap(chart.pageHandwrittenChordData))
-        let context = ChordInkDraftVisibleStrokePolicy.repeatAwareVisibleDrawingContext(
+        let context = ChordInkDraftVisibleStrokePolicy.structuralVisibleDrawingContext(
             from: source, chordFrame: frame, pageLayout: layout)
         let found = ChordDraftEndingRecognizer.recognize(strokes: PencilKitInkAdapter.inkStrokes(from: context.drawing),
             chordFrame: frame, pageLayout: layout)

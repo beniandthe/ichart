@@ -155,27 +155,7 @@ final class ChordInkStructuralAutomaticRenderTests: XCTestCase {
         XCTAssertEqual(manual.result.renderedBarlineCount, 1)
     }
 
-    func testPairedRepeatSignsRenderAutomaticallyAndArchiveExactSource() throws {
-        var chart = makeChart()
-        let fixture = try fixture(chart)
-        let drawing = PKDrawing(strokes:
-            strokes(.repeatStart, x: fixture.lane.minX + fixture.lane.width * 0.25, fixture: fixture)
-            + strokes(.repeatEnd, x: fixture.lane.minX + fixture.lane.width * 0.75, fixture: fixture))
-        let source = try install(drawing, in: &chart, fixture: fixture)
-        XCTAssertEqual(source.state.draftBarlines.map(\.kind), [.repeatStart, .repeatEnd])
 
-        let rendered = try XCTUnwrap(attempt(chart, source, elapsed: 4).outcome)
-        XCTAssertEqual(rendered.result.renderedBarlineCount, 2)
-        XCTAssertEqual(rendered.chart.measures.count, 3)
-        let span = try XCTUnwrap(rendered.chart.roadmapObjects.first { $0.type == .repeatSpan })
-        let archived = try PKDrawing(data: XCTUnwrap(span.sourceInkData))
-        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
-            expected: source.drawing, current: archived))
-        XCTAssertNil(rendered.chart.pageHandwrittenChordData)
-        let reopened = try ChartPersistenceCoders.decoder.decode(Chart.self,
-            from: ChartPersistenceCoders.encoder.encode(rendered.chart))
-        XCTAssertEqual(reopened, rendered.chart)
-    }
 
     func testSlantedBarlineBetweenRenderedChordsRoutesToStructureAndPreservesChords() throws {
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
@@ -302,7 +282,7 @@ final class ChordInkStructuralAutomaticRenderTests: XCTestCase {
         let state = ChordPreviewState(draftBarlines: prepared.barlines, layoutPageSize: pageSize)
         return Input(drawing: try PKDrawing(data: data), state: state, fixture: fixture)
     }
-    func testExistingRepeatReceiptIsUnchangedWhenAnotherPairRenders() throws {
+    func testExistingRepeatReceiptIsUnchangedWhenAPlainBarlineRenders() throws {
         var chart = makeChart(startingMeasureCount: 2)
         let firstID = chart.measures[0].id
         let existingID = try XCTUnwrap(chart.addRepeatSpan(startMeasureID: firstID, endMeasureID: firstID))
@@ -313,17 +293,16 @@ final class ChordInkStructuralAutomaticRenderTests: XCTestCase {
         let fixture = try fixture(chart)
         let last = try XCTUnwrap(fixture.system.measures.last)
         let drawing = PKDrawing(strokes:
-            strokes(.repeatStart, x: last.frame.minX + last.frame.width * 0.25, fixture: fixture)
-            + strokes(.repeatEnd, x: last.frame.minX + last.frame.width * 0.75, fixture: fixture))
+            strokes(.single, x: last.frame.minX + last.frame.width * 0.5, fixture: fixture))
         let source = try install(drawing, in: &chart, fixture: fixture)
 
         let rendered = try XCTUnwrap(attempt(chart, source, elapsed: 4).outcome)
         XCTAssertEqual(rendered.chart.roadmapObjects.first { $0.id == existingID }, original)
-        XCTAssertEqual(rendered.chart.roadmapObjects.filter { $0.type == .repeatSpan }.count, 2)
+        XCTAssertEqual(rendered.chart.roadmapObjects.filter { $0.type == .repeatSpan }.count, 1)
         XCTAssertTrue(rendered.drawing.strokes.isEmpty)
     }
 
-    func testNewRepeatDotCannotBeConsumedFromEarlierSingleBarlinePreview() throws {
+    func testNewTinyMarkCannotBeConsumedFromEarlierSingleBarlinePreview() throws {
         var chart = makeChart()
         let fixture = try fixture(chart)
         let line = PKDrawing(strokes: strokes(.single, x: fixture.lane.midX, fixture: fixture))
@@ -354,35 +333,7 @@ final class ChordInkStructuralAutomaticRenderTests: XCTestCase {
         XCTAssertEqual(chart, original)
     }
 
-    func testUnmatchedStartStaysInkWhileStandaloneEndUsesTheChartBeginningAfterGrace() throws {
-        for kind in [DraftBarlineKind.repeatStart, .repeatEnd] {
-            var chart = makeChart()
-            let fixture = try fixture(chart)
-            let source = try install(PKDrawing(strokes: strokes(kind, x: fixture.lane.midX, fixture: fixture)),
-                in: &chart, fixture: fixture)
-            let original = chart
-            let result = attempt(chart, source, elapsed: 4)
-            if kind == .repeatStart {
-                XCTAssertNil(result.outcome)
-                XCTAssertEqual(result.feedback.globalReason, .repeatReview)
-            } else {
-                let outcome = try XCTUnwrap(result.outcome)
-                XCTAssertEqual(outcome.result.renderedBarlineCount, 1)
-                XCTAssertTrue(outcome.drawing.strokes.isEmpty)
-                XCTAssertTrue(outcome.remainingState.isEmpty)
-                let reopened = try ChartPersistenceCoders.decoder.decode(Chart.self,
-                    from: ChartPersistenceCoders.encoder.encode(outcome.chart))
-                let span = try XCTUnwrap(reopened.roadmapObjects.first { $0.type == .repeatSpan })
-                XCTAssertEqual(span.startMeasureID, chart.measures.first?.id)
-                let archive = try PKDrawing(data: XCTUnwrap(span.sourceInkData))
-                XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
-                    expected: source.drawing, current: archive))
-                XCTAssertNil(reopened.pageHandwrittenChordData)
-            }
-            XCTAssertEqual(chart, original)
-            XCTAssertEqual(source.drawing.strokes.count, 3)
-        }
-    }
+
 
     func testSplitBoundaryAssignsPinnedChordToRightAndAnchorsItWithoutDuplicatingSource() throws {
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
@@ -450,9 +401,9 @@ final class ChordInkStructuralAutomaticRenderTests: XCTestCase {
     private func install(_ drawing: PKDrawing, in chart: inout Chart, fixture: Fixture) throws -> Input {
         _ = chart.setPageHandwrittenChordDrawing(drawing.dataRepresentation())
         let stored = try PKDrawing(data: XCTUnwrap(chart.pageHandwrittenChordData))
-        let context = ChordInkDraftVisibleStrokePolicy.repeatAwareVisibleDrawingContext(
+        let context = ChordInkDraftVisibleStrokePolicy.structuralVisibleDrawingContext(
             from: stored, chordFrame: fixture.chordFrame, pageLayout: fixture.layout)
-        let fresh = ChordDraftBarlineRecognizer.recognizeIncludingRepeats(
+        let fresh = ChordDraftBarlineRecognizer.recognize(
             strokes: PencilKitInkAdapter.inkStrokes(from: context.drawing),
             chordFrame: fixture.chordFrame, pageLayout: fixture.layout)
         let safe = context.barlineRecognitionWithUnambiguousSourceStrokes(fresh)
@@ -475,14 +426,8 @@ final class ChordInkStructuralAutomaticRenderTests: XCTestCase {
         let center = CGPoint(x: x - fixture.chordFrame.minX,
             y: fixture.lane.midY - fixture.chordFrame.minY)
         let height = fixture.lane.height * 0.84
-        var result = [stroke([CGPoint(x: center.x, y: center.y - height / 2),
+        let result = [stroke([CGPoint(x: center.x, y: center.y - height / 2),
             CGPoint(x: center.x, y: center.y + height / 2)])]
-        for side in [-1.0, 1.0] where (side < 0 ? kind.endsRepeat : kind.startsRepeat) {
-            for vertical in [-1.0, 1.0] {
-                result.append(stroke([CGPoint(x: center.x + CGFloat(side) * height * 0.20,
-                    y: center.y + CGFloat(vertical) * height * 0.18)], size: 1.4))
-            }
-        }
         return result
     }
 

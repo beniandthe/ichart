@@ -7,7 +7,8 @@ My goal is simple: help musicians spend less time rewriting charts and more time
 Write, reuse, and share:
 - Create Simple Chord Sheet and Rhythm Section Sheet charts.
 - Handwrite chord symbols with Apple Pencil, review them, and place them on your chart.
-- Add repeats, form markings, text notes, meter, and handwritten rhythm cues.
+- Add repeat ranges by selecting measures with the Repeats tool.
+- Add form markings, text notes, meter, and handwritten rhythm cues.
 - Duplicate charts and transpose chord symbols for different keys or instruments.
 - Export readable PDFs while keeping your original chart editable.
 

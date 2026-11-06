@@ -4,6 +4,26 @@ import XCTest
 @testable import iChart
 
 final class ChordInkAutomaticFallbackAdapterTests: XCTestCase {
+    func testRetiredRepeatAliasesCannotReturnThroughFallbackOrVisionNormalization() throws {
+        for text in ["%", "./.", "•/•"] {
+            let typedMatch = try XCTUnwrap(ChordRecognitionCompendium.match(text))
+            let candidate = ChordInkRecognitionResult(rawCandidates: [text], glyphCandidates: [],
+                match: typedMatch, confidence: 4.99,
+                candidateScores: [.init(text: text, displayText: typedMatch.displayText, confidence: 4.99)])
+            XCTAssertTrue(ChordInkAutomaticFallbackCandidatePolicy.candidateTexts(for: candidate).isEmpty)
+            XCTAssertFalse(ChordInkAutomaticFallbackCandidatePolicy.hasCandidate(candidate))
+            XCTAssertNil(ChordInkAutomaticVisionCandidateNormalizer().normalizedChord(from: text))
+            let output = RecognitionStudyVisionChordRecognizer.Result(
+                decision: .accepted(chord: text, confidenceFloor: 0.99),
+                candidates: [.init(rawText: text, rawConfidence: 0.99, normalizedChord: text,
+                    passIndex: 0, rank: 0)])
+            XCTAssertNil(ChordInkVisionAutomaticFallbackRecognizer.recognitionResult(
+                from: output, sourceStrokeCount: 3))
+            XCTAssertEqual(ChordRecognitionCompendium.match(text), typedMatch,
+                "Retiring handwriting input does not alter manual repeat parsing")
+        }
+    }
+
     func testNativeScaleUsesExistingTransformAndReturnsOnlyActualReviewCandidates() throws {
         let source = preparedInk()
         let originalSource = source

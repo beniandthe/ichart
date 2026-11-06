@@ -31,7 +31,7 @@ final class ChordDraftEndingReviewVisualTests: XCTestCase {
         ])])
         _ = chart.setPageHandwrittenChordDrawing(source.dataRepresentation())
         let stored = try PKDrawing(data: XCTUnwrap(chart.pageHandwrittenChordData))
-        let context = ChordInkDraftVisibleStrokePolicy.repeatAwareVisibleDrawingContext(
+        let context = ChordInkDraftVisibleStrokePolicy.structuralVisibleDrawingContext(
             from: stored, chordFrame: frame, pageLayout: layout)
         let detected = ChordDraftEndingRecognizer.recognize(
             strokes: PencilKitInkAdapter.inkStrokes(from: context.drawing), chordFrame: frame, pageLayout: layout)

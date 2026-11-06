@@ -688,11 +688,11 @@ final class ChordSymbolParserTests: XCTestCase {
             "suspended chords",
             "diminished and half-diminished",
             "minor-major",
-            "slash bass",
-            "chord repeat"
+            "slash bass"
         ] {
             XCTAssertTrue(printout.contains(expectedText), expectedText)
         }
+        XCTAssertFalse(printout.contains("chord repeat"))
     }
 
     func testParserRejectsUnsupportedNumericNoiseButKeepsSupportedExtensions() {

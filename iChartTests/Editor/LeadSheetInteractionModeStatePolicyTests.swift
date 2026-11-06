@@ -4562,9 +4562,9 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
                 let instruction = EditorCanvasMode.chordEntry.activeToolInstruction(
                     layoutStyle: style, manualRenderWithPreview: manualRenderWithPreview
                 )
-                XCTAssertTrue(instruction.contains("1–2 upright bars at least half a lane tall"))
-                XCTAssertTrue(instruction.contains("stacked dots beside the middle"))
-                XCTAssertTrue(instruction.contains("Right dots start; left dots end."))
+                XCTAssertTrue(instruction.contains("Add repeats with Tools > Repeats."))
+                XCTAssertFalse(instruction.contains("stacked dots beside the middle"))
+                XCTAssertFalse(instruction.contains("Right dots start; left dots end."))
                 XCTAssertTrue(instruction.contains("Unplaced ink stays on the page."))
             }
         }

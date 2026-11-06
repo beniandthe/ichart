@@ -36,60 +36,6 @@ final class ChordInkEndingCommitTests: XCTestCase {
             boundaries: boundaries, isStart: false), "Tolerance stays bounded in page points")
     }
 
-    func testEndingNearOuterBarOfHandwrittenRepeatUsesGroupedSourceExtent() throws {
-        for spacing in ChordDraftBarlineSpacingMode.allCases {
-            var chart = draftChart()
-            let fixture = try fixture(chart)
-            let startX = fixture.lane.minX + fixture.lane.width * 0.10
-            let endingStartX = fixture.lane.minX + fixture.lane.width * 0.40
-            let closeX = fixture.lane.minX + fixture.lane.width * 0.78
-            let height = fixture.lane.height * 0.92
-            let separation = height * 0.21
-            let roofEndX = closeX + separation / 2 + 7
-            XCTAssertGreaterThan(roofEndX - closeX, 18,
-                "The fixture must require the visible outer bar, not center-only tolerance")
-            func repeatInk(x: CGFloat, starts: Bool, doubleBar: Bool) -> [PKStroke] {
-                let centerY = fixture.lane.midY - fixture.chordFrame.minY
-                let barXs = doubleBar ? [x - separation / 2, x + separation / 2] : [x]
-                var result = barXs.map { barX in
-                    stroke([CGPoint(x: barX - fixture.chordFrame.minX, y: centerY - height / 2),
-                        CGPoint(x: barX - fixture.chordFrame.minX, y: centerY + height / 2)])
-                }
-                let dotX = starts ? x + height * 0.18 : x - separation / 2 - height * 0.18
-                for direction in [CGFloat(-1), 1] {
-                    result.append(stroke([CGPoint(x: dotX - fixture.chordFrame.minX,
-                        y: centerY + direction * height * 0.18)]))
-                }
-                return result
-            }
-            let drawing = PKDrawing(strokes: bracket(fixture: fixture,
-                left: endingStartX, right: roofEndX).strokes
-                + repeatInk(x: startX, starts: true, doubleBar: false)
-                + [barline(x: endingStartX, fixture: fixture)]
-                + repeatInk(x: closeX, starts: false, doubleBar: true))
-            var state = try install(drawing, in: &chart, fixture: fixture)
-            XCTAssertEqual(state.draftBarlines.count, 3)
-            XCTAssertEqual(state.draftBarlines.filter { $0.kind.isRepeat }.count, 2)
-            let repeatSources = state.draftBarlines.filter { $0.kind.isRepeat }
-                .reduce(into: Set<Int>()) { $0.formUnion($1.ownedSourceStrokeIndices) }
-            XCTAssertTrue(try XCTUnwrap(state.draftEndings.first).sourceStrokeIndices.isDisjoint(with: repeatSources))
-            XCTAssertEqual(chart.draftEndingMeasureRange(for: try XCTUnwrap(state.draftEndings.first), state: state), 3...3)
-            try review(&state, chart: chart, label: "2–4", style: .closed)
-            let source = try PKDrawing(data: XCTUnwrap(chart.pageHandwrittenChordData))
-            let result = chart.commitChordInkDraftBatch(state, barlineSpacingMode: spacing)
-            XCTAssertFalse(result.didRejectIncompleteSourceCoverage, spacing.rawValue)
-            XCTAssertTrue(result.unresolvedDraftIDs.isEmpty, spacing.rawValue)
-            XCTAssertEqual(result.renderedEndingCount, 1)
-            let ending = try XCTUnwrap(chart.roadmapObjects.first { $0.type.isEnding })
-            XCTAssertEqual(ending.startMeasureID, chart.measures[2].id)
-            XCTAssertEqual(ending.endMeasureID, chart.measures[2].id)
-            let repeated = try XCTUnwrap(chart.roadmapObjects.first { $0.type == .repeatSpan })
-            let receipt = try PKDrawing(data: XCTUnwrap(repeated.sourceInkData))
-            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
-                expected: PKDrawing(strokes: repeatSources.sorted().map { source.strokes[$0] }), current: receipt))
-        }
-    }
-
     func testEndingAtRenderedTerminalRepeatUsesLastSplitSegmentAndExcludesOpenContinuation() throws {
         for (spacing, endpointOffset) in ChordDraftBarlineSpacingMode.allCases.flatMap({ spacing in
             [CGFloat(8), 24].map { (spacing, $0) }
@@ -446,7 +392,7 @@ final class ChordInkEndingCommitTests: XCTestCase {
     private func install(_ drawing: PKDrawing, in chart: inout Chart, fixture: Fixture) throws -> ChordPreviewState {
         _ = chart.setPageHandwrittenChordDrawing(drawing.dataRepresentation())
         let stored = try PKDrawing(data: XCTUnwrap(chart.pageHandwrittenChordData))
-        let context = ChordInkDraftVisibleStrokePolicy.repeatAwareVisibleDrawingContext(from: stored,
+        let context = ChordInkDraftVisibleStrokePolicy.structuralVisibleDrawingContext(from: stored,
             chordFrame: fixture.chordFrame, pageLayout: fixture.layout)
         let strokes = PencilKitInkAdapter.inkStrokes(from: context.drawing)
         let endings = ChordDraftEndingRecognizer.recognize(strokes: strokes,

@@ -1,5 +1,12 @@
 # iChart Sprint Source Of Truth
 
+November 5, 2026 repeat-input override: handwritten repeat ingestion is retired,
+including bar-and-dot signs and percent-style repeat symbols. Earlier sprint
+implementation, recognition, and acceptance notes remain historical evidence;
+they do not promise this feature or a return to it. Use **Tools > Repeats** and
+selected measures for repeat entry. Current release work starts at
+[Project state](project-state.md) and the [retirement record](handwritten-repeat-ingestion-retirement-2026-11-05.md).
+
 Status: active living sprint document
 Created: 2026-05-20
 Repo: `beniandthe/ichart`

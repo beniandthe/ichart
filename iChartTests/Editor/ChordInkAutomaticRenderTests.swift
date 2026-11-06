@@ -162,19 +162,6 @@ final class ChordInkAutomaticRenderTests: XCTestCase {
         XCTAssertNil(prepare(chart, unresolvedState, adjacent, elapsed: 3))
     }
 
-    func testUnmatchedRepeatStartCannotConsumeSharedNeighborChordSource() async throws {
-        let chart = chart()
-        let drawing = normalized([stroke(10)])
-        var state = state(chart, drawing)
-        state.draftBarlines = [DraftBarline(measureID: chart.measures[0].id, measureIndex: 1,
-            fraction: 0.9, sourceStrokeIndex: 0,
-            metrics: DraftBarlineGestureMetrics(height: 50, width: 0,
-                angleDegreesFromVertical: 0, straightness: 1, laneCoverage: 0.9),
-            kind: .repeatStart)]
-        XCTAssertNotNil(ChordDraftRepeatReviewPolicy.blockingMessage(for: state))
-        XCTAssertNil(prepare(chart, state, drawing, elapsed: 3))
-    }
-
     private func prepare(
         _ chart: Chart, _ state: ChordPreviewState, _ drawing: PKDrawing,
         elapsed: TimeInterval, isUsingTool: Bool = false

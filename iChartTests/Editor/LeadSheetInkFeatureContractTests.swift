@@ -100,7 +100,7 @@ final class LeadSheetInkFeatureContractTests: XCTestCase {
     func testOrdinaryBarlineConsumptionDoesNotRequireAnArchivedReceipt() {
         let chart = makeChart()
         let source = PKDrawing(strokes: [stroke(10)])
-        let barline = makeBarline(chart: chart, kind: .single, sourceIndex: 0)
+        let barline = makeBarline(chart: chart, sourceIndex: 0)
         let state = ChordPreviewState(draftBarlines: [barline], layoutPageSize: pageSize)
         let result = ChordInkDraftBatchRenderResult(renderedChordIDs: [], renderedBarlineIDs: [barline.id],
             unresolvedDraftIDs: [])
@@ -108,37 +108,6 @@ final class LeadSheetInkFeatureContractTests: XCTestCase {
             sourceDrawing: source, outcome: .init(chart: chart, result: result), remainingCanvasDrawing: PKDrawing())
         XCTAssertEqual(assessment.outcome, "passed")
         XCTAssertEqual(assessment.reason, "render_complete")
-    }
-
-    func testSharedRepeatReceiptMayDuplicateSourceWhileMissingReceiptIsDetected() throws {
-        let chart = makeChart(measureCount: 2)
-        let source = PKDrawing(strokes: [stroke(10), stroke(90), stroke(170)])
-        let signs = [makeBarline(chart: chart, kind: .repeatStart, sourceIndex: 0),
-            makeBarline(chart: chart, kind: .repeatBoth, sourceIndex: 1),
-            makeBarline(chart: chart, kind: .repeatEnd, sourceIndex: 2)]
-        let state = ChordPreviewState(draftBarlines: signs, layoutPageSize: pageSize)
-        var updated = chart
-        let first = try XCTUnwrap(updated.addRepeatSpan(startMeasureID: chart.measures[0].id,
-            endMeasureID: chart.measures[0].id))
-        let second = try XCTUnwrap(updated.addRepeatSpan(startMeasureID: chart.measures[1].id,
-            endMeasureID: chart.measures[1].id))
-        updated.roadmapObjects[try XCTUnwrap(updated.roadmapObjects.firstIndex { $0.id == first })].sourceInkData =
-            PKDrawing(strokes: Array(source.strokes[0...1])).dataRepresentation()
-        updated.roadmapObjects[try XCTUnwrap(updated.roadmapObjects.firstIndex { $0.id == second })].sourceInkData =
-            PKDrawing(strokes: Array(source.strokes[1...2])).dataRepresentation()
-        let result = ChordInkDraftBatchRenderResult(renderedChordIDs: [], renderedBarlineIDs: signs.map(\.id),
-            unresolvedDraftIDs: [])
-        let assessment = LeadSheetInkFeatureContract.renderAssessment(originalChart: chart, state: state,
-            sourceDrawing: source, outcome: .init(chart: updated, result: result), remainingCanvasDrawing: PKDrawing())
-        XCTAssertEqual(assessment.outcome, "passed")
-        XCTAssertEqual(assessment.expectedCount, 3)
-        XCTAssertEqual(assessment.actualCount, 4, "A combined repeat sign belongs to both span receipts")
-
-        updated.roadmapObjects[try XCTUnwrap(updated.roadmapObjects.firstIndex { $0.id == second })].sourceInkData = nil
-        let missing = LeadSheetInkFeatureContract.renderAssessment(originalChart: chart, state: state,
-            sourceDrawing: source, outcome: .init(chart: updated, result: result), remainingCanvasDrawing: PKDrawing())
-        XCTAssertEqual(missing.outcome, "violated")
-        XCTAssertEqual(missing.reason, "render_source_missing")
     }
 
     func testProjectionAllowsCoordinateChangeAndDetectsMissingStrokesOrPoints() {
@@ -189,7 +158,7 @@ final class LeadSheetInkFeatureContractTests: XCTestCase {
     func testProtectedAndUnavailableRenderGuardEnvelopesRemainValidWithoutCountEvidence() {
         let chart = makeChart()
         for unavailable in [false, true] {
-            let reason = unavailable ? "render_canvas_unavailable" : "render_repeat_review_required"
+            let reason = unavailable ? "render_canvas_unavailable" : "render_unresolved"
             var envelope = LeadSheetInkFeatureContract.renderGuardProperties(
                 chart: chart, reason: reason, unavailable: unavailable
             )
@@ -222,11 +191,10 @@ final class LeadSheetInkFeatureContractTests: XCTestCase {
         return ChordPreviewState(draftChords: drafts, layoutPageSize: pageSize)
     }
 
-    private func makeBarline(chart: Chart, kind: DraftBarlineKind, sourceIndex: Int) -> DraftBarline {
+    private func makeBarline(chart: Chart, sourceIndex: Int) -> DraftBarline {
         DraftBarline(measureID: chart.measures[0].id, measureIndex: 1, fraction: 0.5,
             sourceStrokeIndex: sourceIndex,
-            metrics: .init(height: 50, width: 0, angleDegreesFromVertical: 0, straightness: 1, laneCoverage: 0.9),
-            kind: kind)
+            metrics: .init(height: 50, width: 0, angleDegreesFromVertical: 0, straightness: 1, laneCoverage: 0.9))
     }
 
     private func stroke(_ x: CGFloat, pointCount: Int = 2) -> PKStroke {

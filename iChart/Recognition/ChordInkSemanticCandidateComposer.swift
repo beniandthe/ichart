@@ -58,8 +58,7 @@ struct ChordInkRecognitionCandidateComposer {
         let semanticStart = Date()
         let semanticCandidates = semanticCandidateComposer.candidates(
             from: glyphCandidateGroups,
-            clusters: clusters,
-            roleContext: roleContext
+            clusters: clusters
         )
         for semanticCandidate in semanticCandidates {
             if let currentBest = bestCandidatesByText[semanticCandidate.text],
@@ -109,19 +108,13 @@ struct ChordInkRecognitionCandidateComposer {
 struct ChordInkSemanticCandidateComposer {
     func candidates(
         from glyphCandidateGroups: [[GlyphCandidate]],
-        clusters: [InkCluster],
-        roleContext: ChordInkTheoryRoleContext? = nil
+        clusters: [InkCluster]
     ) -> [ChordInkCandidate] {
-        let roleContext = roleContext ?? ChordInkTheoryRoleContext(
-            glyphCandidateGroups: glyphCandidateGroups,
-            clusters: clusters
-        )
         let bareAlteredColorToneCandidates = bareAlteredColorToneCandidates(
             from: glyphCandidateGroups,
             clusters: clusters
         )
         let singleCandidates = [
-            chordRepeatCandidate(roleContext: roleContext),
             diminishedQualityCandidate(from: glyphCandidateGroups, clusters: clusters),
             plainNinthAlteredExtensionCandidate(from: glyphCandidateGroups, clusters: clusters),
             majorAlteredExtensionCandidate(from: glyphCandidateGroups, clusters: clusters),
@@ -135,20 +128,6 @@ struct ChordInkSemanticCandidateComposer {
         return bareAlteredColorToneCandidates + singleCandidates + suspendedSuffixCandidates(
             from: glyphCandidateGroups,
             clusters: clusters
-        )
-    }
-
-    private func chordRepeatCandidate(
-        roleContext: ChordInkTheoryRoleContext
-    ) -> ChordInkCandidate? {
-        guard let glyphCandidates = roleContext.chordRepeatGlyphCandidates else {
-            return nil
-        }
-
-        return ChordInkCandidate(
-            text: ChordSymbol.chordRepeatDisplayText,
-            confidence: 4.8,
-            glyphCandidates: glyphCandidates
         )
     }
 

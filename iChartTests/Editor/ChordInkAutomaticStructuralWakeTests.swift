@@ -23,7 +23,7 @@ final class ChordInkAutomaticStructuralWakeTests: XCTestCase {
         let inputAt = try XCTUnwrap(host.view.chordDraftRenderCoordinator?.lastInputAt)
         try await wait(until: inputAt.addingTimeInterval(ordinaryIdlePlusMargin))
         XCTAssertEqual(host.model.chart.measures.count, 1,
-            "The structural prefix must survive the ordinary chord deadline so repeat details can still be written")
+            "A structural barline must wait for its configured structural idle interval")
         XCTAssertEqual(host.ink.drawing.strokes.count, 1)
 
         try await waitForCondition(in: host, timeout: 5) {
@@ -62,42 +62,6 @@ final class ChordInkAutomaticStructuralWakeTests: XCTestCase {
         }
         XCTAssertNil(host.model.chart.pageHandwrittenChordData)
         XCTAssertNil(host.window.rootViewController?.presentedViewController)
-    }
-
-    func testRepeatDotsResetStructuralGraceAndCompletePairRendersWithoutFixWriting() async throws {
-        let host = try await mount()
-        let complete = try repeatPairDrawing(in: host)
-        // The first vertical stroke is also a valid ordinary barline. Keep it
-        // resident beyond the old chord deadline, then complete both signs.
-        append([complete.strokes[0]], to: host)
-        try await waitForCensus(in: host, barlineCount: 1)
-        let prefixInputAt = try XCTUnwrap(host.view.chordDraftRenderCoordinator?.lastInputAt)
-        try await wait(until: prefixInputAt.addingTimeInterval(ordinaryIdlePlusMargin))
-        XCTAssertEqual(host.model.chart.measures.count, 1)
-        XCTAssertEqual(host.ink.drawing.strokes.count, 1)
-
-        for stroke in complete.strokes.dropFirst() { append([stroke], to: host) }
-        try await waitForCensus(in: host, barlineCount: 2)
-        XCTAssertEqual(host.view.chordPreviewState.draftBarlines.map(\.kind), [.repeatStart, .repeatEnd])
-        XCTAssertTrue(host.view.chordPreviewState.draftChords.isEmpty)
-        let finalInputAt = try XCTUnwrap(host.view.chordDraftRenderCoordinator?.lastInputAt)
-        XCTAssertGreaterThan(finalInputAt, prefixInputAt)
-        try await wait(until: finalInputAt.addingTimeInterval(ordinaryIdlePlusMargin))
-        XCTAssertTrue(host.model.chart.roadmapObjects.filter { $0.type == .repeatSpan }.isEmpty,
-            "The earlier prefix deadline must not consume a newly completed multi-stroke sign")
-        XCTAssertEqual(host.ink.drawing.strokes.count, complete.strokes.count)
-
-        try await waitForCondition(in: host, timeout: 5) {
-            host.model.chart.roadmapObjects.filter { $0.type == .repeatSpan }.count == 1
-                && host.ink.drawing.strokes.isEmpty
-        }
-        let span = try XCTUnwrap(host.model.chart.roadmapObjects.first { $0.type == .repeatSpan })
-        let archived = try PKDrawing(data: XCTUnwrap(span.sourceInkData))
-        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: complete, current: archived))
-        XCTAssertNil(host.model.chart.pageHandwrittenChordData)
-        XCTAssertNil(host.window.rootViewController?.presentedViewController)
-        let reopened = try JSONDecoder().decode(Chart.self, from: JSONEncoder().encode(host.model.chart))
-        XCTAssertEqual(reopened.roadmapObjects, host.model.chart.roadmapObjects)
     }
 
     func testDirectEndingReviewApprovalCommitsAutomaticallyAfterPanelClearsInputClock() async throws {
@@ -243,23 +207,6 @@ final class ChordInkAutomaticStructuralWakeTests: XCTestCase {
             let maxY = geometry.lane.maxY - geometry.lane.height * 0.06 - geometry.frame.minY
             return stroke([CGPoint(x: x, y: minY), CGPoint(x: x, y: maxY)], seed: index + 1)
         })
-    }
-
-    private func repeatPairDrawing(in host: Mounted) throws -> PKDrawing {
-        let geometry = try geometry(in: host)
-        let minY = geometry.lane.minY + geometry.lane.height * 0.06 - geometry.frame.minY
-        let maxY = geometry.lane.maxY - geometry.lane.height * 0.06 - geometry.frame.minY
-        let height = maxY - minY
-        var strokes: [PKStroke] = []
-        for (fraction, direction) in [(CGFloat(0.22), CGFloat(1)), (CGFloat(0.72), CGFloat(-1))] {
-            let x = geometry.lane.minX + geometry.lane.width * fraction - geometry.frame.minX
-            strokes.append(stroke([CGPoint(x: x, y: minY), CGPoint(x: x, y: maxY)], seed: strokes.count + 1))
-            for fractionY in [CGFloat(0.35), CGFloat(0.65)] {
-                let point = CGPoint(x: x + direction * max(8, height * 0.18), y: minY + height * fractionY)
-                strokes.append(stroke([point, CGPoint(x: point.x + 0.3, y: point.y + 0.3)], seed: strokes.count + 1))
-            }
-        }
-        return LeadSheetPersistentInkColorPolicy.normalizedDrawing(PKDrawing(strokes: strokes))
     }
 
     private func geometry(in host: Mounted) throws -> (lane: CGRect, frame: CGRect) {

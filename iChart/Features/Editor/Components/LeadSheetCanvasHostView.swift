@@ -85,9 +85,6 @@ enum ChordDraftBarlinePresentationPolicy {
     static func previewText(for kind: DraftBarlineKind) -> String {
         switch kind {
         case .single: return "|"
-        case .repeatStart: return "||:"
-        case .repeatEnd: return ":||"
-        case .repeatBoth: return ":||:"
         }
     }
 }
@@ -96,42 +93,14 @@ enum ChordDraftBarlinePreviewDrawing {
     struct Geometry {
         let boundaryX: CGFloat
         let barXs: [CGFloat]
-        let dotFrames: [CGRect]
         let lineWidth: CGFloat
     }
 
     static func geometry(for barline: DraftBarline, in frame: CGRect, chart: Chart, selected: Bool) -> Geometry {
         let x = frame.minX + frame.width * CGFloat(barline.laneFraction)
         let metrics = LeadSheetRepeatReadabilityMetrics(chart: chart, staffHeight: frame.height)
-        let lineXs = barline.kind.isRepeat ? [x - metrics.separation / 2, x + metrics.separation / 2] : [x]
         let lineWidth = selected ? max(3, metrics.lineWidth) : max(2, metrics.lineWidth)
-        guard barline.kind.isRepeat else { return Geometry(boundaryX: x, barXs: lineXs, dotFrames: [], lineWidth: lineWidth) }
-        let staffSpace = max(1, (frame.height - 4) / 4)
-        let radius = max(1.8, metrics.dotRadius)
-        let dotOffset = max(metrics.dotOffset, lineWidth / 2 + radius + 0.8)
-        var dotXs = [CGFloat]()
-        if barline.kind.endsRepeat { dotXs.append(x - metrics.separation / 2 - dotOffset) }
-        if barline.kind.startsRepeat { dotXs.append(x + metrics.separation / 2 + dotOffset) }
-        let dotFrames = dotXs.flatMap { dotX in
-            [frame.midY - staffSpace / 2, frame.midY + staffSpace / 2].map { dotY in
-                CGRect(x: dotX - radius, y: dotY - radius, width: radius * 2, height: radius * 2)
-            }
-        }
-        return Geometry(boundaryX: x, barXs: lineXs, dotFrames: dotFrames, lineWidth: lineWidth)
-    }
-
-    static func sourceHighlightFrame(for barline: DraftBarline, sourceOrigin: CGPoint) -> CGRect? {
-        ChordDraftBarlineOverlayGeometry.sourceHighlightFrame(for: barline, sourceOrigin: sourceOrigin)
-    }
-
-    static func drawSourceHighlight(_ barline: DraftBarline, sourceOrigin: CGPoint, color: UIColor, selected: Bool) {
-        guard let frame = sourceHighlightFrame(for: barline, sourceOrigin: sourceOrigin) else { return }
-        // A single outline identifies the owned ink. Keep its handwritten bars
-        // and dots as the only sign on the page until the user renders it.
-        let path = UIBezierPath(roundedRect: frame, cornerRadius: 4)
-        color.setStroke()
-        path.lineWidth = selected ? 2 : 1
-        path.stroke()
+        return Geometry(boundaryX: x, barXs: [x], lineWidth: lineWidth)
     }
 
     static func draw(_ barline: DraftBarline, in frame: CGRect, chart: Chart, color: UIColor, selected: Bool) {
@@ -146,8 +115,6 @@ enum ChordDraftBarlinePreviewDrawing {
         path.lineCapStyle = .round
         if !selected { path.setLineDash([6, 3], count: 2, phase: 0) }
         path.stroke()
-        color.setFill()
-        for dotFrame in geometry.dotFrames { UIBezierPath(ovalIn: dotFrame).fill() }
     }
 }
 
@@ -171,7 +138,7 @@ enum ChordDraftBarlineDeletionPolicy {
                 && PencilKitInkAdapter.visibleStrokeFragments(from: currentDrawing.strokes[$0]).count == 1 }) else { return nil }
 
         let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: pageLayout)
-        let context = ChordInkDraftVisibleStrokePolicy.repeatAwareVisibleDrawingContext(
+        let context = ChordInkDraftVisibleStrokePolicy.structuralVisibleDrawingContext(
             from: currentDrawing, chordFrame: chordFrame, pageLayout: pageLayout)
         let detected = ChordDraftEndingRecognizer.recognizeBarlinesExcludingEndings(
             strokes: PencilKitInkAdapter.inkStrokes(from: context.drawing), chordFrame: chordFrame, pageLayout: pageLayout)
@@ -179,9 +146,7 @@ enum ChordDraftBarlineDeletionPolicy {
         let current = context.remappedBarlineRecognition(safe).barlines.filter { $0.identitySignature == barline.identitySignature }
         guard current.count == 1,
               let verified = current.first,
-              // Removing an exactly re-detected unfinished repeat is a
-              // recovery action, not permission to render its structure.
-              (verified.isRenderable || (verified.kind.isRepeat && verified.ambiguity == .incompleteRepeat)),
+              verified.isRenderable,
               ChordDraftBarlinePresentationPolicy.DetectionSignature(verified) == ChordDraftBarlinePresentationPolicy.DetectionSignature(barline) else { return nil }
         return indices
     }
@@ -3698,14 +3663,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             ? UIColor(red: 0.08, green: 0.36, blue: 0.82, alpha: 0.72)
             : UIColor(red: 0.9, green: 0.46, blue: 0.12, alpha: 0.64)
         let selected = selectedDraftBarlineID == barline.id
-        if barline.kind.isRepeat {
-            if let pageLayout {
-                let sourceOrigin = LeadSheetActiveInkScope.chordWritingFrame(for: pageLayout).origin
-                ChordDraftBarlinePreviewDrawing.drawSourceHighlight(barline, sourceOrigin: sourceOrigin, color: color, selected: selected)
-            }
-        } else {
-            ChordDraftBarlinePreviewDrawing.draw(barline, in: laneFrame, chart: chart, color: color, selected: selected)
-        }
+        ChordDraftBarlinePreviewDrawing.draw(barline, in: laneFrame, chart: chart, color: color, selected: selected)
 
         guard selected else { return }
 

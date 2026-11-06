@@ -1,5 +1,10 @@
 # Regular iChart consolidation — 1.2.4 (103)
 
+**Historical build record.** Handwritten repeat ingestion described below was
+[retired on November 5, 2026](handwritten-repeat-ingestion-retirement-2026-11-05.md).
+It is not a current product promise. Measure-based **Tools > Repeats**, existing
+saved repeat notation, and ending editing remain supported.
+
 This candidate brings the regular app work into a single source tree based on
 main. It preserves the existing chart, source-ink, PDF-library and setlist storage
 contracts. Device backups and private test captures remain local.

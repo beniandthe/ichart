@@ -11,8 +11,6 @@ enum ChordInkTheoryRole: String, Hashable {
     case slashBassRoot
     case sixNineSeparator
     case parenthesis
-    case chordRepeatDot
-    case chordRepeatSlash
     case unknown
 }
 
@@ -62,15 +60,6 @@ struct ChordInkTheoryRoleContext: Hashable {
         }
 
         return evidence[index]
-    }
-
-    var chordRepeatGlyphCandidates: [GlyphCandidate]? {
-        guard evidence.map(\.primaryRole) == [.chordRepeatDot, .chordRepeatSlash, .chordRepeatDot] else {
-            return nil
-        }
-
-        let glyphCandidates = evidence.compactMap(\.candidate)
-        return glyphCandidates.count == 3 ? glyphCandidates : nil
     }
 
     var rootDescriptorPrefixLength: Int? {
@@ -148,13 +137,6 @@ struct ChordInkTheoryRoleContext: Hashable {
 
                 return lhs.text < rhs.text
             }
-        }
-
-        if let repeatEvidence = chordRepeatEvidence(
-            glyphCandidateGroups: sortedGroups,
-            clusters: clusters
-        ) {
-            return repeatEvidence
         }
 
         var state = RoleScanState()
@@ -286,44 +268,6 @@ struct ChordInkTheoryRoleContext: Hashable {
             primaryRole: role,
             candidate: candidate
         )
-    }
-
-    private static func chordRepeatEvidence(
-        glyphCandidateGroups: [[GlyphCandidate]],
-        clusters: [InkCluster]
-    ) -> [ChordInkTheoryRoleEvidence]? {
-        guard glyphCandidateGroups.count == 3,
-              clusters.count == 3,
-              let leadingDot = candidate("•", minimumConfidence: 0.50, in: glyphCandidateGroups[0]),
-              let slash = candidate("/", minimumConfidence: 0.50, in: glyphCandidateGroups[1]),
-              let trailingDot = candidate("•", minimumConfidence: 0.50, in: glyphCandidateGroups[2]),
-              isChordRepeatClusterLayout(clusters) else {
-            return nil
-        }
-
-        return [
-            evidence(index: 0, role: .chordRepeatDot, candidate: leadingDot),
-            evidence(index: 1, role: .chordRepeatSlash, candidate: slash),
-            evidence(index: 2, role: .chordRepeatDot, candidate: trailingDot)
-        ]
-    }
-
-    private static func isChordRepeatClusterLayout(_ clusters: [InkCluster]) -> Bool {
-        let leading = clusters[0].bounds
-        let slash = clusters[1].bounds
-        let trailing = clusters[2].bounds
-        let leadingDotCompact = leading.width <= 18 && leading.height <= 18
-        let trailingDotCompact = trailing.width <= 18 && trailing.height <= 18
-        let slashDominatesDots = slash.height >= max(leading.height, trailing.height) * 1.2
-        let ordered = leading.recognitionMidX < slash.recognitionMidX
-            && slash.recognitionMidX < trailing.recognitionMidX
-        let dotVerticalSpread = abs(leading.recognitionMidY - trailing.recognitionMidY)
-
-        return leadingDotCompact
-            && trailingDotCompact
-            && slashDominatesDots
-            && ordered
-            && dotVerticalSpread <= max(36, slash.height * 1.4)
     }
 
     private static func rootAccidentalCandidate(

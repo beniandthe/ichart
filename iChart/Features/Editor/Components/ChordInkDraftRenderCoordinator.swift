@@ -258,12 +258,10 @@ final class ChordInkDraftRenderCoordinator {
 
         // Barlines can materialize measures and alter chord placement. Commit
         // them only with the entire current source after the full idle pause.
-        // A lone closing repeat uses the beginning through the shared pairing policy.
         if isIdle,
            state.draftChords.allSatisfy({ ChordInkAutomaticRenderPolicy.automaticCandidateText(for: $0) != nil }),
            state.unresolvedBarlineCount == 0,
-           state.unresolvedEndingCount == 0,
-           ChordDraftRepeatReviewPolicy.blockingMessage(for: state) == nil {
+           state.unresolvedEndingCount == 0 {
             var committed = state
             committed.markRenderableDraftsCommitted(updatedAt: now)
             let complete = prepare(chart: chart, state: committed,
@@ -295,8 +293,6 @@ final class ChordInkDraftRenderCoordinator {
             if !isIdle {
                 feedback.set(.waiting, for: allIDs)
                 return nil
-            } else if ChordDraftRepeatReviewPolicy.blockingMessage(for: state) != nil {
-                feedback.globalReason = .repeatReview
             } else if state.unresolvedEndingCount > 0 {
                 feedback.globalReason = .endingReview
             } else if isIdle, state.unresolvedBarlineCount > 0 {
@@ -322,25 +318,8 @@ final class ChordInkDraftRenderCoordinator {
     }
 
     private static func structuralSelections(in state: ChordPreviewState) -> [Set<UUID>] {
-        let analysis = ChordInkRepeatSignPairingPolicy.analyze(
-            signs: ChordInkRepeatSignPairingPolicy.orderedSigns(state.draftBarlines))
-        let unresolved = Set(analysis.review.unresolvedDraftIDs)
-        let renderable = Set(state.draftBarlines.filter(\.isRenderable).map(\.id))
-        let plain = state.draftBarlines.filter { !$0.kind.isRepeat && $0.isRenderable }
-        var repeatGroups: [Set<UUID>] = []
-        for pairing in analysis.pairings {
-            var ids = Set([pairing.end.id] + (pairing.start.map { [$0.id] } ?? []))
-            guard ids.isDisjoint(with: unresolved), ids.isSubset(of: renderable) else { continue }
-            let connected = repeatGroups.filter { !$0.isDisjoint(with: ids) }
-            for group in connected { ids.formUnion(group) }
-            repeatGroups.removeAll { !$0.isDisjoint(with: ids) }
-            repeatGroups.append(ids)
-        }
-        repeatGroups = repeatGroups.filter { group in
-            ChordInkRepeatSignPairingPolicy.review(state: ChordPreviewState(
-                draftBarlines: state.draftBarlines.filter { group.contains($0.id) })).canRender
-        }
-        let barlineIDs = Set(plain.map(\.id)).union(repeatGroups.flatMap { $0 })
+        let plain = state.draftBarlines.filter(\.isRenderable)
+        let barlineIDs = Set(plain.map(\.id))
         // Reviewed ending ordinals belong to their complete original split
         // plan. Selecting every barline keeps that plan intact.
         let endings = Set(state.draftBarlines.map(\.id)).isSubset(of: barlineIDs)
@@ -349,7 +328,6 @@ final class ChordInkDraftRenderCoordinator {
         guard !all.isEmpty else { return [] }
         var selections = [all]
         selections.append(contentsOf: plain.map { Set([$0.id]) })
-        selections.append(contentsOf: repeatGroups)
         if state.draftBarlines.isEmpty {
             selections.append(contentsOf: endings.map { Set([$0.id]) })
         }
@@ -504,10 +482,6 @@ final class ChordInkDraftRenderCoordinator {
                     keepsGlobalReason: !partial.drawing.strokes.isEmpty)
             }
             return .init(outcome: partial, feedback: feedback)
-        }
-        guard ChordDraftRepeatReviewPolicy.blockingMessage(for: state) == nil else {
-            feedback.globalReason = .repeatReview
-            return independentAttempt()
         }
         let prepared = prepare(chart: chart, state: committed, currentDrawing: currentDrawing,
             coordinateSpace: coordinateSpace, automaticContinuationSourceLayout: sourceLayout)
@@ -845,7 +819,7 @@ final class ChordInkDraftRenderCoordinator {
         drawing: PKDrawing, layout: LeadSheetPageLayout, sourceFrame: CGRect
     ) -> Bool {
         guard !state.draftBarlines.isEmpty || !state.draftEndings.isEmpty else { return true }
-        let context = ChordInkDraftVisibleStrokePolicy.repeatAwareVisibleDrawingContext(
+        let context = ChordInkDraftVisibleStrokePolicy.structuralVisibleDrawingContext(
             from: drawing, chordFrame: sourceFrame, pageLayout: layout)
         let strokes = PencilKitInkAdapter.inkStrokes(from: context.drawing)
         let barlines = ChordDraftEndingRecognizer.recognizeBarlinesExcludingEndings(
@@ -870,7 +844,6 @@ final class ChordInkDraftRenderCoordinator {
             }
             guard matches.count == 1, var detected = matches.first else { return false }
             detected.id = prior.id
-            detected.repeatFromBeginningConfirmed = prior.repeatFromBeginningConfirmed
             updatedBarlines.append(detected)
         }
         var updatedEndings: [DraftEnding] = []

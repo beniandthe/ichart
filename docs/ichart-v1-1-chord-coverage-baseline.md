@@ -5,6 +5,11 @@ Created: 2026-08-03
 Updated: 2026-08-03
 Audience: development and QA only; not user-facing
 
+November 5, 2026 override: this is parser/compendium and historical V1.1 coverage,
+not handwriting recognition coverage. Handwritten repeat ingestion is retired;
+the chord-repeat entries below remain relevant only to typed/manual and saved
+notation compatibility. See the [retirement record](handwritten-repeat-ingestion-retirement-2026-11-05.md).
+
 This document is the current internal printout of chord types covered by the
 V1.1 additional-chord pass. It is grounded in:
 

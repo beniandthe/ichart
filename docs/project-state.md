@@ -1,5 +1,20 @@
 # Project state and next Apple build
 
+## Current decision: handwritten repeat ingestion retired — November 5, 2026
+
+The user abandoned repeat ingestion after the Build 143 Rhythm Section Sheet
+failure. Bar-and-dot signs and percent-style measure-repeat handwriting are
+removed from the active reader and its guidance/promises; do not continue their
+recognition-repair or physical-acceptance lanes. Use **Tools > Repeats** for
+measure-based repeat entry. Preserve existing saved repeat notation and all
+source ink. Normal barlines and handwritten ending brackets remain separate
+features. See the [retirement scope and delivery boundary](handwritten-repeat-ingestion-retirement-2026-11-05.md).
+
+The consolidation records below are historical provenance. Their repeat-writing
+implementation and test claims do not define the current feature set. The
+retirement needs its own source validation and delivery receipts; it does not
+change the already-installed Build 143 by itself.
+
 ## Non-ML source consolidation — November 5, 2026
 
 [PR #95](https://github.com/beniandthe/ichart/pull/95) is the integration lane

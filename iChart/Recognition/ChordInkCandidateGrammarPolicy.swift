@@ -26,6 +26,7 @@ struct ChordInkCandidateGrammarPolicy {
     }
 
     func allows(text: String, glyphCandidates: [GlyphCandidate]) -> Bool {
+        guard !ChordSymbolParser.isChordRepeatText(text) else { return false }
         guard glyphCandidates.count >= 2,
               let rootGlyph = glyphCandidates.first,
               Self.rootTexts.contains(rootGlyph.text) else {

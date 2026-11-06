@@ -242,6 +242,36 @@ struct ChordInkRecognitionResult: Hashable {
     var fallbackEvidence: [ChordInkRecognitionFallbackEvidence] = []
     var metrics: ChordInkRecognitionMetrics = ChordInkRecognitionMetrics()
 
+    /// Retired handwritten repeat interpretations cannot become a preview,
+    /// review suggestion or trusted read through another reader or an older
+    /// personalization profile. Original ink and stored profiles are untouched.
+    func withoutHandwrittenRepeats() -> ChordInkRecognitionResult {
+        var result = self
+        let isRepeat = ChordSymbolParser.isChordRepeatText
+        if result.match?.symbol.kind == .chordRepeat {
+            result.match = nil
+            result.confidence = 0
+            result.acceptedGlyphCandidates = []
+        }
+        result.rawCandidates.removeAll(where: isRepeat)
+        result.candidateScores.removeAll { score in
+            isRepeat(score.text) || score.displayText.map(isRepeat) == true
+        }
+        result.reviewCandidateScores.removeAll { score in
+            isRepeat(score.text) || score.displayText.map(isRepeat) == true
+        }
+        result.reviewRootAlternatives.removeAll(where: isRepeat)
+        if result.personalSuggestion.map({ isRepeat($0.text) }) == true {
+            result.personalSuggestion = nil
+        }
+        result.fallbackEvidence = result.fallbackEvidence.map { evidence in
+            var evidence = evidence
+            evidence.candidateTexts.removeAll(where: isRepeat)
+            return evidence
+        }
+        return result
+    }
+
     func fallbackPipelineVersion(for candidateText: String) -> String? {
         guard let chosen = ChordRecognitionCompendium.match(candidateText)?.displayText,
               let provider = fallbackEvidence.last(where: { evidence in
@@ -372,6 +402,7 @@ enum ChordInkRecognitionPolicy {
     }
 
     static func decision(for result: ChordInkRecognitionResult) -> ChordInkRecognitionDecision {
+        let result = result.withoutHandwrittenRepeats()
         if result.requiresTriangleQualityReview {
             return ChordInkRecognitionDecision(
                 action: .confirm,

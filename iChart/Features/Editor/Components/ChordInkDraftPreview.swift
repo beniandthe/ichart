@@ -166,8 +166,8 @@ enum ChordInkDraftVisibleStrokePolicy {
     private static let minimumVisibleSpan: CGFloat = 5
 
     /// Preserve small marks only when the structural reader can assign them
-    /// to an unambiguous barline, repeat sign, or ending.
-    static func repeatAwareVisibleDrawingContext(
+    /// to an unambiguous barline or ending.
+    static func structuralVisibleDrawingContext(
         from drawing: PKDrawing,
         chordFrame: CGRect,
         pageLayout: LeadSheetPageLayout?
@@ -689,7 +689,6 @@ struct DraftBarlineGestureMetrics: Hashable {
 
 enum DraftBarlineAmbiguity: String, Hashable {
     case none
-    case incompleteRepeat
     case tooShort
     case tooWide
     case tooSlanted
@@ -700,21 +699,23 @@ enum DraftBarlineAmbiguity: String, Hashable {
 
 enum DraftBarlineKind: String, Hashable {
     case single
-    case repeatStart
-    case repeatEnd
-    case repeatBoth
 
-    var isRepeat: Bool { self != .single }
-    var startsRepeat: Bool { self == .repeatStart || self == .repeatBoth }
-    var endsRepeat: Bool { self == .repeatEnd || self == .repeatBoth }
+    var displayName: String { "Barline" }
+}
 
-    var displayName: String {
-        switch self {
-        case .single: return "Barline"
-        case .repeatStart: return "Start repeat"
-        case .repeatEnd: return "End repeat"
-        case .repeatBoth: return "End and start repeat"
-        }
+/// Admission at an existing divider confirms that divider rather than
+/// splitting off a narrow duplicate measure.
+enum ChordDraftBarlineBoundaryPlacement: Equatable {
+    case leading
+    case interior
+    case trailing
+
+    static func placement(fraction: Double, sourceWidth: CGFloat,
+                          barWidth: Double = 0, edgeTolerance: Double = 6) -> Self {
+        let tolerance = min(0.15, (edgeTolerance + barWidth / 2) / max(1, Double(sourceWidth)))
+        if fraction <= tolerance { return .leading }
+        if fraction >= 1 - tolerance { return .trailing }
+        return .interior
     }
 }
 
@@ -729,7 +730,6 @@ struct DraftBarline: Identifiable, Hashable {
     var kind: DraftBarlineKind
     var sourceStrokeIndices: Set<Int>
     var sourceStrokeGeometry: [InkStroke]
-    var repeatFromBeginningConfirmed: Bool
     var metrics: DraftBarlineGestureMetrics
     var ambiguity: DraftBarlineAmbiguity
 
@@ -745,8 +745,7 @@ struct DraftBarline: Identifiable, Hashable {
         ambiguity: DraftBarlineAmbiguity = .none,
         kind: DraftBarlineKind = .single,
         sourceStrokeIndices: Set<Int> = [],
-        sourceStrokeGeometry: [InkStroke] = [],
-        repeatFromBeginningConfirmed: Bool = false
+        sourceStrokeGeometry: [InkStroke] = []
     ) {
         self.id = id
         self.measureID = measureID
@@ -758,7 +757,6 @@ struct DraftBarline: Identifiable, Hashable {
         self.kind = kind
         self.sourceStrokeIndices = sourceStrokeIndices
         self.sourceStrokeGeometry = sourceStrokeGeometry
-        self.repeatFromBeginningConfirmed = repeatFromBeginningConfirmed
         self.metrics = metrics
         self.ambiguity = ambiguity
     }
@@ -1081,7 +1079,6 @@ struct ChordPreviewState: Equatable {
                 var resolvedBarline = barline
                 if let previousDraft = previousDraftBySignature[barline.identitySignature] {
                     resolvedBarline.id = previousDraft.id
-                    resolvedBarline.repeatFromBeginningConfirmed = previousDraft.repeatFromBeginningConfirmed
                 }
                 return resolvedBarline
             }
@@ -1278,11 +1275,6 @@ enum ChordDraftBarlineOverlayGeometry {
         )
     }
 
-    static func sourceHighlightFrame(for barline: DraftBarline, sourceOrigin: CGPoint) -> CGRect? {
-        guard barline.kind.isRepeat else { return nil }
-        return sourceInkFrame(for: barline, sourceOrigin: sourceOrigin)
-    }
-
     static func sourceInkFrame(for barline: DraftBarline, sourceOrigin: CGPoint) -> CGRect? {
         let points = barline.sourceStrokeGeometry.flatMap(\.points)
         guard !points.isEmpty, points.allSatisfy({ $0.x.isFinite && $0.y.isFinite }),
@@ -1294,10 +1286,6 @@ enum ChordDraftBarlineOverlayGeometry {
     }
 
     static func selectionFrame(for barline: DraftBarline, in laneFrame: CGRect, sourceOrigin: CGPoint? = nil) -> CGRect {
-        if let sourceOrigin,
-           let sourceFrame = sourceHighlightFrame(for: barline, sourceOrigin: sourceOrigin) {
-            return sourceFrame.insetBy(dx: -3, dy: -3)
-        }
         return lineFrame(for: barline, in: laneFrame).insetBy(dx: 3, dy: 8)
     }
 
@@ -1340,51 +1328,12 @@ struct ChordDraftBarlineRecognition {
 }
 
 enum ChordDraftBarlineRecognizer {
-    /// Claim complete repeat groups before ordinary barline deduplication and
-    /// chord targeting. All indices remain in the caller's source index space.
-    static func recognizeIncludingRepeats(
-        strokes: [InkStroke],
-        chordFrame: CGRect,
-        pageLayout: LeadSheetPageLayout?
-    ) -> ChordDraftBarlineRecognition {
-        let repeats = ChordDraftRepeatSignRecognizer.recognize(
-            strokes: strokes, chordFrame: chordFrame, pageLayout: pageLayout
-        )
-        let remainingIndices = strokes.indices.filter { !repeats.strokeIndices.contains($0) }
-        let ordinary = recognize(
-            strokes: remainingIndices.map { strokes[$0] },
-            chordFrame: chordFrame, pageLayout: pageLayout
-        )
-        let remapped = ordinary.barlines.map { draft -> DraftBarline in
-            var result = draft
-            if let anchor = draft.sourceStrokeIndex { result.sourceStrokeIndex = remainingIndices[anchor] }
-            result.sourceStrokeIndices = Set(draft.ownedSourceStrokeIndices.map { remainingIndices[$0] })
-            return result
-        }
-        let combined = repeats.barlines + remapped
-        return ChordDraftBarlineRecognition(
-            barlines: combined.sorted { $0.visualOrder < $1.visualOrder },
-            strokeIndices: combined.reduce(into: Set<Int>()) { $0.formUnion($1.ownedSourceStrokeIndices) }
-        )
-    }
-
     static func candidate(
         for stroke: InkStroke,
         chordFrame: CGRect,
         pageLayout: LeadSheetPageLayout
     ) -> DraftBarline? {
         draftBarline(for: stroke, chordFrame: chordFrame, pageLayout: pageLayout)
-    }
-
-    /// A shorter bar is admitted only while assembling a repeat construction.
-    /// It cannot become a plain separator through this entry point.
-    static func repeatComponentCandidate(
-        for stroke: InkStroke,
-        chordFrame: CGRect,
-        pageLayout: LeadSheetPageLayout
-    ) -> DraftBarline? {
-        draftBarline(for: stroke, chordFrame: chordFrame, pageLayout: pageLayout,
-            isRepeatComponent: true)
     }
 
     private enum AcceptanceThresholds {
@@ -1563,8 +1512,7 @@ enum ChordDraftBarlineRecognizer {
         for stroke: InkStroke,
         chordFrame: CGRect,
         pageLayout: LeadSheetPageLayout,
-        allowsSlantInRenderedChordGap: Bool = false,
-        isRepeatComponent: Bool = false
+        allowsSlantInRenderedChordGap: Bool = false
     ) -> DraftBarline? {
         guard stroke.points.count >= 2 else {
             return nil
@@ -1572,7 +1520,7 @@ enum ChordDraftBarlineRecognizer {
 
         let localBounds = stroke.bounds.cgRect
         let bounds = localBounds.offsetBy(dx: chordFrame.minX, dy: chordFrame.minY)
-        guard bounds.height >= (isRepeatComponent ? 1 : AcceptanceThresholds.minimumHeight) else {
+        guard bounds.height >= AcceptanceThresholds.minimumHeight else {
             return nil
         }
 
@@ -1589,18 +1537,11 @@ enum ChordDraftBarlineRecognizer {
         let diagonal = hypot(Double(bounds.width), Double(bounds.height))
         let straightness = pathLength > 0 ? min(max(diagonal / pathLength, 0), 1) : 0
         let widthRatio = Double(bounds.width / max(1, bounds.height))
-        typealias RepeatStandard = ChordDraftRepeatSignRecognizer.DrawingStandard
-        let minimumLaneCoverage = isRepeatComponent
-            ? RepeatStandard.minimumLaneCoverage : AcceptanceThresholds.minimumLaneCoverage
-        let maximumHeightToLaneRatio = isRepeatComponent
-            ? RepeatStandard.maximumHeightToLaneRatio : Double(AcceptanceThresholds.maximumHeightToLaneRatio)
-        let numericalTolerance = isRepeatComponent ? RepeatStandard.numericalTolerance : 0
-        let hasStandardBarlineShape = angleDegrees <= (isRepeatComponent
-                ? RepeatStandard.maximumAngleDegreesFromVertical : AcceptanceThresholds.maximumAngleDegreesFromVertical)
-            && straightness >= (isRepeatComponent
-                ? RepeatStandard.minimumStraightness : AcceptanceThresholds.minimumStraightness)
-            && (widthRatio <= (isRepeatComponent
-                    ? RepeatStandard.maximumBarWidthRatio : AcceptanceThresholds.maximumWidthRatio)
+        let minimumLaneCoverage = AcceptanceThresholds.minimumLaneCoverage
+        let maximumHeightToLaneRatio = Double(AcceptanceThresholds.maximumHeightToLaneRatio)
+        let hasStandardBarlineShape = angleDegrees <= AcceptanceThresholds.maximumAngleDegreesFromVertical
+            && straightness >= AcceptanceThresholds.minimumStraightness
+            && (widthRatio <= AcceptanceThresholds.maximumWidthRatio
                 || bounds.width <= AcceptanceThresholds.maximumAbsoluteWidth)
         let hasSlantedBarlineShape = allowsSlantInRenderedChordGap
             && angleDegrees <= AcceptanceThresholds.gapMaximumAngleDegreesFromVertical
@@ -1615,8 +1556,8 @@ enum ChordDraftBarlineRecognizer {
         ).first(where: { candidate in
             let coverage = Double(bounds.intersection(candidate.laneFrame).height / max(1, candidate.laneFrame.height))
             let heightRatio = bounds.height / max(1, candidate.laneFrame.height)
-            return coverage >= minimumLaneCoverage - numericalTolerance
-                && Double(heightRatio) <= maximumHeightToLaneRatio + numericalTolerance
+            return coverage >= minimumLaneCoverage
+                && Double(heightRatio) <= maximumHeightToLaneRatio
                 && (hasStandardBarlineShape || (
                     coverage >= AcceptanceThresholds.gapMinimumLaneCoverage
                         && candidate.system.layoutStyle != .leadSheet
@@ -1628,8 +1569,8 @@ enum ChordDraftBarlineRecognizer {
         let laneFrame = target.laneFrame
         let laneCoverage = Double(bounds.intersection(laneFrame).height / max(1, laneFrame.height))
         let heightToLaneRatio = bounds.height / max(1, laneFrame.height)
-        guard laneCoverage >= minimumLaneCoverage - numericalTolerance,
-              Double(heightToLaneRatio) <= maximumHeightToLaneRatio + numericalTolerance else {
+        guard laneCoverage >= minimumLaneCoverage,
+              Double(heightToLaneRatio) <= maximumHeightToLaneRatio else {
             return nil
         }
         // A mostly vertical mark can span the lane and still be wide enough
@@ -1774,7 +1715,7 @@ struct ChordInkDraftBatchRenderResult: Equatable {
     var renderedEndingCount: Int { renderedEndingIDs.count }
 
     func hasUnplacedPlainBarline(in state: ChordPreviewState) -> Bool {
-        state.draftBarlines.contains { !$0.kind.isRepeat && unresolvedDraftIDs.contains($0.id) }
+        state.draftBarlines.contains { unresolvedDraftIDs.contains($0.id) }
     }
 }
 
@@ -1784,7 +1725,6 @@ extension Chart {
         var segmentMeasureIDsByOriginalMeasureID: [UUID: [UUID]]
         var boundaryFractionsByOriginalMeasureID: [UUID: [Double]]
         var sourceBoundaryFractionsByOriginalMeasureID: [UUID: [Double]] = [:]
-        var sourceRepeatBoundaries: [ChordInkRepeatSignCommitPolicy.Boundary] = []
         var unresolvedDraftIDs: [UUID]
 
         var splitMeasureIDs: Set<UUID> {
@@ -1885,13 +1825,6 @@ extension Chart {
                 return ChordInkDraftBatchRenderResult(renderedChordIDs: [], renderedBarlineIDs: [],
                     unresolvedDraftIDs: explicitRanges.map(\.id))
             }
-        }
-        let repeatReview = ChordInkRepeatSignPairingPolicy.review(state: state)
-        guard repeatReview.canRender else {
-            return ChordInkDraftBatchRenderResult(
-                renderedChordIDs: [], renderedBarlineIDs: [],
-                unresolvedDraftIDs: repeatReview.unresolvedDraftIDs
-            )
         }
         let renderableBarlines = state.renderableBarlines
         let existingChordIDs = Set(measures.flatMap(\.chordEvents).map(\.id))
@@ -2170,18 +2103,6 @@ extension Chart {
                     ranges: [lower...upper]))
             }
         }
-        let chordFrame = LeadSheetActiveInkScope.chordWritingFrame(for: sourcePageLayout)
-        for boundary in barlinePlan.sourceRepeatBoundaries where
-            boundary.draft.laneLocation?.systemIndex == endpoint.laneLocation.systemIndex {
-            guard !boundary.draft.sourceStrokeGeometry.isEmpty else { continue }
-            let bounds = InkBounds.enclosing(boundary.draft.sourceStrokeGeometry.map(\.bounds))
-            guard bounds.minX.isFinite, bounds.maxX.isFinite,
-                  bounds.minX <= bounds.maxX, bounds.width <= Double(laneFrame.width) else { continue }
-            let lower = CGFloat(bounds.minX) + chordFrame.minX
-            let upper = CGFloat(bounds.maxX) + chordFrame.minX
-            candidates.append(.init(leftMeasureID: boundary.leftMeasureID,
-                rightMeasureID: boundary.rightMeasureID, sourceRanges: [lower...upper]))
-        }
         let sourceX = laneFrame.minX + laneFrame.width * CGFloat(endpoint.laneLocation.fraction)
         return ChordInkEndingCommitPolicy.measureID(atSourceX: sourceX, boundaries: candidates, isStart: isStart)
     }
@@ -2225,7 +2146,6 @@ extension Chart {
     ) {
         let staged = stagedDraftEndingMapping(state: state)
         let unresolvedIDs = Set(staged.unresolvedBarlineIDs)
-            .union(ChordInkRepeatSignPairingPolicy.review(state: state).unresolvedDraftIDs)
         let blockers = state.draftBarlines.filter { !$0.isRenderable || unresolvedIDs.contains($0.id) }
         guard blockers.isEmpty, let mapping = staged.mapping else { return (nil, 0, blockers) }
         let range = draftEndingMeasureRange(for: ending, state: state, ignoringReviewedRange: false, mapping: mapping)
@@ -2450,14 +2370,6 @@ extension Chart {
         layoutPageSize: CGSize?,
         barlineSpacingMode: ChordDraftBarlineSpacingMode = .drawn
     ) -> [UUID] {
-        if barlines.contains(where: { $0.kind.isRepeat }) {
-            // Repeat source must pass the same atomic ownership and pairing
-            // gates as mixed chord/sign rendering.
-            var state = ChordPreviewState()
-            state.draftBarlines = barlines
-            state.layoutPageSize = layoutPageSize
-            return commitChordInkDraftBatch(state, barlineSpacingMode: barlineSpacingMode).renderedBarlineIDs
-        }
         let renderableBarlines = barlines.filter(\.isRenderable)
         let sourceLayout = layoutPageSize.map {
             LeadSheetPageLayoutEngine.pageLayout(
@@ -2504,8 +2416,6 @@ extension Chart {
         var segmentMeasureIDsByOriginalMeasureID = [UUID: [UUID]]()
         var boundaryFractionsByOriginalMeasureID = [UUID: [Double]]()
         var sourceBoundaryFractionsByOriginalMeasureID = [UUID: [Double]]()
-        var repeatBoundaries = [ChordInkRepeatSignCommitPolicy.Boundary]()
-        var endpointRepeats = [(draft: DraftBarline, placement: ChordInkRepeatSignCommitPolicy.BoundaryPlacement)]()
         let resolution = resolvedDraftBarlinesForCommit(
             barlines,
             sourcePageLayout: sourcePageLayout,
@@ -2517,9 +2427,9 @@ extension Chart {
             guard measure(id: $0.measureID)?.authoringState == .committed else { return false }
             let geometry = resolution.sourceGeometryByMeasureID[$0.measureID]
                 ?? chordDraftBarlineSourceGeometry(for: $0.measureID, sourcePageLayout: sourcePageLayout)
-            return ChordInkRepeatSignCommitPolicy.boundaryPlacement(fraction: $0.fraction,
+            return ChordDraftBarlineBoundaryPlacement.placement(fraction: $0.fraction,
                 sourceWidth: geometry?.fractionFrame.width ?? 1_000,
-                repeatBarWidth: $0.metrics.width, edgeTolerance: 9) == .interior
+                barWidth: $0.metrics.width, edgeTolerance: 9) == .interior
         }.map(\.measureID))
         let splitsCommittedRhythm = !committedSplitMeasureIDs.isEmpty
         let originalWidths = Dictionary(uniqueKeysWithValues: measures.map {
@@ -2568,23 +2478,17 @@ extension Chart {
                   !measureBarlines.isEmpty else { continue }
             let sourceGeometry = resolution.sourceGeometryByMeasureID[measureID]
                 ?? chordDraftBarlineSourceGeometry(for: measureID, sourcePageLayout: sourcePageLayout)
-            // Endpoint repeats are annotations on an existing boundary. They
-            // do not participate in split spacing or produce tiny measures.
+            // Drawing over an existing divider confirms that boundary rather
+            // than participating in split spacing or creating a tiny measure.
             let splitBarlines = measureBarlines.filter { barline in
-                let placement = ChordInkRepeatSignCommitPolicy.boundaryPlacement(
+                let placement = ChordDraftBarlineBoundaryPlacement.placement(
                     fraction: barline.fraction,
                     sourceWidth: sourceGeometry?.fractionFrame.width ?? 1_000,
-                    repeatBarWidth: barline.metrics.width,
+                    barWidth: barline.metrics.width,
                     edgeTolerance: layoutStyle == .rhythmSectionSheet ? 9 : 6
                 )
                 if placement == .interior { return true }
-                if barline.kind.isRepeat {
-                    endpointRepeats.append((barline, placement))
-                } else {
-                    // Writing over an existing divider confirms that boundary;
-                    // it must not create a narrow duplicate measure beside it.
-                    renderedBarlineIDs.append(barline.id)
-                }
+                renderedBarlineIDs.append(barline.id)
                 return false
             }
             segmentMeasureIDsByOriginalMeasureID[measureID] = [measureID]
@@ -2649,12 +2553,7 @@ extension Chart {
                 sourceBoundaryFractionsByOriginalMeasureID[measureID, default: []].append(barline.fraction)
                 previousBoundaryFraction = boundaryFraction
                 if let musicalBoundaryFraction { previousMusicalBoundaryFraction = musicalBoundaryFraction }
-                if barline.kind.isRepeat {
-                    repeatBoundaries.append(.init(draft: barline,
-                        leftMeasureID: currentSegmentMeasureID, rightMeasureID: newSegmentMeasureID))
-                } else {
-                    renderedBarlineIDs.append(barline.id)
-                }
+                renderedBarlineIDs.append(barline.id)
             }
 
             guard !splitBarlines.isEmpty else { continue }
@@ -2691,62 +2590,6 @@ extension Chart {
             }
         }
 
-        let finalMeasureIDs = measures.map(\.id)
-        let finalPositions = Dictionary(uniqueKeysWithValues: finalMeasureIDs.enumerated().map { ($0.element, $0.offset) })
-        for endpoint in endpointRepeats {
-            let segments = segmentMeasureIDsByOriginalMeasureID[endpoint.draft.measureID] ?? [endpoint.draft.measureID]
-            let attachedID = endpoint.placement == .leading ? segments.first : segments.last
-            guard let attachedID, let index = finalPositions[attachedID] else {
-                unresolvedDraftIDs.append(endpoint.draft.id)
-                continue
-            }
-            let boundaryIndex = endpoint.placement == .leading ? index : index + 1
-            repeatBoundaries.append(.init(draft: endpoint.draft,
-                leftMeasureID: boundaryIndex > 0 ? finalMeasureIDs[boundaryIndex - 1] : nil,
-                rightMeasureID: boundaryIndex < finalMeasureIDs.count ? finalMeasureIDs[boundaryIndex] : nil))
-        }
-        let repeatPlan = ChordInkRepeatSignCommitPolicy.plan(
-            boundaries: repeatBoundaries, orderedMeasureIDs: finalMeasureIDs)
-        unresolvedDraftIDs.append(contentsOf: repeatPlan.unresolvedDraftIDs)
-        let mappedRepeatIDs = Set(repeatBoundaries.map { $0.draft.id })
-        unresolvedDraftIDs.append(contentsOf: barlines.filter { $0.kind.isRepeat && !mappedRepeatIDs.contains($0.id) }.map(\.id))
-        // A pre-existing repeat owns its original receipt. Consuming another
-        // drawing without a new object would discard that drawing's provenance.
-        // Keep both the existing object and the live page ink untouched instead.
-        for span in repeatPlan.spans where roadmapObjects.contains(where: {
-            $0.type == .repeatSpan && $0.startMeasureID == span.startMeasureID && $0.endMeasureID == span.endMeasureID
-        }) {
-            unresolvedDraftIDs.append(contentsOf: span.sourceDraftIDs)
-        }
-        if unresolvedDraftIDs.isEmpty, !repeatPlan.spans.isEmpty {
-            guard let sourceData = pageHandwrittenChordData,
-                  let sourceDrawing = try? PKDrawing(data: sourceData) else {
-                return ChordDraftBarlineCommitPlan(renderedBarlineIDs: [],
-                    segmentMeasureIDsByOriginalMeasureID: segmentMeasureIDsByOriginalMeasureID,
-                    boundaryFractionsByOriginalMeasureID: boundaryFractionsByOriginalMeasureID,
-                    sourceBoundaryFractionsByOriginalMeasureID: sourceBoundaryFractionsByOriginalMeasureID,
-                    sourceRepeatBoundaries: repeatBoundaries,
-                    unresolvedDraftIDs: repeatBoundaries.map { $0.draft.id })
-            }
-            for span in repeatPlan.spans {
-                guard !span.sourceStrokeIndices.isEmpty,
-                      span.sourceStrokeIndices.allSatisfy({ sourceDrawing.strokes.indices.contains($0) }) else {
-                    unresolvedDraftIDs.append(contentsOf: span.sourceDraftIDs)
-                    continue
-                }
-                guard !roadmapObjects.contains(where: {
-                    $0.type == .repeatSpan && $0.startMeasureID == span.startMeasureID && $0.endMeasureID == span.endMeasureID
-                }), let repeatID = addRepeatSpan(startMeasureID: span.startMeasureID, endMeasureID: span.endMeasureID) else {
-                    unresolvedDraftIDs.append(contentsOf: span.sourceDraftIDs)
-                    continue
-                }
-                if let index = roadmapObjects.firstIndex(where: { $0.id == repeatID }) {
-                    let strokes = span.sourceStrokeIndices.sorted().map { sourceDrawing.strokes[$0] }
-                    roadmapObjects[index].sourceInkData = PKDrawing(strokes: strokes).dataRepresentation()
-                }
-                renderedBarlineIDs.append(contentsOf: span.sourceDraftIDs)
-            }
-        }
         var seenRendered = Set<UUID>()
         var seenUnresolved = Set<UUID>()
         return ChordDraftBarlineCommitPlan(
@@ -2754,7 +2597,6 @@ extension Chart {
             segmentMeasureIDsByOriginalMeasureID: segmentMeasureIDsByOriginalMeasureID,
             boundaryFractionsByOriginalMeasureID: boundaryFractionsByOriginalMeasureID,
             sourceBoundaryFractionsByOriginalMeasureID: sourceBoundaryFractionsByOriginalMeasureID,
-            sourceRepeatBoundaries: repeatBoundaries,
             unresolvedDraftIDs: unresolvedDraftIDs.filter { seenUnresolved.insert($0).inserted }
         )
     }
@@ -2843,7 +2685,7 @@ extension Chart {
 
         var sourceGeometryByMeasureID = [UUID: ChordDraftBarlineSourceGeometry]()
         let resolvedBarlines = barlines.compactMap { barline -> DraftBarline? in
-            if !barline.kind.isRepeat, isTerminalBoundaryLaneLocation(
+            if isTerminalBoundaryLaneLocation(
                 barline.laneLocation,
                 in: sourcePageLayout
             ) {
@@ -2853,7 +2695,7 @@ extension Chart {
             guard let sourceTarget = draftBarlineLaneTarget(
                 for: barline,
                 pageLayout: sourcePageLayout,
-                rejectsCommittedTerminalFiller: !barline.kind.isRepeat
+                rejectsCommittedTerminalFiller: true
             ) else {
                 return barline
             }

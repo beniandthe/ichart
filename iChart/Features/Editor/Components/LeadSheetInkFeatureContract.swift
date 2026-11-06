@@ -155,9 +155,9 @@ enum LeadSheetInkFeatureContract {
 
         // Ordinary barlines intentionally become measure structure without an
         // archived drawing. They are permitted consumption, not lost receipts.
-        // Repeat signs and endings must instead have their roadmap receipts.
+        // Existing roadmap objects and new endings retain their source receipts.
         let renderedBarlineIDs = Set(outcome.result.renderedBarlineIDs)
-        for barline in state.draftBarlines where !barline.kind.isRepeat && renderedBarlineIDs.contains(barline.id) {
+        for barline in state.draftBarlines where renderedBarlineIDs.contains(barline.id) {
             let indices = barline.ownedSourceStrokeIndices
             guard !indices.isEmpty, indices.allSatisfy({ sourceDrawing.strokes.indices.contains($0) }) else {
                 receiptsValid = false

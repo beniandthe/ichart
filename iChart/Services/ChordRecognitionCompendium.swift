@@ -12,7 +12,7 @@ struct ChordRecognitionMatch: Hashable {
 typealias BasicMajorChordMatch = ChordRecognitionMatch
 
 enum ChordRecognitionCompendium {
-    static let recognitionWords: [String] = chordRepeatAliases + entries.flatMap(\.aliases)
+    static let recognitionWords: [String] = entries.flatMap(\.aliases)
     static var supportedMatches: [ChordRecognitionMatch] {
         [ChordRecognitionMatch(
             rawInput: ChordSymbol.chordRepeatDisplayText,
@@ -62,6 +62,13 @@ enum ChordRecognitionCompendium {
         }
 
         return nil
+    }
+
+    /// Handwriting readers accept rooted chords. Typed repeat notation and
+    /// previously saved repeat symbols remain supported by the normal parser.
+    static func matchHandwritingCandidate(_ text: String) -> ChordRecognitionMatch? {
+        guard let match = match(text), match.symbol.kind == .rooted else { return nil }
+        return match
     }
 
     static func userFacingCandidateTexts(from candidates: [String]) -> [String] {
@@ -135,13 +142,6 @@ enum ChordRecognitionCompendium {
         return suffix == "MAJ" || suffix == "MAJOR"
     }
 
-    private static let chordRepeatAliases = [
-        ChordSymbol.chordRepeatDisplayText,
-        "• / •",
-        "%",
-        "./."
-    ]
-
     private static let supportedChordTypeFamilies: [ChordCoverageFamily] = [
         ChordCoverageFamily(name: "major triads", examples: ["C", "F#", "Bb"]),
         ChordCoverageFamily(name: "minor triads and sevenths", examples: ["C-", "Cm", "Cmin", "C-7", "Cm7", "Cmin7"]),
@@ -153,8 +153,7 @@ enum ChordRecognitionCompendium {
         ChordCoverageFamily(name: "suspended chords", examples: ["Csus", "Csus2", "Csus4", "C7sus", "C9sus"]),
         ChordCoverageFamily(name: "diminished and half-diminished", examples: ["C°", "C°7", "Cø7", "Cm7b5"]),
         ChordCoverageFamily(name: "minor sixth and minor-major", examples: ["Cm6", "C-△7", "C-△9"]),
-        ChordCoverageFamily(name: "slash bass", examples: ["C/E", "Db7(b9)/F", "C6/9/E"]),
-        ChordCoverageFamily(name: "chord repeat", examples: [ChordSymbol.chordRepeatDisplayText, "%", "./."])
+        ChordCoverageFamily(name: "slash bass", examples: ["C/E", "Db7(b9)/F", "C6/9/E"])
     ]
 
     private static let entries: [ChordRecognitionEntry] = baseEntries.flatMap { entry in

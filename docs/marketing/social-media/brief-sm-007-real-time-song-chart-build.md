@@ -1,5 +1,10 @@
 # iChart Social Media Production Brief: SM-007 Real-Time Song Chart Build
 
+Current copy boundary, November 5, 2026: handwritten repeat ingestion is retired.
+Any reuse or new edit must show repeat entry through **Tools > Repeats** and
+selected measures. The published-post records below are historical; this source
+update does not modify those external posts.
+
 ## Metadata
 
 - Post ID: SM-007
@@ -94,7 +99,7 @@ If the iPad screen recording does not capture room audio, the visible Pencil tap
 | --- | --- | --- |
 | 0:00 | Blank iChart page before playback | Establish real starting point |
 | 0:05 | First listen: write key, rough form, or first chord pass | Shows actual use, not staged screenshots |
-| Midway | Add sections, repeats, chords, notes, and any rhythm cues by hand | Proof of chart-building speed |
+| Midway | Write chords and cues; add sections and repeat ranges with their chart tools | Proof of chart-building speed |
 | Final pass | Clean up title, sections, chord placement, or notes | Shows editability after handwriting |
 | Result | Open the completed chart top to bottom | Gives evidence of a finished usable chart |
 | Optional close | Export/preview PDF or project storage | Connects the chart to real gig use |

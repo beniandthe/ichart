@@ -201,7 +201,7 @@ final class ChordInkAutomaticRenderTelemetryTests: XCTestCase {
     }
 
     func testWaitingReadingRestoredRepeatAndSourceRefreshDoNotCreateFriction() {
-        for reason: ChordInkAutomaticRenderReason in [.waiting, .reading, .restoredInk, .repeatReview, .needsSourceRefresh] {
+        for reason: ChordInkAutomaticRenderReason in [.waiting, .reading, .restoredInk, .needsSourceRefresh] {
             XCTAssertNil(completion(chart: makeChart(), reason: reason))
         }
     }
