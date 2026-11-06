@@ -218,6 +218,54 @@ final class ChordInkTheoryRoleContextTests: XCTestCase {
         XCTAssertEqual(context.roles, [.rootBase, .chordExtension, .sixNineSeparator, .chordExtension])
     }
 
+    func testLabelsChordRepeatAsSpecialNonRootedSymbol() {
+        let context = roleContext(
+            glyphs: [
+                [glyph("•", confidence: 0.94)],
+                [glyph("/", confidence: 0.94)],
+                [glyph("•", confidence: 0.94)]
+            ],
+            bounds: [
+                dotBounds(at: 0, y: 24),
+                slashBounds(at: 18),
+                dotBounds(at: 42, y: 38)
+            ]
+        )
+
+        XCTAssertEqual(context.roles, [.chordRepeatDot, .chordRepeatSlash, .chordRepeatDot])
+        XCTAssertFalse(context.evidence.contains(where: \.opensChordGroup))
+    }
+
+    func testExposesChordRepeatGlyphCandidatesOnlyForValidatedLayout() {
+        let validContext = roleContext(
+            glyphs: [
+                [glyph("•", confidence: 0.94)],
+                [glyph("/", confidence: 0.94)],
+                [glyph("•", confidence: 0.94)]
+            ],
+            bounds: [
+                dotBounds(at: 0, y: 24),
+                slashBounds(at: 18),
+                dotBounds(at: 42, y: 38)
+            ]
+        )
+        let invalidContext = roleContext(
+            glyphs: [
+                [glyph("•", confidence: 0.94)],
+                [glyph("/", confidence: 0.94)],
+                [glyph("•", confidence: 0.94)]
+            ],
+            bounds: [
+                dotBounds(at: 0, y: 24),
+                slashBounds(at: 18),
+                dotBounds(at: 20, y: 38)
+            ]
+        )
+
+        XCTAssertEqual(validContext.chordRepeatGlyphCandidates?.map(\.text), ["•", "/", "•"])
+        XCTAssertNil(invalidContext.chordRepeatGlyphCandidates)
+    }
+
     private func roleContext(
         glyphs: [[GlyphCandidate]],
         bounds: [InkBounds]
@@ -252,6 +300,9 @@ final class ChordInkTheoryRoleContextTests: XCTestCase {
         InkBounds(minX: x, minY: 14, maxX: x + 14, maxY: 58)
     }
 
+    private func dotBounds(at x: Double, y: Double) -> InkBounds {
+        InkBounds(minX: x, minY: y, maxX: x + 8, maxY: y + 8)
+    }
 }
 
 private extension ChordInkTheoryRoleContext {

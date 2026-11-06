@@ -1375,7 +1375,7 @@ final class ChordInkRecognitionSession {
 
     private func scoped(_ result: ChordInkRecognitionResult,
                         to request: ChordInkRecognitionSessionRequest) -> ChordInkRecognitionResult {
-        var result = result.withoutHandwrittenRepeats()
+        var result = result
         result.requiresEditReview = request.requiresEditReview
         return result
     }

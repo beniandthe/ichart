@@ -106,10 +106,15 @@ struct ChordInkRecognizer: ChordInkRecognizing {
             from: contextualGlyphCandidateGroups,
             clusters: clusters
         )
-        let requiresTriangleQualityReview = Self.hasUnclearMajorTriangle(
-            clusters: clusters, glyphGroups: contextualGlyphCandidateGroups)
+        let chordRepeatCandidate = ChordRepeatInkDetector.candidate(from: recognitionStrokes)
+        let requiresTriangleQualityReview = chordRepeatCandidate == nil
+            && Self.hasUnclearMajorTriangle(clusters: clusters, glyphGroups: contextualGlyphCandidateGroups)
         let chordCandidates: [ChordInkCandidate]
-        if requiresTriangleQualityReview {
+        if let chordRepeatCandidate {
+            chordCandidates = [chordRepeatCandidate] + candidateResult.candidates.filter {
+                $0.text != chordRepeatCandidate.text
+            }
+        } else if requiresTriangleQualityReview {
             // A contextual quality guess would replace the user's ink with
             // a different chord. Keep glyph evidence but offer no chord guess.
             chordCandidates = []
@@ -139,7 +144,7 @@ struct ChordInkRecognizer: ChordInkRecognizing {
                 return nil
             }
 
-            guard let match = ChordRecognitionCompendium.matchHandwritingCandidate(text) else {
+            guard let match = ChordRecognitionCompendium.match(text) else {
                 unmatchedCandidateTexts.insert(text)
                 return nil
             }
@@ -214,7 +219,7 @@ struct ChordInkRecognizer: ChordInkRecognizing {
                 strokeCount: strokes.count,
                 clusterCount: clusters.count,
                 glyphCandidateColumnCount: contextualGlyphCandidateGroups.count,
-                semanticCandidateCount: candidateResult.semanticCandidateCount,
+                semanticCandidateCount: candidateResult.semanticCandidateCount + (chordRepeatCandidate == nil ? 0 : 1),
                 rawCandidateCount: rawCandidates.count,
                 compositionMetrics: candidateResult.compositionMetrics
             )
@@ -1378,5 +1383,101 @@ struct ChordInkMaximumTrustRecognizer: ChordInkRecognizing {
             centerX + x * cosine - y * sine,
             centerY + x * sine + y * cosine
         )
+    }
+}
+
+enum ChordRepeatInkDetector {
+    static func candidate(
+        from strokes: [InkStroke],
+        requiresCompactDots: Bool = false
+    ) -> ChordInkCandidate? {
+        let indexedStrokes = strokes.enumerated().filter { !$0.element.points.isEmpty }
+        guard indexedStrokes.count == 3 else {
+            return nil
+        }
+
+        let bounds = InkBounds.enclosing(indexedStrokes.map(\.element.bounds))
+        for slashStroke in indexedStrokes where isSlashLike(slashStroke.element, symbolBounds: bounds) {
+            let dotStrokes = indexedStrokes.filter { $0.offset != slashStroke.offset }
+            guard dotStrokes.count == 2,
+                  dotStrokes.allSatisfy({ isDotLike($0.element, symbolBounds: bounds) }),
+                  !requiresCompactDots || dotStrokes.allSatisfy({
+                    // A grouping window can be only part of a rooted chord.
+                    // Require actual compact dots relative to the slash before
+                    // granting that window independent token ownership.
+                    max($0.element.bounds.width, $0.element.bounds.height)
+                        <= max(4, slashStroke.element.bounds.height * 0.25)
+                  }),
+                  hasChordRepeatLayout(
+                    slashStroke: slashStroke.element,
+                    dotStrokes: dotStrokes.map(\.element),
+                    symbolBounds: bounds
+                  ) else {
+                continue
+            }
+
+            return ChordInkCandidate(
+                text: ChordSymbol.chordRepeatDisplayText,
+                confidence: 4.95,
+                glyphCandidates: [
+                    GlyphCandidate(text: "•", confidence: 0.94, source: .composer),
+                    GlyphCandidate(text: "/", confidence: 0.94, source: .composer),
+                    GlyphCandidate(text: "•", confidence: 0.94, source: .composer)
+                ]
+            )
+        }
+
+        return nil
+    }
+
+    private static func isSlashLike(_ stroke: InkStroke, symbolBounds: InkBounds) -> Bool {
+        stroke.bounds.width >= 4
+            && stroke.bounds.height >= max(14, symbolBounds.height * 0.42)
+            && stroke.diagonalAngleMagnitude >= 40
+            && stroke.diagonalAngleMagnitude <= 82
+            && stroke.straightness >= 0.55
+    }
+
+    private static func isDotLike(_ stroke: InkStroke, symbolBounds: InkBounds) -> Bool {
+        let maximumDotSize = max(14, min(22, max(symbolBounds.width, symbolBounds.height) * 0.42))
+        let width = stroke.bounds.width
+        let height = stroke.bounds.height
+        let aspect = max(max(width, height), 1) / max(min(width, height), 1)
+        let longThinMark = max(width, height) >= 8 && aspect >= 2.2
+
+        return width <= maximumDotSize
+            && height <= maximumDotSize
+            && !longThinMark
+    }
+
+    private static func hasChordRepeatLayout(
+        slashStroke: InkStroke,
+        dotStrokes: [InkStroke],
+        symbolBounds: InkBounds
+    ) -> Bool {
+        let orderedDots = dotStrokes.sorted { lhs, rhs in
+            lhs.bounds.recognitionMidX < rhs.bounds.recognitionMidX
+        }
+        guard let leftDot = orderedDots.first,
+              let rightDot = orderedDots.last else {
+            return false
+        }
+
+        let horizontalTolerance = max(8, symbolBounds.width * 0.22)
+        let verticalTolerance = max(10, symbolBounds.height * 0.30)
+        let dotHorizontalSpread = rightDot.bounds.recognitionMidX - leftDot.bounds.recognitionMidX
+        let slashCenterX = slashStroke.bounds.recognitionMidX
+        let slashBetweenDots = slashCenterX >= leftDot.bounds.recognitionMidX - horizontalTolerance
+            && slashCenterX <= rightDot.bounds.recognitionMidX + horizontalTolerance
+        let slashCoversDotsVertically = slashStroke.bounds.minY <= min(leftDot.bounds.recognitionMidY, rightDot.bounds.recognitionMidY) + verticalTolerance
+            && slashStroke.bounds.maxY >= max(leftDot.bounds.recognitionMidY, rightDot.bounds.recognitionMidY) - verticalTolerance
+        let diagonalRepeatDots = leftDot.bounds.recognitionMidY <= slashStroke.bounds.recognitionMidY + verticalTolerance
+            && rightDot.bounds.recognitionMidY >= slashStroke.bounds.recognitionMidY - verticalTolerance
+        let horizontalRepeatDots = abs(leftDot.bounds.recognitionMidY - rightDot.bounds.recognitionMidY) <= verticalTolerance
+
+        return dotHorizontalSpread >= max(8, symbolBounds.width * 0.24)
+            && slashBetweenDots
+            && slashCoversDotsVertically
+            && (diagonalRepeatDots || horizontalRepeatDots)
     }
 }

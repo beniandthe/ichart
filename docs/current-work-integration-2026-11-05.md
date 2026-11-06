@@ -1,10 +1,11 @@
 # Current non-ML work integration — November 5, 2026
 
 **Historical integration record.** The user subsequently retired handwritten
-repeat ingestion. The repeat-writing source and test results below remain
-provenance for the merged revision, not current capability or future work
-promises. See the [retirement decision](handwritten-repeat-ingestion-retirement-2026-11-05.md).
-Current repeat entry uses **Tools > Repeats** and selected measures.
+bar-and-dot measure/range repeat ingestion, while clarifying that chord-repeat
+symbols (`%` / dot-slash-dot) remain supported. The source/test results below
+remain provenance for their recorded revision, not fresh acceptance of the
+corrected candidate. Enter measure repeats/ranges through **Tools > Repeats**.
+See the [corrected scope](handwritten-repeat-ingestion-retirement-2026-11-05.md).
 
 This records the source selected for the user-authorized GitHub consolidation
 and PR merges. It is repository integration, not App Store approval, deployment,

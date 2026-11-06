@@ -91,7 +91,6 @@ struct ChordInkCandidateComposer {
                 generatedSequenceCount += 1
 
                 for variant in textVariantPolicy.textVariants(for: sequence) {
-                    guard !ChordSymbolParser.isChordRepeatText(variant) else { continue }
                     let confidence = scoringPolicy.score(
                         text: variant,
                         glyphCandidates: sequence,

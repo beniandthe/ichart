@@ -1,43 +1,55 @@
-# Handwritten repeat ingestion retired — November 5, 2026
+# Handwritten measure-repeat ingestion retired — November 5, 2026
 
-The user explicitly abandoned repeat ingestion after the Build 143 Rhythm
-Section Sheet test failed. Recognition of both bar-and-dot repeat signs and the
-handwritten percent-style measure-repeat symbol is removed from the active
-application and from current help, recovery instructions, and product claims.
-These are not pending handwriting features or promised future repairs.
+## Corrected scope
 
-## Supported repeat workflow
+The user clarified: “i didnt say to get rid of chord repeat symbols... just
+measure repeats”. The retirement applies to handwritten bar-and-dot measure/range
+repeat signs (`||:`, `:||`, `:||:`). It does not apply to the chord-repeat symbol
+(`%` / dot-slash-dot), which remains part of **Write & Render**.
 
-Use **Tools > Repeats** and select the intended measures to add structured repeat
-notation. Existing saved repeat spans, their retained source ink, repeat editing,
-rendering, and PDF export remain supported. **Free Ink** can retain a handwritten
-repeat as ordinary ink. Existing typed/manual and saved measure-repeat notation
-remains compatible.
+Earlier wording and the sealed `936aa2ab` candidate removed both paths. That
+blanket scope is superseded by this clarification. Its source and test receipts
+remain historical evidence; they do not validate the corrected chord-repeat
+candidate. See the [scope-correction handoff](qa/chord-repeat-scope-correction-2026-11-05.md).
 
-**Write & Render** no longer converts handwritten opening, closing, or combined
-repeat barlines or percent-style repeat symbols into repeat notation in either
-Automatic or Manual Render with Preview. Normal barline entry and handwritten
-ending-bracket review are separate features and remain outside this retirement.
+## Supported workflows
+
+Write chords, chord-repeat symbols and ending brackets in **Write & Render**.
+The chord-repeat symbol follows the chord recognition/review workflow in
+Automatic and Manual Render with Preview. Keep separate symbols apart and use
+the offered review path when a read is uncertain.
+
+Use **Tools > Repeats** and select the intended measures to add measure repeats
+or repeat ranges. Write & Render does not convert drawn opening, closing or
+combined bar-and-dot repeat barlines. These are not promised future handwriting
+repairs. **Free Ink** can retain those signs as ordinary ink.
+
+Existing saved repeat spans, their retained source ink, repeat editing,
+rendering, and PDF export remain supported. Typed/manual chord-repeat symbols,
+ordinary barline entry and handwritten ending-bracket review remain supported.
 
 ## Source and evidence boundaries
 
-The historical repeat recognizers, drawing limits, earlier local test results,
-replay receipts, and installation records remain recoverable in Git history and
-the existing source archives. They describe earlier revisions and do not define
-the current product contract. Private chart and PencilKit captures stay local.
+Historical repeat recognizers, drawing limits, earlier local test results,
+replay receipts and installation records remain recoverable in Git history and
+the existing source archives. They describe their recorded revisions. Private
+chart and PencilKit captures stay local.
 
-Removing ingestion does not authorize deleting or rewriting existing chart
-objects or pending ink. Preservation and the measure-based repeat workflow must
-remain covered while the ingestion-specific tests and instructions are retired.
+Retiring bar-and-dot ingestion does not authorize deleting or rewriting existing
+chart objects or pending ink. Preserve saved repeat/source data, the manual
+measure-based tools and the restored chord-repeat recognition path. The basic
+telemetry reduction remains in place; this correction does not reopen expanded
+telemetry, Graph/MyScript or parked ML work.
 
 ## Delivery status
 
-This records the source change and copy policy. Validation, GitHub publication,
-merge, signed packaging, and installation are separate results. The retirement
-does not change the previously installed Build 143 without a later in-place
-update. The removal's test results are recorded with its implementation handoff.
+This records the corrected source/copy contract. Validation of the corrected
+candidate, GitHub publication, merge, signing and installation require their own
+receipts. Prior tests and the installed Build 143 do not establish fresh physical
+Pencil acceptance of this correction.
 
-Repository listing drafts and marketing instructions now identify measure-based
-repeat entry explicitly. External App Store fields, the public website, and
-already-published social posts require their own readback and publication; this
-source edit does not claim to have changed those external surfaces.
+Repository listing drafts and marketing guidance distinguish chord repeats from
+measure/range repeats. External App Store fields, the public website and
+already-published social posts require separate publication/readback. This
+source correction does not change those external surfaces or the sealed local
+candidate packet.

@@ -1,12 +1,12 @@
-# Historical handwritten repeat standard and acceptance — retired
+# Historical bar-and-dot repeat standard and acceptance — retired
 
-**Retired November 5, 2026.** The user abandoned handwritten repeat ingestion
-after the Build 143 Rhythm Section Sheet failure. The drawing rules, candidate
-descriptions, and validation/install records below describe earlier revisions
-only. They are not current instructions, a supported recognition contract, or a
-promise to repair or reintroduce this feature. Use **Tools > Repeats** and select
-measures for repeat notation. Existing saved repeats and source ink remain
-preserved. See the [retirement record](../handwritten-repeat-ingestion-retirement-2026-11-05.md).
+**Bar-and-dot measure/range repeat ingestion retired November 5, 2026.** The
+drawing rules, candidate descriptions and validation/install records below
+describe earlier revisions only. They are not current instructions or a promise
+to repair that reader. The user clarified that chord-repeat symbols (`%` /
+dot-slash-dot) remain supported; their corrected candidate needs separate
+validation. Use **Tools > Repeats** for measure repeats/ranges. Saved repeats and
+source ink remain preserved. See the [corrected scope](../handwritten-repeat-ingestion-retirement-2026-11-05.md).
 
 This historical local candidate kept handwritten repeat entry and defined a broader,
 tested geometric contract. Complete signs are recognized as structure before
@@ -265,7 +265,8 @@ preinstall backup is `.build/repeat-install-20261105/current-app-data-before`.
 The replay results are not observation of automatic rendering on the physical
 iPad. At that checkpoint, physical acceptance required entering Write & Render
 on that chart and observing its result. This requirement is historical; the
-November 5 retirement ends further acceptance work on repeat ingestion.
+November 5 retirement ends further acceptance work on bar-and-dot measure/range
+repeat ingestion; it does not retire chord-repeat symbols.
 
 ## GitHub consolidation provenance — November 5
 

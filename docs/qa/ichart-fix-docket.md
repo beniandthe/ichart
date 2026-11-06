@@ -2,15 +2,17 @@
 
 ## Current override — November 5, 2026
 
-Handwritten repeat ingestion is retired by the user's explicit decision after
-the Build 143 Rhythm Section Sheet failure. This includes bar-and-dot signs and
-percent-style measure-repeat handwriting. Use **Tools > Repeats** for structured
-repeat entry. Preserve saved repeat objects and source ink. Normal barlines,
-measure-based repeat editing, and handwritten ending brackets remain supported.
-See the [retirement record](../handwritten-repeat-ingestion-retirement-2026-11-05.md).
+The user clarified that chord-repeat symbols (`%` / dot-slash-dot) remain
+supported in **Write & Render**. Only handwritten bar-and-dot measure/range
+repeat ingestion is retired after the Build 143 Rhythm Section Sheet failure.
+Use **Tools > Repeats** for measure repeats/ranges. Preserve saved repeat objects
+and source ink, normal barlines and handwritten ending brackets. The basic
+telemetry reduction remains unchanged. See the [corrected scope](../handwritten-repeat-ingestion-retirement-2026-11-05.md)
+and [correction handoff](chord-repeat-scope-correction-2026-11-05.md).
 
-The Build 136–138 results below are historical evidence. They do not promise a
-repeat-recognition repair or authorize further physical repeat-ingestion QA.
+The Build 136–138 results below remain historical. They do not validate the
+corrected chord-repeat candidate, promise a bar-and-dot reader repair or
+authorize a physical iPad action.
 
 ## Historical Build 137–138 checkpoint
 
@@ -73,14 +75,14 @@ save and reopen. Preview, user edit, rendered result and saved data remain disti
 
 | Ticket | Implemented behavior | Status or remaining evidence |
 | --- | --- | --- |
-| FIX-001 / RHY-001 | Recognize ordinary barlines separately from chords; commit eligible Rhythm dividers and independent notation. | Ordinary-divider preservation remains required. Handwritten repeat ingestion was retired November 5; historical Build 137/138 repeat controls do not establish current capability. Unrepresentable cuts retain ink. |
+| FIX-001 / RHY-001 | Recognize ordinary barlines separately from chords; commit eligible Rhythm dividers and independent notation. | Ordinary-divider preservation remains required. Only bar-and-dot measure/range repeat ingestion was retired November 5; chord-repeat symbols remain supported. Historical Build 137/138 controls do not validate the corrected candidate. Unrepresentable cuts retain ink. |
 | FIX-002 | Improve supported F roots; retain E, 7 and vertical controls. | Prior device acceptance retained; bounded reader/render/reopen controls pass. |
 | FIX-003 | Correct triangle/half-diminished ownership, candidate retention and same-root quality editing. | Native/portable controls pass; user reports improvement. Fresh-writing accuracy remains under observation. |
 | FIX-004 / FIX-014 | Render clear fermatas/accents with attachment/float, selection, smooth drag/guide, delete/undo and Restore Ink. | Both styles implemented; prior baseline accepted. Marcato remains parked. |
 | FIX-005 | Load author badges independently and show accurate profile statistics. | Local gateway and actual two-account app visibility checks pass. Awards/revokes remain operator actions; no production awards made. |
 | FIX-006 | Preserve comment drafts/history; support stable earlier-page chronology and retry. | Actual two-account publication/download, vote/comment, paging, badges and return checks pass. The 137 follow-up repairs narrow cards, persistent search/focus and submitted-query return/retry state. |
 | FIX-007 | Bind delayed saves by chart ID; reject duplicate identities before backup. | Persistence regressions pass. Historical incident still requires affected-chart evidence. |
-| FIX-008 | Keep review input focus/scroll stable while retaining editing/render actions. | Native controls pass; the user passed Build 137 keyboard review checks in both chart styles. The later repeat-ingestion retirement does not change that keyboard evidence. |
+| FIX-008 | Keep review input focus/scroll stable while retaining editing/render actions. | Native controls pass; the user passed Build 137 keyboard review checks in both chart styles. The later bar-and-dot ingestion retirement does not change that keyboard evidence. |
 | FIX-009 | Preserve following meter-change anchors across Simple measure splits. | Both render settings and file-backed source/range checks pass. |
 | FIX-010 | Export legacy Rhythm staff ink using the editor's chart-aware geometry. | Actual PDF, save/reopen and visual controls pass. |
 | FIX-011 | Preserve publisher-view PDF metadata; label unsupported legacy metadata Instrument view unknown. | Both styles/views pass. Download leaves printed notes and PDF bytes unchanged. |
@@ -99,7 +101,7 @@ save and reopen. Preview, user edit, rendered result and saved data remain disti
 | RHY-005 | Save failure retains rendering and the latest Retry Save state. Injected failure/reopen controls pass. |
 | RHY-006 | Reopened review uses current source and applicable edits; same-source render intent continues after recognition settles. |
 | RHY-007 | Ending blockers preserve ink/approvals; affected device render/reopen retest passed. |
-| RHY-008 | Handwritten repeat ingestion retired November 5 after the Build 143 Rhythm failure. Earlier repeat-writing controls remain historical evidence. No repeat-ingestion repair or renewed physical-acceptance lane is promised. Preserve the measure-based repeat tools and saved repeat/source data. |
+| RHY-008 | Bar-and-dot measure/range repeat ingestion remains retired after the Build 143 Rhythm failure. The user clarified that handwritten chord-repeat symbols (%) remain supported; the corrected candidate needs its own validation. Earlier controls stay historical. Preserve the measure-based tools and saved repeat/source data. |
 
 ## Approved style boundaries
 
@@ -116,15 +118,16 @@ save and reopen. Preview, user edit, rendered result and saved data remain disti
 
 ## Remaining checks and parked work
 
-1. Validate removal of handwritten repeat ingestion and its product promises.
-   Require negative ingestion coverage, preserved saved-repeat/source-data
-   compatibility, and the retained **Tools > Repeats** workflow. The historical
-   repeat-writing failure is retired by scope decision, without a recognition-
-   success claim. Physical forum acceptance remains separate.
+1. Validate the corrected split: handwritten chord-repeat symbols (`%` /
+   dot-slash-dot) work in both chart styles and render settings; bar-and-dot
+   measure/range repeat ingestion stays absent. Preserve saved-repeat/source
+   compatibility, ordinary barlines/endings and **Tools > Repeats**. Earlier
+   broad-retirement tests do not validate this correction or establish fresh
+   physical Pencil acceptance. Physical forum acceptance remains separate.
 2. Confirm the latest eligible/protected Rhythm divider gestures, style previews
    and forum PDF labels on the physical iPad. Continue checking fresh major-
    seventh and genuine half-diminished writing during normal use.
-3. Verify the exact removal revision's checks before its normal publication or
+3. Verify the exact corrected revision's checks before its normal publication or
    merge. Source changes are not an App Store release or an iPad installation.
    Keep #96 open until its historical mechanism and any supported repair are
    established.

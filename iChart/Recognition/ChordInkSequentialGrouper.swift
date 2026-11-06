@@ -12,6 +12,7 @@ struct ChordInkSequentialGroup: Hashable {
 
 enum ChordInkSequentialGroupAnchorReason: Hashable {
     case rootStart
+    case chordRepeat
     case fallbackGap
 }
 
@@ -221,6 +222,22 @@ struct ChordInkSequentialGrouper {
 
         var glyphIndex = glyphs.startIndex
         while glyphIndex < glyphs.endIndex {
+            if let repeatStart = chordRepeatStart(at: glyphIndex, in: glyphs) {
+                if let currentGroup {
+                    groups.append(currentGroup)
+                }
+                currentGroup = WorkingGroup(
+                    glyph: repeatStart.glyph,
+                    anchorReason: .chordRepeat,
+                    rootText: nil,
+                    rootConfidence: nil,
+                    rootWasModifierLed: false
+                )
+                previousGlyphWasSlashSeparator = false
+                glyphIndex = repeatStart.nextIndex
+                continue
+            }
+
             let glyph = glyphs[glyphIndex]
             let rootStartEvidence = glyph.isSlashSeparator
                 ? nil
@@ -378,7 +395,8 @@ struct ChordInkSequentialGrouper {
         hasHardTemporalOwnership: Bool
     ) -> [ChordInkSequentialGroup] {
         guard groups.count > 1,
-              indexedStrokes.count <= 24 else {
+              indexedStrokes.count <= 24,
+              !groups.contains(where: { $0.anchorReason == .chordRepeat }) else {
             return groups
         }
 
@@ -1078,6 +1096,13 @@ struct ChordInkSequentialGrouper {
             let currentGroup = refinedGroups[groupIndex]
             let previousGroupIndex = refinedGroups.index(before: groupIndex)
             let previousGroup = refinedGroups[previousGroupIndex]
+            // A complete repeat is an independent chord token, even when its
+            // marks were written at the cadence and size of a quality suffix.
+            if currentGroup.anchorReason == .chordRepeat
+                || previousGroup.anchorReason == .chordRepeat {
+                groupIndex = refinedGroups.index(after: groupIndex)
+                continue
+            }
             let detachedFallbackGap = previousGroup.bounds.horizontalGap(to: currentGroup.bounds)
             if currentGroup.anchorReason == .fallbackGap,
                currentGroup.bounds.minX > previousGroup.bounds.maxX,
@@ -1776,6 +1801,55 @@ struct ChordInkSequentialGrouper {
         }
 
         return startTimeOffset - endTimeOffset
+    }
+
+    private func chordRepeatStart(
+        at index: Int,
+        in glyphs: [SequentialGlyph]
+    ) -> (glyph: SequentialGlyph, nextIndex: Int)? {
+        let upperBound = min(glyphs.endIndex, index + 3)
+        var repeatGlyphs = [SequentialGlyph]()
+        var strokeCount = 0
+
+        for scanIndex in index..<upperBound {
+            let glyph = glyphs[scanIndex]
+            repeatGlyphs.append(glyph)
+            strokeCount += glyph.indexedStrokes.count
+            guard strokeCount <= 3 else {
+                return nil
+            }
+            guard strokeCount == 3 else {
+                continue
+            }
+
+            let strokes = repeatGlyphs.flatMap(\.indexedStrokes)
+                .sorted { lhs, rhs in lhs.index < rhs.index }
+                .map(\.stroke)
+            // Compact root letters can fit the detector's dot geometry. Preserve
+            // independent root evidence before assigning these strokes to a repeat.
+            guard !repeatGlyphs.contains(where: { glyph in
+                ChordInkSequentialRootStartDetector.evidence(
+                    in: glyph.candidates,
+                    cluster: glyph.cluster,
+                    currentGroupBounds: nil,
+                    previousGlyphWasSlashSeparator: false
+                ) != nil
+            }) else {
+                return nil
+            }
+            guard ChordRepeatInkDetector.candidate(
+                from: strokes, requiresCompactDots: true
+            ) != nil else {
+                return nil
+            }
+
+            return (
+                glyph: combinedGlyph(from: repeatGlyphs),
+                nextIndex: glyphs.index(after: scanIndex)
+            )
+        }
+
+        return nil
     }
 
     private func combinedGlyph(from glyphs: [SequentialGlyph]) -> SequentialGlyph {

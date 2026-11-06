@@ -122,7 +122,7 @@ Set the public monthly page allowance from measured usage and contribution cost.
 
 ### M5 — expand on the proven foundation
 
-Add separate evaluation buckets and releases for multipage songs, targeted rereads, clear chord handwriting, section labels, rhythmic notation, batch import, annotations, and source-document cloud backup. Handwritten repeat ingestion is retired by the November 5, 2026 decision and is excluded from these proposed recognition buckets. MusicXML import and live native-chart setlist references are independent future features.
+Add separate evaluation buckets and releases for multipage songs, targeted rereads, clear chord handwriting, section labels, rhythmic notation, batch import, annotations, and source-document cloud backup. Bar-and-dot measure/range repeat ingestion is retired by the corrected November 5, 2026 decision and is excluded from these proposed recognition buckets; supported chord-repeat symbols (`%` / dot-slash-dot) remain distinct. MusicXML import and live native-chart setlist references are independent future features.
 
 ## 4. Shared document and native-draft contracts
 

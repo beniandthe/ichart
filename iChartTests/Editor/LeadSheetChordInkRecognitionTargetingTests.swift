@@ -44,7 +44,60 @@ final class LeadSheetChordInkRecognitionTargetingTests: XCTestCase {
         XCTAssertEqual(ChordInkMaximumTrustRecognizer().recognize(strokes: request.strokes).match?.displayText, "Bb△7")
     }
 
+    func testAccumulatedRepeatRetainsVisiblePointDotInBothChartStyles() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let context = try chordContext(style: style)
+            let lane = try XCTUnwrap(context.inputFrames.first)
+            let rootStrokes = try templateStrokes(
+                "C", x: lane.minX + 40, centerY: lane.midY, chordFrame: context.chordFrame
+            )
+            let repeatPoints: [[CGPoint]] = [
+                [CGPoint(x: 180, y: 26)],
+                [CGPoint(x: 198, y: 62), CGPoint(x: 224, y: 12)],
+                [CGPoint(x: 238, y: 53), CGPoint(x: 240, y: 54), CGPoint(x: 238, y: 55)]
+            ]
+            let repeatStrokes = repeatPoints.map { points in
+                pkStroke(points: points.map { point in
+                    CGPoint(
+                        x: lane.minX + 150 + (point.x - 180) * 0.5 - context.chordFrame.minX,
+                        y: lane.midY + (point.y - 37) * 0.5 - context.chordFrame.minY
+                    )
+                })
+            }
+            XCTAssertTrue(ChordInkDraftVisibleStrokePolicy.isVisible(repeatStrokes[0]))
+            let expectedInk = PencilKitInkAdapter.inkStrokes(from: PKDrawing(strokes: repeatStrokes))
+            let recognizer = ChordInkRecognizer()
+            XCTAssertEqual(recognizer.recognize(strokes: expectedInk).match?.displayText, "•/•")
 
+            let drawing = PKDrawing(strokes: rootStrokes + repeatStrokes)
+            let measure = try XCTUnwrap(context.layout.systems.first?.measures.first)
+            let barline = DraftBarline(
+                measureID: try XCTUnwrap(measure.chordInkTargetMeasureID),
+                measureIndex: 1, fraction: 0.15,
+                laneLocation: ChordInkDraftLaneLocation(systemIndex: 0, fraction: 0.15),
+                metrics: DraftBarlineGestureMetrics(
+                    height: 54, width: 2, angleDegreesFromVertical: 0,
+                    straightness: 1, laneCoverage: 0.9
+                )
+            )
+            for barlines in [[], [barline]] {
+                let result = LeadSheetChordInkRecognitionTargeting.batchTargetingResult(
+                    for: drawing, chordFrame: context.chordFrame,
+                    pageLayout: context.layout, draftBarlines: barlines
+                )
+                let target = try XCTUnwrap(
+                    result.targets.first {
+                        ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+                            expected: PKDrawing(strokes: repeatStrokes), current: $0.drawing
+                        )
+                    }, diagnostics(result)
+                )
+                XCTAssertEqual(target.strokes.count, 3)
+                XCTAssertEqual(recognizer.recognize(strokes: target.strokes).match?.displayText, "•/•")
+                XCTAssertEqual(result.targets.reduce(0) { $0 + $1.strokes.count }, drawing.strokes.count)
+            }
+        }
+    }
 
     func testAddingFirstRootOnContinuationLanePreservesPreviousTargets() throws {
         let context = try chordContext()

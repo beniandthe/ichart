@@ -1,9 +1,10 @@
 # iChart release consolidation — November 2, 2026
 
-**Historical build record.** Handwritten repeat ingestion described below was
-[retired on November 5, 2026](handwritten-repeat-ingestion-retirement-2026-11-05.md).
-The merged PR inventory remains historical evidence; it does not promise this
-withdrawn feature. Use measure-based **Tools > Repeats** for repeat entry.
+**Historical build record.** Bar-and-dot measure/range repeat ingestion described
+below was [retired on November 5, 2026](handwritten-repeat-ingestion-retirement-2026-11-05.md).
+Chord-repeat symbols (`%` / dot-slash-dot) remain supported under the corrected
+scope. The inventory stays historical evidence; use **Tools > Repeats** for
+measure repeats/ranges. These results do not validate the corrected candidate.
 
 Candidate: **1.2.4 (108)** on `codex/next-app-store-20261102`.
 Source baseline: `31e16ea5deac4621dea10ddd3a0d1f9c59a3f3f5` (`main`, PR #92).

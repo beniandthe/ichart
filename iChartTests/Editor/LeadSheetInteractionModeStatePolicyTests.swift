@@ -4423,7 +4423,9 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
                 let instruction = EditorCanvasMode.chordEntry.activeToolInstruction(
                     layoutStyle: style, manualRenderWithPreview: manualRenderWithPreview
                 )
-                XCTAssertTrue(instruction.contains("Add repeats with Tools > Repeats."))
+                XCTAssertTrue(instruction.contains("Use Tools > Repeats for measure repeats or ranges."))
+                XCTAssertTrue(instruction.contains("chord-repeat symbols (%)"))
+                XCTAssertTrue(instruction.contains("Drawn bar-and-dot repeat signs are not recognized."))
                 XCTAssertFalse(instruction.contains("stacked dots beside the middle"))
                 XCTAssertFalse(instruction.contains("Right dots start; left dots end."))
                 XCTAssertTrue(instruction.contains("Unplaced ink stays on the page."))

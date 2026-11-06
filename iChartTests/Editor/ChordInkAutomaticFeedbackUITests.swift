@@ -54,7 +54,8 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
         let controlFrame = manual
             ? try await renderedActionFrame("Render Chords", below: helperFrame.maxY, in: mounted.window)
             : control.frame(in: mounted.window)
-        XCTAssertTrue(helper.element.accessibilityLabel?.contains("Add repeats with Tools > Repeats.") == true)
+        XCTAssertTrue(helper.element.accessibilityLabel?.contains("Use Tools > Repeats for measure repeats or ranges.") == true)
+        XCTAssertTrue(helper.element.accessibilityLabel?.contains("chord-repeat symbols (%)") == true)
         XCTAssertFalse(helper.element.accessibilityLabel?.contains("stacked dots beside the middle") == true)
         XCTAssertFalse(helper.element.accessibilityLabel?.contains("Right dots start; left dots end.") == true)
         XCTAssertFalse(helperFrame.isEmpty)
@@ -84,7 +85,8 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
             XCTAssertTrue(feedbackControl.isEnabled)
             feedbackFrame = feedbackControl.frame(in: mounted.window)
         }
-        XCTAssertTrue(currentHelper.element.accessibilityLabel?.contains("Add repeats with Tools > Repeats.") == true)
+        XCTAssertTrue(currentHelper.element.accessibilityLabel?.contains("Use Tools > Repeats for measure repeats or ranges.") == true)
+        XCTAssertTrue(currentHelper.element.accessibilityLabel?.contains("chord-repeat symbols (%)") == true)
         XCTAssertTrue(viewport.contains(currentHelperFrame))
         XCTAssertTrue(viewport.contains(feedbackFrame), "Inline feedback must not push its action out of reach")
         XCTAssertLessThan(currentHelperFrame.maxY, feedbackFrame.minY)

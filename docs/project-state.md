@@ -1,19 +1,19 @@
 # Project state and next Apple build
 
-## Current decision: handwritten repeat ingestion retired — November 5, 2026
+## Current scope: chord repeats retained; measure-repeat handwriting retired — November 5, 2026
 
-The user abandoned repeat ingestion after the Build 143 Rhythm Section Sheet
-failure. Bar-and-dot signs and percent-style measure-repeat handwriting are
-removed from the active reader and its guidance/promises; do not continue their
-recognition-repair or physical-acceptance lanes. Use **Tools > Repeats** for
-measure-based repeat entry. Preserve existing saved repeat notation and all
-source ink. Normal barlines and handwritten ending brackets remain separate
-features. See the [retirement scope and delivery boundary](handwritten-repeat-ingestion-retirement-2026-11-05.md).
+The user clarified that chord-repeat symbols were not part of the retirement.
+Restore handwritten `%` / dot-slash-dot chord repeats in **Write & Render**. Keep
+handwritten bar-and-dot measure/range repeat signs retired and use **Tools >
+Repeats** with selected measures for that structure. Preserve saved repeat
+notation/source ink, normal barlines and handwritten ending brackets. The full
+basic telemetry reduction remains in place. See the [corrected scope](handwritten-repeat-ingestion-retirement-2026-11-05.md)
+and [current correction handoff](qa/chord-repeat-scope-correction-2026-11-05.md).
 
-The consolidation records below are historical provenance. Their repeat-writing
-implementation and test claims do not define the current feature set. The
-retirement needs its own source validation and delivery receipts; it does not
-change the already-installed Build 143 by itself.
+The sealed `936aa2ab` candidate and consolidation records below remain historical
+provenance. Their tests predate the chord-repeat scope correction and do not
+validate it. The corrected candidate needs its own checks; no source change
+updates the installed Build 143 or establishes fresh physical Pencil acceptance.
 
 ## Non-ML source consolidation — November 5, 2026
 

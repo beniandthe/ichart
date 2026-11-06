@@ -3,10 +3,12 @@
 Status: Local App Store/TestFlight metadata draft; build 75 privacy publication hold
 Last updated: 2026-10-09
 
-Repeat-copy policy updated November 5, 2026: do not promise handwriting-to-repeat
-conversion for bar-and-dot signs or percent-style repeat symbols. Repeats are
-entered with **Tools > Repeats** and selected measures. This is a local draft
-correction, not a claim that external Apple fields have been republished.
+Repeat-copy scope clarified November 5, 2026: handwritten chord-repeat symbols
+(`%` / dot-slash-dot) remain supported in **Write & Render**. Do not promise
+recognition of bar-and-dot measure/range repeat signs; enter those through
+**Tools > Repeats** and selected measures. This is a local draft correction, not
+a claim that external Apple fields have been republished or fresh physical
+Pencil acceptance has passed.
 
 ## Build 75 Privacy Publication Hold — 2026-10-09
 
@@ -220,7 +222,7 @@ chord,lead sheet,pdf,band,setlist,gig,musician,pencil,teacher,horn,wedding,trans
 - Use "handwrite clean charts at paper speed" as the core promise.
 - Use "Available on the App Store" and the official App Store badge only after the public product page or pre-order page is live.
 - Do not use public V1 copy to promise dedicated rhythm notation tools, rhythm recognition, or rhythm rendering.
-- Do not promise recognition of handwritten repeat signs or percent-style repeat symbols. Describe repeat entry through the Repeats tool and selected measures.
+- Chord-repeat symbols (`%` / dot-slash-dot) may be described as part of Write & Render. Do not promise recognition of drawn bar-and-dot measure/range repeat signs; describe those through the Repeats tool and selected measures. Avoid claims of universal handwriting accuracy.
 - If rhythm notation comes up, frame it only as a planned V1.2 lane for select-input notation and future workflow expansion.
 
 ## Historical Apple Product Page Requirements — Checked 2026-07-20

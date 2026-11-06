@@ -2015,18 +2015,7 @@ final class ChordInkCandidateComposerTests: XCTestCase {
         XCTAssertEqual(ChordRecognitionCompendium.match(candidates: flatCandidates.map(\.text))?.displayText, "Bb7sus")
     }
 
-    func testHandwritingComposerAndCandidateGrammarRejectRepeatAliases() {
-        let grammar = ChordInkCandidateGrammarPolicy()
-        for text in ["•/•", "• / •", "·/·", "%", "./."] {
-            let candidate = glyph(text, confidence: 0.99)
-            let result = composer.compose(glyphCandidates: [[candidate]])
-            XCTAssertFalse(result.contains { ChordSymbolParser.isChordRepeatText($0.text) }, text)
-            XCTAssertFalse(grammar.allows(text: text, glyphCandidates: [candidate]), text)
-        }
-        XCTAssertTrue(grammar.allows(text: "C7", glyphCandidates: [glyph("C", confidence: 0.99), glyph("7", confidence: 0.99)]))
-    }
-
-    func testSemanticComposerDoesNotIngestChordRepeatDotSlashDot() {
+    func testSemanticComposerRecognizesChordRepeatDotSlashDot() {
         let result = recognitionComposer.composeRecognitionCandidates(
             from: [
                 [glyph("•", confidence: 0.92)],
@@ -2040,7 +2029,11 @@ final class ChordInkCandidateComposerTests: XCTestCase {
             ]
         )
 
-        XCTAssertFalse(result.candidates.contains { ChordSymbolParser.isChordRepeatText($0.text) })
+        XCTAssertEqual(result.candidates.first?.text, "•/•")
+        XCTAssertEqual(
+            ChordRecognitionCompendium.match(candidates: result.candidates.map(\.text))?.displayText,
+            "•/•"
+        )
     }
 
     func testAugmentedSymbolBeatsPromotedSixWhenPlusEvidenceIsStronger() {

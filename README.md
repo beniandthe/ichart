@@ -11,10 +11,11 @@ missed reads, render editable chart objects, save, and export. Recognition is
 assisted entry with explicit correction; near-perfect automatic recognition is
 not a release requirement or a demonstrated capability.
 
-Add repeat notation with **Tools > Repeats** by selecting measures. Handwritten
-repeat ingestion is [retired](docs/handwritten-repeat-ingestion-retirement-2026-11-05.md);
-Write & Render does not convert drawn repeat signs or percent-style repeat
-symbols. Existing saved repeats and ordinary Free Ink remain preserved.
+Write chord-repeat symbols (`%` / dot-slash-dot) in **Write & Render** alongside
+chords. Add measure repeats and repeat ranges with **Tools > Repeats** by
+selecting measures. Only handwritten bar-and-dot measure/range repeat signs are
+[retired](docs/handwritten-repeat-ingestion-retirement-2026-11-05.md). Existing
+saved repeats, source ink and ordinary Free Ink remain preserved.
 
 The shipping branch is `main`. Recognition research is
 retained in place and on named parking branches. See

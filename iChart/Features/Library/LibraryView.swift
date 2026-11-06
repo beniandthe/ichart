@@ -354,10 +354,11 @@ private struct IChartHelpArticleSection: Identifiable {
             id: "editor-corridor-lane",
             title: "Write & Render",
             systemImageName: "pencil",
-            body: "Use Write & Render to turn handwritten chords, barlines, and ending brackets into chart notation.",
+            body: "Use Write & Render to turn handwritten chords, chord-repeat symbols (%), barlines, and ending brackets into chart notation.",
             bullets: [
                 "Write in the highlighted Corridor Lane above the staff.",
-                "Add repeats with Tools > Repeats by selecting measures.",
+                "Write chord-repeat symbols (%) in the lane alongside chords. Keep separate symbols apart and follow review prompts when offered.",
+                "Add measure repeats and repeat ranges with Tools > Repeats by selecting measures.",
                 "On a Rhythm Section Sheet, the first chord in each measure renders on beat 1 wherever you write it in that measure.",
                 "Chords render automatically after a pause. Keep the symbols for each chord together, with space before the next chord.",
                 "If a triangle is unclear, the ink stays on the chart. Tap Review Chord in Automatic, or Review & Render in Manual, to enter the intended chord.",
@@ -376,13 +377,13 @@ private struct IChartHelpArticleSection: Identifiable {
         ),
         IChartHelpArticleSection(
             id: "editor-repeat-tools",
-            title: "Adding Repeats",
+            title: "Chord and Measure Repeats",
             systemImageName: "repeat",
-            body: "Use Tools > Repeats to add repeat notation by selecting measures.",
+            body: "Write chord-repeat symbols (%) in Write & Render. Use Tools > Repeats for measure repeats and repeat ranges.",
             bullets: [
                 "Select the first measure, then tap Start Repeat. Select the last measure and tap End Repeat.",
                 "Use One Bar for a single-measure repeat. Use Manage to edit or remove existing repeat marks.",
-                "Write & Render does not convert handwritten repeat signs. Use Free Ink for repeat marks you want to keep as handwriting."
+                "Write & Render does not convert drawn bar-and-dot repeat barlines. Use Free Ink to keep those signs as handwriting."
             ]
         ),
         IChartHelpArticleSection(

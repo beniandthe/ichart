@@ -1,9 +1,10 @@
 # iChart Social Media Production Brief: SM-007 Real-Time Song Chart Build
 
-Current copy boundary, November 5, 2026: handwritten repeat ingestion is retired.
-Any reuse or new edit must show repeat entry through **Tools > Repeats** and
-selected measures. The published-post records below are historical; this source
-update does not modify those external posts.
+Current copy boundary, clarified November 5, 2026: handwritten chord-repeat
+symbols (`%` / dot-slash-dot) remain supported. Show measure/range repeat entry
+through **Tools > Repeats** and selected measures; do not promise recognition of
+drawn bar-and-dot repeat signs. Published-post records below remain historical.
+This source update does not modify external posts or claim fresh Pencil acceptance.
 
 ## Metadata
 

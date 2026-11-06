@@ -1,4 +1,12 @@
-# Combined telemetry reduction and repeat retirement candidate
+# Historical combined telemetry reduction and repeat retirement candidate
+
+**Scope correction after sealing.** The user clarified that only bar-and-dot
+measure/range repeat ingestion should be retired. Handwritten chord-repeat
+symbols (`%` / dot-slash-dot) remain supported. The sealed `936aa2ab` candidate
+below applied a broader removal; its source/product hashes, receipts and test
+results remain unchanged historical evidence. They do not validate the corrected
+chord-repeat candidate. All basic telemetry reduction remains in place. See the
+[current scope-correction handoff](chord-repeat-scope-correction-2026-11-05.md).
 
 This is local release preparation. The user requested one candidate combining the basic telemetry reduction with handwritten repeat-ingestion retirement, and explicitly held the repeat-only merge. Push, merge, production/backend operations, releases and physical iPad installs are outside this handoff. Automations remain paused.
 
@@ -11,9 +19,9 @@ This is local release preparation. The user requested one candidate combining th
 
 Both source inputs and their evidence remain recoverable. The telemetry source checkout was not modified. Existing dirty notation/Build 142 worktrees and parked ML work were not changed.
 
-## Integrated behavior
+## Historical integrated behavior
 
-Handwritten bar-and-dot repeat recognition and handwritten percent/measure-repeat recognition are retired, including their draft pairing/commit, confirmation and recovery UI. Current guidance directs repeat entry through Tools > Repeats. Manual/typed repeats, saved repeat spans and source ink, ordinary barlines and handwritten ending brackets remain supported.
+At that sealed revision, handwritten bar-and-dot repeat recognition and handwritten percent-style chord-repeat recognition were both removed. This was broader than the user intended and is superseded by the scope correction above. The recorded candidate retained manual/typed repeats, saved repeat spans/source ink, ordinary barlines and handwritten ending brackets.
 
 Optional diagnostics retain fixed basic errors/counts and completed-operation timings. Producer admission is bounded and uses try-lock buffers. Diagnostic disk/network work runs separately from launch, writing, rendering and saving. Consent epochs, withdrawal and anonymous transport remain supported. Geometry, visibility, keyboard, live ink probes, diagnostic persistence rereads/hashes/checkpoints and their observer-only suites are removed.
 
@@ -43,7 +51,7 @@ Individual input evidence is not combined-candidate evidence:
 - Telemetry-only local selection: native 437 passed / two optional archive skips / zero failures; portable persistence/configuration/privacy 115 passed and timing/privacy 25 passed.
 - Repeat-only hosted receipts at the hold showed passing portable/backend/dependency lanes and no automated-review findings, but native and CodeQL were still running. Those receipts are explicitly superseded for the combined candidate. No completed hosted native or CodeQL result is inferred.
 
-Final combined validation is complete:
+Validation of that sealed candidate completed as follows; these counts predate the chord-repeat correction:
 
 | Lane | Total | Passed | Skipped | Failed |
 | --- | ---: | ---: | ---: | ---: |

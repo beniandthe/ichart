@@ -110,25 +110,9 @@ final class ChordInkTrustAcceptanceTests: XCTestCase {
             "C7Flat9Captured01",
             "C7Sharp11Captured01",
             "C7altCaptured03",
-            "DSlashFSharpLooseDevice01"
+            "DSlashFSharpLooseDevice01",
+            "ChordRepeatCaptured01"
         ]))
-    }
-
-    func testRetiredRepeatFixtureRemainsArchivedButCannotSupplyRepeatCandidates() throws {
-        XCTAssertFalse(InkFixtureLoader.legacySafetyRegressionFixtureNames.contains("ChordRepeatCaptured01"))
-        let fixture = try InkFixtureLoader.load("ChordRepeatCaptured01", file: #filePath)
-        XCTAssertTrue(ChordSymbolParser.isChordRepeatText(fixture.expectedDisplayText))
-        let archived = try InkFixtureLoader.loadAll(file: #filePath)
-        let active = try InkFixtureLoader.loadActiveRecognitionFixtures(file: #filePath)
-        XCTAssertTrue(archived.contains { $0.name == fixture.name })
-        XCTAssertFalse(active.contains { $0.name == fixture.name })
-        for perturbation in Perturbation.allCases {
-            let result = recognizer.recognize(strokes: transformed(fixture.strokes, by: perturbation))
-            XCTAssertFalse(result.match.map { ChordSymbolParser.isChordRepeatText($0.displayText) } ?? false)
-            XCTAssertFalse(result.rawCandidates.contains(where: ChordSymbolParser.isChordRepeatText))
-            XCTAssertFalse(ChordInkRenderResolutionPolicy.candidateTexts(for: result)
-                .contains(where: ChordSymbolParser.isChordRepeatText))
-        }
     }
 
     func testRecognizesTrustAcceptanceFixtureSet() throws {
@@ -240,7 +224,7 @@ final class ChordInkTrustAcceptanceTests: XCTestCase {
         )
 
         try assertNoTrustedWrongReads(
-            fixtures: InkFixtureLoader.loadActiveRecognitionFixtures(file: #filePath),
+            fixtures: InkFixtureLoader.loadAll(file: #filePath),
             perturbations: Perturbation.allCases
         )
     }
@@ -252,7 +236,7 @@ final class ChordInkTrustAcceptanceTests: XCTestCase {
         )
 
         try assertNoTrustedWrongReads(
-            fixtures: InkFixtureLoader.loadActiveRecognitionFixtures(file: #filePath),
+            fixtures: InkFixtureLoader.loadAll(file: #filePath),
             perturbations: [.thinnedPoints]
         )
     }
@@ -264,7 +248,7 @@ final class ChordInkTrustAcceptanceTests: XCTestCase {
         )
 
         try assertNoTrustedWrongReads(
-            fixtures: InkFixtureLoader.loadActiveRecognitionFixtures(file: #filePath),
+            fixtures: InkFixtureLoader.loadAll(file: #filePath),
             perturbations: [.identity]
         )
     }
@@ -284,7 +268,7 @@ final class ChordInkTrustAcceptanceTests: XCTestCase {
             var metrics: ChordInkRecognitionMetrics
         }
 
-        let fixtures = try InkFixtureLoader.loadActiveRecognitionFixtures(file: #filePath)
+        let fixtures = try InkFixtureLoader.loadAll(file: #filePath)
         let observations = fixtures.map { fixture in
             let result = recognizer.recognize(
                 strokes: fixture.strokes,
@@ -389,7 +373,7 @@ final class ChordInkTrustAcceptanceTests: XCTestCase {
             )
         }
 
-        let fixtures = try InkFixtureLoader.loadActiveRecognitionFixtures(file: #filePath)
+        let fixtures = try InkFixtureLoader.loadAll(file: #filePath)
         let baselineRecognizer = recognizer(sequenceBudget: 4_096)
         let budgets = [3_072, 2_048, 1_536, 1_024, 768, 512]
         let alternatives = Dictionary(
@@ -457,7 +441,7 @@ final class ChordInkTrustAcceptanceTests: XCTestCase {
         )
 
         try assertNoTrustedWrongReads(
-            fixtures: InkFixtureLoader.loadActiveRecognitionFixtures(file: #filePath),
+            fixtures: InkFixtureLoader.loadAll(file: #filePath),
             perturbations: [.thinnedThenResampled]
         )
     }
@@ -469,7 +453,7 @@ final class ChordInkTrustAcceptanceTests: XCTestCase {
         )
 
         try assertNoTrustedWrongReads(
-            fixtures: InkFixtureLoader.loadActiveRecognitionFixtures(file: #filePath),
+            fixtures: InkFixtureLoader.loadAll(file: #filePath),
             perturbations: [.densityNormalized]
         )
     }
@@ -482,7 +466,7 @@ final class ChordInkTrustAcceptanceTests: XCTestCase {
 
         let baseRecognizer = ChordInkRecognizer()
         var caseCount = 0
-        for fixture in try InkFixtureLoader.loadActiveRecognitionFixtures(file: #filePath) {
+        for fixture in try InkFixtureLoader.loadAll(file: #filePath) {
             for perturbation in [Perturbation.identity, .thinnedPoints] {
                 let strokes = transformed(fixture.strokes, by: perturbation)
                 let result = baseRecognizer.recognize(strokes: strokes)

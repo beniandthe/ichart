@@ -7,38 +7,101 @@ import XCTest
 @testable import iChart
 
 final class HandwrittenRepeatRetirementTests: XCTestCase {
-    func testHandwrittenPercentCannotBecomeARepeatThroughEitherPreparationFlow() throws {
+    @MainActor
+    func testHandwrittenChordRepeatRecognizesAndCommitsInBothStylesAndRenderModes() throws {
+        let captured = try InkFixtureLoader.load("ChordRepeatCaptured01", file: #filePath)
+        let bounds = InkBounds.enclosing(captured.strokes.map(\.bounds))
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
             let fixture = try workflowFixture(style: style)
-            let x = fixture.lane.midX - fixture.chordFrame.minX
-            let y = fixture.lane.midY - fixture.chordFrame.minY
-            let drawing = PKDrawing(strokes: [
-                pointStroke(x: x - 18, y: y - 16),
-                stroke(points: [CGPoint(x: x - 6, y: y + 20), CGPoint(x: x + 10, y: y - 20)]),
-                pointStroke(x: x + 22, y: y + 17)
-            ])
-            let source = drawing.dataRepresentation()
+            // This public legacy fixture is a regression input, not evidence
+            // of recognition accuracy across writers or physical iPad input.
+            let strokes = captured.strokes.map { capturedStroke in
+                stroke(points: capturedStroke.points.map { point in
+                    CGPoint(
+                        x: fixture.lane.midX + CGFloat(point.x - (bounds.minX + bounds.maxX) / 2) * 0.5 - fixture.chordFrame.minX,
+                        y: fixture.lane.midY + CGFloat(point.y - (bounds.minY + bounds.maxY) / 2) * 0.5 - fixture.chordFrame.minY
+                    )
+                })
+            }
+            let source = LeadSheetPersistentInkColorPolicy.normalizedDrawing(PKDrawing(strokes: strokes))
+            var chart = fixture.chart
+            _ = chart.setPageHandwrittenChordDrawing(source.dataRepresentation(),
+                coordinateSpace: .init(size: fixture.chordFrame.size))
+            let storedSource = try XCTUnwrap(chart.pageHandwrittenChordData)
+            let drawing = try PKDrawing(data: storedSource)
+            let originalSource = drawing.dataRepresentation()
+
             for flow in [ChordInkRecognitionFlow.draftPreview, .tapToConfirm] {
                 let prepared = ChordInkRecognitionPreparation.prepare(.init(
                     requestID: UUID(), scheduledAt: Date(), requestedDelay: 0,
-                    drawingData: source, chordFrame: fixture.chordFrame,
-                    pageLayout: fixture.layout, flow: flow, options: .live,
-                    layoutStyle: style))
-                if case .ready(let requests, _) = prepared.outcome {
-                    for request in requests {
-                        let result = ChordInkRecognizer().recognize(strokes: request.strokes)
-                        XCTAssertFalse(result.match.map {
-                            ChordSymbolParser.isChordRepeatText($0.displayText)
-                        } ?? false)
-                        XCTAssertFalse(result.rawCandidates.contains(where: ChordSymbolParser.isChordRepeatText))
-                    }
+                    drawingData: originalSource, chordFrame: fixture.chordFrame,
+                    pageLayout: fixture.layout, flow: flow, options: .live, layoutStyle: style))
+                guard case .ready(let requests, _) = prepared.outcome else {
+                    XCTFail("Chord-repeat ink must prepare a recognition target in \(style.rawValue), \(flow)")
+                    continue
                 }
-                XCTAssertEqual(drawing.dataRepresentation(), source)
+                XCTAssertEqual(requests.count, 1, style.rawValue)
+                XCTAssertTrue(prepared.barlines.isEmpty)
+                XCTAssertTrue(prepared.endings.isEmpty)
+                let request = try XCTUnwrap(requests.first)
+                XCTAssertEqual(request.strokes.count, captured.strokes.count)
+                let result = ChordInkMaximumTrustRecognizer().recognize(strokes: request.strokes, options: request.options)
+                let match = try XCTUnwrap(result.match, style.rawValue)
+                XCTAssertEqual(match.displayText, captured.expectedDisplayText)
+                XCTAssertTrue(ChordSymbolParser.isChordRepeatText(match.displayText))
+                let decision = ChordInkRecognitionPolicy.decision(for: result)
+                var input = ChordInkDraftInput(measureID: request.target.measureID,
+                    measureIndex: try XCTUnwrap(chart.measure(id: request.target.measureID)).index,
+                    targetFraction: request.target.fraction, visualOrder: request.visualOrder,
+                    laneLocation: request.laneLocation, layoutPageSize: request.layoutPageSize,
+                    drawingData: request.drawingData,
+                    candidateTexts: ChordInkRenderResolutionPolicy.candidateTexts(for: result),
+                    bestCandidateText: match.displayText, confidence: result.confidence,
+                    strokeCount: request.strokes.count, recognitionResult: result,
+                    primaryDecision: decision, recognitionDecision: decision,
+                    requiresManualReviewOnly: request.requiresManualReviewOnly)
+                input.targetLifecycle = .init(generationID: request.requestID, anchor: input.anchor,
+                    ownership: .init(preparedStrokes: request.strokes), stage: .frozen)
+                let draft = ChordInkDraft(input: input)
+                let state = ChordPreviewState(draftChords: [draft], layoutPageSize: fixture.layout.pageBounds.size)
+                // Manual mode follows the real review requirement by choosing
+                // the recognized suggestion; the original decision stays intact.
+                var reviewed = state
+                if draft.requiresConfirmation { reviewed.draftChords[0].selectedText = match.displayText }
+                XCTAssertEqual(reviewed.draftChords[0].recognitionDecision, decision)
+                let manual = ChordInkDraftRenderCoordinator.prepareManual(chart: chart, state: reviewed,
+                    currentDrawing: drawing, coordinateSpace: .init(size: fixture.chordFrame.size),
+                    sourcePageLayout: fixture.layout, sourceChordFrame: fixture.chordFrame)
+                let inputAt = Date(timeIntervalSinceReferenceDate: 100)
+                let automatic = try XCTUnwrap(ChordInkDraftRenderCoordinator.prepareAutomaticAttempt(
+                    chart: chart, state: state, currentDrawing: drawing,
+                    coordinateSpace: .init(size: fixture.chordFrame.size), now: inputAt.addingTimeInterval(4),
+                    lastInputAt: inputAt, isUsingTool: false, sourcePageLayout: fixture.layout,
+                    sourceChordFrame: fixture.chordFrame).outcome, style.rawValue)
+                for outcome in [manual, ChordInkDraftRenderCoordinator.explicitOutcome(automatic)] {
+                    XCTAssertTrue(outcome.canConsumeSource, style.rawValue)
+                    XCTAssertEqual(outcome.result.renderedChordCount, 1)
+                    XCTAssertEqual(outcome.result.renderedBarlineCount, 0)
+                    XCTAssertEqual(outcome.result.renderedEndingCount, 0)
+                    XCTAssertNil(outcome.chart.pageHandwrittenChordData)
+                    XCTAssertFalse(outcome.chart.roadmapObjects.contains { $0.type == .repeatSpan })
+                    let chords = outcome.chart.measures.flatMap(\.chordEvents)
+                    XCTAssertEqual(chords.count, 1)
+                    let chord = try XCTUnwrap(chords.first)
+                    XCTAssertEqual(chord.symbol.kind, .chordRepeat)
+                    XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: drawing,
+                        current: try PKDrawing(data: XCTUnwrap(chord.sourceInkData))))
+                    let reopened = try ChartPersistenceCoders.decoder.decode(Chart.self,
+                        from: ChartPersistenceCoders.encoder.encode(outcome.chart))
+                    XCTAssertEqual(reopened, outcome.chart)
+                    XCTAssertEqual(reopened.chordEvent(id: chord.id)?.sourceInkData, chord.sourceInkData)
+                }
+                XCTAssertEqual(drawing.dataRepresentation(), originalSource,
+                    "Preparation and staged rendering must not alter the live source")
+                XCTAssertEqual(chart.pageHandwrittenChordData, storedSource)
             }
         }
     }
-
-
 
     @MainActor
     func testBothRenderModesCannotCreateRepeatSpansFromHandwrittenSigns() throws {

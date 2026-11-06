@@ -164,13 +164,13 @@ enum EditorCanvasMode: Hashable {
         case .chordEntry:
             let writing = switch layoutStyle {
             case .simpleChordSheet:
-                "Write chords and ending brackets in the blue lanes. Draw tall barlines between chords. A lone rendered chord moves to beat 1 when barlines form its measure."
+                "Write chords, chord-repeat symbols (%), and ending brackets in the blue lanes. Draw tall barlines between chords. A lone rendered chord moves to beat 1 when barlines form its measure."
             case .rhythmSectionSheet:
-                "Write chords and ending brackets in the blue lanes. The first chord in each measure renders on beat 1. Draw a tall barline to split at a rhythmic boundary. A lone rendered chord moves to beat 1 when barlines form its measure. If a note crosses the cut, the line stays as ink. Draw barlines on their own at the empty row end to add measures. Use Measures for other form edits."
+                "Write chords, chord-repeat symbols (%), and ending brackets in the blue lanes. The first chord in each measure renders on beat 1. Draw a tall barline to split at a rhythmic boundary. A lone rendered chord moves to beat 1 when barlines form its measure. If a note crosses the cut, the line stays as ink. Draw barlines on their own at the empty row end to add measures. Use Measures for other form edits."
             case .leadSheet:
-                "Write chords and ending brackets in the blue lanes."
+                "Write chords, chord-repeat symbols (%), and ending brackets in the blue lanes."
             }
-            let repeats = "Add repeats with Tools > Repeats."
+            let repeats = "Use Tools > Repeats for measure repeats or ranges. Drawn bar-and-dot repeat signs are not recognized."
             let rendering = manualRenderWithPreview
                 ? "Keep suffixes close to their roots. Tap Render Chords for ready ink. Use Review & Render for chord corrections or ending review. Unplaced ink stays on the page."
                 : "Leave space between chords and pause to render. Use Fix Writing for unclear ink or Review Ending for brackets. Unplaced ink stays on the page."

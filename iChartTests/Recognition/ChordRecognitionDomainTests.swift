@@ -97,15 +97,6 @@ final class ChordRecognitionDomainTests: XCTestCase {
         }
     }
 
-    func testRepeatAliasesRemainTypedNotationButAreExcludedFromHandwritingMatchesAndHints() {
-        for text in ["•/•", "• / •", "·/·", "∙ / ∙", "%", "./."] {
-            XCTAssertEqual(ChordRecognitionCompendium.match(text)?.displayText, ChordSymbol.chordRepeatDisplayText, text)
-            XCTAssertNil(ChordRecognitionCompendium.matchHandwritingCandidate(text), text)
-        }
-        XCTAssertFalse(ChordRecognitionCompendium.recognitionWords.contains(where: ChordSymbolParser.isChordRepeatText))
-        XCTAssertEqual(ChordRecognitionCompendium.matchHandwritingCandidate("Cmaj7")?.displayText, "C△7")
-    }
-
     func testContextualLettersAndDigitsRequireACompleteSupportedChord() {
         for input in ["1", "C1", "J", "CJ", "Cj", "Cs", "Cdi"] {
             XCTAssertNil(ChordRecognitionCompendium.match(input), input)

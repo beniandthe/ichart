@@ -6,7 +6,7 @@ final class ChordInkRecognizerTests: XCTestCase {
         try InkFixtureLoader.loadDefaultRegressionFixtures(file: #filePath)
     }
     private static let fullArchiveFixtureCorpus: Result<[InkFixture], Error> = Result {
-        try InkFixtureLoader.loadActiveRecognitionFixtures(file: #filePath)
+        try InkFixtureLoader.loadAll(file: #filePath)
     }
 
     private let recognizer = ChordInkRecognizer()
@@ -687,7 +687,7 @@ final class ChordInkRecognizerTests: XCTestCase {
         XCTAssertEqual(result.glyphCandidates.count, 5)
     }
 
-    func testHandwrittenDotSlashDotDoesNotProduceRepeatCandidates() throws {
+    func testRecognizesChordRepeatSymbolFromDotSlashDotInk() throws {
         let strokes = try shiftedTemplateStrokes("•", offsetX: 0)
             + shiftedTemplateStrokes("/", offsetX: 35)
             + shiftedTemplateStrokes("•", offsetX: 90)
@@ -696,12 +696,12 @@ final class ChordInkRecognizerTests: XCTestCase {
 
         let debugSummary = "raw: \(Array(result.rawCandidates.prefix(16))), glyphs: \(result.glyphCandidates.map { $0.prefix(8).map(\.text) })"
 
-        XCTAssertFalse(result.match.map { ChordSymbolParser.isChordRepeatText($0.displayText) } ?? false, debugSummary)
-        XCTAssertFalse(result.rawCandidates.contains(where: ChordSymbolParser.isChordRepeatText), debugSummary)
-        XCTAssertFalse(result.candidateScores.contains { ChordSymbolParser.isChordRepeatText($0.text) }, debugSummary)
+        XCTAssertEqual(result.match?.displayText, "•/•", debugSummary)
+        XCTAssertTrue(result.rawCandidates.contains("•/•"), debugSummary)
+        XCTAssertEqual(result.glyphCandidates.count, 3)
     }
 
-    func testHandwrittenCloseDotSlashDotDoesNotProduceRepeatCandidatesWhenStrokeOrderVaries() {
+    func testRecognizesChordRepeatSymbolWhenInkIsCloseAndStrokeOrderVaries() {
         let slash = InkStroke(points: [
             InkPoint(x: 30, y: 58, timeOffset: nil),
             InkPoint(x: 39, y: 36, timeOffset: nil),
@@ -728,48 +728,27 @@ final class ChordInkRecognizerTests: XCTestCase {
 
         let debugSummary = "raw: \(Array(result.rawCandidates.prefix(16))), glyphs: \(result.glyphCandidates.map { $0.prefix(8).map(\.text) })"
 
-        XCTAssertFalse(result.match.map { ChordSymbolParser.isChordRepeatText($0.displayText) } ?? false, debugSummary)
-        XCTAssertFalse(result.rawCandidates.contains(where: ChordSymbolParser.isChordRepeatText), debugSummary)
-        XCTAssertFalse(result.candidateScores.contains { ChordSymbolParser.isChordRepeatText($0.text) }, debugSummary)
+        XCTAssertEqual(result.match?.displayText, "•/•", debugSummary)
+        XCTAssertEqual(result.rawCandidates.first, "•/•", debugSummary)
+        XCTAssertGreaterThanOrEqual(result.confidence, 4.90, debugSummary)
     }
 
-    func testRepeatRecognitionCannotBecomeTrustedEvenWithHighConfidenceProviderEvidence() {
+    func testChordRepeatRecognitionCanBeTrustedWithoutRootEvidence() {
         let result = recognitionResult(
-            matchText: "•/•", confidence: 4.95,
+            matchText: "•/•",
+            confidence: 4.95,
             scores: [candidateScore("•/•", confidence: 4.95)],
-            glyphCandidates: [[glyph("•", confidence: 0.94)], [glyph("/", confidence: 0.94)],
-                              [glyph("•", confidence: 0.94)]]
+            glyphCandidates: [
+                [glyph("•", confidence: 0.94)],
+                [glyph("/", confidence: 0.94)],
+                [glyph("•", confidence: 0.94)]
+            ]
         )
+
         let decision = ChordInkRecognitionPolicy.decision(for: result)
-        XCTAssertEqual(decision.action, .confirm)
-        XCTAssertNil(decision.acceptedText)
-    }
 
-    func testRetiredRepeatSanitizationPreservesOrdinarySuggestionsAndOriginalEvidence() {
-        var result = recognitionResult(matchText: "%", confidence: 4.95,
-            scores: [candidateScore("%", confidence: 4.95), candidateScore("C", confidence: 4.8)])
-        result.acceptedGlyphCandidates = [glyph("•", confidence: 0.99)]
-        result.reviewCandidateScores = [candidateScore("./.", confidence: 4.9), candidateScore("G7", confidence: 4.7)]
-        result.reviewRootAlternatives = ["•/•", "A"]
-        result.personalSuggestion = .init(text: "%", source: .wholeChord, distance: 0.01)
-        result.fallbackEvidence = [.init(engineIdentifier: "retired-provider", engineVersion: "1",
-            candidateTexts: ["%", "F6"], durationMilliseconds: 2, outcome: .completed)]
-        let original = result
-
-        let clean = result.withoutHandwrittenRepeats()
-
-        XCTAssertNil(clean.match)
-        XCTAssertEqual(clean.confidence, 0)
-        XCTAssertTrue(clean.acceptedGlyphCandidates.isEmpty)
-        XCTAssertEqual(clean.rawCandidates, ["C"])
-        XCTAssertEqual(clean.candidateScores.map(\.text), ["C"])
-        XCTAssertEqual(clean.reviewCandidateScores.map(\.text), ["G7"])
-        XCTAssertEqual(clean.reviewRootAlternatives, ["A"])
-        XCTAssertNil(clean.personalSuggestion)
-        XCTAssertEqual(clean.fallbackEvidence.first?.candidateTexts, ["F6"])
-        XCTAssertEqual(clean.fallbackEvidence.first?.engineIdentifier, "retired-provider")
-        XCTAssertEqual(clean.withoutHandwrittenRepeats(), clean)
-        XCTAssertEqual(result, original)
+        XCTAssertEqual(decision.action, .trusted)
+        XCTAssertEqual(decision.acceptedText, "•/•")
     }
 
     func testRecognizesDominantSuspendedInkFixtures() throws {

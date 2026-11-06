@@ -83,7 +83,8 @@ enum InkFixtureLoader {
         "FSharpsus4Captured03",
         "C7Flat9Captured01",
         "C7Sharp11Captured01",
-        "C7altCaptured03"
+        "C7altCaptured03",
+        "ChordRepeatCaptured01"
     ])
 
     static var shouldRunFullInkFixtureArchiveTests: Bool {
@@ -111,13 +112,6 @@ enum InkFixtureLoader {
 
     static func loadAll(file: StaticString = #filePath) throws -> [InkFixture] {
         try fixtureCorpus(relativeTo: file).fixtures
-    }
-
-    /// Recognition replays cover currently supported handwriting. The complete
-    /// historical corpus, including retired repeat ink, stays available through
-    /// loadAll/load for archive integrity and explicit negative regressions.
-    static func loadActiveRecognitionFixtures(file: StaticString = #filePath) throws -> [InkFixture] {
-        try loadAll(file: file).filter { !ChordSymbolParser.isChordRepeatText($0.expectedDisplayText) }
     }
 
     /// Intentionally ambiguous captures have a recovery contract, not the
