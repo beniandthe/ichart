@@ -30,9 +30,23 @@ enum ChartAppearancePanel: String, Identifiable {
         }
     }
 
+    var instructionTitle: String {
+        switch self {
+        case .documentStyle: return "Choose the page style"
+        case .notationFont: return "Choose notation symbols"
+        case .engraving: return "Make the notation easier to read"
+        }
+    }
+
     func instruction(for layoutStyle: ChartLayoutStyle) -> String {
-        guard self == .engraving else { return subtitle }
-        return "Adjust spacing, notation weight and repeat wings. The preview uses this chart's \(layoutStyle.displayText) layout. Changes apply to this chart and its exported PDF."
+        switch self {
+        case .documentStyle:
+            return "Tap a style to change the chart’s page surface."
+        case .notationFont:
+            return "Compare the symbol samples, then tap a font."
+        case .engraving:
+            return "Compare the \(layoutStyle.displayText) preview, then choose readability, repeat wings, or an engraving preset."
+        }
     }
 }
 
@@ -47,8 +61,11 @@ struct ChartAppearanceSheetView: View {
         NavigationStack {
             List {
                 Section {
-                    Text(panel.instruction(for: chart.layoutStyle))
-                        .foregroundStyle(.secondary)
+                    EditorSheetInstruction(title: panel.instructionTitle, steps: [
+                        panel.instruction(for: chart.layoutStyle),
+                        "Changes apply immediately to this chart and its exported PDF."
+                    ])
+                    .accessibilityIdentifier("appearance-sheet-instruction")
                 }
 
                 switch panel {
@@ -186,7 +203,7 @@ struct ChartAppearanceSheetView: View {
     }
 }
 
-private struct NotationReadabilityPreview: UIViewRepresentable {
+struct NotationReadabilityPreview: UIViewRepresentable {
     let chart: Chart
 
     func makeUIView(context: Context) -> NotationReadabilityPreviewView {
@@ -409,5 +426,7 @@ private struct AppearanceChoiceRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        .accessibilityHint("Applies immediately to this chart and its PDF")
     }
 }

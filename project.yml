@@ -111,6 +111,20 @@ targets:
           - "**/README.md"
     dependencies:
       - target: iChart
+  iChartClarityUI:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "17.0"
+    settings:
+      base:
+        PRODUCT_NAME: iChartClarityUI
+        PRODUCT_BUNDLE_IDENTIFIER: com.ichart.clarity.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: iChart
+    sources:
+      - path: iChartUITests
+    dependencies:
+      - target: iChart
   RecognitionStudy:
     type: application
     platform: iOS
@@ -196,6 +210,16 @@ schemes:
     test:
       targets:
         - iChartTests
+  iChartClarityUI:
+    build:
+      targets:
+        iChart: [test]
+        iChartClarityUI: [test]
+    test:
+      config: Debug
+      targets:
+        - name: iChartClarityUI
+          parallelizable: false
   RecognitionStudy:
     build:
       targets:

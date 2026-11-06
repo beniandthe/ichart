@@ -107,7 +107,8 @@ final class ChartAppearancePreviewTests: XCTestCase {
         for style in styles {
             let source = Chart.blank(title: "Engraving entry", layoutStyle: style)
             let original = source
-            let host = UIHostingController(rootView: ChartAppearanceSheetView(chart: .constant(source), panel: .engraving))
+            let host = UIHostingController(rootView: ChartAppearanceSheetView(chart: .constant(source), panel: .engraving)
+                .environment(\.accessibilityEnabled, true))
             let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
                 .first { $0.activationState == .foregroundActive })
             let previousWindow = scene.windows.first(where: \.isKeyWindow)
@@ -121,32 +122,61 @@ final class ChartAppearancePreviewTests: XCTestCase {
                 window.rootViewController = nil
                 previousWindow?.makeKey()
             }
+            let helperTexts = [ChartAppearancePanel.engraving.instructionTitle,
+                ChartAppearancePanel.engraving.instruction(for: style),
+                "Changes apply immediately to this chart and its exported PDF."]
+            let previewLabel = ChartAppearancePreviewPolicy.accessibilityLabel(for: source)
             var nodes = [NativeAccessibilityLookup.Node]()
-            for _ in 0..<40 {
+            var hasRequiredContent = false
+            for _ in 0..<80 {
                 window.layoutIfNeeded()
                 host.view.layoutIfNeeded()
                 nodes = try NativeAccessibilityLookup.nodes(in: window)
-                if nodes.contains(where: {
-                    $0.element.accessibilityLabel == ChartAppearancePreviewPolicy.accessibilityLabel(for: source)
-                }) { break }
+                let hasHelper = helperTexts.allSatisfy { text in
+                    nodes.contains { !$0.isButton && $0.element.accessibilityLabel?.contains(text) == true }
+                }
+                let hasPreview = nodes.contains { $0.element.accessibilityLabel == previewLabel }
+                let hasDone = nodes.contains {
+                    $0.isButton && $0.isEnabled && $0.element.accessibilityLabel == "Done"
+                }
+                hasRequiredContent = hasHelper && hasPreview && hasDone && window.isKeyWindow
+                if hasRequiredContent { break }
+                // UIKit's preview can exist before SwiftUI has published the
+                // helper and toolbar AX elements. Wait for the complete screen.
                 try await Task.sleep(nanoseconds: 50_000_000)
             }
-            let helper = try XCTUnwrap(nodes.first {
-                $0.element.accessibilityLabel == ChartAppearancePanel.engraving.instruction(for: style)
-            })
+            guard hasRequiredContent else {
+                let observed = nodes.compactMap { node -> String? in
+                    let label = node.element.accessibilityLabel ?? ""
+                    let identifier = (node.element as? UIAccessibilityIdentification)?.accessibilityIdentifier ?? ""
+                    guard !label.isEmpty || !identifier.isEmpty else { return nil }
+                    return "\(identifier) | \(label) | \(node.frame(in: window))"
+                }.joined(separator: "\n")
+                attach(windowImage(window), name: "Incomplete engraving sheet \(style.rawValue)")
+                XCTFail("Engraving sheet did not publish its helper, preview, and Done. Observed accessibility content:\n\(observed)")
+                throw AppearanceSheetMountError.incompleteContent
+            }
+            let helperNodes = try helperTexts.map { text in
+                try XCTUnwrap(nodes.first {
+                    !$0.isButton && $0.element.accessibilityLabel?.contains(text) == true
+                }, "The visible appearance helper must explain \(text)")
+            }
+            let helperFrame = helperNodes.reduce(CGRect.null) { $0.union($1.frame(in: window)) }
             let preview = try XCTUnwrap(nodes.first {
                 $0.element.accessibilityLabel == ChartAppearancePreviewPolicy.accessibilityLabel(for: source)
             })
             let done = try XCTUnwrap(nodes.first { $0.isButton && $0.element.accessibilityLabel == "Done" })
             let viewport = window.bounds.insetBy(dx: -1, dy: -1)
-            XCTAssertTrue(viewport.contains(helper.frame(in: window)))
+            XCTAssertTrue(viewport.contains(helperFrame))
             XCTAssertTrue(viewport.contains(preview.frame(in: window)))
             XCTAssertTrue(viewport.contains(done.frame(in: window)))
-            XCTAssertLessThanOrEqual(helper.frame(in: window).maxY, preview.frame(in: window).minY + 1)
+            XCTAssertLessThanOrEqual(helperFrame.maxY, preview.frame(in: window).minY + 1)
             XCTAssertEqual(source, original)
             attach(windowImage(window), name: "Engraving sheet \(style.rawValue)")
         }
     }
+
+    private enum AppearanceSheetMountError: Error { case incompleteContent }
 
     private func layout(_ chart: Chart) -> LeadSheetPageLayout {
         LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: CGSize(width: 720, height: 1_100))

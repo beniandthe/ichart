@@ -24,6 +24,12 @@ struct SetlistsView: View {
     @State private var showingCreate = false
     @State private var pendingDeletion: IChartPDFSetlist?
     @State private var errorMessage: String?
+    @State private var searchText = ""
+    @State private var listOrder: IChartSetlistListOrder = .recent
+
+    private var filteredSetlists: [IChartPDFSetlist] {
+        IChartSetlistSearch.setlists(setlistStore.setlists, query: searchText, order: listOrder)
+    }
 
     init(initialPath: [UUID] = []) {
         _selectedSetlistID = State(initialValue: initialPath.last)
@@ -44,6 +50,14 @@ struct SetlistsView: View {
                     .padding(.horizontal, 16).padding(.vertical, 8)
                     .background(Color(uiColor: .systemBackground))
                     Divider()
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Arrange PDFs in playing order.").font(.headline)
+                        Text("Open a setlist, or choose New Setlist to start one.")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                        IChartSetlistSearchControls(query: $searchText, order: $listOrder,
+                            placeholder: "Search setlists", identifier: "setlists.search")
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 10)
                     List {
                         if let loadError = setlistStore.loadError {
                             Section {
@@ -62,7 +76,10 @@ struct SetlistsView: View {
                             }
                             .listRowBackground(Color.clear)
                         }
-                        ForEach(setlistStore.setlists) { setlist in
+                        if !setlistStore.setlists.isEmpty && filteredSetlists.isEmpty {
+                            Text("No setlists match this search.").foregroundStyle(.secondary)
+                        }
+                        ForEach(filteredSetlists) { setlist in
                             Button { selectedSetlistID = setlist.id } label: {
                                 HStack {
                                     VStack(alignment: .leading, spacing: 4) {
@@ -142,6 +159,7 @@ struct IChartSetlistDetailView: View {
     @State private var readerSelection: IChartSetlistReaderSelection?
     @State private var errorMessage: String?
     @State private var editMode: EditMode = .inactive
+    @State private var replacementSelection: IChartSetlistReaderSelection?
 
     init(setlistID: UUID, onBack: (() -> Void)? = nil) {
         self.setlistID = setlistID
@@ -181,6 +199,16 @@ struct IChartSetlistDetailView: View {
             Divider()
             if setlist != nil {
                 List {
+                    Section {
+                        Text("Tap a song to read. Use Edit to reorder songs.")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("setlists.detail.guidance")
+                        if unavailableCount > 0 {
+                            Label("\(unavailableCount) unavailable \(unavailableCount == 1 ? "PDF" : "PDFs")", systemImage: "exclamationmark.triangle")
+                            Text("Open an unavailable song for details, or use its menu to Replace PDF. The entry stays in playing order until you replace or remove it.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                    }
                     if entries.isEmpty {
                         ContentUnavailableView {
                             Label("Add Your First Song", systemImage: "doc.badge.plus")
@@ -199,7 +227,13 @@ struct IChartSetlistDetailView: View {
                         .accessibilityIdentifier("setlists.song.\(song.id.uuidString)")
                         .accessibilityAction(named: Text("Move Up")) { moveSong(at: index, by: -1) }
                         .accessibilityAction(named: Text("Move Down")) { moveSong(at: index, by: 1) }
+                        .accessibilityAction(named: Text("Replace PDF")) {
+                            replacementSelection = IChartSetlistReaderSelection(entryID: song.id)
+                        }
                         .contextMenu {
+                            Button("Replace PDF", systemImage: "arrow.triangle.2.circlepath") {
+                                replacementSelection = IChartSetlistReaderSelection(entryID: song.id)
+                            }
                             Button("Move Up", systemImage: "arrow.up") { moveSong(at: index, by: -1) }
                                 .disabled(index == 0)
                             Button("Move Down", systemImage: "arrow.down") { moveSong(at: index, by: 1) }
@@ -224,6 +258,9 @@ struct IChartSetlistDetailView: View {
             }
         }
         .sheet(isPresented: $showingAddPDFs) { IChartSetlistPDFPicker(setlistID: setlistID) }
+        .sheet(item: $replacementSelection) { selection in
+            IChartSetlistPDFPicker(setlistID: setlistID, replacementEntryID: selection.entryID)
+        }
         .sheet(isPresented: $showingRename) {
             IChartSetlistNameSheet(title: "Rename Setlist", initialName: setlist?.name ?? "", saveTitle: "Save") { name in
                 try setlistStore.rename(setlistID: setlistID, to: name)
@@ -258,7 +295,7 @@ struct IChartSetlistDetailView: View {
                     Text([item.pageCountText, item.transpositionText].compactMap { $0 }.joined(separator: " · "))
                         .font(.subheadline).foregroundStyle(.secondary)
                 } else {
-                    Label("Unavailable PDF", systemImage: "exclamationmark.triangle")
+                    Label(unavailableReason(for: song)?.shortTitle ?? "Unavailable PDF", systemImage: "exclamationmark.triangle")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
             }
@@ -270,6 +307,16 @@ struct IChartSetlistDetailView: View {
 
     private var errorPresented: Binding<Bool> {
         Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })
+    }
+
+    private var unavailableCount: Int { entries.filter { unavailableReason(for: $0) != nil }.count }
+
+    private func unavailableReason(for song: IChartPDFSetlistResolvedEntry) -> IChartSetlistUnavailableReason? {
+        IChartSetlistAvailability.reason(
+            isInLibrary: song.pdfItem != nil || pdfStore.items.contains { $0.id == song.entry.pdfItemID },
+            isVisible: song.pdfItem != nil,
+            hasFile: song.pdfItem.flatMap { pdfStore.exportedPDF(for: $0) } != nil
+        )
     }
 
     private func perform(_ action: () throws -> Void) {
@@ -308,6 +355,11 @@ struct IChartSetlistNameSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    Text("Name this setlist, then tap \(saveTitle). Your PDFs stay in the PDF Library.")
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 Section("Setlist Name") {
                     IChartTypedTextField(placeholder: "Setlist Name", text: $name, isFocused: $isFocused,
                         autocapitalizationType: .words, autocorrectionType: .yes, borderStyle: .roundedRect)
@@ -349,27 +401,46 @@ private struct IChartSetlistPDFPicker: View {
     @EnvironmentObject private var pdfStore: IChartPDFLibraryStore
     @EnvironmentObject private var chartStore: ChartLibraryStore
     let setlistID: UUID
+    var replacementEntryID: UUID? = nil
     @State private var selectedIDs: Set<UUID> = []
     @State private var errorMessage: String?
+    @State private var searchText = ""
+    @State private var listOrder: IChartSetlistListOrder = .recent
 
     private var items: [IChartPDFLibraryItem] {
         pdfStore.visibleItems(for: chartStore.subscriptionState, accessPolicy: chartStore.entitlements.accessPolicy)
+    }
+    private var filteredItems: [IChartPDFLibraryItem] {
+        IChartSetlistSearch.pdfs(items, query: searchText, order: listOrder)
     }
 
     var body: some View {
         NavigationStack {
             List {
                 Section {
+                    Text(replacementEntryID == nil
+                        ? "Choose PDFs, then tap Add. Songs are added at the end of the setlist."
+                        : "Choose one PDF, then tap Replace. The song keeps its place; the original PDF stays in your library.")
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("setlists.pick.guidance")
+                    IChartSetlistSearchControls(query: $searchText, order: $listOrder,
+                        placeholder: "Search PDFs", identifier: "setlists.pick.search")
                     IChartPDFImportButton(identifier: "setlists.pick.import") { item in
-                        selectedIDs.insert(item.id)
+                        if replacementEntryID != nil { selectedIDs = [item.id] } else { selectedIDs.insert(item.id) }
                     }
                 }
                 if items.isEmpty {
                     ContentUnavailableView("No PDFs Available", systemImage: "doc.richtext", description: Text("Import a PDF from Files, export a chart, or download a forum PDF to add it to this setlist."))
                 }
-                ForEach(items) { item in
+                if !items.isEmpty && filteredItems.isEmpty {
+                    Text("No PDFs match this search.").foregroundStyle(.secondary)
+                }
+                ForEach(filteredItems) { item in
                     Button {
-                        if !selectedIDs.insert(item.id).inserted { selectedIDs.remove(item.id) }
+                        if replacementEntryID != nil {
+                            selectedIDs = selectedIDs.contains(item.id) ? [] : [item.id]
+                        } else if !selectedIDs.insert(item.id).inserted { selectedIDs.remove(item.id) }
                     } label: {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
@@ -389,19 +460,23 @@ private struct IChartSetlistPDFPicker: View {
                 }
                 if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(.red) }
             }
-            .navigationTitle("Add PDFs")
+            .navigationTitle(replacementEntryID == nil ? "Add PDFs" : "Replace PDF")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(selectedIDs.isEmpty ? "Add" : "Add \(selectedIDs.count)") {
+                    Button(replacementEntryID != nil ? "Replace" : (selectedIDs.isEmpty ? "Add" : "Add \(selectedIDs.count)")) {
                         let selected = items.filter { selectedIDs.contains($0.id) && pdfStore.exportedPDF(for: $0) != nil }
                         guard !selected.isEmpty, selected.count == selectedIDs.count else {
                             errorMessage = "A selected PDF is no longer available. Choose the PDFs again."
                             return
                         }
                         do {
-                            _ = try setlistStore.add(pdfItems: selected, to: setlistID)
+                            if let replacementEntryID, let item = selected.first {
+                                try setlistStore.replace(entryID: replacementEntryID, in: setlistID, with: item)
+                            } else {
+                                _ = try setlistStore.add(pdfItems: selected, to: setlistID)
+                            }
                             dismiss()
                         } catch { errorMessage = error.localizedDescription }
                     }
@@ -448,6 +523,8 @@ struct IChartSetlistPerformanceReader: View {
     let setlistID: UUID
     @State private var selectedID: UUID?
     @State private var unreadableID: UUID?
+    @State private var readFailure: IChartSetlistUnavailableReason?
+    @State private var replacementSelection: IChartSetlistReaderSelection?
 
     init(setlistID: UUID, startingEntryID: UUID) {
         self.setlistID = setlistID
@@ -471,7 +548,11 @@ struct IChartSetlistPerformanceReader: View {
             VStack(spacing: 0) {
                 if let song = currentEntry {
                     if let item = song.pdfItem, let pdf = pdfStore.exportedPDF(for: item), unreadableID != song.id {
-                        IChartSetlistPDFDocumentView(url: pdf.url, songID: song.id) { unreadableID = song.id }
+                        IChartSetlistPDFDocumentView(url: pdf.url, songID: song.id,
+                            onReadFailure: { reason in
+                                unreadableID = song.id
+                                readFailure = reason
+                            }, onUnavailable: { unreadableID = song.id })
                             .ichartDocumentDisplayAppearance()
                             .accessibilityIdentifier("setlists.reader.pdf")
                     } else {
@@ -482,7 +563,13 @@ struct IChartSetlistPerformanceReader: View {
                                 Image(systemName: "doc.questionmark")
                             }
                         } description: {
-                            Text("This PDF can’t be opened with your current library access. Skip it, or return to the setlist to replace this entry.")
+                            Text(unavailableReason(for: song).message)
+                        } actions: {
+                            Button("Replace PDF", systemImage: "arrow.triangle.2.circlepath") {
+                                replacementSelection = IChartSetlistReaderSelection(entryID: song.id)
+                            }
+                            .buttonStyle(.bordered)
+                            .accessibilityIdentifier("setlists.reader.replace")
                         }
                     }
                     Divider()
@@ -513,13 +600,53 @@ struct IChartSetlistPerformanceReader: View {
         .onChange(of: entryIDs) { previous, current in
             selectedID = IChartSetlistReaderNavigation.selectionAfterChange(from: previous, to: current, selectedID: selectedID)
             unreadableID = nil
+            readFailure = nil
         }
-        .onChange(of: selectedID) { _, _ in unreadableID = nil }
+        .onChange(of: selectedID) { _, _ in unreadableID = nil; readFailure = nil }
+        .onChange(of: currentEntry?.entry.pdfItemID) { _, _ in unreadableID = nil; readFailure = nil }
+        .sheet(item: $replacementSelection) { selection in
+            IChartSetlistPDFPicker(setlistID: setlistID, replacementEntryID: selection.entryID)
+        }
         .modifier(IChartSetlistAppearance())
     }
 
     private func adjacentID(by delta: Int) -> UUID? { IChartSetlistReaderNavigation.adjacentID(in: entryIDs, selectedID: selectedID, by: delta) }
     private func advance(by delta: Int) { if let next = adjacentID(by: delta) { selectedID = next } }
+
+    private func unavailableReason(for song: IChartPDFSetlistResolvedEntry) -> IChartSetlistUnavailableReason {
+        IChartSetlistAvailability.reason(
+            isInLibrary: song.pdfItem != nil || pdfStore.items.contains { $0.id == song.entry.pdfItemID },
+            isVisible: song.pdfItem != nil,
+            hasFile: song.pdfItem.flatMap { pdfStore.exportedPDF(for: $0) } != nil,
+            readFailure: unreadableID == song.id ? (readFailure ?? .unreadablePDF) : nil
+        ) ?? .unreadablePDF
+    }
+}
+
+private struct IChartSetlistSearchControls: View {
+    @Binding var query: String
+    @Binding var order: IChartSetlistListOrder
+    let placeholder: String
+    let identifier: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            TextField(placeholder, text: $query)
+                .textFieldStyle(.roundedBorder)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .accessibilityIdentifier(identifier)
+            Menu {
+                Picker("Sort", selection: $order) {
+                    ForEach(IChartSetlistListOrder.allCases) { value in Text(value.rawValue).tag(value) }
+                }
+            } label: {
+                Label("Sort: \(order.rawValue)", systemImage: "arrow.up.arrow.down")
+                    .frame(minHeight: 44)
+            }
+            .accessibilityIdentifier("\(identifier).sort")
+        }
+    }
 }
 
 /// A live preferredColorScheme change can leave a full-screen presentation's
@@ -734,6 +861,7 @@ private final class IChartSetlistReaderControlBar: UIStackView {
 struct IChartSetlistPDFDocumentView: UIViewRepresentable {
     let url: URL
     let songID: UUID
+    var onReadFailure: ((IChartSetlistUnavailableReason) -> Void)? = nil
     var onUnavailable: () -> Void = {}
 
     func makeUIView(context: Context) -> PDFView {
@@ -759,10 +887,12 @@ struct IChartSetlistPDFDocumentView: UIViewRepresentable {
             view.go(to: firstPage)
             view.autoScales = true
         } else {
+            let reason: IChartSetlistUnavailableReason = document?.isLocked == true ? .lockedPDF : .unreadablePDF
             view.document = nil
             DispatchQueue.main.async {
                 guard coordinator.songID == songID, coordinator.url == url else { return }
                 onUnavailable()
+                onReadFailure?(reason)
             }
         }
     }

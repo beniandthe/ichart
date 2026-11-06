@@ -7,7 +7,9 @@ struct PDFExportPreviewView: View {
     @AppStorage(IChartAppAppearance.preferenceKey) private var appAppearanceValue = IChartAppAppearance.light.rawValue
     let exportedPDF: ExportedPDF
     var source: IChartPDFLibrarySource? = nil
+    var pdfItemID: UUID? = nil
     @State private var showingShareSheet = false
+    @State private var showingAddToSetlist = false
 
     private var appearance: IChartAppAppearance {
         IChartAppAppearance(persistedValue: appAppearanceValue)
@@ -50,10 +52,30 @@ struct PDFExportPreviewView: View {
         .sheet(isPresented: $showingShareSheet) {
             ActivityShareSheet(items: [exportedPDF.url])
         }
+        .sheet(isPresented: $showingAddToSetlist) {
+            if let pdfItemID { AddPDFToSetlistSheet(pdfItemIDs: [pdfItemID]) }
+        }
     }
 
     private var exportSummary: some View {
         VStack(alignment: .leading, spacing: 10) {
+            Text(pdfItemID == nil ? "Check this reading copy, then Share it." : "Read this saved PDF, Share it, or add it to a setlist.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("pdf.preview.guidance")
+            if pdfItemID != nil {
+                Button {
+                    showingAddToSetlist = true
+                } label: {
+                    Label("Add to Setlist", systemImage: "music.note.list")
+                        .labelStyle(.titleAndIcon)
+                        .frame(minHeight: 32)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityHint("Choose a setlist for this saved PDF.")
+                .accessibilityIdentifier("pdf.preview.add-to-setlist")
+            }
             Text(exportedPDF.fileName)
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(2)

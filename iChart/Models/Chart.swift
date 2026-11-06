@@ -743,9 +743,9 @@ enum ChartLayoutStyle: String, Codable, CaseIterable, Hashable, Identifiable {
     var detailText: String {
         switch self {
         case .simpleChordSheet:
-            return "Dense chord-first grid for fast harmonic roadmaps."
+            return "Write a compact chart of chords and song form."
         case .rhythmSectionSheet:
-            return "Chord chart with extra room for hits, slashes, and groove cues."
+            return "Add chords with staff space for handwritten rhythms, hits and groove cues."
         case .leadSheet:
             return "Staff-based page for melody, chords, and standard notation."
         }

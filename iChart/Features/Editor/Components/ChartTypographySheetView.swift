@@ -1,14 +1,33 @@
 import SwiftUI
+import UIKit
 
 struct ChartTypographySheetView: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var chart: Chart
     @State private var operationMessage: String?
     @State private var operationID = UUID()
+    @State private var showsIndividualFonts = false
+    @State private var presentationDetent: PresentationDetent = .large
 
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    EditorSheetInstruction(title: "Choose a font set", steps: [
+                        "Tap a matched set to update this chart and its PDF immediately.",
+                        "Open Customize to change individual parts."
+                    ])
+                    .accessibilityIdentifier("fonts-sheet-instruction")
+                }
+
+                Section("Chart preview") {
+                    NotationReadabilityPreview(chart: chart)
+                        .frame(height: 118)
+                        .background(Color.white)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(ChartAppearancePreviewPolicy.accessibilityLabel(for: chart))
+                }
+
                 Section("Matched Set") {
                     ForEach(ChartFontFamilyPreset.selectableCases) { preset in
                         TypographyChoiceRow(
@@ -25,53 +44,67 @@ struct ChartTypographySheetView: View {
                     }
                 }
 
-                overrideSection(
-                    title: "Chord Font",
-                    selected: chart.typography.chordOverride,
-                    preview: chordPreviewText,
-                    previewFont: { $0.chordTextPreviewFont(size: 24) },
-                    action: { preset in
-                        applyTypographyChange {
-                            chart.setChordFontOverride(preset)
-                        }
+                Section {
+                    DisclosureGroup(isExpanded: $showsIndividualFonts) {
+                        Text("Choose separate fonts for chords, the heading, cues, or notation symbols. Choose Use Matched Set to restore that part to the selected family.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } label: {
+                        Label("Customize", systemImage: "slider.horizontal.3")
                     }
-                )
+                    .accessibilityIdentifier("fonts-customize")
+                }
 
-                overrideSection(
-                    title: "Header Font",
-                    selected: chart.typography.headerOverride,
-                    preview: "Almost Like Being In Love",
-                    previewFont: { $0.textPreviewFont(size: 20) },
-                    action: { preset in
-                        applyTypographyChange {
-                            chart.setHeaderFontOverride(preset)
-                        }
-                    }
-                )
-
-                overrideSection(
-                    title: "Text / Cue Font",
-                    selected: chart.typography.textOverride,
-                    preview: "(Medium Swing)  To Coda",
-                    previewFont: { $0.textPreviewFont(size: 17) },
-                    action: { preset in
-                        applyTypographyChange {
-                            chart.setTextFontOverride(preset)
-                        }
-                    }
-                )
-
-                Section("Notation Symbols") {
-                    ForEach(NotationFontPreset.selectableCases) { preset in
-                        TypographyChoiceRow(
-                            title: preset.displayText,
-                            detail: preset.detailText,
-                            preview: notationPreview(for: preset),
-                            previewFont: preset.notationPreviewFont(size: 22),
-                            isSelected: chart.notationFont == preset
-                        ) {
+                if showsIndividualFonts {
+                    overrideSection(
+                        title: "Chord Font",
+                        selected: chart.typography.chordOverride,
+                        preview: chordPreviewText,
+                        previewFont: { $0.chordTextPreviewFont(size: 24) },
+                        action: { preset in
                             applyTypographyChange {
-                                chart.setNotationFont(preset)
+                                chart.setChordFontOverride(preset)
+                            }
+                        }
+                    )
+
+                    overrideSection(
+                        title: "Header Font",
+                        selected: chart.typography.headerOverride,
+                        preview: "Almost Like Being In Love",
+                        previewFont: { $0.textPreviewFont(size: 20) },
+                        action: { preset in
+                            applyTypographyChange {
+                                chart.setHeaderFontOverride(preset)
+                            }
+                        }
+                    )
+
+                    overrideSection(
+                        title: "Text / Cue Font",
+                        selected: chart.typography.textOverride,
+                        preview: "(Medium Swing)  To Coda",
+                        previewFont: { $0.textPreviewFont(size: 17) },
+                        action: { preset in
+                            applyTypographyChange {
+                                chart.setTextFontOverride(preset)
+                            }
+                        }
+                    )
+
+                    Section("Notation Symbols") {
+                        ForEach(NotationFontPreset.selectableCases) { preset in
+                            TypographyChoiceRow(
+                                title: preset.displayText,
+                                detail: preset.detailText,
+                                preview: notationPreview(for: preset),
+                                previewFont: preset.notationPreviewFont(size: 22),
+                                isSelected: chart.notationFont == preset
+                            ) {
+                                applyTypographyChange {
+                                    chart.setNotationFont(preset)
+                                }
                             }
                         }
                     }
@@ -94,7 +127,7 @@ struct ChartTypographySheetView: View {
             }
         }
         .animation(.easeOut(duration: 0.16), value: operationMessage)
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.medium, .large], selection: $presentationDetent)
     }
 
     @ViewBuilder
@@ -220,5 +253,7 @@ private struct TypographyChoiceRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        .accessibilityHint("Applies immediately to this chart and its PDF")
     }
 }

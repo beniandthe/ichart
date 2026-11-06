@@ -699,7 +699,7 @@ struct ChordInkBatchConfirmationSheetView: View {
                                 cornerRadius: 10
                             )
                         }
-                        ChordInkReviewButton(title: "Rewrite All Ink", style: .plain, role: .destructive) {
+                        ChordInkReviewButton(title: "Clear Draft Ink", style: .plain, role: .destructive) {
                             focusedConfirmationID = nil
                             confirmsRewriteAll = true
                         }
@@ -743,11 +743,11 @@ struct ChordInkBatchConfirmationSheetView: View {
         .onChange(of: editedTextByID) { _, entries in
             onEditedTextsChanged?(entries)
         }
-        .confirmationDialog("Rewrite all chord ink?", isPresented: $confirmsRewriteAll, titleVisibility: .visible) {
-            Button("Rewrite All Ink", role: .destructive) { onClearAndRewrite() }
+        .confirmationDialog("Clear draft ink?", isPresented: $confirmsRewriteAll, titleVisibility: .visible) {
+            Button("Clear Draft Ink", role: .destructive) { onClearAndRewrite() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This clears all pending chord ink. Use Rewrite This Chord to keep the rest of your writing.")
+            Text("This removes all unrendered writing in Write & Render. Rendered notation and Free Ink stay unchanged." + (onRewriteChord == nil ? "" : " Use Rewrite This Chord to keep the rest of your draft writing."))
         }
     }
 
@@ -1049,7 +1049,7 @@ struct ChordInkConfirmationSheetView: View {
                         onRewriteChord(confirmation)
                     }
                 }
-                ChordInkReviewButton(title: "Rewrite All Ink", style: .plain, role: .destructive) {
+                ChordInkReviewButton(title: "Clear Draft Ink", style: .plain, role: .destructive) {
                     isManualEntryFocused = false
                     confirmsRewriteAll = true
                 }
@@ -1074,11 +1074,11 @@ struct ChordInkConfirmationSheetView: View {
         }
         .presentationDetents([.large])
         .interactiveDismissDisabled(true)
-        .confirmationDialog("Rewrite all chord ink?", isPresented: $confirmsRewriteAll, titleVisibility: .visible) {
-            Button("Rewrite All Ink", role: .destructive) { onClearAndRewrite() }
+        .confirmationDialog("Clear draft ink?", isPresented: $confirmsRewriteAll, titleVisibility: .visible) {
+            Button("Clear Draft Ink", role: .destructive) { onClearAndRewrite() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This clears all pending chord ink.")
+            Text("This removes all unrendered writing in Write & Render. Rendered notation and Free Ink stay unchanged.")
         }
     }
 

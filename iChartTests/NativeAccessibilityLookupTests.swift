@@ -4,6 +4,24 @@ import XCTest
 
 @MainActor
 final class NativeAccessibilityLookupTests: XCTestCase {
+    func testIdentifierSupportsDynamicObjectiveCGetterWithoutProtocolConformance() throws {
+        let fixture = try makeFixture()
+        defer { fixture.close() }
+        let dynamic = DynamicIdentifierElement()
+        dynamic.accessibilityIdentifier = "dynamic-guide-control"
+        XCTAssertFalse(dynamic is UIAccessibilityIdentification,
+            "The fixture must exercise the non-protocol SwiftUI lookup path")
+        let node = NativeAccessibilityLookup.Node(element: dynamic, owner: fixture.root)
+        XCTAssertEqual(node.identifier, "dynamic-guide-control")
+        dynamic.accessibilityIdentifier = nil
+        XCTAssertNil(node.identifier)
+        XCTAssertNil(NativeAccessibilityLookup.Node(element: NSObject(), owner: fixture.root).identifier,
+            "A node without the getter must not receive an undefined KVC query")
+        let button = UIButton()
+        button.accessibilityIdentifier = "native-done"
+        XCTAssertEqual(NativeAccessibilityLookup.Node(element: button, owner: fixture.root).identifier, "native-done")
+    }
+
     func testDynamicContainerWithoutStaticElementsExposesNestedButton() throws {
         let fixture = try makeFixture()
         defer { fixture.close() }
@@ -138,5 +156,9 @@ private final class DynamicLookupContainer: NSObject {
     var children: [NSObject] = []
     override func accessibilityElementCount() -> Int { children.count }
     override func accessibilityElement(at index: Int) -> Any? { children.indices.contains(index) ? children[index] : nil }
+}
+@MainActor
+private final class DynamicIdentifierElement: NSObject {
+    @objc var accessibilityIdentifier: String?
 }
 #endif

@@ -127,6 +127,13 @@ struct EndingEditorSheet: View {
         NavigationStack {
             Form {
                 Section {
+                    EditorSheetInstruction(title: "Set the ending’s label and range", steps: [
+                        "Choose the start and end measures, enter a label, and check the right edge.",
+                        "Tap Apply to save the ending. Cancel keeps the chart unchanged."
+                    ])
+                    .accessibilityIdentifier("ending-editor-instruction")
+                }
+                Section {
                     IChartTypedTextField(
                         placeholder: "Ending label",
                         text: $draft.label,

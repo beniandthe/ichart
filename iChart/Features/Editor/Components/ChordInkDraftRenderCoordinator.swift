@@ -43,6 +43,9 @@ final class ChordInkDraftRenderCoordinator {
     var automaticCensusReplayer: (() -> Bool)?
     var manualPreviewPreparer: (() -> Bool)?
     var manualPreviewDrawingProvider: (() -> PKDrawing?)?
+    /// Read-only source snapshot for pausing and resuming local help. It does
+    /// not prepare recognition, grant a render, or consume source ink.
+    var sourceDrawingProvider: (() -> PKDrawing?)?
     private(set) var lastAutomaticAttempt: AutomaticAttempt?
     struct RewriteOutcome {
         let chart: Chart
@@ -83,6 +86,10 @@ final class ChordInkDraftRenderCoordinator {
 
     func currentManualPreviewDrawing() -> PKDrawing? {
         manualPreviewDrawingProvider?()
+    }
+
+    func currentSourceDrawing() -> PKDrawing? {
+        sourceDrawingProvider?()
     }
 
     func renderAutomatically(
