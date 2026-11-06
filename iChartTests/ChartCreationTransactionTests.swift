@@ -6,8 +6,13 @@ final class ChartCreationTransactionTests: XCTestCase {
     private final class RecordingRepository: ChartRepository {
         var savesSnapshotsOffMainThread = false
         var savedSnapshots: [ChartLibrarySnapshot] = []
+        var loadError: Error?
+        var snapshotToLoad: ChartLibrarySnapshot?
 
-        func loadSnapshot() throws -> ChartLibrarySnapshot? { savedSnapshots.last }
+        func loadSnapshot() throws -> ChartLibrarySnapshot? {
+            if let loadError { throw loadError }
+            return snapshotToLoad ?? savedSnapshots.last
+        }
         func saveSnapshot(_ snapshot: ChartLibrarySnapshot) throws { savedSnapshots.append(snapshot) }
     }
 
@@ -77,6 +82,35 @@ final class ChartCreationTransactionTests: XCTestCase {
         XCTAssertTrue(store.charts.isEmpty)
         XCTAssertNil(store.selectedChartID)
         XCTAssertTrue(repository.savedSnapshots.isEmpty)
+    }
+
+    func testPreparedCreationIsBlockedUntilUnreadLibraryHasBeenRecovered() {
+        for layout in ChartLayoutStyle.v1NewChartOptions {
+            let repository = RecordingRepository()
+            repository.loadError = CocoaError(.fileReadCorruptFile)
+            let store = ChartLibraryStore.live(repository: repository)
+            store.applyAccessPolicy(.freeAllFeatures)
+            XCTAssertTrue(store.hasUnresolvedLoadFailure)
+            XCTAssertTrue(store.canCreateChart, "Capacity must not hide the load-quarantine guard")
+            let quarantinedSnapshot = store.snapshot
+            let prepared = Chart.blank(title: "Prepared", layoutStyle: layout)
+            var notificationCount = 0
+            store.onSnapshotSaved = { _ in notificationCount += 1 }
+
+            XCTAssertFalse(store.createPreparedChart(prepared))
+            XCTAssertEqual(store.snapshot, quarantinedSnapshot)
+            XCTAssertTrue(repository.savedSnapshots.isEmpty)
+            XCTAssertEqual(notificationCount, 0)
+
+            repository.loadError = nil
+            repository.snapshotToLoad = .empty
+            XCTAssertTrue(store.retryLoadingSavedSnapshot())
+            XCTAssertFalse(store.hasUnresolvedLoadFailure)
+            XCTAssertTrue(store.createPreparedChart(prepared))
+            XCTAssertEqual(store.charts, [prepared])
+            XCTAssertEqual(repository.savedSnapshots.count, 1)
+            XCTAssertEqual(notificationCount, 1)
+        }
     }
 
     func testProjectAccessIsRecheckedBeforeCommittingPreparedChart() {

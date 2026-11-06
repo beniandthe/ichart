@@ -14,6 +14,14 @@ run() {
   "$@"
 }
 
+scan_only=0
+case "${1:-}" in
+  "") ;;
+  --scan-only) scan_only=1 ;;
+  *) fail "usage: $0 [--scan-only]" ;;
+esac
+[[ "$#" -le 1 ]] || fail "usage: $0 [--scan-only]"
+
 check_ignored_secret_paths() {
   local tracked_secret_files
   tracked_secret_files="$(
@@ -36,45 +44,7 @@ check_ignored_secret_paths() {
 }
 
 scan_for_secrets() {
-  local tmp_file file pattern matches match found
-  tmp_file="$(mktemp)"
-  found=0
-
-  git ls-files --cached --others --exclude-standard -z >"$tmp_file"
-
-  local patterns=(
-    'sb_secret_[A-Za-z0-9_-]+'
-    'sk_live_[A-Za-z0-9]+'
-    'SUPABASE_SERVICE_ROLE_KEY[[:space:]]*=[[:space:]]*[^[:space:]<]+'
-    'JWT_SECRET[[:space:]]*=[[:space:]]*[^[:space:]<]+'
-    'eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}'
-    'postgres(ql)?://[^[:space:]]+:[^[:space:]@]+@'
-  )
-
-  while IFS= read -r -d '' file; do
-    [[ -f "$file" ]] || continue
-
-    for pattern in "${patterns[@]}"; do
-      matches="$(grep -IEn "$pattern" "$file" || true)"
-      [[ -n "$matches" ]] || continue
-
-      while IFS= read -r match; do
-        if [[ "$match" =~ =[[:space:]]*\"?\$ ]] || [[ "$match" =~ =[[:space:]]*\< ]]; then
-          continue
-        fi
-
-        printf '%s\n' "$match"
-        found=1
-      done <<<"$matches"
-    done
-  done <"$tmp_file"
-
-  if [[ "$found" -ne 0 ]]; then
-    rm -f "$tmp_file"
-    fail "possible secret material found in tracked or non-ignored files"
-  fi
-
-  rm -f "$tmp_file"
+  python3 scripts/scan_repository_secrets.py
 }
 
 run git diff --check
@@ -86,6 +56,11 @@ check_ignored_secret_paths
 echo
 echo "==> Scanning tracked and non-ignored files for key-shaped secrets"
 scan_for_secrets
+
+if [[ "$scan_only" -eq 1 ]]; then
+  echo "Secret/path checks complete; --scan-only skips Node, Swift and database checks."
+  exit 0
+fi
 
 run node --test \
   supabase/functions/_shared/account_deletion.test.mjs \

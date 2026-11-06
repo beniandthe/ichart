@@ -282,6 +282,12 @@ final class IChartPDFLibraryStore: ObservableObject {
         if let recoveryErrorMessage {
             throw IChartPDFLibraryDeletionError.recoveryUnavailable(recoveryErrorMessage)
         }
+        guard fileManager.fileExists(atPath: manifestURL.path) || items.isEmpty else {
+            throw IChartPDFLibraryDeletionError.manifestUnavailable
+        }
+        // A different store may have committed while this export/download was
+        // being prepared. Merge with the durable library before adding ours.
+        let currentItems = try Self.loadItems(from: manifestURL, fileManager: fileManager)
         let directory = baseDirectory.appendingPathComponent(source.directoryName, isDirectory: true)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
 
@@ -318,9 +324,20 @@ final class IChartPDFLibraryStore: ObservableObject {
             forumInstrumentSnapshotVersion: snapshotVersion
         )
 
-        items.insert(item, at: 0)
-        sortItems()
-        try persist()
+        let updatedItems = ([item] + currentItems).sorted(by: Self.itemSortOrder)
+        do {
+            // Publish only after the complete manifest is durable. If saving
+            // fails, roll back this operation's owned copy, not existing PDFs.
+            try persist(updatedItems)
+        } catch {
+            do {
+                try fileManager.removeItem(at: destinationURL)
+            } catch let cleanupError {
+                throw IChartPDFImportError.rollbackFailed(cleanupError.localizedDescription)
+            }
+            throw error
+        }
+        items = updatedItems
 
         return item.exportedPDF(relativeTo: baseDirectory)
     }
@@ -578,10 +595,8 @@ final class IChartPDFLibraryStore: ObservableObject {
     }
 
     private func copyPDF(from sourceURL: URL, to destinationURL: URL) throws {
-        if fileManager.fileExists(atPath: destinationURL.path(percentEncoded: false)) {
-            try fileManager.removeItem(at: destinationURL)
-        }
-
+        // uniqueFileName selected an unused path. Never replace an existing
+        // file if another writer claimed that path before the copy began.
         try fileManager.copyItem(at: sourceURL, to: destinationURL)
     }
 

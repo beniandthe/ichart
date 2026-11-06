@@ -107,7 +107,12 @@ final class ChartAppearancePreviewTests: XCTestCase {
         for style in styles {
             let source = Chart.blank(title: "Engraving entry", layoutStyle: style)
             let original = source
+            let helperTexts = [ChartAppearancePanel.engraving.instructionTitle,
+                ChartAppearancePanel.engraving.instruction(for: style),
+                "Changes apply immediately to this chart and its exported PDF."]
+            let previewLabel = ChartAppearancePreviewPolicy.accessibilityLabel(for: source)
             let host = UIHostingController(rootView: ChartAppearanceSheetView(chart: .constant(source), panel: .engraving)
+                .environment(\.sizeCategory, .large)
                 .environment(\.accessibilityEnabled, true))
             let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
                 .first { $0.activationState == .foregroundActive })
@@ -118,28 +123,32 @@ final class ChartAppearancePreviewTests: XCTestCase {
             window.rootViewController = host
             window.makeKeyAndVisible()
             defer {
+                window.endEditing(true)
                 window.isHidden = true
                 window.rootViewController = nil
                 previousWindow?.makeKey()
             }
-            let helperTexts = [ChartAppearancePanel.engraving.instructionTitle,
-                ChartAppearancePanel.engraving.instruction(for: style),
-                "Changes apply immediately to this chart and its exported PDF."]
-            let previewLabel = ChartAppearancePreviewPolicy.accessibilityLabel(for: source)
             var nodes = [NativeAccessibilityLookup.Node]()
             var hasRequiredContent = false
             for _ in 0..<80 {
                 window.layoutIfNeeded()
                 host.view.layoutIfNeeded()
-                nodes = try NativeAccessibilityLookup.nodes(in: window)
+                nodes = try NativeAccessibilityLookup.nodes(in: host.view)
                 let hasHelper = helperTexts.allSatisfy { text in
-                    nodes.contains { !$0.isButton && $0.element.accessibilityLabel?.contains(text) == true }
+                    nodes.contains {
+                        !$0.isButton && $0.element.accessibilityLabel?.contains(text) == true
+                            && !$0.frame(in: window).isEmpty
+                    }
                 }
-                let hasPreview = nodes.contains { $0.element.accessibilityLabel == previewLabel }
+                let hasPreview = nodes.contains {
+                    $0.element.accessibilityLabel == previewLabel && !$0.frame(in: window).isEmpty
+                }
                 let hasDone = nodes.contains {
                     $0.isButton && $0.isEnabled && $0.element.accessibilityLabel == "Done"
+                        && !$0.frame(in: window).isEmpty
                 }
-                hasRequiredContent = hasHelper && hasPreview && hasDone && window.isKeyWindow
+                hasRequiredContent = hasHelper && hasPreview && hasDone
+                    && window.isKeyWindow && host.view.window === window
                 if hasRequiredContent { break }
                 // UIKit's preview can exist before SwiftUI has published the
                 // helper and toolbar AX elements. Wait for the complete screen.
@@ -153,6 +162,7 @@ final class ChartAppearancePreviewTests: XCTestCase {
                     return "\(identifier) | \(label) | \(node.frame(in: window))"
                 }.joined(separator: "\n")
                 attach(windowImage(window), name: "Incomplete engraving sheet \(style.rawValue)")
+                attachMountDiagnostics(window: window, hostView: host.view, nodes: nodes, style: style)
                 XCTFail("Engraving sheet did not publish its helper, preview, and Done. Observed accessibility content:\n\(observed)")
                 throw AppearanceSheetMountError.incompleteContent
             }
@@ -163,7 +173,7 @@ final class ChartAppearancePreviewTests: XCTestCase {
             }
             let helperFrame = helperNodes.reduce(CGRect.null) { $0.union($1.frame(in: window)) }
             let preview = try XCTUnwrap(nodes.first {
-                $0.element.accessibilityLabel == ChartAppearancePreviewPolicy.accessibilityLabel(for: source)
+                $0.element.accessibilityLabel == previewLabel
             })
             let done = try XCTUnwrap(nodes.first { $0.isButton && $0.element.accessibilityLabel == "Done" })
             let viewport = window.bounds.insetBy(dx: -1, dy: -1)
@@ -200,6 +210,27 @@ final class ChartAppearancePreviewTests: XCTestCase {
         return UIGraphicsImageRenderer(size: window.bounds.size, format: format).image { _ in
             window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         }
+    }
+
+    private func attachMountDiagnostics(window: UIWindow, hostView: UIView,
+        nodes: [NativeAccessibilityLookup.Node], style: ChartLayoutStyle) {
+        func scrollViews(in view: UIView) -> [UIScrollView] {
+            let current = (view as? UIScrollView).map { [$0] } ?? []
+            return current + view.subviews.flatMap { scrollViews(in: $0) }
+        }
+        let lines = [
+            "Synthetic layout: \(style.rawValue)",
+            "Window key: \(window.isKeyWindow); hidden: \(window.isHidden); bounds: \(window.bounds)",
+            "Host attached: \(hostView.window === window); frame: \(hostView.frame); bounds: \(hostView.bounds)"
+        ] + scrollViews(in: hostView).map {
+            "Scroll \(type(of: $0)): frame=\($0.frame), offset=\($0.contentOffset), content=\($0.contentSize), inset=\($0.adjustedContentInset)"
+        } + nodes.map {
+            "Node \(type(of: $0.element)): label=\(String(reflecting: $0.element.accessibilityLabel)), button=\($0.isButton), frame=\($0.frame(in: window))"
+        }
+        let attachment = XCTAttachment(string: lines.joined(separator: "\n"))
+        attachment.name = "Engraving sheet mount metadata \(style.rawValue)"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     private func darkPixels(in image: UIImage, region: CGRect? = nil) throws -> Int {

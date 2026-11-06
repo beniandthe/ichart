@@ -11,16 +11,28 @@ struct ChartCloudRestoreOutcome {
 protocol ChartCloudSyncServicing: Sendable {
     func restoreFromCloud(localSnapshot: ChartLibrarySnapshot, onProgress: ChartCloudSyncProgressHandler?) async throws -> ChartCloudRestoreOutcome
     func pushLocalSnapshot(_ snapshot: ChartLibrarySnapshot, onProgress: ChartCloudSyncProgressHandler?) async throws -> ChartCloudPushResult
+    func pushLocalSnapshot(_ snapshot: ChartLibrarySnapshot, forceRemoteWrite: Bool, onProgress: ChartCloudSyncProgressHandler?) async throws -> ChartCloudPushResult
+}
+
+extension ChartCloudSyncServicing {
+    func pushLocalSnapshot(_ snapshot: ChartLibrarySnapshot, forceRemoteWrite: Bool, onProgress: ChartCloudSyncProgressHandler?) async throws -> ChartCloudPushResult {
+        try await pushLocalSnapshot(snapshot, onProgress: onProgress)
+    }
 }
 
 actor ChartCloudSyncService: ChartCloudSyncServicing {
     private let client: SupabaseClient
-    private let sessionRefresher: IChartSupabaseSessionRefresher
+    private let currentUserIDProvider: () async throws -> UUID
     private var lastIssuedRevision: Int64 = 0
 
     init(client: SupabaseClient, sessionRefresher: IChartSupabaseSessionRefresher) {
         self.client = client
-        self.sessionRefresher = sessionRefresher
+        self.currentUserIDProvider = { try await sessionRefresher.refreshIfNeeded().user.id }
+    }
+
+    init(client: SupabaseClient, currentUserIDProvider: @escaping () async throws -> UUID) {
+        self.client = client
+        self.currentUserIDProvider = currentUserIDProvider
     }
 
     func restoreFromCloud(localSnapshot: ChartLibrarySnapshot, onProgress: ChartCloudSyncProgressHandler? = nil) async throws -> ChartCloudRestoreOutcome {
@@ -64,11 +76,23 @@ actor ChartCloudSyncService: ChartCloudSyncServicing {
         }
 
         var updatedSnapshot = snapshotToReturn
-        updatedSnapshot.cloudMetadata.lastRemoteBackupAt = backupOutcome.lastBackupAt
+        for index in updatedSnapshot.charts.indices {
+            let id = updatedSnapshot.charts[index].id
+            guard backupOutcome.backedUpChartIDs.contains(id),
+                  let digest = backupOutcome.acknowledgedContentSHA256ByChartID[id] else { continue }
+            updatedSnapshot.charts[index].markBackedUpToCloud(ownerID: ownerID, at: backupOutcome.lastBackupAt)
+            updatedSnapshot.charts[index].cloudBackupStatus.acknowledgedContentSHA256 = digest
+        }
+        // The private push result uses a sentinel when an empty library has no
+        // prior backup. A read-only restore must preserve the optional date.
+        let lastRemoteBackupAt = backupOutcome.didPerformRemoteWrites
+            ? backupOutcome.lastBackupAt
+            : updatedSnapshot.cloudMetadata.lastRemoteBackupAt
+        updatedSnapshot.cloudMetadata.lastRemoteBackupAt = lastRemoteBackupAt
         updatedSnapshot.cloudMetadata.lastSyncAt = Date()
         updatedSnapshot.cloudMetadata.ownerID = ownerID
         return ChartCloudRestoreOutcome(
-            syncResult: ChartCloudSyncResult(snapshot: updatedSnapshot, lastRemoteBackupAt: backupOutcome.lastBackupAt),
+            syncResult: ChartCloudSyncResult(snapshot: updatedSnapshot, lastRemoteBackupAt: lastRemoteBackupAt),
             remoteChartCount: remoteLibrary.charts.count,
             backedUpChartCount: backupOutcome.backedUpChartIDs.count,
             tombstonedChartCount: backupOutcome.tombstonedChartIDs.count
@@ -77,26 +101,37 @@ actor ChartCloudSyncService: ChartCloudSyncServicing {
 
     @discardableResult
     func pushLocalSnapshot(_ snapshot: ChartLibrarySnapshot, onProgress: ChartCloudSyncProgressHandler? = nil) async throws -> ChartCloudPushResult {
+        try await pushLocalSnapshot(snapshot, forceRemoteWrite: false, onProgress: onProgress)
+    }
+
+    @discardableResult
+    func pushLocalSnapshot(_ snapshot: ChartLibrarySnapshot, forceRemoteWrite: Bool, onProgress: ChartCloudSyncProgressHandler? = nil) async throws -> ChartCloudPushResult {
         let ownerID = try await currentUserID(onProgress: onProgress)
         let scopedSnapshot = ChartCloudMerge.localSnapshotForSync(snapshot, ownerID: ownerID)
         let backupSnapshot = ChartCloudMerge.snapshotForCloudBackup(scopedSnapshot, ownerID: ownerID)
-        let outcome = try await pushLocalSnapshot(backupSnapshot, ownerID: ownerID, onProgress: onProgress)
+        let outcome = try await pushLocalSnapshot(backupSnapshot, ownerID: ownerID, forceRemoteWrite: forceRemoteWrite, onProgress: onProgress)
         return ChartCloudPushResult(
             ownerID: ownerID,
             lastRemoteBackupAt: outcome.lastBackupAt,
             backedUpChartIDs: outcome.backedUpChartIDs,
-            tombstonedChartIDs: outcome.tombstonedChartIDs
+            tombstonedChartIDs: outcome.tombstonedChartIDs,
+            acknowledgedContentSHA256ByChartID: outcome.acknowledgedContentSHA256ByChartID,
+            didPerformRemoteWrites: outcome.didPerformRemoteWrites
         )
     }
 
     @discardableResult
-    private func pushLocalSnapshot(_ snapshot: ChartLibrarySnapshot, ownerID: UUID, onProgress: ChartCloudSyncProgressHandler?) async throws -> ChartCloudPushOutcome {
+    private func pushLocalSnapshot(_ snapshot: ChartLibrarySnapshot, ownerID: UUID, forceRemoteWrite: Bool = false, onProgress: ChartCloudSyncProgressHandler?) async throws -> ChartCloudPushOutcome {
         var backedUpChartIDs: Set<Chart.ID> = []
         var tombstonedChartIDs: Set<Chart.ID> = []
+        var acknowledgedContentSHA256ByChartID: [Chart.ID: String] = [:]
+        var wroteCloudData = false
 
         for chart in snapshot.charts {
-            try await push(chart: chart, ownerID: ownerID, onProgress: onProgress)
-            backedUpChartIDs.insert(chart.id)
+            let outcome = try await push(chart: chart, ownerID: ownerID, forceRemoteWrite: forceRemoteWrite, onProgress: onProgress)
+            if outcome.wroteSnapshot { backedUpChartIDs.insert(chart.id) }
+            acknowledgedContentSHA256ByChartID[chart.id] = outcome.contentSHA256
+            wroteCloudData = wroteCloudData || outcome.wroteSnapshot
         }
 
         for tombstone in snapshot.deletionTombstones {
@@ -106,12 +141,16 @@ actor ChartCloudSyncService: ChartCloudSyncServicing {
 
             try await push(tombstone: tombstone, ownerID: ownerID, onProgress: onProgress)
             tombstonedChartIDs.insert(tombstone.chartID)
+            wroteCloudData = true
         }
 
         return ChartCloudPushOutcome(
-            lastBackupAt: Date(),
+            lastBackupAt: wroteCloudData ? Date() : snapshot.cloudMetadata.lastRemoteBackupAt
+                ?? snapshot.charts.compactMap(\.cloudBackupStatus.lastBackedUpAt).max() ?? .distantPast,
             backedUpChartIDs: backedUpChartIDs,
-            tombstonedChartIDs: tombstonedChartIDs
+            tombstonedChartIDs: tombstonedChartIDs,
+            acknowledgedContentSHA256ByChartID: acknowledgedContentSHA256ByChartID,
+            didPerformRemoteWrites: wroteCloudData
         )
     }
 
@@ -121,62 +160,21 @@ actor ChartCloudSyncService: ChartCloudSyncServicing {
     }
 
     private func pullRemoteSnapshot(ownerID: UUID, onProgress: ChartCloudSyncProgressHandler?) async throws -> ChartCloudRemoteLibrary {
-        let documents: [ChartCloudDocumentRow] = try await ChartCloudSyncStageReporting.perform(.readingDocuments, onProgress: onProgress) {
-            try await client
-                .from("chart_documents")
-                .select()
-                .eq("owner_id", value: ownerID)
-                .execute()
-                .value
-        }
-        let snapshots: [ChartCloudSnapshotRow] = try await ChartCloudSyncStageReporting.perform(.readingSnapshots, onProgress: onProgress) {
-            try await client
-                .from("chart_snapshots")
-                .select()
-                .eq("owner_id", value: ownerID)
-                .order("version", ascending: false)
-                .execute()
-                .value
-        }
-        let snapshotsByID = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.id, $0) })
-        let snapshotsByChartID = Dictionary(grouping: snapshots, by: \.chartID)
-        var charts: [Chart] = []
-        var tombstones: [ChartDeletionTombstone] = []
-        await onProgress?(.decodingCharts)
-
-        for document in documents {
-            if let deletedAt = document.deletedAtDate {
-                tombstones.append(ChartDeletionTombstone(chartID: document.id, deletedAt: deletedAt))
-                continue
-            }
-
-            let snapshot = document.latestSnapshotID.flatMap { snapshotsByID[$0] }
-                ?? snapshotsByChartID[document.id]?.first
-
-            if let snapshot {
-                var chart = try await ChartCloudSyncStageReporting.perform(.decodingCharts, onProgress: nil) {
-                    try snapshot.chartJSON.decodeChart()
-                }
-                chart.markBackedUpToCloud(
-                    ownerID: ownerID,
-                    at: document.updatedAtDate ?? snapshot.createdAtDate ?? Date()
-                )
-                charts.append(chart)
-            }
-        }
-
-        let newestDocumentUpdate = documents.compactMap(\.updatedAtDate).max()
-        let newestSnapshotUpdate = snapshots.compactMap(\.createdAtDate).max()
-        let lastBackupAt = [newestDocumentUpdate, newestSnapshotUpdate].compactMap { $0 }.max()
-
-        return ChartCloudRemoteLibrary(
-            charts: charts,
-            deletionTombstones: tombstones,
-            lastRemoteBackupAt: lastBackupAt
-        )
+        try await ChartCloudRemoteSnapshotReader(client: client).read(ownerID: ownerID, onProgress: onProgress)
     }
 
-    private func push(chart: Chart, ownerID: UUID, onProgress: ChartCloudSyncProgressHandler?) async throws {
+    private func push(chart: Chart, ownerID: UUID, forceRemoteWrite: Bool, onProgress: ChartCloudSyncProgressHandler?) async throws -> ChartCloudChartPushOutcome {
+        let chartPayload = try await ChartCloudSyncStageReporting.perform(.encodingSnapshot, onProgress: onProgress) {
+            try IChartJSONValue.chartPayload(for: chart)
+        }
+        let digest = try ChartCloudContentIdentity.sha256(for: chartPayload)
+        if !forceRemoteWrite, chart.cloudBackupStatus.ownerID == ownerID,
+           chart.cloudBackupStatus.lastBackedUpAt != nil,
+           ChartCloudContentIdentity.isValidSHA256(chart.cloudBackupStatus.acknowledgedContentSHA256),
+           chart.cloudBackupStatus.acknowledgedContentSHA256 == digest {
+            return ChartCloudChartPushOutcome(contentSHA256: digest, wroteSnapshot: false)
+        }
+        try Task.checkCancellation()
         let revision = nextRevision(after: chart.updatedAt)
         let clientUpdatedAt = Self.remoteTimestamp(from: chart.updatedAt)
         let document = ChartCloudDocumentUpsert(
@@ -196,9 +194,6 @@ actor ChartCloudSyncService: ChartCloudSyncServicing {
                 .upsert(document, onConflict: "id")
                 .execute()
         }
-        let chartPayload = try await ChartCloudSyncStageReporting.perform(.encodingSnapshot, onProgress: onProgress) {
-            try IChartJSONValue.chartPayload(for: chart)
-        }
         let snapshot = ChartCloudSnapshotInsert(
             id: proposedSnapshotID,
             chartID: chart.id,
@@ -216,6 +211,19 @@ actor ChartCloudSyncService: ChartCloudSyncServicing {
         let resolvedSnapshotID = try await ChartCloudSyncStageReporting.perform(.resolvingSnapshot, onProgress: onProgress) {
             try await existingSnapshotID(chartID: chart.id, version: revision)
         } ?? proposedSnapshotID
+        if resolvedSnapshotID != proposedSnapshotID {
+            // A simultaneous device may have inserted the same millisecond
+            // revision. Never acknowledge or link a different payload.
+            let rows: [ChartCloudSnapshotRow] = try await ChartCloudSyncStageReporting.perform(.resolvingSnapshot, onProgress: onProgress) {
+                try await client.from("chart_snapshots").select().eq("id", value: resolvedSnapshotID)
+                    .eq("owner_id", value: ownerID).execute().value
+            }
+            guard rows.count == 1, let row = rows.first,
+                  row.chartID == chart.id, row.ownerID == ownerID,
+                  try ChartCloudContentIdentity.sha256(for: row.chartJSON) == digest else {
+                throw ChartCloudSyncStageError(stage: .resolvingSnapshot, underlyingError: ChartCloudRemoteReadError.invalidSnapshot)
+            }
+        }
         let update = ChartCloudDocumentLatestSnapshotUpdate(
             title: chart.title,
             layoutStyle: chart.layoutStyle.rawValue,
@@ -225,13 +233,22 @@ actor ChartCloudSyncService: ChartCloudSyncServicing {
             clientUpdatedAt: clientUpdatedAt,
             lastSnapshotAt: Self.remoteTimestamp(from: Date())
         )
-        try await ChartCloudSyncStageReporting.perform(.linkingSnapshot, onProgress: onProgress) {
+        let linkedRows: [ChartCloudDocumentLinkReceipt] = try await ChartCloudSyncStageReporting.perform(.linkingSnapshot, onProgress: onProgress) {
             try await client
                 .from("chart_documents")
                 .update(update)
                 .eq("id", value: chart.id)
+                .eq("owner_id", value: ownerID)
+                .select("id,owner_id,latest_snapshot_id")
                 .execute()
+                .value
         }
+        guard linkedRows.count == 1, let linked = linkedRows.first,
+              linked.id == chart.id, linked.ownerID == ownerID, linked.latestSnapshotID == resolvedSnapshotID else {
+            throw ChartCloudSyncStageError(stage: .linkingSnapshot, underlyingError: ChartCloudRemoteReadError.missingSnapshot)
+        }
+        try Task.checkCancellation()
+        return ChartCloudChartPushOutcome(contentSHA256: digest, wroteSnapshot: true)
     }
 
     private func existingSnapshotID(chartID: UUID, version: Int64) async throws -> UUID? {
@@ -282,10 +299,9 @@ actor ChartCloudSyncService: ChartCloudSyncServicing {
     }
 
     private func currentUserID(onProgress: ChartCloudSyncProgressHandler?) async throws -> UUID {
-        let session = try await ChartCloudSyncStageReporting.perform(.preparingSession, onProgress: onProgress) {
-            try await sessionRefresher.refreshIfNeeded()
+        try await ChartCloudSyncStageReporting.perform(.preparingSession, onProgress: onProgress) {
+            try await currentUserIDProvider()
         }
-        return session.user.id
     }
 
     private func nextRevision(after date: Date) -> Int64 {
@@ -320,7 +336,7 @@ actor ChartCloudSyncService: ChartCloudSyncServicing {
         if let postgrestError = error as? PostgrestError {
             let text = normalizedErrorText(
                 postgrestError.message,
-                postgrestError.detail,
+                postgrestError.details,
                 postgrestError.hint,
                 postgrestError.code
             )
@@ -356,10 +372,157 @@ actor ChartCloudSyncService: ChartCloudSyncServicing {
     }()
 }
 
+/// Reads the current cloud library without downloading every historical ink
+/// archive. Stable keyset pages also avoid the server's per-response row cap.
+struct ChartCloudRemoteSnapshotReader {
+    let client: SupabaseClient
+    static let pageSize = 100
+
+    func read(ownerID: UUID, onProgress: ChartCloudSyncProgressHandler? = nil) async throws -> ChartCloudRemoteLibrary {
+        let documents = try await readDocuments(ownerID: ownerID, onProgress: onProgress)
+        let activeDocuments = documents.filter { $0.deletedAt == nil }
+        let requiredIDs = Set(activeDocuments.compactMap(\.latestSnapshotID)).sorted { $0.uuidString < $1.uuidString }
+        var snapshotsByID: [UUID: ChartCloudSnapshotRow] = [:]
+
+        for start in stride(from: 0, to: requiredIDs.count, by: Self.pageSize) {
+            let ids = Array(requiredIDs[start..<min(start + Self.pageSize, requiredIDs.count)])
+            let rows = try await readRequiredSnapshots(ids: ids, ownerID: ownerID, onProgress: onProgress)
+            for row in rows { snapshotsByID[row.id] = row }
+        }
+
+        var charts: [Chart] = []
+        var tombstones: [ChartDeletionTombstone] = []
+        var snapshotDates: [Date] = []
+        await onProgress?(.decodingCharts)
+        for document in documents {
+            try Task.checkCancellation()
+            if document.deletedAt != nil {
+                guard let deletedAt = document.deletedAtDate else {
+                    throw readError(.invalidDocument, stage: .readingDocuments)
+                }
+                tombstones.append(ChartDeletionTombstone(chartID: document.id, deletedAt: deletedAt))
+                continue
+            }
+            let snapshot: ChartCloudSnapshotRow
+            if let id = document.latestSnapshotID {
+                guard let required = snapshotsByID[id] else {
+                    throw readError(.missingSnapshot, stage: .readingSnapshots)
+                }
+                snapshot = required
+            } else {
+                // Older documents may predate the latest-snapshot pointer.
+                // Fetch only their newest revision, never the owner's history.
+                snapshot = try await readLegacyLatestSnapshot(documentID: document.id, ownerID: ownerID, onProgress: onProgress)
+            }
+            guard snapshot.ownerID == ownerID, snapshot.chartID == document.id else {
+                throw readError(.invalidSnapshot, stage: .readingSnapshots)
+            }
+            var chart = try await ChartCloudSyncStageReporting.perform(.decodingCharts, onProgress: nil) {
+                try snapshot.chartJSON.decodeChart()
+            }
+            guard chart.id == document.id else {
+                throw readError(.invalidSnapshot, stage: .decodingCharts)
+            }
+            // A decoder can migrate defaults, notation or ink. Acknowledge the
+            // stored payload so changed decoded content uploads once on backup.
+            let digest = try ChartCloudContentIdentity.sha256(for: snapshot.chartJSON)
+            chart.markBackedUpToCloud(ownerID: ownerID, at: document.updatedAtDate ?? snapshot.createdAtDate ?? Date())
+            chart.cloudBackupStatus.acknowledgedContentSHA256 = digest
+            charts.append(chart)
+            if let createdAt = snapshot.createdAtDate { snapshotDates.append(createdAt) }
+        }
+        let lastBackupAt = [documents.compactMap(\.updatedAtDate).max(), snapshotDates.max()].compactMap { $0 }.max()
+        return ChartCloudRemoteLibrary(charts: charts, deletionTombstones: tombstones, lastRemoteBackupAt: lastBackupAt)
+    }
+
+    private func readDocuments(ownerID: UUID, onProgress: ChartCloudSyncProgressHandler?) async throws -> [ChartCloudDocumentRow] {
+        var documents: [ChartCloudDocumentRow] = []
+        var cursor: UUID?
+        while true {
+            try Task.checkCancellation()
+            let after = cursor
+            let page: [ChartCloudDocumentRow] = try await ChartCloudSyncStageReporting.perform(.readingDocuments, onProgress: onProgress) {
+                var query = client.from("chart_documents").select().eq("owner_id", value: ownerID)
+                if let after { query = query.gt("id", value: after) }
+                return try await query.order("id").limit(Self.pageSize).execute().value
+            }
+            try Task.checkCancellation()
+            guard !page.isEmpty else { break }
+            var previous = cursor?.uuidString
+            for document in page {
+                guard document.ownerID == ownerID, previous.map({ document.id.uuidString > $0 }) ?? true else {
+                    throw readError(.invalidDocument, stage: .readingDocuments)
+                }
+                previous = document.id.uuidString
+            }
+            documents.append(contentsOf: page)
+            cursor = page.last?.id
+        }
+        return documents
+    }
+
+    private func readRequiredSnapshots(ids: [UUID], ownerID: UUID, onProgress: ChartCloudSyncProgressHandler?) async throws -> [ChartCloudSnapshotRow] {
+        var remaining = Set(ids)
+        var rows: [ChartCloudSnapshotRow] = []
+        var cursor: UUID?
+        while !remaining.isEmpty {
+            try Task.checkCancellation()
+            let after = cursor
+            let page: [ChartCloudSnapshotRow] = try await ChartCloudSyncStageReporting.perform(.readingSnapshots, onProgress: onProgress) {
+                var query = client.from("chart_snapshots").select().eq("owner_id", value: ownerID).in("id", values: ids.map(\.uuidString))
+                if let after { query = query.gt("id", value: after) }
+                return try await query.order("id").limit(Self.pageSize).execute().value
+            }
+            try Task.checkCancellation()
+            guard !page.isEmpty else { throw readError(.missingSnapshot, stage: .readingSnapshots) }
+            var previous = cursor?.uuidString
+            for row in page {
+                guard row.ownerID == ownerID, remaining.remove(row.id) != nil,
+                      previous.map({ row.id.uuidString > $0 }) ?? true else {
+                    throw readError(.invalidSnapshot, stage: .readingSnapshots)
+                }
+                previous = row.id.uuidString
+            }
+            rows.append(contentsOf: page)
+            cursor = page.last?.id
+        }
+        return rows
+    }
+
+    private func readLegacyLatestSnapshot(documentID: UUID, ownerID: UUID, onProgress: ChartCloudSyncProgressHandler?) async throws -> ChartCloudSnapshotRow {
+        let rows: [ChartCloudSnapshotRow] = try await ChartCloudSyncStageReporting.perform(.readingSnapshots, onProgress: onProgress) {
+            try await client.from("chart_snapshots").select().eq("owner_id", value: ownerID).eq("chart_id", value: documentID)
+                .order("version", ascending: false).order("id", ascending: false).limit(1).execute().value
+        }
+        try Task.checkCancellation()
+        guard rows.count == 1, let row = rows.first else {
+            throw readError(.missingSnapshot, stage: .readingSnapshots)
+        }
+        return row
+    }
+
+    private func readError(_ error: ChartCloudRemoteReadError, stage: ChartCloudSyncStage) -> ChartCloudSyncStageError {
+        ChartCloudSyncStageError(stage: stage, underlyingError: error)
+    }
+}
+
+enum ChartCloudRemoteReadError: Error {
+    case invalidDocument
+    case missingSnapshot
+    case invalidSnapshot
+}
+
 private struct ChartCloudPushOutcome {
     var lastBackupAt: Date
     var backedUpChartIDs: Set<Chart.ID>
     var tombstonedChartIDs: Set<Chart.ID>
+    var acknowledgedContentSHA256ByChartID: [Chart.ID: String]
+    var didPerformRemoteWrites: Bool
+}
+
+private struct ChartCloudChartPushOutcome {
+    var contentSHA256: String
+    var wroteSnapshot: Bool
 }
 
 private struct ChartCloudDocumentRow: Decodable {
@@ -415,6 +578,18 @@ private struct ChartCloudSnapshotRow: Decodable {
 
 private struct ChartCloudSnapshotIdentityRow: Decodable {
     let id: UUID
+}
+
+private struct ChartCloudDocumentLinkReceipt: Decodable {
+    let id: UUID
+    let ownerID: UUID
+    let latestSnapshotID: UUID?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case ownerID = "owner_id"
+        case latestSnapshotID = "latest_snapshot_id"
+    }
 }
 
 private struct ChartCloudDocumentUpsert: Encodable {

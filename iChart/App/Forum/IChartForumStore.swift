@@ -5,6 +5,26 @@ import PDFKit
 import Supabase
 
 enum IChartForumPDFMetadata {
+    static func cacheDownloadedPDF(data: Data, post: ForumChartPost, in directory: URL,
+                                   fileManager: FileManager = .default) throws -> ExportedPDF {
+        // Each request owns its output. Titles are display names, not file
+        // identities: different posts (or overlapping retries) can share one.
+        let requestDirectory = directory
+            .appendingPathComponent(post.id.uuidString, isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try fileManager.createDirectory(at: requestDirectory, withIntermediateDirectories: true)
+        let outputURL = requestDirectory.appendingPathComponent(
+            PDFChartExporter.sanitizedFileNameStem(from: post.chartTitle) + " - Forum.pdf"
+        )
+        do {
+            try data.write(to: outputURL, options: .atomic)
+        } catch {
+            try? fileManager.removeItem(at: requestDirectory)
+            throw error
+        }
+        return downloadedPDF(data: data, url: outputURL, post: post)
+    }
+
     static func pageCount(in data: Data) -> Int {
         max(PDFDocument(data: data)?.pageCount ?? 1, 1)
     }
@@ -28,6 +48,23 @@ struct IChartForumSongSummary: Identifiable, Equatable {
     func badges(for post: ForumChartPost) -> [ForumAuthorBadgeType] {
         authorBadgesByOwner[post.ownerID] ?? []
     }
+}
+
+struct IChartForumHomeCursor: Codable, Equatable {
+    // Retain PostgreSQL timestamp precision instead of round-tripping through Date.
+    let updatedAt: String
+    let songID: UUID
+
+    enum CodingKeys: String, CodingKey {
+        case updatedAt = "updated_at"
+        case songID = "id"
+    }
+}
+
+struct IChartForumHomePage {
+    static let maximumSongCount = 20
+    let summaries: [IChartForumSongSummary]
+    let nextCursor: IChartForumHomeCursor?
 }
 
 struct IChartForumPostDetail: Equatable {
@@ -70,6 +107,8 @@ final class IChartForumStore: ObservableObject {
     @Published private(set) var uploadQueue: [ForumUploadQueueItem]
     @Published private(set) var currentUserBadges: [ForumAuthorBadgeType]?
     @Published private(set) var isLoadingEarlierComments = false
+    @Published private(set) var homeNextCursor: IChartForumHomeCursor?
+    @Published private(set) var isLoadingMoreHome = false
 
     private let service: IChartForumServicing
     private let defaults: UserDefaults
@@ -78,8 +117,14 @@ final class IChartForumStore: ObservableObject {
     #endif
     private var lastQuery = ""
     private var homeRequestID = UUID()
+    private var homePageRequestID: UUID?
+    private var activeWorkIDs: Set<UUID> = []
+    private var homeWorkID: UUID?
     private var detailSessionID = UUID()
     private var earlierCommentsRequestID: UUID?
+    private var pdfDownloadRequestID: UUID?
+    private var pdfDownloadTask: Task<ExportedPDF, Error>?
+    private var pdfDownloadWorkID: UUID?
     private var activeUploadIDs: Set<ForumUploadQueueItem.ID> = []
     private var uploadTasks: [ForumUploadQueueItem.ID: Task<Void, Never>] = [:]
     private var uploadCleanupIDs: Set<ForumUploadQueueItem.ID> = []
@@ -129,6 +174,7 @@ final class IChartForumStore: ObservableObject {
 
         isQASampleDataEnabled = isEnabled
         defaults.set(isEnabled, forKey: Self.qaSampleDataStorageKey)
+        invalidateHomePagination()
         selectedDetail = nil
         downloadedPDF = nil
         currentUserBadges = nil
@@ -144,13 +190,13 @@ final class IChartForumStore: ObservableObject {
         entitlements: AppEntitlements,
         query: String? = nil
     ) async {
+        invalidateHomePagination()
         let requestID = UUID()
         homeRequestID = requestID
         guard let signedInSession = authState.signedInSession else {
             state = .signedOut
             selectedDetail = nil
             currentUserBadges = nil
-            isWorking = false
             return
         }
 
@@ -158,7 +204,6 @@ final class IChartForumStore: ObservableObject {
             state = .requiresPro
             selectedDetail = nil
             currentUserBadges = nil
-            isWorking = false
             return
         }
 
@@ -168,12 +213,12 @@ final class IChartForumStore: ObservableObject {
         }
         #endif
 
+        guard !Task.isCancelled, homeRequestID == requestID else { return }
         let requestService = activeService
         guard requestService.isConfigured else {
             state = .unconfigured
             selectedDetail = nil
             currentUserBadges = nil
-            isWorking = false
             return
         }
 
@@ -181,25 +226,98 @@ final class IChartForumStore: ObservableObject {
         lastQuery = nextQuery
         state = .loading
         currentUserBadges = nil
-        isWorking = true
+        let workID = beginWork()
+        homeWorkID = workID
         statusMessage = nil
         errorMessage = nil
-        defer { if homeRequestID == requestID { isWorking = false } }
+        defer {
+            endWork(workID)
+            if homeWorkID == workID { homeWorkID = nil }
+        }
         do {
-            let summaries = try await requestService.loadHome(query: nextQuery)
+            let page = try await requestService.loadHomePage(query: nextQuery, after: nil)
             let badges = try? await requestService.loadCurrentUserBadges()
-            guard homeRequestID == requestID else { return }
+            guard !Task.isCancelled, homeRequestID == requestID else { return }
             currentUserBadges = badges
-            state = .loaded(summaries)
+            homeNextCursor = page.nextCursor
+            state = .loaded(page.summaries)
         } catch {
-            guard homeRequestID == requestID else { return }
+            guard !Task.isCancelled, homeRequestID == requestID else { return }
             let text = Self.displayText(for: error)
             errorMessage = text
             state = .failed(text)
         }
     }
 
+    func loadMoreHome() async {
+        guard !isWorking, !isLoadingMoreHome, case .loaded = state,
+              let cursor = homeNextCursor else { return }
+        let generation = homeRequestID
+        let query = lastQuery
+        let ownerID = uploadOwnerID
+        let requestID = UUID()
+        homePageRequestID = requestID
+        isLoadingMoreHome = true
+        errorMessage = nil
+        let requestService = activeService
+        defer {
+            if homePageRequestID == requestID {
+                homePageRequestID = nil
+                isLoadingMoreHome = false
+            }
+        }
+        do {
+            let page = try await requestService.loadHomePage(query: query, after: cursor)
+            guard !Task.isCancelled, homeRequestID == generation, lastQuery == query,
+                  homePageRequestID == requestID, homeNextCursor == cursor,
+                  uploadOwnerID == ownerID, case .loaded(let current) = state else { return }
+            guard page.nextCursor != cursor else { throw IChartForumServiceError.invalidSearchPage }
+            var merged = current
+            var indexes: [UUID: Int] = [:]
+            for (index, summary) in current.enumerated() where indexes[summary.id] == nil { indexes[summary.id] = index }
+            for summary in page.summaries {
+                if let index = indexes[summary.id] { merged[index] = summary }
+                else { indexes[summary.id] = merged.count; merged.append(summary) }
+            }
+            homeNextCursor = page.nextCursor
+            state = .loaded(merged)
+        } catch {
+            guard !Task.isCancelled, homeRequestID == generation, lastQuery == query,
+                  homePageRequestID == requestID, uploadOwnerID == ownerID else { return }
+            // Keep the readable results and the same cursor so this page can be retried.
+            errorMessage = Self.displayText(for: error)
+        }
+    }
+
+    private func invalidateHomePagination() {
+        if let homeWorkID { endWork(homeWorkID) }
+        homeWorkID = nil
+        homeRequestID = UUID()
+        homePageRequestID = nil
+        homeNextCursor = nil
+        isLoadingMoreHome = false
+    }
+
+    private func reloadCurrentHome(using requestService: IChartForumServicing) async throws {
+        invalidateHomePagination()
+        let generation = homeRequestID
+        let query = lastQuery
+        let ownerID = uploadOwnerID
+        let workID = beginWork()
+        homeWorkID = workID
+        defer {
+            endWork(workID)
+            if homeWorkID == workID { homeWorkID = nil }
+        }
+        let page = try await requestService.loadHomePage(query: query, after: nil)
+        guard !Task.isCancelled, homeRequestID == generation, lastQuery == query,
+              uploadOwnerID == ownerID else { return }
+        homeNextCursor = page.nextCursor
+        state = .loaded(page.summaries)
+    }
+
     func openPost(_ post: ForumChartPost, song: ForumSong) async {
+        invalidatePDFDownload()
         detailSessionID = UUID()
         earlierCommentsRequestID = nil
         isLoadingEarlierComments = false
@@ -280,6 +398,10 @@ final class IChartForumStore: ObservableObject {
         uploadOwnerID = currentUserID
         uploadCharts = charts
         allowsForumPublishing = entitlements.includes(.forums) && currentUserID != nil
+        if changedOwner || !allowsForumPublishing {
+            invalidateHomePagination()
+            clearSelectedDetail()
+        }
         if !allowsForumPublishing || changedOwner {
             uploadTasks.values.forEach { $0.cancel() }
         }
@@ -416,7 +538,7 @@ final class IChartForumStore: ObservableObject {
             state = uploadOwnerID == nil ? .signedOut : .requiresPro
             return
         }
-        state = .loaded(try await activeService.loadHome(query: lastQuery))
+        try await reloadCurrentHome(using: activeService)
     }
 
     func vote(_ vote: ForumVoteValue, on detail: IChartForumPostDetail) async {
@@ -425,7 +547,7 @@ final class IChartForumStore: ObservableObject {
             try await requestService.vote(postID: detail.post.id, vote: vote)
             try await refreshSelectedDetail(postID: detail.post.id, song: detail.song,
                 preservingCommentHistory: true)
-            state = .loaded(try await requestService.loadHome(query: lastQuery))
+            try await reloadCurrentHome(using: requestService)
         }
     }
 
@@ -496,30 +618,60 @@ final class IChartForumStore: ObservableObject {
             try await activeService.blockUser(ownerID: ownerID)
             selectedDetail = nil
             downloadedPDF = nil
-            state = .loaded(try await activeService.loadHome(query: lastQuery))
+            try await reloadCurrentHome(using: activeService)
         }
     }
 
     @discardableResult
     func downloadPDF(for detail: IChartForumPostDetail) async -> ExportedPDF? {
-        var downloadedPDF: ExportedPDF?
+        guard allowsForumPublishing, let ownerID = uploadOwnerID,
+              selectedDetail?.post.id == detail.post.id else { return nil }
+        invalidatePDFDownload()
+        let sessionID = detailSessionID
+        let requestID = UUID()
+        pdfDownloadRequestID = requestID
+        let requestService = activeService
         let startedAt = Date()
-        IChartTelemetry.record("forum.pdf_download_started")
-        await run {
-            let pdf = try await activeService.downloadPDF(for: detail.post)
-            self.downloadedPDF = pdf
-            downloadedPDF = pdf
+        let workID = beginWork()
+        pdfDownloadWorkID = workID
+        statusMessage = nil
+        errorMessage = nil
+        defer {
+            endWork(workID)
+            if pdfDownloadRequestID == requestID {
+                pdfDownloadRequestID = nil
+                pdfDownloadTask = nil
+                pdfDownloadWorkID = nil
+            }
         }
-        if let downloadedPDF {
+        func isCurrentRequest() -> Bool {
+            pdfDownloadRequestID == requestID && detailSessionID == sessionID
+                && selectedDetail?.post.id == detail.post.id
+                && allowsForumPublishing && uploadOwnerID == ownerID && !Task.isCancelled
+        }
+        IChartTelemetry.record("forum.pdf_download_started")
+        let requestTask = Task { try await requestService.downloadPDF(for: detail.post) }
+        pdfDownloadTask = requestTask
+        do {
+            let pdf = try await withTaskCancellationHandler {
+                try await requestTask.value
+            } onCancel: {
+                requestTask.cancel()
+            }
+            guard isCurrentRequest() else { return nil }
+            self.downloadedPDF = pdf
             IChartTelemetry.record(
                 "forum.pdf_download_succeeded",
                 properties: [
-                    "page_count": .int(downloadedPDF.pageCount),
-                    "pdf_size_bucket": .string(Self.pdfSizeBucket(downloadedPDF.fileSizeBytes)),
+                    "page_count": .int(pdf.pageCount),
+                    "pdf_size_bucket": .string(Self.pdfSizeBucket(pdf.fileSizeBytes)),
                     "duration_ms": .double(Date().timeIntervalSince(startedAt) * 1_000)
                 ]
             )
-        } else {
+            return pdf
+        } catch {
+            guard isCurrentRequest() else { return nil }
+            errorMessage = Self.displayText(for: error)
             IChartTelemetry.record(
                 "forum.pdf_download_failed",
                 properties: [
@@ -527,8 +679,8 @@ final class IChartForumStore: ObservableObject {
                     "duration_ms": .double(Date().timeIntervalSince(startedAt) * 1_000)
                 ]
             )
+            return nil
         }
-        return downloadedPDF
     }
 
     func presentDownloadedPDF(_ pdf: ExportedPDF) {
@@ -544,10 +696,22 @@ final class IChartForumStore: ObservableObject {
     }
 
     func clearSelectedDetail() {
+        invalidatePDFDownload()
         detailSessionID = UUID()
         earlierCommentsRequestID = nil
         isLoadingEarlierComments = false
         selectedDetail = nil
+    }
+
+    private func invalidatePDFDownload() {
+        pdfDownloadTask?.cancel()
+        pdfDownloadTask = nil
+        if pdfDownloadRequestID != nil {
+            pdfDownloadRequestID = nil
+        }
+        if let pdfDownloadWorkID { endWork(pdfDownloadWorkID) }
+        pdfDownloadWorkID = nil
+        downloadedPDF = nil
     }
 
     private func startUpload(itemID: ForumUploadQueueItem.ID, chart: Chart, draft: ForumPublishDraft) {
@@ -611,7 +775,7 @@ final class IChartForumStore: ObservableObject {
             )
             if allowsForumPublishing, uploadOwnerID == ownerID, !Task.isCancelled, activeService.isConfigured {
                 do {
-                    state = .loaded(try await activeService.loadHome(query: lastQuery))
+                    try await reloadCurrentHome(using: activeService)
                 } catch {
                     statusMessage = "Forum chart published. Refresh Forums to update the list."
                 }
@@ -678,7 +842,8 @@ final class IChartForumStore: ObservableObject {
         successMessage: String? = nil,
         operation: () async throws -> Void
     ) async {
-        isWorking = true
+        let workID = beginWork()
+        defer { endWork(workID) }
         statusMessage = nil
         errorMessage = nil
         do {
@@ -691,7 +856,19 @@ final class IChartForumStore: ObservableObject {
                 state = .failed(text)
             }
         }
-        isWorking = false
+    }
+
+    private func beginWork() -> UUID {
+        let id = UUID()
+        activeWorkIDs.insert(id)
+        if !isWorking { isWorking = true }
+        return id
+    }
+
+    private func endWork(_ id: UUID) {
+        activeWorkIDs.remove(id)
+        let pending = !activeWorkIDs.isEmpty
+        if isWorking != pending { isWorking = pending }
     }
 
     private static func reconciledComments(_ cached: [ForumComment], with authoritative: [ForumComment],
@@ -740,9 +917,7 @@ final class IChartForumStore: ObservableObject {
             guard detailSessionID == sessionID, !onlyIfSelected || selectedDetail?.post.id == postID else { return }
             selectedDetail = nil
             downloadedPDF = nil
-            if let summaries = try? await activeService.loadHome(query: lastQuery) {
-                state = .loaded(summaries)
-            }
+            try? await reloadCurrentHome(using: activeService)
             throw IChartForumServiceError.missingForumPost
         }
     }
@@ -792,6 +967,7 @@ final class IChartForumStore: ObservableObject {
 protocol IChartForumServicing: Sendable {
     var isConfigured: Bool { get }
     func loadHome(query: String) async throws -> [IChartForumSongSummary]
+    func loadHomePage(query: String, after cursor: IChartForumHomeCursor?) async throws -> IChartForumHomePage
     func loadPostDetail(postID: UUID, song: ForumSong) async throws -> IChartForumPostDetail
     func loadEarlierComments(postID: UUID, before cursor: ForumCommentCursor) async throws -> ForumCommentPage
     func loadCurrentUserBadges() async throws -> [ForumAuthorBadgeType]
@@ -814,6 +990,10 @@ protocol IChartForumServicing: Sendable {
 }
 
 extension IChartForumServicing {
+    func loadHomePage(query: String, after cursor: IChartForumHomeCursor?) async throws -> IChartForumHomePage {
+        guard cursor == nil else { return IChartForumHomePage(summaries: [], nextCursor: nil) }
+        return IChartForumHomePage(summaries: try await loadHome(query: query), nextCursor: nil)
+    }
     func loadEarlierComments(postID: UUID, before cursor: ForumCommentCursor) async throws -> ForumCommentPage {
         ForumCommentPage(descendingComments: [])
     }
@@ -898,15 +1078,12 @@ private actor IChartForumQASampleService: IChartForumServicing {
             .compactMap { song in
                 let topPosts = Array(
                     (postsBySongID[song.id] ?? [])
+                        .filter { normalizedQuery.isEmpty || Self.matches(query: normalizedQuery, song: song, posts: [$0]) }
                         .sorted(by: Self.ranksBefore)
                         .prefix(3)
                 )
 
                 guard !topPosts.isEmpty else {
-                    return nil
-                }
-
-                guard normalizedQuery.isEmpty || Self.matches(query: normalizedQuery, song: song, posts: topPosts) else {
                     return nil
                 }
 
@@ -1647,6 +1824,9 @@ private enum IChartForumServiceError: LocalizedError {
     case missingChart
     case invalidPublishDraft(String)
     case missingForumPost
+    case searchTooLong
+    case searchUnavailable
+    case invalidSearchPage
 
     var errorDescription: String? {
         switch self {
@@ -1658,6 +1838,12 @@ private enum IChartForumServiceError: LocalizedError {
             return message
         case .missingForumPost:
             return "This forum chart is no longer available."
+        case .searchTooLong:
+            return "Use a search of 200 characters or fewer."
+        case .searchUnavailable:
+            return "Search is temporarily unavailable. Clear the search to browse community charts, or try again later."
+        case .invalidSearchPage:
+            return "Couldn’t load the next search results. Refresh the search and try again."
         }
     }
 }
@@ -1681,6 +1867,35 @@ private actor IChartSupabaseForumService: IChartForumServicing {
     }
 
     func loadHome(query: String) async throws -> [IChartForumSongSummary] {
+        try await loadHomePage(query: query, after: nil).summaries
+    }
+
+    func loadHomePage(query: String, after cursor: IChartForumHomeCursor?) async throws -> IChartForumHomePage {
+        let parameters = try ForumHomeSearchParameters(searchQuery: query,
+            afterUpdatedAt: cursor?.updatedAt, afterSongID: cursor?.songID)
+        // Keep the existing bounded browse feed unchanged. Typed searches use
+        // a catalog predicate before the server's per-page/per-song limits.
+        guard !parameters.searchQuery.isEmpty else {
+            guard cursor == nil else { throw IChartForumServiceError.invalidSearchPage }
+            return IChartForumHomePage(summaries: try await loadBrowseHome(), nextCursor: nil)
+        }
+        _ = try await refreshedSessionForRequest()
+        do {
+            let response = try await client
+                .rpc("search_forum_home", params: parameters)
+                .execute()
+                .data
+            let page = try IChartForumSearchResponseDecoder.decode(response)
+            guard page.nextCursor != cursor || cursor == nil else { throw IChartForumServiceError.invalidSearchPage }
+            return IChartForumHomePage(summaries: try await decoratedSummaries(page.summaries), nextCursor: page.nextCursor)
+        } catch let error as PostgrestError where error.code == "PGRST202" || error.code == "42883" {
+            // Deploy the additive search RPC before shipping this client. Do
+            // not silently fall back to searching an incomplete recent feed.
+            throw IChartForumServiceError.searchUnavailable
+        }
+    }
+
+    private func loadBrowseHome() async throws -> [IChartForumSongSummary] {
         _ = try await refreshedSessionForRequest()
         let songs: [ForumSongRow] = try await client
             .from("forum_songs")
@@ -1702,7 +1917,6 @@ private actor IChartSupabaseForumService: IChartForumServicing {
         let mappedPosts = posts
             .map(\.forumChartPost)
             .filter { $0.status != .pending }
-        let normalizedQuery = ForumPublishDraft.normalizedIdentityText(query)
         let postsBySongID = Dictionary(grouping: mappedPosts, by: \.songID)
 
         let summaries: [IChartForumSongSummary] = mappedSongs
@@ -1721,13 +1935,12 @@ private actor IChartSupabaseForumService: IChartForumServicing {
                     return nil
                 }
 
-                guard normalizedQuery.isEmpty
-                    || Self.matches(query: normalizedQuery, song: song, posts: topPosts) else {
-                    return nil
-                }
-
                 return IChartForumSongSummary(song: song, topPosts: topPosts)
             }
+        return try await decoratedSummaries(summaries)
+    }
+
+    private func decoratedSummaries(_ summaries: [IChartForumSongSummary]) async throws -> [IChartForumSongSummary] {
         let ownerIDs = Set(summaries.flatMap { $0.topPosts.map(\.ownerID) })
         let badges = (try? await loadAuthorBadges(ownerIDs: ownerIDs)) ?? []
         try Task.checkCancellation()
@@ -2025,13 +2238,8 @@ private actor IChartSupabaseForumService: IChartForumServicing {
         let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
             .appendingPathComponent("iChartForumPDFs", isDirectory: true)
             ?? FileManager.default.temporaryDirectory.appendingPathComponent("iChartForumPDFs", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let outputURL = directory.appendingPathComponent(
-            PDFChartExporter.sanitizedFileNameStem(from: post.chartTitle) + " - Forum.pdf"
-        )
-        try data.write(to: outputURL, options: .atomic)
-
-        return IChartForumPDFMetadata.downloadedPDF(data: data, url: outputURL, post: post)
+        try Task.checkCancellation()
+        return try IChartForumPDFMetadata.cacheDownloadedPDF(data: data, post: post, in: directory)
     }
 
     @discardableResult
@@ -2173,25 +2381,6 @@ private actor IChartSupabaseForumService: IChartForumServicing {
             .value
     }
 
-    private static func matches(
-        query: String,
-        song: ForumSong,
-        posts: [ForumChartPost]
-    ) -> Bool {
-        let searchable = (
-            [
-                song.songTitle,
-                song.artistName
-            ]
-            + posts.flatMap { post in
-                [post.chartTitle, post.arrangerCredit, post.creatorDisplayName] + post.tags
-            }
-        )
-        .map(ForumPublishDraft.normalizedIdentityText)
-        .joined(separator: " ")
-
-        return searchable.contains(query)
-    }
 }
 
 private extension String {
@@ -2226,10 +2415,75 @@ enum IChartForumDateParser {
     }()
 }
 
+struct ForumHomeSearchParameters: Encodable {
+    let searchQuery: String
+    let pageSize = IChartForumHomePage.maximumSongCount
+    let afterUpdatedAt: String?
+    let afterSongID: UUID?
+
+    init(searchQuery: String, afterUpdatedAt: String?, afterSongID: UUID?) throws {
+        // PostgreSQL normalizes case on both query and metadata. Lowercasing
+        // here first can disagree with its contextual Unicode casing rules.
+        let normalized = ForumPublishDraft.normalizedDisplayText(searchQuery)
+            .precomposedStringWithCanonicalMapping
+        guard normalized.unicodeScalars.count <= 200 else { throw IChartForumServiceError.searchTooLong }
+        guard (afterUpdatedAt == nil) == (afterSongID == nil) else { throw IChartForumServiceError.invalidSearchPage }
+        self.searchQuery = normalized
+        self.afterUpdatedAt = afterUpdatedAt
+        self.afterSongID = afterSongID
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case searchQuery = "search_query"
+        case pageSize = "page_size"
+        case afterUpdatedAt = "after_updated_at"
+        case afterSongID = "after_song_id"
+    }
+}
+
+enum IChartForumSearchResponseDecoder {
+    static func decode(_ data: Data) throws -> IChartForumHomePage {
+        try JSONDecoder().decode(ForumHomeSearchResponse.self, from: data).page()
+    }
+}
+
+private struct ForumHomeSearchResponse: Decodable {
+    struct SongGroup: Decodable {
+        let song: ForumSongRow
+        let posts: [ForumChartPostRow]
+    }
+    let songs: [SongGroup]
+    let nextCursor: IChartForumHomeCursor?
+
+    enum CodingKeys: String, CodingKey {
+        case songs
+        case nextCursor = "next_cursor"
+    }
+
+    func page() throws -> IChartForumHomePage {
+        guard songs.count <= IChartForumHomePage.maximumSongCount,
+              Set(songs.map { $0.song.id }).count == songs.count,
+              songs.allSatisfy({ group in
+                  !group.posts.isEmpty && group.posts.count <= 3
+                      && Set(group.posts.map(\.id)).count == group.posts.count
+                      && group.posts.allSatisfy { $0.songID == group.song.id && ["published", "flagged"].contains($0.status)
+                          && ChartLayoutStyle(rawValue: $0.layoutStyle) != nil }
+              }) else { throw IChartForumServiceError.invalidSearchPage }
+        if let nextCursor {
+            guard let last = songs.last, nextCursor.songID == last.song.id,
+                  nextCursor.updatedAt == last.song.updatedAt else { throw IChartForumServiceError.invalidSearchPage }
+        }
+        return IChartForumHomePage(summaries: songs.map {
+            IChartForumSongSummary(song: $0.song.forumSong, topPosts: $0.posts.map(\.forumChartPost))
+        }, nextCursor: nextCursor)
+    }
+}
+
 private struct ForumSongRow: Decodable {
     let id: UUID
     let songTitle: String
     let artistName: String
+    let updatedAt: String?
 
     var forumSong: ForumSong {
         ForumSong(id: id, songTitle: songTitle, artistName: artistName)
@@ -2239,6 +2493,7 @@ private struct ForumSongRow: Decodable {
         case id
         case songTitle = "song_title"
         case artistName = "artist_name"
+        case updatedAt = "updated_at"
     }
 }
 

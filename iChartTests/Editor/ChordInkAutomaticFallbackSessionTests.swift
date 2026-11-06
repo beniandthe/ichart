@@ -87,17 +87,23 @@ final class ChordInkAutomaticFallbackSessionTests: XCTestCase {
 
     func testBlockedFallbackDoesNotHoldTheAutomaticRenderOfASeparateSupportedPrimaryTarget() async throws {
         let started = expectation(description: "first target fallback blocked")
-        let release = DispatchSemaphore(value: 0)
-        defer { release.signal() }
+        let hold = FallbackRenderHold()
+        // Progress is proved while the fallback remains explicitly held.
+        // This watchdog bounds a stuck test on a loaded Simulator host.
+        let watchdog: TimeInterval = 30
         let fallback = FallbackProviderDouble(identifier: "blocked") { _, _, _ in
-            started.fulfill()
-            _ = release.wait(timeout: .now() + 10)
+            hold.waitUntilReleased { started.fulfill() }
+            defer { hold.markFinished() }
             return self.supported("Bb")
         }
         let primary = FallbackPrimaryDouble { strokes in
             strokes.first!.bounds.minX < 200 ? self.unread() : self.supported("G")
         }
         let session = makeSession(primary, fallback: [fallback])
+        defer {
+            session.cancelPendingWork()
+            hold.release()
+        }
         let originalChart = makeChart()
         let measure = originalChart.measures[0].id
         let first = request(x: 106, measureID: measure)
@@ -113,7 +119,7 @@ final class ChordInkAutomaticFallbackSessionTests: XCTestCase {
         var delivered: [UUID] = []
         var neighborEvent: ChordEvent?
         var neighborFrame: CGRect?
-        session.startIncremental(requests: [first, neighbor]) { payload in
+        let onTarget: (ChordInkRecognitionProposalPayload) -> Void = { payload in
             delivered.append(payload.requestID)
             do {
                 let payloads = try XCTUnwrap(census.accept(payload))
@@ -158,22 +164,40 @@ final class ChordInkAutomaticFallbackSessionTests: XCTestCase {
                 chart = outcome.chart
                 source = outcome.drawing
                 census.retainTargets(in: outcome.remainingState)
+                if payload.requestID == neighbor.requestID {
+                    let state = hold.state
+                    XCTAssertTrue(state.isHeld, "The neighbor must commit while fallback is held")
+                    XCTAssertFalse(state.wasReleased)
+                    XCTAssertFalse(state.hasFinished)
+                }
             } catch {
                 XCTFail("Independent source-bound automatic commit failed: \(error)")
             }
             if payload.requestID == neighbor.requestID { neighborDone.fulfill() } else { firstDone.fulfill() }
         }
-        await fulfillment(of: [started, neighborDone], timeout: 2)
+        session.startIncremental(requests: [first], onTarget: onTarget)
+        await fulfillment(of: [started], timeout: watchdog)
+        XCTAssertTrue(hold.state.isHeld)
+        // Reuse the first target's exact source and work identity while it is
+        // blocked; admit the neighbor only after the hold has been reached.
+        session.startIncremental(requests: [first, neighbor], onTarget: onTarget)
+        await fulfillment(of: [neighborDone], timeout: watchdog)
         XCTAssertEqual(delivered, [neighbor.requestID])
         XCTAssertEqual(chart.measures.flatMap(\.chordEvents).map(\.rawInput), ["G"])
         assertSameInk(firstSource, source)
-        release.signal()
-        await fulfillment(of: [firstDone], timeout: 2)
+        let beforeRelease = hold.state
+        XCTAssertTrue(beforeRelease.isHeld)
+        XCTAssertFalse(beforeRelease.wasReleased)
+        XCTAssertFalse(beforeRelease.hasFinished)
+        hold.release()
+        await fulfillment(of: [firstDone], timeout: watchdog)
         XCTAssertEqual(delivered, [neighbor.requestID, first.requestID])
         XCTAssertEqual(chart.measures.flatMap(\.chordEvents).count, 2)
         XCTAssertTrue(source.strokes.isEmpty)
         XCTAssertEqual(primary.calls, 2)
         XCTAssertEqual(fallback.calls, 1)
+        XCTAssertTrue(hold.state.wasReleased)
+        XCTAssertTrue(hold.state.hasFinished)
     }
 
     func testChangedSourceOptionsTargetProfileOrReviewScopeDropsBlockedFallbackBeforePublishingOrAdvancingItsChain() async throws {
@@ -623,6 +647,37 @@ final class ChordInkAutomaticFallbackSessionTests: XCTestCase {
         file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: expected, current: current),
             file: file, line: line)
+    }
+}
+
+private final class FallbackRenderHold {
+    private let lock = NSLock()
+    private let semaphore = DispatchSemaphore(value: 0)
+    private var entered = false
+    private var released = false
+    private var finished = false
+
+    var state: (isHeld: Bool, wasReleased: Bool, hasFinished: Bool) {
+        lock.withLock { (entered && !released && !finished, released, finished) }
+    }
+
+    func waitUntilReleased(onEntered: () -> Void) {
+        lock.withLock { entered = true }
+        onEntered()
+        semaphore.wait()
+    }
+
+    func markFinished() {
+        lock.withLock { finished = true }
+    }
+
+    func release() {
+        let shouldSignal = lock.withLock {
+            guard !released else { return false }
+            released = true
+            return true
+        }
+        if shouldSignal { semaphore.signal() }
     }
 }
 

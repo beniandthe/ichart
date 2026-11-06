@@ -152,6 +152,68 @@ final class ChordInkEndingRecognizerTests: XCTestCase {
         XCTAssertEqual(result.barlines.first?.ownedSourceStrokeIndices, [bracket.count])
     }
 
+    func testCombinedStructureRecognitionKeepsEndingAndBarlineOwnershipAcrossChartStyles() throws {
+        for style in ChartLayoutStyle.allCases {
+            let fixture = try Fixture(style: style)
+            for detached in [false, true] {
+                let bracket = fixture.bracket(closed: true, detached: detached)
+                let bar = fixture.stroke([fixture.point(0.84, 0.07), fixture.point(0.84, 0.93)])
+                let chord = fixture.stroke([
+                    fixture.point(0.44, 0.62), fixture.point(0.40, 0.75),
+                    fixture.point(0.44, 0.88), fixture.point(0.47, 0.75)
+                ])
+                let source = bracket + [bar, chord]
+                let result = ChordDraftEndingRecognizer.recognizeStructure(
+                    strokes: source, chordFrame: fixture.chordFrame, pageLayout: fixture.layout)
+
+                let ending = try XCTUnwrap(result.endings.endings.first, "\(style), detached=\(detached)")
+                XCTAssertEqual(result.endings.endings.count, 1)
+                XCTAssertEqual(result.endings.strokeIndices, Set(bracket.indices))
+                XCTAssertEqual(ending.sourceStrokeGeometry, bracket)
+                XCTAssertEqual(ending.endStyle, .closed)
+                XCTAssertEqual(result.barlines.barlines.count, 1)
+                XCTAssertEqual(result.barlines.strokeIndices, [bracket.count])
+                XCTAssertEqual(result.barlines.barlines.first?.ownedSourceStrokeIndices, [bracket.count])
+                let recognizedBarline = try XCTUnwrap(result.barlines.barlines.first)
+                XCTAssertEqual(recognizedBarline.sourceStrokeIndex, bracket.count)
+                // Plain barlines retain ink by original source index; only
+                // multi-stroke endpoint-tap groups cache their geometry.
+                let ownedInk = recognizedBarline.ownedSourceStrokeIndices.sorted().compactMap {
+                    source.indices.contains($0) ? source[$0] : nil
+                }
+                XCTAssertEqual(ownedInk, [bar])
+                XCTAssertTrue(result.endings.strokeIndices.isDisjoint(with: result.barlines.strokeIndices))
+                XCTAssertFalse(result.endings.strokeIndices.contains(source.count - 1))
+                XCTAssertFalse(result.barlines.strokeIndices.contains(source.count - 1))
+            }
+        }
+    }
+
+    func testCombinedStructureRetainsRawEndingClaimsBeforeOriginalStrokeAmbiguityFiltering() throws {
+        for style in ChartLayoutStyle.allCases {
+            let fixture = try Fixture(style: style)
+            let bracket = fixture.bracket(closed: true, detached: true)
+            let bar = fixture.stroke([fixture.point(0.84, 0.07), fixture.point(0.84, 0.93)])
+            let source = bracket + [bar]
+            let result = ChordDraftEndingRecognizer.recognizeStructure(
+                strokes: source, chordFrame: fixture.chordFrame, pageLayout: fixture.layout)
+            // Two visible fragments can share one bitmap-erased original
+            // stroke. Such an ending is not safely removable, but its raw
+            // hooks/label must still be excluded from barline recognition.
+            let context = ChordInkDraftVisibleDrawingContext(drawing: fixture.drawing(source),
+                originalStrokeIndices: [0, 0, 1, 2], invisibleStrokeIndices: [])
+            let safeEndings = context.endingRecognitionWithUnambiguousSourceStrokes(result.endings)
+            let safeBarlines = context.barlineRecognitionWithUnambiguousSourceStrokes(result.barlines)
+
+            XCTAssertEqual(result.endings.strokeIndices, Set(bracket.indices))
+            XCTAssertEqual(result.barlines.strokeIndices, [bracket.count])
+            XCTAssertTrue(safeEndings.endings.isEmpty)
+            XCTAssertTrue(safeEndings.strokeIndices.isEmpty)
+            XCTAssertEqual(context.remappedBarlineRecognition(safeBarlines).strokeIndices, [2])
+            XCTAssertEqual(result.endings.endings.first?.sourceStrokeGeometry, bracket)
+        }
+    }
+
     func testFullHeightEndpointAndInteriorBarsStaySeparateFromTheEnding() throws {
         let fixture = try Fixture()
         let bracket = fixture.bracket()
@@ -378,6 +440,17 @@ final class ChordInkEndingRecognizerTests: XCTestCase {
 
         func recognize(_ strokes: [InkStroke]) -> ChordDraftEndingRecognition {
             ChordDraftEndingRecognizer.recognize(strokes: strokes, chordFrame: chordFrame, pageLayout: layout)
+        }
+
+        func drawing(_ strokes: [InkStroke]) -> PKDrawing {
+            PKDrawing(strokes: strokes.map { stroke in
+                PKStroke(ink: PKInk(.pen, color: .black),
+                    path: PKStrokePath(controlPoints: stroke.points.map { point in
+                        PKStrokePoint(location: CGPoint(x: point.x, y: point.y),
+                            timeOffset: point.timeOffset ?? 0, size: CGSize(width: 1.4, height: 1.4),
+                            opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+                    }, creationDate: Date(timeIntervalSinceReferenceDate: 100)), mask: nil)
+            })
         }
     }
 }

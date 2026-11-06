@@ -109,23 +109,39 @@ struct PDFChartExporter: ChartExporting {
             attributes: nil
         )
 
-        let outputURL = exportDirectory.appendingPathComponent(exportFileName(for: chart), isDirectory: false)
-        let renderer = ChartPDFRenderer(chart: chart, exportContext: context)
-        let pdfData = await MainActor.run {
-            renderer.render()
-        }
-
-        try pdfData.write(to: outputURL, options: .atomic)
-        return ExportedPDF(
-            url: outputURL,
-            chartTitle: chart.title,
-            layoutStyle: chart.layoutStyle,
-            transpositionView: chart.defaultTranspositionView,
-            chordTranspositionSemitones: chart.chordTranspositionSemitones,
-            pageCount: PDFDocument(data: pdfData)?.pageCount ?? 1,
-            fileSizeBytes: pdfData.count,
-            exportedAt: Date()
+        // Preview/share/forum tasks may retain an earlier export while a new
+        // export of a same-title chart is generated. Keep the human filename,
+        // but give each operation its own directory so no result is replaced.
+        let outputDirectory = exportDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try fileManager.createDirectory(
+            at: outputDirectory,
+            withIntermediateDirectories: false,
+            attributes: nil
         )
+        do {
+            let outputURL = outputDirectory.appendingPathComponent(exportFileName(for: chart), isDirectory: false)
+            let renderer = ChartPDFRenderer(chart: chart, exportContext: context)
+            let pdfData = await MainActor.run {
+                renderer.render()
+            }
+
+            try pdfData.write(to: outputURL, options: .atomic)
+            return ExportedPDF(
+                url: outputURL,
+                chartTitle: chart.title,
+                layoutStyle: chart.layoutStyle,
+                transpositionView: chart.defaultTranspositionView,
+                chordTranspositionSemitones: chart.chordTranspositionSemitones,
+                pageCount: PDFDocument(data: pdfData)?.pageCount ?? 1,
+                fileSizeBytes: pdfData.count,
+                exportedAt: Date()
+            )
+        } catch {
+            // This operation created the directory above. Never clean the
+            // shared export root or any previously returned export URL.
+            try? fileManager.removeItem(at: outputDirectory)
+            throw error
+        }
     }
 
     func exportFileName(for chart: Chart) -> String {

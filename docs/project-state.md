@@ -1,9 +1,39 @@
 # Project state and next Apple build
 
-## Current scope: chord repeats retained; measure-repeat handwriting retired — November 5, 2026
+## Current baseline: merged source for local Build 144 — November 5, 2026
+
+The user selected **iChart 1.2.4 (144)** as the main build to work from after its
+protected in-place installation and saved-content readback. Its source is
+[`00f79015`](https://github.com/beniandthe/ichart/commit/00f7901538074670251cd6626c1efa88a3bd1aec),
+the [PR #102](https://github.com/beniandthe/ichart/pull/102) squash merge on
+`main`, with tree `97df96b43de9431ba72a0f7ab186da2323281740`.
+
+Both push and PR checks passed for the exact candidate that produced that tree:
+native **3,153 passed / 120 skipped / 0 failed** and portable **1,918 passed /
+92 skipped / 0 failed**, per run. Actual CodeQL analysis and SARIF processing,
+dependency review, backend contracts and that source candidate's automated review
+also passed. These are source-validation records; they do not establish fresh
+Pencil acceptance or App Store delivery.
+
+Build 144 used a local `CURRENT_PROJECT_VERSION=144` override. The merged
+`project.yml` still declares 140; do not infer an installed build or a new release
+number from that older default. The signed build and private backup/readback
+receipts remain outside Git.
+
+The current performance, deprecation, parked-work and database audit is on
+`codex/build144-app-db-audit`, based on this merged source. Changes on that audit
+branch passed local native (3,232 passed / 120 skipped), portable (1,948 passed /
+92 skipped), unsigned Release compilation and backend regression gates. See the
+[audit and validation receipt](audits/build144-app-db-audit-2026-11-05.md) for scope,
+the deferred raster experiment and production rollout requirements. These changes
+are a review candidate and do not update the installed Build 144. Keep ML
+core, Graph/MyScript and model training parked; inspect their boundaries and
+retained build footprint without resuming experiments or deleting evidence.
+
+## Current repeat scope
 
 The user clarified that chord-repeat symbols were not part of the retirement.
-Restore handwritten `%` / dot-slash-dot chord repeats in **Write & Render**. Keep
+Handwritten `%` / dot-slash-dot chord repeats remain in **Write & Render**. Keep
 handwritten bar-and-dot measure/range repeat signs retired and use **Tools >
 Repeats** with selected measures for that structure. Preserve saved repeat
 notation/source ink, normal barlines and handwritten ending brackets. The full
@@ -12,10 +42,26 @@ and [current correction handoff](qa/chord-repeat-scope-correction-2026-11-05.md)
 
 The sealed `936aa2ab` candidate and consolidation records below remain historical
 provenance. Their tests predate the chord-repeat scope correction and do not
-validate it. The corrected candidate needs its own checks; no source change
-updates the installed Build 143 or establishes fresh physical Pencil acceptance.
+validate it; use the exact-candidate checks above instead.
 
-## Non-ML source consolidation — November 5, 2026
+## Audit-branch local raw diagnostic capture
+
+Detailed chord-preview diagnostics are separate from optional content-free
+telemetry. They contain local candidate text, geometry and original strokes. The
+audit-branch cleanup turns them off for ordinary Debug device and Simulator
+sessions; the installed Build 144 predates this change. A deliberately
+authorized Debug capture may opt in for that launch with
+`ICHART_CHORD_DRAFT_DIAGNOSTICS=1` or `-iChartChordDraftDiagnostics`; Release
+builds cannot opt in. The capture worker admits at most eight pending operations
+without waiting for diagnostic storage, and live appends stop at eight million
+bytes without deleting previous evidence. Existing explicit recorder
+append/load/reset APIs remain available for local recovery and controlled tests.
+The disabled path does not evaluate event factories or touch capture storage.
+Opted-in capture is best effort: busy/full admission or a full file budget drops
+new records. Preserve and inspect previous evidence before an explicit reset;
+do not treat this bounded diagnostic stream as a complete handwriting dataset.
+
+## Historical non-ML source consolidation — November 5, 2026
 
 [PR #95](https://github.com/beniandthe/ichart/pull/95) is the integration lane
 for the current non-ML application work. The user explicitly authorized

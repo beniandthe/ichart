@@ -1,0 +1,163 @@
+-- Run only after support/storekit_authority_atomic_fixture.psql and the new
+-- migration in a disposable ichart_authority_audit PostgreSQL database.
+begin;
+set local plpgsql.check_asserts = on;
+do $$
+begin
+    if current_database() <> 'ichart_authority_audit' then raise exception 'Isolated audit database required.'; end if;
+    if has_function_privilege('anon', 'public.apply_storekit_subscription_authority(jsonb,uuid)', 'execute')
+        or has_function_privilege('authenticated', 'public.apply_storekit_subscription_authority(jsonb,uuid)', 'execute')
+        or not has_function_privilege('service_role', 'public.apply_storekit_subscription_authority(jsonb,uuid)', 'execute') then
+        raise exception 'Incorrect authority RPC privileges.';
+    end if;
+    if (select prosecdef from pg_proc where oid = 'public.apply_storekit_subscription_authority(jsonb,uuid)'::regprocedure) then
+        raise exception 'Authority RPC must remain SECURITY INVOKER.';
+    end if;
+    begin
+        perform public.apply_storekit_subscription_authority('{}');
+        raise exception 'Effective-role check was bypassed.';
+    exception when insufficient_privilege then null;
+    end;
+end;
+$$;
+insert into auth.users(id)
+select ('00000000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid from generate_series(1, 6) n;
+insert into public.subscriptions(owner_id, provider, plan, status, storekit_original_transaction_id,
+    app_store_signed_at, app_store_last_transaction_id, app_store_auto_renew_status, stripe_customer_id)
+values ('00000000-0000-4000-8000-000000000001', 'storekit', 'studioSubscription', 'active', 'original-1',
+    '2026-11-01T00:00:00Z', '100000000000000000000000000001', false, 'unchanged-existing-field');
+set local role service_role;
+do $$
+declare
+    result jsonb;
+    before_row jsonb;
+    patch jsonb;
+    owner1 constant uuid := '00000000-0000-4000-8000-000000000001';
+    owner2 constant uuid := '00000000-0000-4000-8000-000000000002';
+    owner3 constant uuid := '00000000-0000-4000-8000-000000000003';
+    passed integer := 0;
+begin
+    result := public.apply_storekit_subscription_authority('{}');
+    assert result = '{"stored":false,"mapping_status":"missing_original_transaction"}'::jsonb;
+    passed := passed + 1;
+    result := public.apply_storekit_subscription_authority('{"storekit_original_transaction_id":"missing", "app_store_notification_uuid":"not-recorded"}');
+    assert result ->> 'mapping_status' = 'unmapped_original_transaction';
+    assert not exists(select 1 from public.app_store_notification_events where notification_uuid = 'not-recorded');
+    passed := passed + 1;
+
+    patch := '{"provider":"storekit","plan":"free","status":"inactive","storekit_original_transaction_id":"original-1","app_store_signed_at":"2026-11-02T00:00:00Z","app_store_last_transaction_id":"100000000000000000000000000003","app_store_notification_uuid":"n-1","app_store_status":"expired"}';
+    result := public.apply_storekit_subscription_authority(patch);
+    assert result ->> 'mapping_status' = 'updated' and (result ->> 'stored')::boolean;
+    assert result #>> '{subscription,owner_id}' = owner1::text;
+    assert result #>> '{subscription,stripe_customer_id}' = 'unchanged-existing-field';
+    assert result #> '{subscription,app_store_auto_renew_status}' = 'false'::jsonb;
+    assert exists(select 1 from public.app_store_notification_events where notification_uuid = 'n-1');
+    select to_jsonb(s) into before_row from public.subscriptions s where owner_id = owner1;
+    passed := passed + 1;
+
+    result := public.apply_storekit_subscription_authority(patch || '{"status":"active","app_store_signed_at":"2026-11-03T00:00:00Z"}');
+    assert result ->> 'mapping_status' = 'duplicate_notification' and not (result ->> 'stored')::boolean;
+    assert (select to_jsonb(s) = before_row from public.subscriptions s where owner_id = owner1);
+    passed := passed + 1;
+    result := public.apply_storekit_subscription_authority(patch || '{"app_store_notification_uuid":"stale-date","app_store_signed_at":"2026-11-01T00:00:00Z"}');
+    assert result ->> 'mapping_status' = 'stale_notification';
+    assert exists(select 1 from public.app_store_notification_events where notification_uuid = 'stale-date');
+    assert (select to_jsonb(s) = before_row from public.subscriptions s where owner_id = owner1);
+    passed := passed + 1;
+    result := public.apply_storekit_subscription_authority(patch || '{"app_store_notification_uuid":"stale-null","app_store_signed_at":null}');
+    assert result ->> 'mapping_status' = 'stale_notification';
+    assert exists(select 1 from public.app_store_notification_events where notification_uuid = 'stale-null' and signed_at is null);
+    passed := passed + 1;
+    result := public.apply_storekit_subscription_authority(patch || '{"app_store_notification_uuid":"stale-number","app_store_last_transaction_id":"100000000000000000000000000002"}');
+    assert result ->> 'mapping_status' = 'stale_notification';
+    assert (select to_jsonb(s) = before_row from public.subscriptions s where owner_id = owner1);
+    passed := passed + 1;
+    result := public.apply_storekit_subscription_authority(patch || '{"app_store_notification_uuid":null,"app_store_last_transaction_id":"100000000000000000000000000002"}', owner1);
+    assert result ->> 'mapping_status' = 'stale_transaction_claim';
+    passed := passed + 1;
+
+    result := public.apply_storekit_subscription_authority(patch, owner2);
+    assert result ->> 'mapping_status' = 'original_transaction_owner_conflict';
+    assert not exists(select 1 from public.subscriptions where owner_id = owner2);
+    assert (select owner_id = owner1 from public.subscriptions where storekit_original_transaction_id = 'original-1');
+    passed := passed + 1;
+
+    result := public.apply_storekit_subscription_authority(patch || '{"app_store_notification_uuid":"clear-renewal","app_store_auto_renew_status":null}');
+    assert result #> '{subscription,app_store_auto_renew_status}' = 'null'::jsonb;
+    passed := passed + 1;
+    result := public.apply_storekit_subscription_authority('{"storekit_original_transaction_id":"null-clock","app_store_signed_at":null,"app_store_last_transaction_id":"900"}', owner3);
+    assert result ->> 'mapping_status' = 'claimed';
+    assert result #>> '{subscription,provider}' = 'none' and result #>> '{subscription,plan}' = 'free';
+    result := public.apply_storekit_subscription_authority('{"storekit_original_transaction_id":"null-clock","app_store_signed_at":null,"app_store_last_transaction_id":"1","app_store_notification_uuid":"both-null"}');
+    assert result ->> 'mapping_status' = 'updated', 'Two null signed clocks must not invent numeric ordering.';
+    result := public.apply_storekit_subscription_authority('{"storekit_original_transaction_id":"null-clock","app_store_signed_at":"2026-11-02T00:00:00Z","app_store_last_transaction_id":"1","app_store_notification_uuid":"dated-first"}');
+    result := public.apply_storekit_subscription_authority('{"storekit_original_transaction_id":"null-clock","app_store_signed_at":"2026-11-02T00:00:00Z","app_store_last_transaction_id":"not-numeric","app_store_notification_uuid":"non-numeric"}');
+    assert result ->> 'mapping_status' = 'updated';
+    passed := passed + 1;
+
+    -- Legacy REST ordering compared JavaScript Date milliseconds, even when
+    -- PostgreSQL retained a more precise signed timestamp. Equal milliseconds
+    -- continue to use the exact numeric transaction-order tie breaker.
+    result := public.apply_storekit_subscription_authority('{"storekit_original_transaction_id":"millisecond-clock","app_store_signed_at":"2026-11-02T00:00:00.123999Z","app_store_last_transaction_id":"100"}', '00000000-0000-4000-8000-000000000006');
+    result := public.apply_storekit_subscription_authority('{"storekit_original_transaction_id":"millisecond-clock","app_store_signed_at":"2026-11-02T00:00:00.123001Z","app_store_last_transaction_id":"101","app_store_notification_uuid":"millisecond-newer-number"}');
+    assert result ->> 'mapping_status' = 'updated';
+    assert (select app_store_signed_at = '2026-11-02T00:00:00.123001Z'::timestamptz
+        from public.subscriptions where storekit_original_transaction_id = 'millisecond-clock');
+    result := public.apply_storekit_subscription_authority('{"storekit_original_transaction_id":"millisecond-clock","app_store_signed_at":"2026-11-02T00:00:00.123999Z","app_store_last_transaction_id":"100","app_store_notification_uuid":"millisecond-older-number"}');
+    assert result ->> 'mapping_status' = 'stale_notification';
+    passed := passed + 1;
+
+    -- A new original is not compared against the unrelated old original's
+    -- clock and must clear the prior original's auto-renew status.
+    result := public.apply_storekit_subscription_authority('{"storekit_original_transaction_id":"replacement","provider":"storekit","plan":"studioSubscription","status":"active","app_store_signed_at":"2026-10-01T00:00:00Z","app_store_auto_renew_status":true}', owner1);
+    assert result ->> 'mapping_status' = 'claimed';
+    assert result #> '{subscription,app_store_auto_renew_status}' = 'null'::jsonb;
+    result := public.apply_storekit_subscription_authority(patch || '{"app_store_notification_uuid":"old-original-unmapped"}');
+    assert result ->> 'mapping_status' = 'unmapped_original_transaction';
+    assert not exists(select 1 from public.app_store_notification_events where notification_uuid = 'old-original-unmapped');
+    passed := passed + 1;
+
+    patch := '{"storekit_original_transaction_id":"replacement","provider":"storekit","plan":"free","status":"inactive","app_store_signed_at":"2026-11-04T00:00:00Z","app_store_notification_uuid":"retry-after-failure"}';
+    select to_jsonb(s) into before_row from public.subscriptions s where owner_id = owner1;
+    perform set_config('ichart.audit.fail_authority', 'on', true);
+    begin
+        perform public.apply_storekit_subscription_authority(patch);
+        raise exception 'Controlled update failure did not run.';
+    exception when check_violation then null;
+    end;
+    assert not exists(select 1 from public.app_store_notification_events where notification_uuid = 'retry-after-failure');
+    assert (select to_jsonb(s) = before_row from public.subscriptions s where owner_id = owner1);
+    perform set_config('ichart.audit.fail_authority', 'off', true);
+    result := public.apply_storekit_subscription_authority(patch);
+    assert result ->> 'mapping_status' = 'updated';
+    assert (select count(*) = 1 from public.app_store_notification_events where notification_uuid = 'retry-after-failure');
+    passed := passed + 1;
+
+    select to_jsonb(s) into before_row from public.subscriptions s where owner_id = owner1;
+    begin
+        perform public.apply_storekit_subscription_authority(patch || '{"app_store_notification_uuid":"constraint-failure","provider":"invalid"}');
+        raise exception 'Invalid provider bypassed the table constraint.';
+    exception when check_violation then null;
+    end;
+    assert not exists(select 1 from public.app_store_notification_events where notification_uuid = 'constraint-failure');
+    assert (select to_jsonb(s) = before_row from public.subscriptions s where owner_id = owner1);
+    passed := passed + 1;
+    begin
+        perform public.apply_storekit_subscription_authority(patch || '{"app_store_notification_uuid":"null-failure","provider":null}');
+        raise exception 'Explicit null provider bypassed NOT NULL.';
+    exception when not_null_violation then null;
+    end;
+    assert not exists(select 1 from public.app_store_notification_events where notification_uuid = 'null-failure');
+    assert (select to_jsonb(s) = before_row from public.subscriptions s where owner_id = owner1);
+    passed := passed + 1;
+    begin
+        perform public.apply_storekit_subscription_authority(patch || jsonb_build_object('owner_id', owner2));
+        raise exception 'An unlisted owner override was accepted.';
+    exception when invalid_parameter_value then null;
+    end;
+    assert (select to_jsonb(s) = before_row from public.subscriptions s where owner_id = owner1);
+    passed := passed + 1;
+    raise notice 'Atomic StoreKit SQL control groups passed: %', passed;
+end;
+$$;
+rollback;

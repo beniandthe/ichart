@@ -1,0 +1,8 @@
+{
+  "engine": "PostgreSQL17.6",
+  "assertions": 35,
+  "passed": 35,
+  "failed": 0,
+  "testSourceSHA256": "a9ac1354f37e844efb1506f3d43ac9e8d49589f6ad5285e2124a0ef9872db751",
+  "limits": "source SQL/RLS with explicit Auth/Storage/Cron adapters; no HTTP/production latency claim"
+}

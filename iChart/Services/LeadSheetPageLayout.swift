@@ -514,6 +514,36 @@ struct LeadSheetSelectableNote: Identifiable, Hashable {
 }
 
 enum LeadSheetPageLayoutEngine {
+    /// Predecessors are defined by the saved chart's flattened measure order,
+    /// not by the rows or pages that engraving later packs them into.
+    struct MeterChangeContext {
+        private let defaultMeter: Meter
+        private var previousMetersByID: [UUID: Meter] = [:]
+
+        init<Measures: Sequence>(measures: Measures, defaultMeter: Meter) where Measures.Element == Measure {
+            self.defaultMeter = defaultMeter
+            var seenIDs = Set<UUID>()
+            var previousMeter: Meter?
+            for measure in measures {
+                // Legacy lookup used firstIndex, including when duplicate IDs
+                // appear in an imported chart. Do not replace its predecessor
+                // with a later duplicate or give the first measure one.
+                if seenIDs.insert(measure.id).inserted, let previousMeter {
+                    previousMetersByID[measure.id] = previousMeter
+                }
+                previousMeter = measure.meterOverride ?? defaultMeter
+            }
+        }
+
+        func change(for measure: Measure?) -> Meter? {
+            guard let measure, let previousMeter = previousMetersByID[measure.id] else {
+                return nil
+            }
+            let currentMeter = measure.meterOverride ?? defaultMeter
+            return previousMeter == currentMeter ? nil : currentMeter
+        }
+    }
+
     private static let minimumResponsivePageWidth: CGFloat = 720
     private static let minimumResponsivePageHeight: CGFloat = 1_100
     private static let paperTopMargin: CGFloat = 30
@@ -769,6 +799,10 @@ enum LeadSheetPageLayoutEngine {
         pageSize: CGSize,
         includesChordInkContinuationLanes: Bool = false
     ) -> LeadSheetPageLayout {
+        let meterContext = MeterChangeContext(
+            measures: chart.systems.lazy.flatMap(\.measures),
+            defaultMeter: chart.defaultMeter
+        )
         let visualPolicy = VisualPolicy(chart: chart)
         let resolvedPageSize = CGSize(
             width: max(pageSize.width, minimumResponsivePageWidth),
@@ -795,7 +829,8 @@ enum LeadSheetPageLayoutEngine {
             paperFrame: prototypePaperFrame,
             firstSystemTop: prototypeHeaderFrame.maxY + 24,
             includesChordInkContinuationLanes: includesChordInkContinuationLanes,
-            visualPolicy: visualPolicy
+            visualPolicy: visualPolicy,
+            meterContext: meterContext
         )
         let metrics = visualPolicy.metrics
         var planPages = pagedSystemPlans(
@@ -838,7 +873,8 @@ enum LeadSheetPageLayoutEngine {
                 paperFrame: paperFrame,
                 firstSystemTop: firstSystemTop,
                 startingSystemIndex: systemFrames.count,
-                visualPolicy: visualPolicy
+                visualPolicy: visualPolicy,
+                meterContext: meterContext
             )
             systemFrames.append(contentsOf: pageSystems)
             paperPages.append(
@@ -879,6 +915,10 @@ enum LeadSheetPageLayoutEngine {
     }
 
     static func estimatedCanvasHeight(for chart: Chart, pageSize: CGSize) -> CGFloat {
+        let meterContext = MeterChangeContext(
+            measures: chart.systems.lazy.flatMap(\.measures),
+            defaultMeter: chart.defaultMeter
+        )
         let visualPolicy = VisualPolicy(chart: chart)
         let resolvedPageSize = CGSize(
             width: max(pageSize.width, minimumResponsivePageWidth),
@@ -898,7 +938,8 @@ enum LeadSheetPageLayoutEngine {
             paperFrame: paperFrame,
             firstSystemTop: resolvedHeaderFrame.maxY + 24,
             includesChordInkContinuationLanes: false,
-            visualPolicy: visualPolicy
+            visualPolicy: visualPolicy,
+            meterContext: meterContext
         )
         let metrics = visualPolicy.metrics
         let minimumPaperHeight = max(1, logicalPageHeight - paperTopMargin - paperBottomMargin)
@@ -1118,7 +1159,8 @@ enum LeadSheetPageLayoutEngine {
         paperFrame: CGRect,
         firstSystemTop: CGFloat,
         includesChordInkContinuationLanes: Bool,
-        visualPolicy: VisualPolicy
+        visualPolicy: VisualPolicy,
+        meterContext: MeterChangeContext
     ) -> [PackedLeadSheetSystemPlan] {
         let metrics = visualPolicy.metrics
         let plans = includesChordInkContinuationLanes
@@ -1152,7 +1194,8 @@ enum LeadSheetPageLayoutEngine {
                 chart: chart,
                 index: index,
                 frame: measuringFrame,
-                visualPolicy: visualPolicy
+                visualPolicy: visualPolicy,
+                meterContext: meterContext
             )
             let contentBounds: CGRect
             if chart.staffSystemDensity == .standard && !readabilityActive && !flexibleEndings {
@@ -1234,7 +1277,8 @@ enum LeadSheetPageLayoutEngine {
         paperFrame: CGRect,
         firstSystemTop: CGFloat,
         startingSystemIndex: Int,
-        visualPolicy: VisualPolicy
+        visualPolicy: VisualPolicy,
+        meterContext: MeterChangeContext
     ) -> [LeadSheetSystemLayout] {
         let metrics = visualPolicy.metrics
         var nextSystemTop = firstSystemTop
@@ -1253,7 +1297,8 @@ enum LeadSheetPageLayoutEngine {
                 chart: chart,
                 index: resolvedSystemIndex,
                 frame: systemFrame,
-                visualPolicy: visualPolicy
+                visualPolicy: visualPolicy,
+                meterContext: meterContext
             )
         }
     }
@@ -1314,6 +1359,7 @@ enum LeadSheetPageLayoutEngine {
         index: Int,
         frame: CGRect,
         visualPolicy: VisualPolicy,
+        meterContext: MeterChangeContext,
         endingReserveOverride: CGFloat? = nil
     ) -> LeadSheetSystemLayout {
         let metrics = visualPolicy.metrics
@@ -1462,7 +1508,7 @@ enum LeadSheetPageLayoutEngine {
                 staffLineYPositions: staffLineYPositions,
                 layoutStyle: chart.layoutStyle,
                 visualPolicy: visualPolicy,
-                meterChange: meterChange(for: measurePlan.measure, in: chart)
+                meterChange: meterContext.change(for: measurePlan.measure)
             )
         }
         let roadmapMarkerLayouts = roadmapMarkerLayouts(
@@ -1500,6 +1546,7 @@ enum LeadSheetPageLayoutEngine {
                 index: index,
                 frame: frame,
                 visualPolicy: visualPolicy,
+                meterContext: meterContext,
                 endingReserveOverride: endingBottom - frame.minY + 6
             )
         }
@@ -2247,27 +2294,6 @@ enum LeadSheetPageLayoutEngine {
             ? mediumOpenMeasureWidth * metrics.measureWidthScale
             : preferredCommittedMeasureWidth * metrics.measureWidthScale
         return measure.resolvedLayoutWidth(defaultWidth: defaultWidth)
-    }
-
-    private static func effectiveMeter(for measure: Measure?, defaultMeter: Meter) -> Meter? {
-        guard let measure else {
-            return nil
-        }
-
-        return measure.meterOverride ?? defaultMeter
-    }
-
-    private static func meterChange(for measure: Measure?, in chart: Chart) -> Meter? {
-        guard let measure,
-              let currentMeasureIndex = chart.measures.firstIndex(where: { $0.id == measure.id }),
-              currentMeasureIndex > 0 else {
-            return nil
-        }
-
-        let previousMeasure = chart.measures[currentMeasureIndex - 1]
-        let previousMeter = effectiveMeter(for: previousMeasure, defaultMeter: chart.defaultMeter)
-        let currentMeter = effectiveMeter(for: measure, defaultMeter: chart.defaultMeter)
-        return previousMeter == currentMeter ? nil : currentMeter
     }
 
     private static func measureLayout(

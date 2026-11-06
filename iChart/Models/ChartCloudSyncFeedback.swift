@@ -59,8 +59,30 @@ struct ChartCloudSyncOperationResult: Equatable, Sendable {
     let libraryChartCount: Int
     /// Nil for backup. False means local edits prevented applying the download.
     let didApplySnapshot: Bool?
+    let didPerformRemoteWrites: Bool
+
+    init(
+        operation: ChartCloudSyncOperation,
+        completedAt: Date,
+        remoteChartCount: Int?,
+        backedUpChartCount: Int,
+        tombstonedChartCount: Int,
+        libraryChartCount: Int,
+        didApplySnapshot: Bool?,
+        didPerformRemoteWrites: Bool = true
+    ) {
+        self.operation = operation
+        self.completedAt = completedAt
+        self.remoteChartCount = remoteChartCount
+        self.backedUpChartCount = backedUpChartCount
+        self.tombstonedChartCount = tombstonedChartCount
+        self.libraryChartCount = libraryChartCount
+        self.didApplySnapshot = didApplySnapshot
+        self.didPerformRemoteWrites = didPerformRemoteWrites
+    }
 
     var displayTitle: String {
+        if operation == .backup, !didPerformRemoteWrites { return "No chart changes" }
         if operation == .backup { return "Backup complete" }
         if didApplySnapshot == false { return "Restore not applied" }
         return remoteChartCount == 0 ? "Restore complete — no cloud charts" : "Restore complete"
@@ -68,6 +90,7 @@ struct ChartCloudSyncOperationResult: Equatable, Sendable {
 
     var detailText: String {
         if operation == .backup {
+            if !didPerformRemoteWrites { return "No chart changes to back up." }
             if backedUpChartCount == 0 && tombstonedChartCount == 0 {
                 return "No eligible charts or cloud deletions were included in this backup."
             }

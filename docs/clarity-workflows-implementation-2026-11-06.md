@@ -1,8 +1,9 @@
 # Clarity and workflow implementation
 
-Date: November 6, 2026  
-Base: GitHub main `00f7901538074670251cd6626c1efa88a3bd1aec`  
-Branch: `codex/clarity-workflows-20261106`  
+Date: November 6, 2026
+Initial base: GitHub main `00f7901538074670251cd6626c1efa88a3bd1aec`
+Integrated main: `fd7e4bbb3f898dbf806d85afaee43ea8c7ef58c3` (#103)
+Branch: `codex/clarity-workflows-20261106`
 Status: implementation under verification
 
 ## Result
@@ -76,12 +77,13 @@ Chart Key also transposes chart chords and key changes. Instrument changes the d
 - Ordinary barlines and ending brackets remain supported with their current layout-specific constraints.
 - Dedicated rhythm recognition and personalization/ML work remain gated/parked.
 - Existing chart, import manifest and setlist formats remain unchanged. PDF replacement changes a reference, not the underlying file.
-- This work is based on current main and does not incorporate unrelated unmerged Build 144 work.
+- Main advanced during implementation. The branch incorporates merged #103 hardening, including unread-library quarantine, paginated Forum search, saved-ink indexing and PDF manifest/export consistency. Backend changes are inherited from main; no deployment was performed here.
 - No physical-device install, production-service change, publishing or release is part of this implementation.
 
 ## Verification
 
 The app and test target compile with the generated Xcode project. A test-only accessibility identifier cast was corrected after the first test build.
 
-The regression matrix and runtime observations will be recorded here after verification completes. Simulator/replayed/injected evidence will remain separate from physical Pencil acceptance, saved-state readback and production behavior.
+The regression matrix and runtime observations will be recorded here after verification completes. Simulator/replayed/injected evidence remains separate from physical Pencil acceptance, saved-state readback and production behavior.
 
+Frozen-result UI fixtures now disable their reader once through an internal dependency that defaults to enabled in the app. Repeated layout-time toggles had cancelled fixture serialization work. Manual fixture readiness is bound to actual visible source and represented claims; the production source-consumption checks remain in use. Delayed-review coverage returns to writing before adding source ink and distinguishes injected callbacks from physical Pencil input.

@@ -10,6 +10,7 @@ final class ChartPersistenceContractDiagnosticsTests: XCTestCase {
         var loadError: Error?
         var saveError: Error?
         var loadCount = 0
+        var saveAttemptCount = 0
 
         func loadSnapshot() throws -> ChartLibrarySnapshot? {
             loadCount += 1
@@ -18,6 +19,7 @@ final class ChartPersistenceContractDiagnosticsTests: XCTestCase {
         }
 
         func saveSnapshot(_ snapshot: ChartLibrarySnapshot) throws {
+            saveAttemptCount += 1
             if let saveError { throw saveError }
             loaded = snapshot
         }
@@ -492,21 +494,32 @@ final class ChartPersistenceContractDiagnosticsTests: XCTestCase {
 
     func testActualSynchronousSaveFailureRemainsVisibleWithoutLegacyDiagnostics() {
         let repository = Repository()
-        repository.saveError = Failure.save
         var events: [ChartPersistenceContractCheck] = []
         let diagnostics = ChartPersistenceContractDiagnostics(
             identity: "installation", isEnabled: { true }, record: { events.append($0) }
         )
         let value = snapshot()
-        let store = ChartLibraryStore(
-            charts: value.charts, repository: repository, persistenceDiagnostics: diagnostics
-        )
+        repository.loaded = value
+        let store = ChartLibraryStore.live(repository: repository, persistenceDiagnostics: diagnostics)
+        XCTAssertFalse(store.hasUnresolvedLoadFailure)
+        XCTAssertEqual(store.snapshot, value)
+        XCTAssertEqual(repository.loadCount, 1)
+        repository.saveError = Failure.save
+        var edited = value.charts
+        edited[0].title = "A real saved-chart edit"
 
-        store.selectedChartID = value.charts[0].id
+        store.charts = edited
 
         XCTAssertTrue(events.isEmpty, "The removed optional diagnostic callback must not run on the save path")
-        XCTAssertEqual(repository.loadCount, 0, "A failed save must not trigger a diagnostic persistence reread")
-        XCTAssertEqual(store.charts, value.charts)
-        guard case .failed = store.persistenceStatus else { return XCTFail("Save failure must remain visible") }
+        XCTAssertEqual(repository.loadCount, 1, "Only the successful startup read is allowed; no diagnostic persistence reread")
+        XCTAssertEqual(repository.saveAttemptCount, 1, "This must exercise the actual synchronous save failure")
+        XCTAssertEqual(repository.loaded, value, "A failed save cannot replace the previously loaded original")
+        XCTAssertEqual(store.charts, edited, "The in-memory edit and its original ink remain available for Retry Save")
+        XCTAssertEqual(store.charts[0].pageHandwrittenNotationData, value.charts[0].pageHandwrittenNotationData)
+        XCTAssertEqual(store.retryableSaveFailureMessage, Failure.save.localizedDescription)
+        guard case .failed(let message) = store.persistenceStatus else {
+            return XCTFail("Save failure must remain visible")
+        }
+        XCTAssertEqual(message, store.retryableSaveFailureMessage)
     }
 }

@@ -1,6 +1,76 @@
 import CoreGraphics
 import Foundation
 
+/// Raw handwriting diagnostics are a deliberate local engineering capture,
+/// separate from the application's optional content-free telemetry.
+enum ChordDraftPreviewDiagnosticCapturePolicy {
+    static let environmentKey = "ICHART_CHORD_DRAFT_DIAGNOSTICS"
+    static let launchArgument = "-iChartChordDraftDiagnostics"
+
+    static func isEnabled(
+        isDebugBuild: Bool,
+        environment: [String: String],
+        arguments: [String]
+    ) -> Bool {
+        isDebugBuild && (environment[environmentKey] == "1" || arguments.contains(launchArgument))
+    }
+
+    static var isEnabledForCurrentProcess: Bool {
+        #if DEBUG
+        isEnabled(
+            isDebugBuild: true,
+            environment: ProcessInfo.processInfo.environment,
+            arguments: ProcessInfo.processInfo.arguments
+        )
+        #else
+        false
+        #endif
+    }
+}
+
+/// Admission never waits for diagnostic storage, and queued captures cannot
+/// retain an unbounded number of drawing/result snapshots if that storage stalls.
+final class ChordDraftPreviewDiagnosticWorkQueue: @unchecked Sendable {
+    static let maximumPendingOperationCount = 8
+
+    private let isEnabled: Bool
+    private let queue: DispatchQueue
+    private let maximumPendingCount: Int
+    private let admissionLock = NSLock()
+    private var pendingCount = 0
+
+    init(
+        isEnabled: Bool,
+        queue: DispatchQueue,
+        maximumPendingCount: Int = ChordDraftPreviewDiagnosticWorkQueue.maximumPendingOperationCount
+    ) {
+        self.isEnabled = isEnabled
+        self.queue = queue
+        self.maximumPendingCount = max(1, min(maximumPendingCount, Self.maximumPendingOperationCount))
+    }
+
+    @discardableResult
+    func enqueue(_ operation: @escaping () -> Void) -> Bool {
+        guard isEnabled, admissionLock.try() else { return false }
+        guard pendingCount < maximumPendingCount else {
+            admissionLock.unlock()
+            return false
+        }
+        pendingCount += 1
+        admissionLock.unlock()
+
+        queue.async {
+            defer {
+                self.admissionLock.lock()
+                self.pendingCount -= 1
+                self.admissionLock.unlock()
+            }
+            operation()
+        }
+        return true
+    }
+}
+
 struct ChordDraftPreviewDeviceDiagnosticBounds: Codable, Equatable {
     var minX: Double
     var minY: Double
@@ -210,10 +280,36 @@ struct ChordDraftPreviewDeviceDiagnosticRecorder {
     }
 
     func append(_ event: ChordDraftPreviewDeviceDiagnosticEvent) throws {
+        try appendEncodedLine(Self.encoder.encode(event) + Data([0x0A]))
+    }
+
+    /// Live opt-in capture stops at a fixed budget without deleting previous
+    /// evidence. Explicit append/load/reset APIs remain available for recovery.
+    @discardableResult
+    func appendIfWithinSizeLimit(
+        _ event: ChordDraftPreviewDeviceDiagnosticEvent,
+        maximumBytes: Int = Self.defaultMaximumRetainedBytes
+    ) throws -> Bool {
+        let limit = max(0, min(maximumBytes, Self.defaultMaximumRetainedBytes))
+        guard limit > 0 else { return false }
+        let currentBytes: UInt64
+        if fileManager.fileExists(atPath: url.path(percentEncoded: false)) {
+            let attributes = try fileManager.attributesOfItem(atPath: url.path(percentEncoded: false))
+            currentBytes = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
+        } else {
+            currentBytes = 0
+        }
+        guard currentBytes < UInt64(limit) else { return false }
+        let line = try Self.encoder.encode(event) + Data([0x0A])
+        guard line.count <= limit - Int(currentBytes) else { return false }
+        try appendEncodedLine(line)
+        return true
+    }
+
+    private func appendEncodedLine(_ data: Data) throws {
         let directory = url.deletingLastPathComponent()
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
 
-        let data = try Self.encoder.encode(event) + Data([0x0A])
         if fileManager.fileExists(atPath: url.path(percentEncoded: false)) {
             let handle = try FileHandle(forWritingTo: url)
             defer { try? handle.close() }
@@ -306,16 +402,8 @@ private extension ChordDraftPreviewDeviceDiagnosticRecorder {
 enum ChordDraftPreviewDeviceDiagnostics {
     static func beginSession() {
         #if DEBUG
-        let event = ChordDraftPreviewDeviceDiagnosticEvent(stage: "reset")
-        writeQueue.async {
-            do {
-                let recorder = ChordDraftPreviewDeviceDiagnosticRecorder.live()
-                _ = try recorder.resetIfLargerThan()
-                try recorder.append(event)
-                print(compactSummary(for: event))
-            } catch {
-                print("iChart chord draft preview diagnostic error: \(error)")
-            }
+        enqueue {
+            ChordDraftPreviewDeviceDiagnosticEvent(stage: "reset")
         }
         #endif
     }
@@ -480,19 +568,13 @@ enum ChordDraftPreviewDeviceDiagnostics {
 
 private extension ChordDraftPreviewDeviceDiagnostics {
     #if DEBUG
-    static let writeQueue = DispatchQueue(
-        label: "com.ichart.chord-draft-preview-diagnostics",
-        qos: .utility
+    static let captureWork = ChordDraftPreviewDiagnosticWorkQueue(
+        isEnabled: ChordDraftPreviewDiagnosticCapturePolicy.isEnabledForCurrentProcess,
+        queue: DispatchQueue(label: "com.ichart.chord-draft-preview-diagnostics", qos: .utility)
     )
 
-    static func append(_ event: ChordDraftPreviewDeviceDiagnosticEvent) {
-        writeQueue.async {
-            write(event)
-        }
-    }
-
     static func enqueue(_ makeEvent: @escaping () -> ChordDraftPreviewDeviceDiagnosticEvent) {
-        writeQueue.async {
+        captureWork.enqueue {
             write(makeEvent())
         }
     }
@@ -500,7 +582,7 @@ private extension ChordDraftPreviewDeviceDiagnostics {
     static func write(_ event: ChordDraftPreviewDeviceDiagnosticEvent) {
         let startedAt = ProcessInfo.processInfo.systemUptime
         do {
-            try ChordDraftPreviewDeviceDiagnosticRecorder.live().append(event)
+            guard try ChordDraftPreviewDeviceDiagnosticRecorder.live().appendIfWithinSizeLimit(event) else { return }
             print(compactSummary(for: event))
         } catch {
             print("iChart chord draft preview diagnostic error: \(error)")

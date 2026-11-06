@@ -829,9 +829,10 @@ final class ChordInkDraftRenderCoordinator {
         let context = ChordInkDraftVisibleStrokePolicy.structuralVisibleDrawingContext(
             from: drawing, chordFrame: sourceFrame, pageLayout: layout)
         let strokes = PencilKitInkAdapter.inkStrokes(from: context.drawing)
-        let barlines = ChordDraftEndingRecognizer.recognizeBarlinesExcludingEndings(
+        let structures = ChordDraftEndingRecognizer.recognizeStructure(
             strokes: strokes, chordFrame: sourceFrame, pageLayout: layout)
-        let endings = ChordDraftEndingRecognizer.recognize(strokes: strokes, chordFrame: sourceFrame, pageLayout: layout)
+        let barlines = structures.barlines
+        let endings = structures.endings
         let detectedBarlines = context.remappedBarlineRecognition(
             context.barlineRecognitionWithUnambiguousSourceStrokes(barlines)).barlines
         let detectedEndings = context.remappedEndingRecognition(

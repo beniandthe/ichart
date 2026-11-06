@@ -1,0 +1,1190 @@
+{
+  "schema_version": 1,
+  "source": "GitHub REST global security advisories API",
+  "endpoint": "https://api.github.com/advisories",
+  "api_version": "2022-11-28",
+  "documentation": "https://docs.github.com/en/rest/security-advisories/global-advisories#list-global-security-advisories",
+  "started_at_utc": "2026-11-06T05:19:29.178862+00:00",
+  "finished_at_utc": "2026-11-06T05:19:33.274000+00:00",
+  "method": "Exact ecosystem=npm, affects=package@version, type=reviewed; page size 100; increment page until fewer than 100 records. Response projection excludes descriptions. Concurrency 5.",
+  "function_locks": [
+    {
+      "path": "supabase/functions/storekit-complimentary-offers/deno.lock",
+      "sha256": "6737c95b408a55cb33313f3267bfdf7e58ee1ba0c859a51fbdb3134ec3389d92",
+      "format_version": "5",
+      "resolved_npm_entries": 48
+    },
+    {
+      "path": "supabase/functions/storekit-subscription-claims/deno.lock",
+      "sha256": "6737c95b408a55cb33313f3267bfdf7e58ee1ba0c859a51fbdb3134ec3389d92",
+      "format_version": "5",
+      "resolved_npm_entries": 48
+    },
+    {
+      "path": "supabase/functions/app-store-server-notifications/deno.lock",
+      "sha256": "6737c95b408a55cb33313f3267bfdf7e58ee1ba0c859a51fbdb3134ec3389d92",
+      "format_version": "5",
+      "resolved_npm_entries": 48
+    }
+  ],
+  "all_function_npm_graphs_identical": true,
+  "coverage": {
+    "unique_resolved_npm_entries": 48,
+    "complete_queries": 48,
+    "failed_queries": 0,
+    "api_requests": 48,
+    "type_declaration_entries": 6,
+    "runtime_candidate_entries": 42,
+    "active_affected_package_advisory_pairs": 0,
+    "active_unique_advisories": 0,
+    "withdrawn_package_advisory_pairs": 0
+  },
+  "limitations": [
+    "Current reviewed GitHub advisory metadata only, not an exhaustive security guarantee.",
+    "Resolved npm lock entries include declaration-only and potentially unused/tree-shaken modules; runtime-candidate does not prove deployed or executed code.",
+    "Does not audit package contents, unreviewed advisories, undisclosed vulnerabilities, deployed bundle provenance, native Swift dependencies, or backend authorization.",
+    "An end-of-support package can have zero reviewed affected records; jsrsasign support status remains a separate lifecycle issue."
+  ],
+  "results": [
+    {
+      "lock_entry": "@apple/app-store-server-library@3.1.0",
+      "name": "@apple/app-store-server-library",
+      "version": "3.1.0",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "@apple/app-store-server-library@3.1.0",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "@types/jsonwebtoken@9.0.10",
+      "name": "@types/jsonwebtoken",
+      "version": "9.0.10",
+      "classification": "type-declarations",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "@types/jsonwebtoken@9.0.10",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "@types/jsrsasign@10.5.15",
+      "name": "@types/jsrsasign",
+      "version": "10.5.15",
+      "classification": "type-declarations",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "@types/jsrsasign@10.5.15",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "@types/ms@2.1.0",
+      "name": "@types/ms",
+      "version": "2.1.0",
+      "classification": "type-declarations",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "@types/ms@2.1.0",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "@types/node-fetch@2.6.13",
+      "name": "@types/node-fetch",
+      "version": "2.6.13",
+      "classification": "type-declarations",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "@types/node-fetch@2.6.13",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "@types/node@25.9.9",
+      "name": "@types/node",
+      "version": "25.9.9",
+      "classification": "type-declarations",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "@types/node@25.9.9",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "asynckit@0.4.0",
+      "name": "asynckit",
+      "version": "0.4.0",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "asynckit@0.4.0",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "base64url@3.0.1",
+      "name": "base64url",
+      "version": "3.0.1",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "base64url@3.0.1",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "buffer-equal-constant-time@1.0.1",
+      "name": "buffer-equal-constant-time",
+      "version": "1.0.1",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "buffer-equal-constant-time@1.0.1",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "call-bind-apply-helpers@1.0.2",
+      "name": "call-bind-apply-helpers",
+      "version": "1.0.2",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "call-bind-apply-helpers@1.0.2",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "combined-stream@1.0.8",
+      "name": "combined-stream",
+      "version": "1.0.8",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "combined-stream@1.0.8",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "delayed-stream@1.0.0",
+      "name": "delayed-stream",
+      "version": "1.0.0",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "delayed-stream@1.0.0",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "dunder-proto@1.0.1",
+      "name": "dunder-proto",
+      "version": "1.0.1",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "dunder-proto@1.0.1",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "ecdsa-sig-formatter@1.0.11",
+      "name": "ecdsa-sig-formatter",
+      "version": "1.0.11",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "ecdsa-sig-formatter@1.0.11",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "es-define-property@1.0.1",
+      "name": "es-define-property",
+      "version": "1.0.1",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "es-define-property@1.0.1",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "es-errors@1.3.0",
+      "name": "es-errors",
+      "version": "1.3.0",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "es-errors@1.3.0",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "es-object-atoms@1.1.2",
+      "name": "es-object-atoms",
+      "version": "1.1.2",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "es-object-atoms@1.1.2",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "es-set-tostringtag@2.1.0",
+      "name": "es-set-tostringtag",
+      "version": "2.1.0",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "es-set-tostringtag@2.1.0",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "form-data@4.0.6",
+      "name": "form-data",
+      "version": "4.0.6",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "form-data@4.0.6",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "function-bind@1.1.2",
+      "name": "function-bind",
+      "version": "1.1.2",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "function-bind@1.1.2",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "get-intrinsic@1.3.0",
+      "name": "get-intrinsic",
+      "version": "1.3.0",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "get-intrinsic@1.3.0",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "get-proto@1.0.1",
+      "name": "get-proto",
+      "version": "1.0.1",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "get-proto@1.0.1",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "gopd@1.2.0",
+      "name": "gopd",
+      "version": "1.2.0",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "gopd@1.2.0",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "has-symbols@1.1.0",
+      "name": "has-symbols",
+      "version": "1.1.0",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "has-symbols@1.1.0",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "has-tostringtag@1.0.2",
+      "name": "has-tostringtag",
+      "version": "1.0.2",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "has-tostringtag@1.0.2",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "hasown@2.0.4",
+      "name": "hasown",
+      "version": "2.0.4",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "hasown@2.0.4",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "jsonwebtoken@9.0.3",
+      "name": "jsonwebtoken",
+      "version": "9.0.3",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "jsonwebtoken@9.0.3",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "jsrsasign@11.1.5",
+      "name": "jsrsasign",
+      "version": "11.1.5",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "jsrsasign@11.1.5",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "jwa@2.0.1",
+      "name": "jwa",
+      "version": "2.0.1",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "jwa@2.0.1",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "jws@4.0.1",
+      "name": "jws",
+      "version": "4.0.1",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "jws@4.0.1",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "lodash.includes@4.3.0",
+      "name": "lodash.includes",
+      "version": "4.3.0",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "lodash.includes@4.3.0",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "lodash.isboolean@3.0.3",
+      "name": "lodash.isboolean",
+      "version": "3.0.3",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "lodash.isboolean@3.0.3",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "lodash.isinteger@4.0.4",
+      "name": "lodash.isinteger",
+      "version": "4.0.4",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "lodash.isinteger@4.0.4",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "lodash.isnumber@3.0.3",
+      "name": "lodash.isnumber",
+      "version": "3.0.3",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "lodash.isnumber@3.0.3",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "lodash.isplainobject@4.0.6",
+      "name": "lodash.isplainobject",
+      "version": "4.0.6",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "lodash.isplainobject@4.0.6",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "lodash.isstring@4.0.1",
+      "name": "lodash.isstring",
+      "version": "4.0.1",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "lodash.isstring@4.0.1",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "lodash.once@4.1.1",
+      "name": "lodash.once",
+      "version": "4.1.1",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "lodash.once@4.1.1",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "math-intrinsics@1.1.0",
+      "name": "math-intrinsics",
+      "version": "1.1.0",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "math-intrinsics@1.1.0",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "mime-db@1.52.0",
+      "name": "mime-db",
+      "version": "1.52.0",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "mime-db@1.52.0",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "mime-types@2.1.35",
+      "name": "mime-types",
+      "version": "2.1.35",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "mime-types@2.1.35",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "ms@2.1.3",
+      "name": "ms",
+      "version": "2.1.3",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "ms@2.1.3",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "node-fetch@2.7.0",
+      "name": "node-fetch",
+      "version": "2.7.0",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "node-fetch@2.7.0",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "safe-buffer@5.2.1",
+      "name": "safe-buffer",
+      "version": "5.2.1",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "safe-buffer@5.2.1",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "semver@7.8.6",
+      "name": "semver",
+      "version": "7.8.6",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "semver@7.8.6",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "tr46@0.0.3",
+      "name": "tr46",
+      "version": "0.0.3",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "tr46@0.0.3",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "undici-types@7.24.6",
+      "name": "undici-types",
+      "version": "7.24.6",
+      "classification": "type-declarations",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "undici-types@7.24.6",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "webidl-conversions@3.0.1",
+      "name": "webidl-conversions",
+      "version": "3.0.1",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "webidl-conversions@3.0.1",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    },
+    {
+      "lock_entry": "whatwg-url@5.0.0",
+      "name": "whatwg-url",
+      "version": "5.0.0",
+      "classification": "runtime-candidate",
+      "query": {
+        "ecosystem": "npm",
+        "affects": "whatwg-url@5.0.0",
+        "type": "reviewed",
+        "per_page": 100
+      },
+      "pages": [
+        {
+          "page": 1,
+          "returned_count": 0
+        }
+      ],
+      "advisories": [],
+      "status": "complete",
+      "active_reviewed_advisory_count": 0,
+      "withdrawn_advisory_count": 0
+    }
+  ],
+  "positive_query_control": {
+    "purpose": "Verify exact-version affects filter returns known affected metadata; control version is not locked or installed.",
+    "query": {
+      "ecosystem": "npm",
+      "affects": "form-data@4.0.0",
+      "type": "reviewed",
+      "per_page": 100,
+      "page": 1
+    },
+    "queried_at_utc": "2026-11-06T05:19:52.266764+00:00",
+    "result": {
+      "advisories": [
+        {
+          "cve_id": "CVE-2026-12143",
+          "ghsa_id": "GHSA-hmw2-7cc7-3qxx",
+          "html_url": "https://github.com/advisories/GHSA-hmw2-7cc7-3qxx",
+          "severity": "high",
+          "type": "reviewed",
+          "vulnerabilities": [
+            {
+              "first_patched_version": "2.5.6",
+              "package": {
+                "ecosystem": "npm",
+                "name": "form-data"
+              },
+              "vulnerable_version_range": "< 2.5.6"
+            },
+            {
+              "first_patched_version": "3.0.5",
+              "package": {
+                "ecosystem": "npm",
+                "name": "form-data"
+              },
+              "vulnerable_version_range": ">= 3.0.0, < 3.0.5"
+            },
+            {
+              "first_patched_version": "4.0.6",
+              "package": {
+                "ecosystem": "npm",
+                "name": "form-data"
+              },
+              "vulnerable_version_range": ">= 4.0.0, < 4.0.6"
+            }
+          ],
+          "withdrawn_at": null
+        },
+        {
+          "cve_id": "CVE-2025-7783",
+          "ghsa_id": "GHSA-fjxv-7rqg-78g4",
+          "html_url": "https://github.com/advisories/GHSA-fjxv-7rqg-78g4",
+          "severity": "critical",
+          "type": "reviewed",
+          "vulnerabilities": [
+            {
+              "first_patched_version": "2.5.4",
+              "package": {
+                "ecosystem": "npm",
+                "name": "form-data"
+              },
+              "vulnerable_version_range": "< 2.5.4"
+            },
+            {
+              "first_patched_version": "3.0.4",
+              "package": {
+                "ecosystem": "npm",
+                "name": "form-data"
+              },
+              "vulnerable_version_range": ">= 3.0.0, < 3.0.4"
+            },
+            {
+              "first_patched_version": "4.0.4",
+              "package": {
+                "ecosystem": "npm",
+                "name": "form-data"
+              },
+              "vulnerable_version_range": ">= 4.0.0, < 4.0.4"
+            }
+          ],
+          "withdrawn_at": null
+        }
+      ],
+      "count": 2
+    }
+  }
+}

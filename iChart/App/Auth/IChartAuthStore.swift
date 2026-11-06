@@ -163,6 +163,8 @@ final class IChartAuthStore: ObservableObject {
     private let service: IChartAccountServicing
     private let pendingVerificationEmailStorage: any AuthLocalStorage
     private var hasBootstrapped = false
+    private var operationGeneration: UInt64 = 0
+    private struct SupersededAuthOperation: Error {}
     private static let pendingVerificationEmailKey = "iChart.pending-verification-email.v1"
     private static let pendingAuthFlowKey = "iChart.pending-auth-flow.v1"
     private static let legacyPendingVerificationEmailKey = "iChartPendingVerificationEmail"
@@ -217,15 +219,17 @@ final class IChartAuthStore: ObservableObject {
     }
 
     private func restoreSession(successMessage: String?) async {
-        await run(successMessage) {
+        await run(successMessage) { operationID in
             var restoredState = try await service.restoreSession()
+            try requireCurrent(operationID)
             if case .signedOut = restoredState,
                let email = restorablePendingVerificationEmail() {
                 restoredState = .pendingEmailVerification(email: email)
             }
             do {
-                try await applyAuthState(restoredState)
+                try await applyAuthState(restoredState, operationID: operationID)
             } catch {
+                try requireCurrent(operationID)
                 // A recovered, verified session still owns its local library
                 // when the separate profile request cannot reach the network.
                 // Interactive sign-in and identity completion stay strict.
@@ -234,7 +238,7 @@ final class IChartAuthStore: ObservableObject {
                       IChartAuthConnectivity.isConnectivityError(error) else {
                     throw error
                 }
-                try await applyAuthState(.temporarilyOffline(session))
+                try await applyAuthState(.temporarilyOffline(session), operationID: operationID)
             }
         }
     }
@@ -246,7 +250,7 @@ final class IChartAuthStore: ObservableObject {
         lastName: String? = nil
     ) async {
         IChartTelemetry.record("auth.signup_started", properties: ["source": .string("account_gate")])
-        await run("Verification email sent. Open Mail and tap Verify iChart Account.") {
+        let completion = await run("Verification email sent. Open Mail and tap Verify iChart Account.") { operationID in
             let previousFlow = try? loadedPendingAuthFlow()
             let pendingFlow = try storePendingAuthFlow(kind: .signup, expectedEmail: email)
             let nextState: IChartAuthState
@@ -259,6 +263,7 @@ final class IChartAuthStore: ObservableObject {
                     redirectURL: IChartSupabaseClientFactory.authCallbackURL(flowNonce: pendingFlow.nonce)
                 )
             } catch {
+                try requireCurrent(operationID)
                 restorePendingAuthFlow(previousFlow)
                 if Self.isVerificationEmailRateLimitError(error) {
                     state = .pendingEmailVerification(email: sanitized(email) ?? email)
@@ -268,23 +273,26 @@ final class IChartAuthStore: ObservableObject {
                 }
                 throw error
             }
-            try await applyAuthState(nextState)
+            try await applyAuthState(nextState, operationID: operationID)
+            try requireCurrent(operationID)
             if case .pendingEmailVerification(let pendingEmail) = nextState {
                 try storePendingAuthFlow(pendingFlow.replacingExpectedEmail(pendingEmail))
             } else {
                 clearPendingAuthFlow()
             }
         }
+        guard isCurrent(completion) else { return }
         recordAuthOutcome(successEvent: "auth.signup_completed", failureEvent: "auth.signup_failed")
     }
 
     func signIn(email: String, password: String) async {
         IChartTelemetry.record("auth.signin_started", properties: ["source": .string("account_gate")])
-        await run("Signed in.") {
+        let completion = await run("Signed in.") { operationID in
             let nextState: IChartAuthState
             do {
                 nextState = try await service.signIn(email: email, password: password)
             } catch {
+                try requireCurrent(operationID)
                 if Self.isEmailNotConfirmedError(error) {
                     state = .pendingEmailVerification(email: sanitized(email) ?? email)
                     profile = nil
@@ -293,21 +301,24 @@ final class IChartAuthStore: ObservableObject {
                 }
                 throw error
             }
-            try await applyAuthState(nextState)
+            try await applyAuthState(nextState, operationID: operationID)
+            try requireCurrent(operationID)
             clearPendingAuthFlow()
         }
+        guard isCurrent(completion) else { return }
         recordAuthOutcome(successEvent: "auth.signin_completed", failureEvent: "auth.signin_failed")
     }
 
     func signOut() async {
-        await run("Signed out.") {
+        let completion = await run("Signed out.") { operationID in
             try await service.signOut()
+            try requireCurrent(operationID)
             state = service.isConfigured ? .signedOut : .unconfigured
             profile = nil
             clearPendingAuthFlow()
             rememberPendingVerificationEmailIfNeeded()
         }
-        if errorMessage == nil {
+        if isCurrent(completion), errorMessage == nil {
             IChartTelemetry.record(
                 "auth.signout_completed",
                 properties: ["auth_state": .string(state.telemetryValue)]
@@ -316,14 +327,15 @@ final class IChartAuthStore: ObservableObject {
     }
 
     func deleteAccount() async {
-        await run("Account deleted.") {
+        let completion = await run("Account deleted.") { operationID in
             try await service.deleteAccount()
+            try requireCurrent(operationID)
             state = service.isConfigured ? .signedOut : .unconfigured
             profile = nil
             clearPendingAuthFlow()
             rememberPendingVerificationEmailIfNeeded()
         }
-        if errorMessage == nil {
+        if isCurrent(completion), errorMessage == nil {
             IChartTelemetry.record(
                 "auth.account_deleted",
                 properties: ["auth_state": .string(state.telemetryValue)]
@@ -338,21 +350,25 @@ final class IChartAuthStore: ObservableObject {
 
         guard let firstName = sanitized(firstName),
               let lastName = sanitized(lastName) else {
+            invalidateCurrentOperation()
             errorMessage = IChartAuthError.missingAccountName.localizedDescription
             statusMessage = nil
             return
         }
 
-        await run("Account identity saved.") {
-            profile = try await service.completeProfileIdentity(
+        await run("Account identity saved.") { operationID in
+            let updatedProfile = try await service.completeProfileIdentity(
                 for: session.id,
                 firstName: firstName,
                 lastName: lastName
             )
+            try requireCurrent(operationID)
+            profile = updatedProfile
         }
     }
 
     func returnToSignIn() {
+        invalidateCurrentOperation()
         guard service.isConfigured else {
             state = .unconfigured
             return
@@ -377,7 +393,7 @@ final class IChartAuthStore: ObservableObject {
             properties: ["source": .string("pending_email_recovery")]
         )
         var didSend = false
-        await run("Verification email sent. Open Mail and tap Verify iChart Account.") {
+        let completion = await run("Verification email sent. Open Mail and tap Verify iChart Account.") { operationID in
             let previousFlow = try? loadedPendingAuthFlow()
             let pendingFlow = try storePendingAuthFlow(kind: .signup, expectedEmail: email)
             do {
@@ -385,8 +401,10 @@ final class IChartAuthStore: ObservableObject {
                     email: email,
                     redirectURL: IChartSupabaseClientFactory.authCallbackURL(flowNonce: pendingFlow.nonce)
                 )
+                try requireCurrent(operationID)
                 didSend = true
             } catch {
+                try requireCurrent(operationID)
                 restorePendingAuthFlow(previousFlow)
                 if Self.isVerificationEmailRateLimitError(error) {
                     throw IChartAuthError.verificationEmailRateLimited
@@ -395,6 +413,7 @@ final class IChartAuthStore: ObservableObject {
             }
         }
 
+        guard isCurrent(completion) else { return false }
         if errorMessage != nil {
             IChartTelemetry.record(
                 "auth.verification_email_failed",
@@ -409,7 +428,7 @@ final class IChartAuthStore: ObservableObject {
             "auth.password_reset_requested",
             properties: ["source": .string("account_gate")]
         )
-        await run("Password reset email sent.") {
+        let completion = await run("Password reset email sent.") { operationID in
             let pendingFlow = try storePendingAuthFlow(kind: .recovery, expectedEmail: email)
             do {
                 try await service.requestPasswordReset(
@@ -417,10 +436,12 @@ final class IChartAuthStore: ObservableObject {
                     redirectURL: IChartSupabaseClientFactory.authCallbackURL(flowNonce: pendingFlow.nonce)
                 )
             } catch {
+                try requireCurrent(operationID)
                 clearPendingAuthFlow()
                 throw error
             }
         }
+        guard isCurrent(completion) else { return }
         if errorMessage != nil {
             IChartTelemetry.record(
                 "auth.password_reset_failed",
@@ -438,19 +459,22 @@ final class IChartAuthStore: ObservableObject {
             ? "Verification complete."
             : "Account link verified."
 
-        await run(successMessage) {
+        let completion = await run(successMessage) { operationID in
             try validatePendingAuthFlow(for: url)
             let nextState = try await service.handleAuthCallback(url: url)
-            try await applyAuthState(nextState)
+            try await applyAuthState(nextState, operationID: operationID)
+            try requireCurrent(operationID)
             clearPendingAuthFlow()
         }
+        guard isCurrent(completion) else { return }
         recordAuthOutcome(successEvent: "auth.callback_completed", failureEvent: "auth.callback_failed")
     }
 
     func updatePassword(_ password: String) async {
-        await run("Password updated. You're signed in.") {
+        await run("Password updated. You're signed in.") { operationID in
             let nextState = try await service.updatePassword(password)
-            try await applyAuthState(nextState)
+            try await applyAuthState(nextState, operationID: operationID)
+            try requireCurrent(operationID)
             clearPendingAuthFlow()
         }
     }
@@ -460,13 +484,15 @@ final class IChartAuthStore: ObservableObject {
             return
         }
 
-        await run("Signed in.") {
-            try await applyAuthState(.signedIn(session))
+        await run("Signed in.") { operationID in
+            try await applyAuthState(.signedIn(session), operationID: operationID)
         }
     }
 
-    private func applyAuthState(_ nextState: IChartAuthState) async throws {
+    private func applyAuthState(_ nextState: IChartAuthState, operationID: UInt64) async throws {
+        try requireCurrent(operationID)
         let nextProfile = try await loadedProfile(for: nextState)
+        try requireCurrent(operationID)
         state = nextState
         profile = nextProfile
         rememberPendingVerificationEmailIfNeeded()
@@ -480,12 +506,30 @@ final class IChartAuthStore: ObservableObject {
         return try await service.loadProfile(for: session.id)
     }
 
-    private func run(_ successMessage: String?, operation: () async throws -> Void) async {
+    private func invalidateCurrentOperation() {
+        operationGeneration &+= 1
+        isWorking = false
+    }
+
+    private func isCurrent(_ operationID: UInt64?) -> Bool {
+        guard let operationID else { return false }
+        return operationID == operationGeneration
+    }
+
+    private func requireCurrent(_ operationID: UInt64) throws {
+        guard isCurrent(operationID) else { throw SupersededAuthOperation() }
+    }
+
+    @discardableResult
+    private func run(_ successMessage: String?, operation: (UInt64) async throws -> Void) async -> UInt64? {
+        operationGeneration &+= 1
+        let operationID = operationGeneration
         guard service.isConfigured else {
             state = .unconfigured
             statusMessage = nil
             errorMessage = nil
-            return
+            isWorking = false
+            return operationID
         }
 
         isWorking = true
@@ -493,7 +537,8 @@ final class IChartAuthStore: ObservableObject {
         statusMessage = nil
 
         do {
-            try await operation()
+            try await operation(operationID)
+            guard isCurrent(operationID) else { return nil }
             if case .temporarilyOffline = state {
                 statusMessage = "Account is offline. Local charts remain available."
             } else if case .passwordRecovery = state {
@@ -504,10 +549,12 @@ final class IChartAuthStore: ObservableObject {
                 statusMessage = nil
             }
         } catch {
+            guard isCurrent(operationID) else { return nil }
             errorMessage = error.localizedDescription
         }
 
         isWorking = false
+        return operationID
     }
 
     private func recordAuthOutcome(successEvent: String, failureEvent: String) {

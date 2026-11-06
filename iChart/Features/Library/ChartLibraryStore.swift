@@ -21,16 +21,16 @@ final class ChartLibraryStore: ObservableObject {
         didSet { persistIfNeeded() }
     }
     @Published var selectedChartID: Chart.ID? {
-        didSet { persistIfNeeded() }
+        didSet { if selectedChartID != oldValue { persistIfNeeded() } }
     }
     @Published var entitlements: AppEntitlements {
-        didSet { persistIfNeeded() }
+        didSet { if entitlements != oldValue { persistIfNeeded() } }
     }
     @Published var deletionTombstones: [ChartDeletionTombstone] {
         didSet { persistIfNeeded() }
     }
     @Published var cloudMetadata: ChartCloudMetadata {
-        didSet { persistIfNeeded() }
+        didSet { if cloudMetadata != oldValue { persistIfNeeded() } }
     }
     @Published var projects: [ChartProject] {
         didSet { persistIfNeeded() }
@@ -40,6 +40,9 @@ final class ChartLibraryStore: ObservableObject {
     // failed write from a failed startup load, even for a repeated error.
     private(set) var retryableSaveFailureMessage: String?
     private(set) var initialLoadOutcome: ChartLibraryLoadOutcome?
+    @Published private(set) var libraryLoadFailureMessage: String?
+
+    var hasUnresolvedLoadFailure: Bool { libraryLoadFailureMessage != nil }
 
     var onSnapshotSaved: ((ChartLibrarySnapshot) -> Void)?
 
@@ -170,12 +173,14 @@ final class ChartLibraryStore: ObservableObject {
     func setPlan(_ plan: IChartPlan) {
         var updatedEntitlements = entitlements
         updatedEntitlements.applyLegacyPlan(plan)
+        guard updatedEntitlements != entitlements else { return }
         entitlements = updatedEntitlements
     }
 
     func applySubscriptionState(_ subscription: IChartSubscriptionEntitlement) {
         var updatedEntitlements = entitlements
         updatedEntitlements.applySubscription(subscription)
+        guard updatedEntitlements != entitlements else { return }
         entitlements = updatedEntitlements
     }
 
@@ -195,7 +200,8 @@ final class ChartLibraryStore: ObservableObject {
         // New-chart setup is local until its final Create action. Admit the
         // completed value once, with the same limits and project access used
         // by the existing blank-chart path.
-        guard preparedChart.hasCompletedInitialSetup,
+        guard !hasUnresolvedLoadFailure,
+              preparedChart.hasCompletedInitialSetup,
               !charts.contains(where: { $0.id == preparedChart.id }),
               canCreateChart,
               projectID == nil || canUse(.projects),
@@ -519,6 +525,7 @@ final class ChartLibraryStore: ObservableObject {
         if let lastRemoteBackupAt {
             updatedMetadata.lastRemoteBackupAt = lastRemoteBackupAt
         }
+        guard updatedMetadata != cloudMetadata else { return }
 
         performPersistedBatch(notifyCloudSync: false) {
             cloudMetadata = updatedMetadata
@@ -526,8 +533,13 @@ final class ChartLibraryStore: ObservableObject {
     }
 
     func enrollLocalChartsForCloudBackup() -> ChartLibrarySnapshot {
+        let chartIndices = charts.indices.filter {
+            charts[$0].cloudBackupStatus.intent != .included
+                || charts[$0].cloudBackupStatus.schemaVersion != ChartCloudBackupStatus.schemaVersion
+        }
+        guard !chartIndices.isEmpty else { return snapshot }
         performPersistedBatch(notifyCloudSync: false) {
-            for chartIndex in charts.indices {
+            for chartIndex in chartIndices {
                 charts[chartIndex].includeInCloudBackup()
             }
         }
@@ -539,7 +551,8 @@ final class ChartLibraryStore: ObservableObject {
         chartIDs: Set<Chart.ID>,
         ownerID: UUID,
         backedUpAt: Date,
-        from uploadedSnapshot: ChartLibrarySnapshot
+        from uploadedSnapshot: ChartLibrarySnapshot,
+        acknowledgedContentSHA256ByChartID: [Chart.ID: String] = [:]
     ) {
         guard !chartIDs.isEmpty else {
             return
@@ -547,26 +560,36 @@ final class ChartLibraryStore: ObservableObject {
 
         let uploadedChartsByID = Dictionary(grouping: uploadedSnapshot.charts, by: \.id)
         let currentChartCounts = Dictionary(grouping: charts, by: \.id).mapValues(\.count)
-        let matchingChartIndices = charts.indices.filter { chartIndex in
+        let matchingUpdates = charts.indices.compactMap { chartIndex -> (Int, ChartCloudBackupStatus)? in
             let chartID = charts[chartIndex].id
             guard chartIDs.contains(chartID),
                   currentChartCounts[chartID] == 1,
                   let uploadedCharts = uploadedChartsByID[chartID],
                   uploadedCharts.count == 1,
-                  let uploadedChart = uploadedCharts.first else {
-                return false
+                  let uploadedChart = uploadedCharts.first,
+                  charts[chartIndex].shouldBackUpToCloud(for: ownerID),
+                  uploadedChart.shouldBackUpToCloud(for: ownerID),
+                  ChartCloudContentIdentity.matchesContent(charts[chartIndex], uploadedChart) else {
+                return nil
             }
-
-            return charts[chartIndex].updatedAt == uploadedChart.updatedAt
+            let acknowledgement = acknowledgedContentSHA256ByChartID[chartID]
+            guard acknowledgement == nil || ChartCloudContentIdentity.isValidSHA256(acknowledgement) else {
+                return nil
+            }
+            var updatedStatus = charts[chartIndex].cloudBackupStatus
+            updatedStatus.markBackedUp(ownerID: ownerID, at: backedUpAt)
+            updatedStatus.acknowledgedContentSHA256 = acknowledgement
+            guard updatedStatus != charts[chartIndex].cloudBackupStatus else { return nil }
+            return (chartIndex, updatedStatus)
         }
 
-        guard !matchingChartIndices.isEmpty else {
+        guard !matchingUpdates.isEmpty else {
             return
         }
 
         performPersistedBatch(notifyCloudSync: false) {
-            for chartIndex in matchingChartIndices {
-                charts[chartIndex].markBackedUpToCloud(ownerID: ownerID, at: backedUpAt)
+            for (chartIndex, updatedStatus) in matchingUpdates {
+                charts[chartIndex].cloudBackupStatus = updatedStatus
             }
         }
     }
@@ -641,6 +664,7 @@ final class ChartLibraryStore: ObservableObject {
             persistenceDiagnostics: persistenceDiagnostics
         )
         if let loadError {
+            store.libraryLoadFailureMessage = loadError.localizedDescription
             store.persistenceStatus = .failed(message: loadError.localizedDescription)
         } else if loadedSnapshot != nil {
             store.persistenceStatus = .saved(at: .now)
@@ -662,10 +686,53 @@ final class ChartLibraryStore: ObservableObject {
         persistIfNeeded()
     }
 
+    /// A failed initial read never grants permission to replace the unread
+    /// library with the in-memory fallback. Recovery reads the existing file
+    /// again and enables writes only after that complete snapshot was decoded.
+    @discardableResult
+    func retryLoadingSavedSnapshot() -> Bool {
+        guard hasUnresolvedLoadFailure, let repository else { return false }
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        do {
+            guard let loaded = try repository.loadSnapshot() else {
+                throw CocoaError(.fileReadNoSuchFile)
+            }
+            let wasPersistenceEnabled = persistenceEnabled
+            persistenceEnabled = false
+            charts = loaded.charts
+            selectedChartID = Self.sanitizedSelection(loaded.selectedChartID, charts: loaded.charts)
+            entitlements = AppEntitlements(subscription: loaded.entitlements.subscription,
+                                           accessPolicy: entitlements.accessPolicy)
+            deletionTombstones = Self.normalizedTombstones(loaded.deletionTombstones)
+            cloudMetadata = loaded.cloudMetadata
+            projects = Self.normalizedProjects(loaded.projects, charts: loaded.charts)
+            persistenceEnabled = wasPersistenceEnabled
+            libraryLoadFailureMessage = nil
+            retryableSaveFailureMessage = nil
+            persistenceStatus = .saved(at: .now)
+            initialLoadOutcome = ChartLibraryLoadOutcome(succeeded: true,
+                durationMilliseconds: (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000)
+            return true
+        } catch {
+            libraryLoadFailureMessage = error.localizedDescription
+            persistenceStatus = .failed(message: error.localizedDescription)
+            initialLoadOutcome = ChartLibraryLoadOutcome(succeeded: false,
+                durationMilliseconds: (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000)
+            return false
+        }
+    }
+
     @discardableResult
     private func persistIfNeeded() -> Bool {
         guard persistenceEnabled else {
             return true
+        }
+        if let libraryLoadFailureMessage {
+            // Subscription refresh, selection and editor bindings can all
+            // publish after bootstrap. None may overwrite a library that was
+            // never successfully read, or notify cloud using fallback charts.
+            persistenceStatus = .failed(message: libraryLoadFailureMessage)
+            return false
         }
         guard let repository else {
             retryableSaveFailureMessage = nil

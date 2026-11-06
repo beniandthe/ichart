@@ -1,0 +1,388 @@
+#if canImport(UIKit) && canImport(PencilKit)
+import PencilKit
+import UIKit
+import XCTest
+@testable import iChart
+
+@MainActor
+final class SavedInkPageRasterizationTests: XCTestCase {
+    func testLongDocumentAllocatesOnlyTheRequestedPaperRaster() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            try autoreleasepool {
+                let fixture = try makeFixture(style: style, pageCount: 20)
+                let layout = LeadSheetPageLayoutEngine.pageLayout(for: fixture.chart, pageSize: fixture.pageSize)
+                let page = try XCTUnwrap(layout.pages.last)
+                let fullFrame = LeadSheetActiveInkScope.pageWritingFrame(for: layout)
+                XCTAssertGreaterThan(fullFrame.height, page.frame.height * 10)
+
+                let raster = try XCTUnwrap(LeadSheetSavedInkRenderer.renderedPageInk(
+                    fixture.sourceBytes, coordinateSpace: fixture.chart.pageHandwrittenNotationCoordinateSpace,
+                    chart: fixture.chart, in: layout, clippedTo: page.frame, scale: 1))
+                let pixels = try XCTUnwrap(raster.image.cgImage)
+                XCTAssertEqual(raster.frame, fullFrame.intersection(page.frame))
+                XCTAssertLessThanOrEqual(pixels.width, Int(ceil(page.frame.width)))
+                XCTAssertLessThanOrEqual(pixels.height, Int(ceil(page.frame.height)))
+                XCTAssertGreaterThan(pixels.width, 0)
+                XCTAssertGreaterThan(pixels.height, 0)
+                XCTAssertNil(LeadSheetSavedInkRenderer.renderedPageInk(
+                    fixture.sourceBytes, coordinateSpace: fixture.chart.pageHandwrittenNotationCoordinateSpace,
+                    chart: fixture.chart, in: layout,
+                    clippedTo: page.frame.offsetBy(dx: fullFrame.width * 2, dy: 0), scale: 1))
+            }
+            LeadSheetSavedInkRenderer.resetRenderedInkImageCacheForTesting()
+        }
+    }
+
+    func testCroppedPaperPixelsMatchFullDocumentProjectionAcrossStylesAndEngraving() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            try autoreleasepool {
+                let fixture = try makeFixture(style: style, pageCount: 3)
+                for preset in [EngravingPreset.balanced, .compact, .wide] {
+                    var chart = fixture.chart
+                    chart.engravingPreset = preset
+                    let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: fixture.pageSize)
+                    let frame = LeadSheetActiveInkScope.pageWritingFrame(for: layout)
+                    let targetSpace = try XCTUnwrap(LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(
+                        for: layout, relativeTo: frame))
+                    let fullImage = try XCTUnwrap(LeadSheetSavedInkRenderer.renderedInkImage(
+                        fixture.sourceBytes, size: frame.size,
+                        sourceCoordinateSpace: LeadSheetPersistentInkCoordinateSpacePolicy.pageSourceCoordinateSpace(
+                            chart.pageHandwrittenNotationCoordinateSpace, chart: chart),
+                        targetCoordinateSpace: targetSpace, scale: 1))
+                    let reference = LeadSheetSavedInkRenderer.RenderedInkRegion(image: fullImage, frame: frame)
+
+                    for page in layout.pages {
+                        let cropped = try XCTUnwrap(LeadSheetSavedInkRenderer.renderedPageInk(
+                            fixture.sourceBytes, coordinateSpace: chart.pageHandwrittenNotationCoordinateSpace,
+                            chart: chart, in: layout, clippedTo: page.frame, scale: 1))
+                        XCTAssertEqual(cropped.frame, frame.intersection(page.frame))
+                        let expected = render(reference, on: page.frame)
+                        let actual = render(cropped, on: page.frame)
+                        try assertExactPixels(actual, expected,
+                            "Per-paper cropping must retain the full document's projected pixels, including boundary-crossing strokes (\(style), \(preset), paper \(page.index)).")
+                    }
+                    XCTAssertEqual(chart.pageHandwrittenNotationData, fixture.sourceBytes)
+                    XCTAssertEqual(chart.pageHandwrittenNotationCoordinateSpace,
+                        fixture.chart.pageHandwrittenNotationCoordinateSpace)
+                    let reopened = try JSONDecoder().decode(Chart.self, from: JSONEncoder().encode(chart))
+                    XCTAssertEqual(reopened.pageHandwrittenNotationData, fixture.sourceBytes)
+                    XCTAssertEqual(reopened.pageHandwrittenNotationCoordinateSpace,
+                        fixture.chart.pageHandwrittenNotationCoordinateSpace)
+                }
+            }
+            LeadSheetSavedInkRenderer.resetRenderedInkImageCacheForTesting()
+        }
+    }
+
+    func testRetinaPaperRastersPreservePixelsAndLegacyArchivesInBothStyles() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            for scale in [CGFloat(2), CGFloat(3)] {
+                for hasSavedCoordinates in [true, false] {
+                    LeadSheetSavedInkRenderer.resetRenderedInkImageCacheForTesting()
+                    try autoreleasepool {
+                        let fixture = try makeFixture(style: style, pageCount: 2)
+                        var chart = fixture.chart
+                        if !hasSavedCoordinates {
+                            chart.pageHandwrittenNotationCoordinateSpace = nil
+                        }
+                        let savedCoordinates = chart.pageHandwrittenNotationCoordinateSpace
+                        let archive = try JSONEncoder().encode(chart)
+                        let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: fixture.pageSize)
+                        let frame = LeadSheetActiveInkScope.pageWritingFrame(for: layout)
+                        let targetSpace = try XCTUnwrap(LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(
+                            for: layout, relativeTo: frame))
+                        // Reproduce the old full-document raster independently
+                        // of the new per-paper helper, at the same Retina scale.
+                        let fullImage = try XCTUnwrap(LeadSheetSavedInkRenderer.renderedInkImage(
+                            fixture.sourceBytes, size: frame.size,
+                            sourceCoordinateSpace: LeadSheetPersistentInkCoordinateSpacePolicy.pageSourceCoordinateSpace(
+                                savedCoordinates, chart: chart),
+                            targetCoordinateSpace: targetSpace, scale: scale))
+                        let reference = LeadSheetSavedInkRenderer.RenderedInkRegion(image: fullImage, frame: frame)
+                        let reopened = try JSONDecoder().decode(Chart.self, from: archive)
+                        let reopenedLayout = LeadSheetPageLayoutEngine.pageLayout(
+                            for: reopened, pageSize: fixture.pageSize)
+                        XCTAssertEqual(reopenedLayout.pages.map(\.frame), layout.pages.map(\.frame))
+
+                        for (page, reopenedPage) in zip(layout.pages, reopenedLayout.pages) {
+                            let cropped = try XCTUnwrap(LeadSheetSavedInkRenderer.renderedPageInk(
+                                fixture.sourceBytes, coordinateSpace: savedCoordinates,
+                                chart: chart, in: layout, clippedTo: page.frame, scale: scale))
+                            let reopenedRaster = try XCTUnwrap(LeadSheetSavedInkRenderer.renderedPageInk(
+                                reopened.pageHandwrittenNotationData,
+                                coordinateSpace: reopened.pageHandwrittenNotationCoordinateSpace,
+                                chart: reopened, in: reopenedLayout,
+                                clippedTo: reopenedPage.frame, scale: scale))
+                            XCTAssertEqual(cropped.frame, frame.intersection(page.frame))
+                            XCTAssertEqual(reopenedRaster.frame, cropped.frame)
+                            let expected = render(reference, on: page.frame, scale: scale)
+                            let actual = render(cropped, on: page.frame, scale: scale)
+                            let afterReopen = render(reopenedRaster, on: reopenedPage.frame, scale: scale)
+                            try assertExactPixels(actual, expected,
+                                "Retina cropping changed projected pixels (\(style), \(scale)x, saved coordinates \(hasSavedCoordinates), paper \(page.index)).")
+                            try assertExactPixels(afterReopen, expected,
+                                "Save/reopen changed Retina paper pixels or legacy fallback geometry (\(style), \(scale)x, saved coordinates \(hasSavedCoordinates), paper \(page.index)).")
+                            let pixels = try XCTUnwrap(cropped.image.cgImage)
+                            XCTAssertLessThanOrEqual(pixels.width, Int(ceil(page.frame.width * scale)))
+                            XCTAssertLessThanOrEqual(pixels.height, Int(ceil(page.frame.height * scale)))
+                        }
+                        XCTAssertEqual(chart.pageHandwrittenNotationData, fixture.sourceBytes)
+                        XCTAssertEqual(reopened.pageHandwrittenNotationData, fixture.sourceBytes)
+                        XCTAssertEqual(chart.pageHandwrittenNotationCoordinateSpace, savedCoordinates)
+                        XCTAssertEqual(reopened.pageHandwrittenNotationCoordinateSpace, savedCoordinates)
+                    }
+                    LeadSheetSavedInkRenderer.resetRenderedInkImageCacheForTesting()
+                }
+            }
+        }
+    }
+
+    func testUncachedFullDocumentRasterizationIsPixelDeterministic() throws {
+        // This control repeats only the pre-optimization full-document path.
+        // A failure here distinguishes independent PencilKit rasterization
+        // differences from the new paper crop's coordinate or image placement.
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            for scale in [CGFloat(1), CGFloat(2), CGFloat(3)] {
+                LeadSheetSavedInkRenderer.resetRenderedInkImageCacheForTesting()
+                try autoreleasepool {
+                    let fixture = try makeFixture(style: style, pageCount: 2)
+                    let layout = LeadSheetPageLayoutEngine.pageLayout(
+                        for: fixture.chart, pageSize: fixture.pageSize)
+                    let frame = LeadSheetActiveInkScope.pageWritingFrame(for: layout)
+                    let sourceSpace = LeadSheetPersistentInkCoordinateSpacePolicy.pageSourceCoordinateSpace(
+                        fixture.chart.pageHandwrittenNotationCoordinateSpace, chart: fixture.chart)
+                    let targetSpace = try XCTUnwrap(LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(
+                        for: layout, relativeTo: frame))
+                    let firstImage = try XCTUnwrap(LeadSheetSavedInkRenderer.renderedInkImage(
+                        fixture.sourceBytes, size: frame.size,
+                        sourceCoordinateSpace: sourceSpace, targetCoordinateSpace: targetSpace, scale: scale))
+                    LeadSheetSavedInkRenderer.resetRenderedInkImageCacheForTesting()
+                    let secondImage = try XCTUnwrap(LeadSheetSavedInkRenderer.renderedInkImage(
+                        fixture.sourceBytes, size: frame.size,
+                        sourceCoordinateSpace: sourceSpace, targetCoordinateSpace: targetSpace, scale: scale))
+                    XCTAssertFalse(firstImage === secondImage,
+                        "The control must independently rasterize rather than reuse the cached image.")
+                    let first = LeadSheetSavedInkRenderer.RenderedInkRegion(image: firstImage, frame: frame)
+                    let second = LeadSheetSavedInkRenderer.RenderedInkRegion(image: secondImage, frame: frame)
+                    for page in layout.pages {
+                        try assertExactPixels(render(second, on: page.frame, scale: scale),
+                            render(first, on: page.frame, scale: scale),
+                            "Uncached full-document raster control (\(style), \(scale)x, paper \(page.index)).")
+                    }
+                }
+                LeadSheetSavedInkRenderer.resetRenderedInkImageCacheForTesting()
+            }
+        }
+    }
+
+    func testEqualSizedPaperRastersKeepDistinctOriginsInTheCache() throws {
+        // Use two interior papers: the envelope's inset deliberately trims
+        // the first/last paper, while interior raster sizes are identical.
+        let fixture = try makeFixture(style: .simpleChordSheet, pageCount: 4)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: fixture.chart, pageSize: fixture.pageSize)
+        let second = try XCTUnwrap(layout.pages.dropFirst().first)
+        let third = try XCTUnwrap(layout.pages.dropFirst(2).first)
+        let secondRaster = try XCTUnwrap(LeadSheetSavedInkRenderer.renderedPageInk(
+            fixture.sourceBytes, coordinateSpace: fixture.chart.pageHandwrittenNotationCoordinateSpace,
+            chart: fixture.chart, in: layout, clippedTo: second.frame, scale: 1))
+        let repeatedSecond = try XCTUnwrap(LeadSheetSavedInkRenderer.renderedPageInk(
+            fixture.sourceBytes, coordinateSpace: fixture.chart.pageHandwrittenNotationCoordinateSpace,
+            chart: fixture.chart, in: layout, clippedTo: second.frame, scale: 1))
+        let thirdRaster = try XCTUnwrap(LeadSheetSavedInkRenderer.renderedPageInk(
+            fixture.sourceBytes, coordinateSpace: fixture.chart.pageHandwrittenNotationCoordinateSpace,
+            chart: fixture.chart, in: layout, clippedTo: third.frame, scale: 1))
+
+        XCTAssertEqual(secondRaster.image.size, thirdRaster.image.size)
+        XCTAssertTrue(secondRaster.image === repeatedSecond.image)
+        XCTAssertFalse(secondRaster.image === thirdRaster.image)
+        XCTAssertNotEqual(secondRaster.image.pngData(), thirdRaster.image.pngData())
+    }
+
+    private struct Fixture {
+        let chart: Chart
+        let pageSize: CGSize
+        let sourceBytes: Data
+    }
+
+    private struct RGBAImage {
+        let width: Int
+        let height: Int
+        let bytes: [UInt8]
+    }
+
+    private func assertExactPixels(
+        _ actual: UIImage,
+        _ expected: UIImage,
+        _ message: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        XCTAssertEqual(actual.size, expected.size, message, file: file, line: line)
+        XCTAssertEqual(actual.scale, expected.scale, message, file: file, line: line)
+        XCTAssertEqual(actual.imageOrientation, .up, message, file: file, line: line)
+        XCTAssertEqual(expected.imageOrientation, .up, message, file: file, line: line)
+        let actualRGBA = try rgba(actual, file: file, line: line)
+        let expectedRGBA = try rgba(expected, file: file, line: line)
+        XCTAssertEqual(actualRGBA.width, expectedRGBA.width, message, file: file, line: line)
+        XCTAssertEqual(actualRGBA.height, expectedRGBA.height, message, file: file, line: line)
+        guard actualRGBA.width == expectedRGBA.width,
+              actualRGBA.height == expectedRGBA.height else { return }
+        guard actualRGBA.bytes != expectedRGBA.bytes else {
+            if actual.pngData() != expected.pngData() {
+                print("SavedInkPixelParity: exact sRGB RGBA matches despite different PNG encodings. \(message)")
+            }
+            return
+        }
+
+        var differingPixels = 0
+        var differingChannels = 0
+        var maximumChannelDelta = 0
+        var minimumX = actualRGBA.width
+        var minimumY = actualRGBA.height
+        var maximumX = -1
+        var maximumY = -1
+        var samples: [String] = []
+        var differenceMask = [UInt8](repeating: 255, count: actualRGBA.bytes.count)
+        for offset in stride(from: 0, to: actualRGBA.bytes.count, by: 4) {
+            var pixelDiffers = false
+            for channel in 0..<4 {
+                let delta = abs(Int(actualRGBA.bytes[offset + channel])
+                    - Int(expectedRGBA.bytes[offset + channel]))
+                if delta > 0 {
+                    pixelDiffers = true
+                    differingChannels += 1
+                    maximumChannelDelta = max(maximumChannelDelta, delta)
+                }
+            }
+            guard pixelDiffers else { continue }
+            differingPixels += 1
+            let pixel = offset / 4
+            let x = pixel % actualRGBA.width
+            let y = pixel / actualRGBA.width
+            minimumX = min(minimumX, x)
+            minimumY = min(minimumY, y)
+            maximumX = max(maximumX, x)
+            maximumY = max(maximumY, y)
+            // Red marks every differing pixel, without suppressing a small
+            // channel delta or introducing a tolerance in the assertion.
+            differenceMask[offset + 1] = 0
+            differenceMask[offset + 2] = 0
+            if samples.count < 8 {
+                samples.append("(\(x),\(y)) actual \(Array(actualRGBA.bytes[offset..<(offset + 4)])) expected \(Array(expectedRGBA.bytes[offset..<(offset + 4)]))")
+            }
+        }
+        let summary = "\(differingPixels)/\(actualRGBA.width * actualRGBA.height) pixels differ; "
+            + "\(differingChannels) channels; max channel delta \(maximumChannelDelta)/255; "
+            + "RGBA bounds [\(minimumX),\(minimumY)]...[\(maximumX),\(maximumY)]; "
+            + "samples: \(samples.joined(separator: "; "))."
+        print("SavedInkPixelParityFailure: \(message) \(summary)")
+        XCTContext.runActivity(named: message) { activity in
+            let diagnostics = XCTAttachment(string: summary)
+            diagnostics.name = "Exact RGBA pixel metrics"
+            diagnostics.lifetime = .keepAlways
+            activity.add(diagnostics)
+            for (name, image) in [("Expected full-document paper", expected), ("Actual paper", actual)] {
+                let attachment = XCTAttachment(image: image)
+                attachment.name = name
+                attachment.lifetime = .keepAlways
+                activity.add(attachment)
+            }
+            let provider = CGDataProvider(data: Data(differenceMask) as CFData)
+            let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)
+            if let provider, let colorSpace,
+               let image = CGImage(width: actualRGBA.width, height: actualRGBA.height,
+                    bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: actualRGBA.width * 4,
+                    space: colorSpace,
+                    bitmapInfo: CGBitmapInfo(rawValue: CGBitmapInfo.byteOrder32Big.rawValue
+                        | CGImageAlphaInfo.premultipliedLast.rawValue),
+                    provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent) {
+                let attachment = XCTAttachment(image: UIImage(cgImage: image, scale: actual.scale, orientation: .up))
+                attachment.name = "Exact RGBA differences in red"
+                attachment.lifetime = .keepAlways
+                activity.add(attachment)
+            }
+        }
+        XCTFail("\(message) Exact RGBA mismatch: \(summary)", file: file, line: line)
+    }
+
+    private func rgba(
+        _ image: UIImage,
+        file: StaticString,
+        line: UInt
+    ) throws -> RGBAImage {
+        let source = try XCTUnwrap(image.cgImage, file: file, line: line)
+        let colorSpace = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB), file: file, line: line)
+        var bytes = [UInt8](repeating: 0, count: source.width * source.height * 4)
+        try bytes.withUnsafeMutableBytes { (buffer: UnsafeMutableRawBufferPointer) in
+            let context = try XCTUnwrap(CGContext(data: buffer.baseAddress,
+                width: source.width, height: source.height, bitsPerComponent: 8,
+                bytesPerRow: source.width * 4, space: colorSpace,
+                bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue),
+                file: file, line: line)
+            context.setBlendMode(.copy)
+            context.interpolationQuality = .none
+            context.draw(source, in: CGRect(x: 0, y: 0,
+                width: CGFloat(source.width), height: CGFloat(source.height)))
+        }
+        return RGBAImage(width: source.width, height: source.height, bytes: bytes)
+    }
+
+    private func makeFixture(style: ChartLayoutStyle, pageCount: Int) throws -> Fixture {
+        var chart = Chart.blank(title: "Synthetic multipage ink", measureCount: 8, layoutStyle: style)
+        for _ in 1..<pageCount { _ = try XCTUnwrap(chart.appendPage()) }
+        let pageSize = CGSize(width: 932, height: 1_100)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize)
+        XCTAssertEqual(layout.pages.count, pageCount)
+        let frame = LeadSheetActiveInkScope.pageWritingFrame(for: layout)
+        var strokes: [PKStroke] = layout.pages.map { page in
+            let x = CGFloat(70 + page.index * 3)
+            let y = page.frame.midY - frame.minY
+            return stroke([CGPoint(x: x, y: y), CGPoint(x: x + 18, y: y + 22),
+                CGPoint(x: x + 31, y: y + CGFloat(5 + page.index))], seed: UInt32(page.index + 1))
+        }
+        if layout.pages.count > 1 {
+            let first = layout.pages[0].frame
+            let second = layout.pages[1].frame
+            strokes.append(stroke([
+                CGPoint(x: 160, y: first.maxY - frame.minY - 12),
+                CGPoint(x: 180, y: first.maxY - frame.minY + 4),
+                CGPoint(x: 205, y: second.minY - frame.minY + 14)
+            ], seed: 999))
+        }
+        let data = PKDrawing(strokes: strokes).dataRepresentation()
+        chart.pageHandwrittenNotationData = data
+        chart.pageHandwrittenNotationCoordinateSpace = LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(
+            for: layout, relativeTo: frame)
+        return Fixture(chart: chart, pageSize: pageSize, sourceBytes: data)
+    }
+
+    private func stroke(_ points: [CGPoint], seed: UInt32) -> PKStroke {
+        let controlPoints = points.enumerated().map { offset, point in
+            PKStrokePoint(location: point, timeOffset: Double(offset) * 0.1,
+                size: CGSize(width: 3, height: 3), opacity: 1, force: 1,
+                azimuth: 0, altitude: .pi / 2)
+        }
+        return PKStroke(ink: PKInk(.pen, color: LeadSheetPersistentInkColorPolicy.inkColor),
+            path: PKStrokePath(controlPoints: controlPoints,
+                creationDate: Date(timeIntervalSinceReferenceDate: Double(seed))),
+            transform: .identity, mask: nil, randomSeed: seed)
+    }
+
+    private func render(
+        _ raster: LeadSheetSavedInkRenderer.RenderedInkRegion,
+        on page: CGRect,
+        scale: CGFloat = 1
+    ) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = scale
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: page.size, format: format).image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(origin: .zero, size: page.size))
+            context.cgContext.translateBy(x: -page.minX, y: -page.minY)
+            context.cgContext.clip(to: page)
+            raster.image.draw(in: raster.frame)
+        }
+    }
+}
+#endif

@@ -1,0 +1,69 @@
+name: Frozen Edge dependencies
+
+on:
+  pull_request:
+    paths:
+      - "supabase/functions/**"
+      - "scripts/edge_dependency_toolchain.json"
+      - "scripts/run_edge_dependency_checks.py"
+      - "scripts/generate_app_store_verifier_fixture.py"
+      - ".github/workflows/edge-dependencies.yml"
+  push:
+    branches: [main]
+    paths:
+      - "supabase/functions/**"
+      - "scripts/edge_dependency_toolchain.json"
+      - "scripts/run_edge_dependency_checks.py"
+      - "scripts/generate_app_store_verifier_fixture.py"
+      - ".github/workflows/edge-dependencies.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  frozen-edge-dependencies:
+    name: Frozen graph and offline crypto
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install checksum-verified isolated Deno
+        env:
+          ICHART_DENO_INSTALL: ${{ runner.temp }}/ichart-edge-deno
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import io
+          import json
+          import os
+          from pathlib import Path
+          import urllib.request
+          import zipfile
+          toolchain = json.loads(Path("scripts/edge_dependency_toolchain.json").read_text())
+          version = toolchain["denoVersion"]
+          target = "x86_64-unknown-linux-gnu"
+          url = f"https://github.com/denoland/deno/releases/download/v{version}/deno-{target}.zip"
+          with urllib.request.urlopen(url, timeout=60) as response:
+              data = response.read()
+          if hashlib.sha256(data).hexdigest() != toolchain["archives"][target]:
+              raise SystemExit("Official Deno archive SHA256 mismatch")
+          archive = zipfile.ZipFile(io.BytesIO(data))
+          if archive.namelist() != ["deno"]:
+              raise SystemExit("Unexpected Deno archive contents")
+          folder = Path(os.environ["ICHART_DENO_INSTALL"])
+          folder.mkdir(parents=True, exist_ok=True)
+          binary = folder / "deno"
+          binary.write_bytes(archive.read("deno"))
+          binary.chmod(0o755)
+          print(f"Verified Deno {version}: {toolchain['archives'][target]}")
+          PY
+
+      - name: Check frozen graphs and run offline actual-version crypto tests
+        run: >-
+          python3 scripts/run_edge_dependency_checks.py
+          --deno "${{ runner.temp }}/ichart-edge-deno/deno"
+          --receipt "${{ runner.temp }}/frozen-edge-dependencies.json"

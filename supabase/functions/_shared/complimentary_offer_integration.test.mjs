@@ -39,7 +39,7 @@ function fixture({ existingTransaction, decision = "introductory" } = {}) {
     const json = (value) => new Response(JSON.stringify(value), { status: 200 });
     if (url.pathname === "/auth/v1/user") return json({ id: ownerID, is_anonymous: false });
     if (url.pathname === "/rest/v1/subscriptions") {
-      if (options.method === "POST") { subscription = JSON.parse(options.body); return json([subscription]); }
+      assert.equal(options.method ?? "GET", "GET", "authority writes must use the atomic RPC");
       if (url.searchParams.has("storekit_environment")
           && subscription?.storekit_environment !== url.searchParams.get("storekit_environment").slice(3)) return json([]);
       return json(subscription ? [subscription] : []);
@@ -54,6 +54,39 @@ function fixture({ existingTransaction, decision = "introductory" } = {}) {
       return json(attempt ? [attempt] : []);
     }
     const body = JSON.parse(options.body);
+    if (url.pathname === "/rest/v1/rpc/apply_storekit_subscription_authority") {
+      assert.equal(options.method, "POST");
+      assert.equal(url.search, "");
+      assert.equal(options.headers.apikey, "synthetic-server-key");
+      assert.equal(options.headers.authorization, "Bearer synthetic-server-key");
+      assert.deepEqual(body, {
+        claim_owner_id: ownerID,
+        authority_update: {
+          provider: "storekit",
+          plan: "studioSubscription",
+          status: "active",
+          storekit_product_id: verified.productId,
+          storekit_original_transaction_id: verified.originalTransactionId,
+          storekit_app_account_token: ownerID,
+          storekit_environment: verified.environment.toLowerCase(),
+          app_store_status: "active",
+          app_store_notification_type: "TRANSACTION_CLAIM",
+          app_store_last_transaction_id: verified.transactionId,
+          app_store_signed_at: new Date(verified.signedDate).toISOString(),
+          app_store_notification_uuid: null,
+          current_period_end: new Date(verified.expiresDate).toISOString(),
+          entitlement_expires_at: new Date(verified.expiresDate).toISOString(),
+          grace_period_expires_at: null,
+          cloud_retention_deadline: null,
+          cloud_retention_deleted_at: null,
+          expiration_warning_sent_at: null,
+          revoked_at: null,
+          last_verified_at: new Date(time).toISOString(),
+        },
+      }, "the claim RPC must bind the authenticated owner to this verified transaction only");
+      subscription = { ...subscription, ...body.authority_update, owner_id: body.claim_owner_id };
+      return json({ stored: true, mapping_status: "claimed", subscription });
+    }
     if (url.pathname === "/rest/v1/rpc/reserve_storekit_complimentary_campaign_attempt") {
       const key = `${body.p_environment}:${body.p_attempt_id}`;
       const attempt = attempts.get(key) ?? { attempt_id: body.p_attempt_id, product_id: body.p_product_id, environment: body.p_environment,
@@ -99,8 +132,13 @@ function fixture({ existingTransaction, decision = "introductory" } = {}) {
       return { status: response.status, body: await response.json() };
     },
     claim: async () => {
+      const start = requests.length;
       const response = await handleStoreKitSubscriptionClaimRequest(requestFor({ signedTransactionInfo: "verified-gift" }),
         { ...createSupabaseSubscriptionAuthorityDependencies(env, { fetch: fetcher }), ...verification, now: new Date(time) });
+      assert.deepEqual(requests.slice(start).map(({ path, method }) => ({ path, method })), [
+        { path: "/auth/v1/user", method: "GET" },
+        { path: "/rest/v1/rpc/apply_storekit_subscription_authority", method: "POST" },
+      ], "a verified claim must make one authority RPC without preliminary REST reads or fallback writes");
       return { status: response.status, body: await response.json() };
     },
   };

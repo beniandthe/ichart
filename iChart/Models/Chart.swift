@@ -166,6 +166,8 @@ struct ChartCloudBackupStatus: Codable, Hashable {
     var ownerID: UUID?
     var firstBackedUpAt: Date?
     var lastBackedUpAt: Date?
+    /// Missing in older saved charts; only a confirmed cloud write may set it.
+    var acknowledgedContentSHA256: String?
     var schemaVersion: Int
 
     init(
@@ -173,12 +175,14 @@ struct ChartCloudBackupStatus: Codable, Hashable {
         ownerID: UUID? = nil,
         firstBackedUpAt: Date? = nil,
         lastBackedUpAt: Date? = nil,
+        acknowledgedContentSHA256: String? = nil,
         schemaVersion: Int = Self.schemaVersion
     ) {
         self.intent = intent
         self.ownerID = ownerID
         self.firstBackedUpAt = firstBackedUpAt
         self.lastBackedUpAt = lastBackedUpAt
+        self.acknowledgedContentSHA256 = acknowledgedContentSHA256
         self.schemaVersion = schemaVersion
     }
 
@@ -216,6 +220,9 @@ struct ChartCloudBackupStatus: Codable, Hashable {
         self.ownerID = ownerID
         firstBackedUpAt = firstBackedUpAt ?? date
         lastBackedUpAt = date
+        // Callers with an exact content acknowledgment set it after this
+        // update; a legacy timestamp-only receipt must not retain an old hash.
+        acknowledgedContentSHA256 = nil
         schemaVersion = Self.schemaVersion
     }
 }

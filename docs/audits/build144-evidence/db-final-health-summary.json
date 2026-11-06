@@ -1,0 +1,12 @@
+{
+  "connections": 13,
+  "observed_at": "2026-11-06T05:31:26.72167+00:00",
+  "waiting_locks": 0,
+  "database_bytes": 1642384531,
+  "snapshot_count": 26007,
+  "migration_count": 37,
+  "audit_rpcs_present": 0,
+  "invalid_user_indexes": 0,
+  "snapshot_relation_bytes": 1583718400,
+  "configured_max_connections": 60
+}

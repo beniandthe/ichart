@@ -8,7 +8,7 @@ import XCTest
 /// Mounted production views; no account, network, PDF upload or store mutation.
 @MainActor
 final class ForumBrowseLayoutTests: XCTestCase {
-    private let helperText = "Search for a song, artist, arranger, or tag, then tap Search. Open a chart to save its PDF or join the discussion."
+    private let helperText = "Search songs, artists, arrangers, or tags, then tap Search. Use Load More for more matches. Open a chart to save its PDF or discuss it."
 
     func testTopChartsCardsAndSearchFitNarrowAndAvailableWidthsForBothStyles() async throws {
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
@@ -287,6 +287,39 @@ final class ForumBrowseLayoutTests: XCTestCase {
         }
     }
 
+    func testSearchLoadMoreIsReachableThenDisabledWhileLoadingAndRemovedWhenExhausted() async throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let fixture = Fixture(style: style)
+            fixture.searchText = "fixture"
+            fixture.submittedSearchText = "fixture"
+            fixture.hasMoreSearchResults = true
+            let mounted = try await mount(fixture, width: 360, category: .large)
+            var activated = false
+            try await inspectEveryScrollPosition(mounted) { nodes in
+                guard !activated, let control = nodes.first(where: {
+                    $0.isButton && $0.element.accessibilityLabel == "Load More"
+                        && !$0.frame(in: mounted.window).intersection(mounted.viewport).isEmpty
+                }) else { return }
+                assertHorizontallyContained(control.frame(in: mounted.window), in: mounted.viewport)
+                try activate(control)
+                activated = true
+            }
+            XCTAssertTrue(activated)
+            XCTAssertEqual(fixture.loadMoreRequests, 1)
+            let loading = try await node("Loading More…", in: mounted, button: true)
+            XCTAssertFalse(loading.isEnabled)
+            XCTAssertEqual(fixture.submittedSearchText, "fixture")
+            fixture.isLoadingMoreSearchResults = false
+            fixture.hasMoreSearchResults = false
+            try await settle(mounted.window)
+            try await inspectEveryScrollPosition(mounted) { nodes in
+                XCTAssertFalse(nodes.contains { $0.isButton && $0.element.accessibilityLabel == "Load More" })
+            }
+            XCTAssertEqual(fixture.loadMoreRequests, 1)
+            await mounted.close()
+        }
+    }
+
     private func assertSameFocusedField(_ original: UITextField, frame: CGRect, in mounted: Mounted) async throws {
         let current = try await searchField(in: mounted)
         XCTAssertTrue(current === original, "Refresh must retain the actual editing control")
@@ -457,6 +490,8 @@ final class ForumBrowseLayoutTests: XCTestCase {
         @Published var searchText = ""
         @Published var submittedSearchText = ""
         @Published var forumGeneration = 0
+        @Published var hasMoreSearchResults = false
+        @Published var isLoadingMoreSearchResults = false
         let summaries: [IChartForumSongSummary]
         var searchRequests: [String] = []
         var refreshQueries: [String] = []
@@ -464,6 +499,7 @@ final class ForumBrowseLayoutTests: XCTestCase {
         var publishCount = 0
         var accountOpenCount = 0
         var openedPosts: [UUID] = []
+        var loadMoreRequests = 0
         init(style: ChartLayoutStyle) {
             let owner = UUID()
             summaries = (0..<2).map { index in
@@ -481,6 +517,7 @@ final class ForumBrowseLayoutTests: XCTestCase {
         func search(_ query: String) { searchRequests.append(query); request(query) }
         func retry() { retryCount += 1; request(submittedSearchText) }
         func recreateForum() { forumGeneration += 1; request(submittedSearchText) }
+        func loadMore() { loadMoreRequests += 1; isLoadingMoreSearchResults = true }
         private func request(_ query: String) {
             submittedSearchText = query.trimmingCharacters(in: .whitespacesAndNewlines)
             refreshQueries.append(query)
@@ -498,7 +535,10 @@ final class ForumBrowseLayoutTests: XCTestCase {
                 onRefresh: fixture.retry, onPublishChart: { _ in fixture.publishCount += 1 },
                 onRetryUpload: { _ in }, onWithdrawUpload: { _ in }, onDismissUpload: { _ in },
                 onOpenPost: { _, post in fixture.openedPosts.append(post.id) },
-                onOpenAccount: { fixture.accountOpenCount += 1 })
+                onOpenAccount: { fixture.accountOpenCount += 1 },
+                hasMoreSearchResults: fixture.hasMoreSearchResults,
+                isLoadingMoreSearchResults: fixture.isLoadingMoreSearchResults,
+                onLoadMoreSearchResults: fixture.loadMore)
                 .id(fixture.forumGeneration)
         }
     }
