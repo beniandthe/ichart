@@ -195,6 +195,7 @@ struct ChartSetupSheetView: View {
                 }
             }
         }
+        .tint(IChartInterfaceStyle.actionText)
     }
 
     private var createTourBanner: some View {
@@ -271,7 +272,7 @@ struct ChartSetupSheetView: View {
             VStack(spacing: 8) {
                 Image(systemName: chart.layoutStyle.systemImageName)
                     .font(.title3.weight(.semibold))
-                    .foregroundStyle(IChartTourStyle.orange)
+                    .foregroundStyle(IChartInterfaceStyle.actionText)
                     .frame(width: 28, height: 28)
 
                 VStack(spacing: 4) {
@@ -288,12 +289,6 @@ struct ChartSetupSheetView: View {
             .multilineTextAlignment(.center)
             .padding(14)
             .frame(maxWidth: .infinity)
-            .background(IChartTourStyle.orange.opacity(0.07))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(IChartTourStyle.orange.opacity(0.22), lineWidth: 1)
-            }
         }
     }
 
@@ -301,7 +296,7 @@ struct ChartSetupSheetView: View {
         VStack(alignment: .leading, spacing: 12) {
             setupSectionHeading("Sheet Style")
 
-            VStack(spacing: 8) {
+            VStack(spacing: 0) {
                 ForEach(StylePreset.sheetPresets(for: chart.layoutStyle)) { preset in
                     Button {
                         selectedStylePreset = preset
@@ -309,7 +304,7 @@ struct ChartSetupSheetView: View {
                         HStack(alignment: .top, spacing: 12) {
                             Image(systemName: selectedStylePreset == preset ? "checkmark.circle.fill" : "circle")
                                 .font(.body.weight(.semibold))
-                                .foregroundStyle(selectedStylePreset == preset ? Color.accentColor : .secondary)
+                                .foregroundStyle(selectedStylePreset == preset ? IChartInterfaceStyle.actionText : .secondary)
                                 .frame(width: 24, height: 24)
 
                             VStack(alignment: .leading, spacing: 3) {
@@ -328,20 +323,13 @@ struct ChartSetupSheetView: View {
                         .padding(.horizontal, 14)
                         .padding(.vertical, 12)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            selectedStylePreset == preset
-                                ? IChartTourStyle.orange.opacity(0.09)
-                                : Color(uiColor: .secondarySystemBackground)
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(IChartTourStyle.orange.opacity(selectedStylePreset == preset ? 0.42 : 0.12), lineWidth: 1)
-                        }
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(preset.sheetDisplayText(for: chart.layoutStyle))
                     .accessibilityHint(preset.sheetDetailText(for: chart.layoutStyle))
+
+                    Divider()
                 }
             }
         }

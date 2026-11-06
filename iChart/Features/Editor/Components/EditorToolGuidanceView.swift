@@ -41,7 +41,7 @@ struct EditorToolGuidanceView: View {
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .ichartWarmPanel()
+        .background(IChartInterfaceStyle.guidanceBackground)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("editor-active-tool-instruction")
         .sheet(isPresented: $showingGuide, onDismiss: { onGuidePresentationChanged(false) }) {
@@ -58,7 +58,7 @@ struct EditorToolGuidanceView: View {
     private func statusText(_ message: String) -> some View {
         Text(message)
             .font(.caption)
-            .foregroundStyle(.primary)
+            .foregroundStyle(IChartInterfaceStyle.guidanceText)
             .fixedSize(horizontal: false, vertical: true)
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity, alignment: .center)
@@ -77,7 +77,7 @@ struct EditorToolGuidanceView: View {
             }
         }
         .font(.caption)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(IChartInterfaceStyle.guidanceSecondary)
     }
 }
 
@@ -118,14 +118,14 @@ struct EditorToolGuidanceHeader: View {
         VStack(alignment: .center, spacing: 2) {
             Text(guidance.title)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
+                .foregroundStyle(IChartInterfaceStyle.guidanceTitle)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("editor-guidance-purpose")
 
             if let context = guidance.context {
                 Text(context)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(IChartInterfaceStyle.guidanceSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("editor-guidance-context")
             }
@@ -144,8 +144,8 @@ struct EditorToolGuidanceHeader: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.primary)
-        .background(IChartTourStyle.orangeSoft.opacity(0.24), in: RoundedRectangle(cornerRadius: 8))
+        .foregroundStyle(.white)
+        .background(IChartInterfaceStyle.actionBlue, in: RoundedRectangle(cornerRadius: 8))
         .accessibilityLabel(guidance.detailsTitle)
         .accessibilityHint("Open examples and detailed instructions without changing the chart.")
         .accessibilityIdentifier("editor-tool-guide-button")
@@ -159,6 +159,10 @@ struct EditorSheetInstruction: View {
 
     var body: some View {
         VStack(alignment: .center, spacing: 6) {
+            Capsule()
+                .fill(IChartInterfaceStyle.sectionAccent)
+                .frame(width: 32, height: 3)
+                .accessibilityHidden(true)
             Text(title)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.primary)
@@ -173,8 +177,7 @@ struct EditorSheetInstruction: View {
         .fixedSize(horizontal: false, vertical: true)
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity, alignment: .center)
-        .padding(12)
-        .ichartWarmPanel()
+        .padding(.vertical, 8)
         .accessibilityElement(children: .combine)
     }
 }
@@ -202,7 +205,7 @@ private struct EditorToolGuideSheet: View {
                         if let example = section.example {
                             Text(example)
                                 .font(.title2)
-                                .foregroundStyle(IChartTourStyle.orange)
+                                .foregroundStyle(IChartInterfaceStyle.sectionAccent)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .multilineTextAlignment(.center)
                                 .frame(maxWidth: .infinity)
@@ -213,6 +216,7 @@ private struct EditorToolGuideSheet: View {
                     }
                 }
             }
+            .listStyle(.plain)
             .navigationTitle(guidance.detailsTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

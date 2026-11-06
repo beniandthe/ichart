@@ -49,7 +49,8 @@ struct AddPDFToSetlistSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("setlists.destination.guidance")
                 }
-                .listRowBackground(IChartTourStyle.orange.opacity(0.07))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
                 if let loadError = setlistStore.loadError {
                     Section {
                         Text("Setlists couldn’t be loaded").font(.headline)
@@ -77,6 +78,8 @@ struct AddPDFToSetlistSheet: View {
                                 dismiss()
                             }
                         }
+                        .buttonStyle(.borderedProminent)
+                        .tint(IChartInterfaceStyle.actionBlue)
                         .disabled(!canAdd || newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         .accessibilityIdentifier("setlists.destination.create")
                     }
@@ -107,6 +110,7 @@ struct AddPDFToSetlistSheet: View {
                                 }
                                 Spacer()
                                 Image(systemName: "plus.circle")
+                                    .foregroundStyle(canAdd ? IChartInterfaceStyle.actionText : Color.secondary)
                             }
                             .contentShape(Rectangle())
                         }
@@ -120,8 +124,10 @@ struct AddPDFToSetlistSheet: View {
                         .accessibilityIdentifier("setlists.destination.error")
                 }
             }
+            .listStyle(.plain)
             .navigationTitle("Add to Setlist")
             .navigationBarTitleDisplayMode(.inline)
+            .tint(IChartInterfaceStyle.actionText)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         }
         .preferredColorScheme(appearance.colorScheme)

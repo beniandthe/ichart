@@ -75,7 +75,7 @@ struct PDFExportPreviewView: View {
                         .frame(minHeight: 32)
                 }
                 .buttonStyle(.bordered)
-                .tint(IChartTourStyle.orange)
+                .tint(IChartInterfaceStyle.actionText)
                 .accessibilityHint("Choose a setlist for this saved PDF.")
                 .accessibilityIdentifier("pdf.preview.add-to-setlist")
             }
@@ -91,33 +91,32 @@ struct PDFExportPreviewView: View {
                 spacing: 8
             ) {
                 if source == .personalImport {
-                    metadataPill("Original PDF")
+                    metadataText("Original PDF")
                 }
                 if let layoutStyle = exportedPDF.layoutStyle {
-                    metadataPill(layoutStyle.displayText)
+                    metadataText(layoutStyle.displayText)
                 }
                 if let transpositionText = exportedPDF.transpositionText
                     ?? (source == .forumDownload ? ForumPDFInstrumentSnapshot.unknownViewText : nil) {
-                    metadataPill(transpositionText)
+                    metadataText(transpositionText)
                 }
-                metadataPill(exportedPDF.pageCountText)
+                metadataText(exportedPDF.pageCountText)
             }
             .font(.caption.weight(.semibold))
             .accessibilityIdentifier("pdf.preview.metadata")
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
-        .ichartWarmPanel(cornerRadius: 0)
+        .background(IChartInterfaceStyle.cardBackground)
     }
 
-    private func metadataPill(_ text: String) -> some View {
+    private func metadataText(_ text: String) -> some View {
         Text(text)
             .fixedSize(horizontal: false, vertical: true)
             .multilineTextAlignment(.center)
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
-            .background(Color(uiColor: .systemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .foregroundStyle(.secondary)
     }
 }
 

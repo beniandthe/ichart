@@ -219,7 +219,6 @@ struct MeasureLayoutActionOption: Identifiable {
 /// text size. This sheet reads state; only an available action changes a chart.
 struct MeasureLayoutSheetView: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.colorScheme) private var colorScheme
     let measureNumber: Int?
     let options: [MeasureLayoutActionOption]
     let onSelect: (MeasureLayoutAction) -> Void
@@ -231,7 +230,7 @@ struct MeasureLayoutSheetView: View {
                     VStack(spacing: 7) {
                         Image(systemName: "rectangle.3.group")
                             .font(.title2)
-                            .foregroundStyle(IChartTourStyle.orange)
+                            .foregroundStyle(IChartInterfaceStyle.sectionAccent)
                             .accessibilityHidden(true)
                         Text("Shape measures and rows")
                             .font(.headline)
@@ -249,14 +248,15 @@ struct MeasureLayoutSheetView: View {
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
                     .padding(16)
-                    .background(IChartTourStyle.orangeSoft.opacity(colorScheme == .dark ? 0.12 : 0.6),
-                        in: RoundedRectangle(cornerRadius: 16))
 
                     ForEach(options) { option in
-                        MeasureLayoutActionCard(option: option) {
+                        MeasureLayoutActionRow(option: option) {
                             guard option.availability.isEnabled else { return }
                             onSelect(option.action)
                             dismiss()
+                        }
+                        if option.id != options.last?.id {
+                            Divider()
                         }
                     }
                 }
@@ -276,8 +276,7 @@ struct MeasureLayoutSheetView: View {
     }
 }
 
-private struct MeasureLayoutActionCard: View {
-    @Environment(\.colorScheme) private var colorScheme
+private struct MeasureLayoutActionRow: View {
     let option: MeasureLayoutActionOption
     let onSelect: () -> Void
 
@@ -287,19 +286,20 @@ private struct MeasureLayoutActionCard: View {
                 Label(option.action.title(isOnlyMeasureInRow: option.isOnlyMeasureInRow),
                     systemImage: option.action.systemImage)
                     .font(.body.weight(.semibold))
-                    .foregroundStyle(option.availability.isEnabled ? Color.primary : Color.secondary)
+                    .foregroundStyle(option.availability.isEnabled ? Color.white : Color.primary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, minHeight: 44)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.borderedProminent)
+            .tint(IChartInterfaceStyle.actionBlue)
             .disabled(!option.availability.isEnabled)
             .accessibilityIdentifier("measure-layout-action-\(option.action.rawValue)")
 
             Text(option.action.explanation(isOnlyMeasureInRow: option.isOnlyMeasureInRow))
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.primary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity)
@@ -313,19 +313,10 @@ private struct MeasureLayoutActionCard: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity)
-                    .padding(12)
-                    .background(IChartTourStyle.orangeSoft.opacity(colorScheme == .dark ? 0.12 : 0.7),
-                        in: RoundedRectangle(cornerRadius: 10))
                     .accessibilityIdentifier("measure-layout-reason-\(option.action.rawValue)")
             }
         }
         .padding(16)
-        .background(Color(uiColor: .secondarySystemGroupedBackground),
-            in: RoundedRectangle(cornerRadius: 16))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(IChartTourStyle.orange.opacity(0.24), lineWidth: 1)
-        }
         .accessibilityElement(children: .contain)
     }
 }

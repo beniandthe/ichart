@@ -46,7 +46,7 @@ struct FormMarkerPlacementSheet: View {
                                         .font(.body.weight(.semibold))
                                     if draft.markerType == type {
                                         Image(systemName: "checkmark")
-                                            .foregroundStyle(Color.accentColor)
+                                            .foregroundStyle(IChartInterfaceStyle.actionText)
                                             .accessibilityHidden(true)
                                     }
                                 }
@@ -60,12 +60,6 @@ struct FormMarkerPlacementSheet: View {
                             .padding(.horizontal, 8)
                             .padding(.vertical, 8)
                             .frame(maxWidth: .infinity, minHeight: 44)
-                            .background(IChartTourStyle.orange.opacity(draft.markerType == type ? 0.09 : 0.025),
-                                in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(IChartTourStyle.orange.opacity(draft.markerType == type ? 0.42 : 0.14), lineWidth: 1)
-                            }
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)

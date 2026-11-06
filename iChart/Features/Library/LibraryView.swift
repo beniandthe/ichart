@@ -10,7 +10,7 @@ private enum IChartHomeBrand {
     static let ink = Color(red: 0.08, green: 0.10, blue: 0.12)
     static let night = Color(red: 0.06, green: 0.09, blue: 0.11)
     static let stage = Color(red: 0.06, green: 0.08, blue: 0.11)
-    static let blue = Color(red: 0.13, green: 0.42, blue: 0.54)
+    static let blue = IChartInterfaceStyle.actionBlue
     static let logoBlue = Color(red: 0.56, green: 0.83, blue: 0.90)
     static let blueSoft = Color(red: 0.86, green: 0.93, blue: 0.95)
     static let staffOnDark = Color.white.opacity(0.23)
@@ -62,11 +62,11 @@ struct IChartHomeTheme {
     }
 
     var emptyStateBackground: Color {
-        isDark ? IChartHomeBrand.paper.opacity(0.10) : Color.white.opacity(0.68)
+        isDark ? Color(red: 0.10, green: 0.12, blue: 0.15) : Color.white
     }
 
     var panelBackground: Color {
-        isDark ? IChartHomeBrand.stage.opacity(0.82) : IChartHomeBrand.paper.opacity(0.84)
+        emptyStateBackground
     }
 
     var panelTitle: Color {
@@ -78,19 +78,19 @@ struct IChartHomeTheme {
     }
 
     var panelBorder: Color {
-        isDark ? Color.white.opacity(0.10) : IChartHomeBrand.ink.opacity(0.07)
+        isDark ? Color.white.opacity(0.48) : IChartHomeBrand.ink.opacity(0.42)
     }
 
     var panelShadow: Color {
         isDark ? Color.black.opacity(0.28) : IChartHomeBrand.ink.opacity(0.08)
     }
 
-    var accentBackground: Color {
-        IChartTourStyle.orangeSoft.opacity(isDark ? 0.12 : 0.52)
+    var actionText: Color {
+        isDark ? Color(red: 0.43, green: 0.67, blue: 1) : IChartInterfaceStyle.actionBlue
     }
 
-    var accentBorder: Color {
-        IChartTourStyle.orange.opacity(isDark ? 0.44 : 0.25)
+    var selectionBackground: Color {
+        isDark ? Color(red: 0.10, green: 0.22, blue: 0.39) : Color(red: 0.90, green: 0.95, blue: 1.00)
     }
 }
 
@@ -1009,7 +1009,7 @@ struct LibraryView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(IChartLibraryBackground(mode: homeAppearanceMode).ignoresSafeArea())
-        .tint(IChartHomeBrand.blue)
+        .tint(homeTheme.actionText)
         .toolbar(.hidden, for: .navigationBar)
         .overlay {
             if let activeLibraryOperation {
@@ -1506,6 +1506,7 @@ struct LibraryView: View {
                     selectedPDFLibraryItem = item
                 }
                 .buttonStyle(.borderedProminent)
+                .tint(IChartHomeBrand.blue)
                 .frame(maxWidth: .infinity, alignment: .center)
                 libraryRetrievalControls(query: $pdfSearchText, order: $pdfSortOrder, noun: "PDFs")
                 if !pdfSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && filteredPDFs.isEmpty {
@@ -1735,7 +1736,7 @@ struct LibraryView: View {
                             .foregroundStyle(homeTheme.panelSecondary)
                             .fixedSize(horizontal: false, vertical: true)
                         IChartLegalLinksView()
-                            .tint(IChartHomeBrand.blue)
+                            .tint(homeTheme.actionText)
                     }
                 }
 
@@ -1826,7 +1827,10 @@ struct LibraryView: View {
     private func librarySearchField(query: Binding<String>, noun: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass").foregroundStyle(homeTheme.panelSecondary)
-            TextField("Search \(noun.lowercased())", text: query)
+            TextField("", text: query, prompt: Text("Search \(noun.lowercased())")
+                .foregroundStyle(homeTheme.panelSecondary))
+                .foregroundStyle(homeTheme.panelTitle)
+                .tint(homeTheme.actionText)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .accessibilityLabel("Search \(noun)")
@@ -1899,6 +1903,7 @@ struct LibraryView: View {
                             IChartLibrarySelectionRow(
                                 title: chart.title,
                                 subtitle: chart.layoutStyle.displayText,
+                                theme: homeTheme,
                                 isSelected: selectedChartIDs.contains(chart.id)
                             ) {
                                 toggleSelection(chart.id, in: &selectedChartIDs)
@@ -1906,6 +1911,7 @@ struct LibraryView: View {
                         } else {
                         ProjectRowView(
                             chart: chart,
+                            theme: homeTheme,
                             previewMode: activeChartPreviewMode,
                             isSelected: store.selectedChartID == chart.id,
                             canDuplicate: store.canCreateChart,
@@ -2541,7 +2547,8 @@ private struct IChartGuidedTourPrompt: View {
             if let primaryActionTitle = step.primaryActionTitle {
                 Button(primaryActionTitle, action: onPrimaryAction)
                     .buttonStyle(.borderedProminent)
-                    .tint(IChartTourStyle.orange)
+                    .tint(IChartInterfaceStyle.actionBlue)
+                    .foregroundStyle(Color.white)
                     .fixedSize()
             }
 
@@ -2559,28 +2566,19 @@ private struct IChartGuidedTourPrompt: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(tourPanelBackground)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(tourBorderColor, lineWidth: IChartTourStyle.borderLineWidth)
-        }
-        .shadow(color: IChartTourStyle.navy.opacity(theme.isDark ? 0.28 : 0.12), radius: 10, y: 5)
         .accessibilityElement(children: .contain)
     }
 
     private var tourTitleColor: Color {
-        theme.isDark ? Color.white : IChartTourStyle.navy
+        IChartInterfaceStyle.guidanceTitle
     }
 
     private var tourMessageColor: Color {
-        theme.isDark ? Color.white.opacity(0.82) : theme.panelSecondary
+        IChartInterfaceStyle.guidanceText
     }
 
     private var tourPanelBackground: Color {
-        theme.isDark ? IChartTourStyle.navy.opacity(0.76) : IChartTourStyle.paper
-    }
-
-    private var tourBorderColor: Color {
-        theme.isDark ? IChartTourStyle.orange.opacity(0.82) : IChartTourStyle.navy.opacity(0.90)
+        IChartInterfaceStyle.guidanceBackground
     }
 }
 
@@ -2597,23 +2595,18 @@ private struct IChartGuidedTourSheetCallout: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(step.title)
                     .font(.subheadline.weight(.bold))
-                    .foregroundStyle(IChartTourStyle.navy)
+                    .foregroundStyle(IChartInterfaceStyle.guidanceTitle)
 
                 Text(step.message)
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(IChartInterfaceStyle.guidanceText)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(IChartTourStyle.paper)
+        .background(IChartInterfaceStyle.guidanceBackground)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(IChartTourStyle.navy.opacity(0.88), lineWidth: IChartTourStyle.borderLineWidth)
-        }
-        .shadow(color: IChartTourStyle.navy.opacity(0.10), radius: 8, y: 4)
         .accessibilityElement(children: .combine)
     }
 }
@@ -2714,7 +2707,7 @@ private struct IChartProjectAddChartsSheet: View {
                         } label: {
                             HStack(spacing: 12) {
                                 Image(systemName: chart.layoutStyle.systemImageName)
-                                    .foregroundStyle(IChartHomeBrand.blue)
+                                    .foregroundStyle(theme.actionText)
                                     .frame(width: 28, height: 28)
 
                                 VStack(alignment: .leading, spacing: 3) {
@@ -2730,7 +2723,7 @@ private struct IChartProjectAddChartsSheet: View {
                                 Spacer(minLength: 12)
 
                                 Image(systemName: "plus.circle")
-                                    .foregroundStyle(IChartHomeBrand.blue)
+                                    .foregroundStyle(theme.actionText)
                             }
                         }
                     }
@@ -2879,6 +2872,7 @@ private struct IChartLockedFeatureView: View {
             if let onOpenSettings {
                 Button("Open Plan Settings", action: onOpenSettings)
                     .buttonStyle(.borderedProminent)
+                    .tint(IChartHomeBrand.blue)
             }
         }
         .frame(maxWidth: .infinity)
@@ -2896,6 +2890,7 @@ struct IChartForumPublishRequest: Identifiable {
 private struct IChartLibrarySelectionRow: View {
     let title: String
     let subtitle: String
+    let theme: IChartHomeTheme
     let isSelected: Bool
     let onSelect: () -> Void
 
@@ -2904,17 +2899,20 @@ private struct IChartLibrarySelectionRow: View {
             HStack(spacing: 14) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.title2)
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(isSelected ? theme.actionText : theme.panelSecondary)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title).font(.headline).lineLimit(2)
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(subtitle).font(.caption).foregroundStyle(theme.panelSecondary).lineLimit(1)
                 }
                 Spacer()
             }
-            .foregroundStyle(.primary)
+            .foregroundStyle(theme.panelTitle)
             .padding(14)
             .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .background(isSelected ? theme.selectionBackground : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(alignment: .bottom) {
+                Divider().overlay(theme.panelBorder.opacity(0.28))
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -2985,16 +2983,10 @@ private struct IChartPDFLibrarySection: View {
 
                 Text("\(items.count)")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(IChartTourStyle.navy)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
-                    .background(IChartTourStyle.orangeSoft)
-                    .clipShape(Capsule())
+                    .foregroundStyle(theme.panelSecondary)
             }
             .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .background(theme.accentBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
             if items.isEmpty {
                 ContentUnavailableView(
@@ -3005,15 +2997,14 @@ private struct IChartPDFLibrarySection: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 20)
                 .foregroundStyle(theme.panelSecondary)
-                .background(theme.emptyStateBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             } else {
-                LazyVStack(spacing: 8) {
+                LazyVStack(spacing: 0) {
                     ForEach(items) { item in
                         if isSelecting {
                             IChartLibrarySelectionRow(
                                 title: item.displayTitle,
                                 subtitle: item.fileName,
+                                theme: theme,
                                 isSelected: selectedIDs.contains(item.id)
                             ) { onOpen(item) }
                         } else {
@@ -3054,7 +3045,7 @@ private struct IChartPDFLibraryRow: View {
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: "doc.richtext")
                         .font(.title3.weight(.semibold))
-                        .foregroundStyle(IChartTourStyle.orange)
+                        .foregroundStyle(theme.actionText)
                         .frame(width: 36, height: 44)
                     VStack(alignment: .leading, spacing: 6) {
                         Text(item.displayTitle)
@@ -3093,11 +3084,8 @@ private struct IChartPDFLibraryRow: View {
             .accessibilityLabel("Actions for \(item.displayTitle)")
         }
         .padding(12)
-        .background(theme.emptyStateBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(theme.panelBorder, lineWidth: 1)
+        .overlay(alignment: .bottom) {
+            Divider().overlay(theme.panelBorder.opacity(0.32))
         }
     }
 }
@@ -3500,25 +3488,8 @@ private struct IChartForumCommunityHero: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
-        .background(
-            LinearGradient(
-                colors: [
-                    IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.14 : 0.70),
-                    IChartHomeBrand.paper.opacity(theme.isDark ? 0.08 : 0.52),
-                    theme.emptyStateBackground
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
-        .clipShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous)
-                .stroke(theme.panelBorder.opacity(0.72), lineWidth: 1)
-        }
-        .overlay(alignment: .top) {
-            IChartForumPalette.accentGradient
-                .frame(height: 3)
+        .overlay(alignment: .bottom) {
+            Divider().overlay(theme.panelBorder.opacity(0.32))
         }
     }
 
@@ -3526,10 +3497,8 @@ private struct IChartForumCommunityHero: View {
         HStack(spacing: 8) {
             Image(systemName: systemImageName)
                 .font(.caption.weight(.bold))
-                .foregroundStyle(IChartHomeBrand.blue)
+                .foregroundStyle(theme.actionText)
                 .frame(width: 24, height: 24)
-                .background(IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.18 : 0.82))
-                .clipShape(Circle())
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(value)
@@ -3544,22 +3513,6 @@ private struct IChartForumCommunityHero: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 10)
         .padding(.vertical, 9)
-        .background(
-            LinearGradient(
-                colors: [
-                    theme.panelBackground.opacity(theme.isDark ? 0.68 : 0.88),
-                    IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.10 : 0.36)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
-        .clipShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
-        .overlay(alignment: .leading) {
-            Rectangle()
-                .fill(IChartHomeBrand.blue.opacity(theme.isDark ? 0.48 : 0.30))
-                .frame(width: 2)
-        }
     }
 }
 
@@ -3639,30 +3592,8 @@ private struct IChartForumTopChartsBoard: View {
         }
         .padding(15)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            LinearGradient(
-                colors: [
-                    theme.panelBackground.opacity(theme.isDark ? 0.78 : 0.96),
-                    IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.08 : 0.46),
-                    IChartHomeBrand.paper.opacity(theme.isDark ? 0.06 : 0.40)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
-        .clipShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
-        .overlay(alignment: .leading) {
-            Rectangle()
-                .fill(IChartHomeBrand.blue.opacity(theme.isDark ? 0.64 : 0.46))
-                .frame(width: 3)
-        }
-        .overlay(alignment: .top) {
-            IChartForumPalette.accentGradient
-                .frame(height: 2)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous)
-                .stroke(theme.panelBorder.opacity(0.72), lineWidth: 1)
+        .overlay(alignment: .bottom) {
+            Divider().overlay(theme.panelBorder.opacity(0.32))
         }
     }
 
@@ -3817,7 +3748,7 @@ private struct IChartForumTopChartColumn: View {
                             Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                         }
                         .font(.caption2.weight(.black))
-                        .foregroundStyle(IChartHomeBrand.blue)
+                        .foregroundStyle(theme.actionText)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 7)
                         .background(IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.14 : 0.52))
@@ -3829,20 +3760,10 @@ private struct IChartForumTopChartColumn: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, minHeight: collapsedHeight, alignment: .topLeading)
-        .background(
-            LinearGradient(
-                colors: [
-                    theme.emptyStateBackground,
-                    IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.08 : 0.36)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
-        .clipShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous)
-                .stroke(theme.panelBorder.opacity(0.68), lineWidth: 1)
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(theme.panelBorder.opacity(0.25))
+                .frame(width: 1)
         }
     }
 }
@@ -3868,7 +3789,7 @@ private struct IChartForumTopHeadlineRow: View {
 
                     Text("Lead Chart")
                         .font(.caption2.weight(.black))
-                        .foregroundStyle(accent)
+                        .foregroundStyle(theme.actionText)
 
                     Spacer(minLength: 0)
                 }
@@ -3884,7 +3805,7 @@ private struct IChartForumTopHeadlineRow: View {
                     .foregroundStyle(theme.panelSecondary)
                     .lineLimit(1)
 
-                IChartForumBadgeLabels(badges: featuredPost.authorBadges)
+                IChartForumBadgeLabels(badges: featuredPost.authorBadges, foregroundColor: theme.actionText)
 
                 HStack(spacing: 8) {
                     Label("\(max(0, featuredPost.post.voteUpCount))", systemImage: "hand.thumbsup")
@@ -3931,7 +3852,7 @@ private struct IChartForumTopChartRow: View {
             HStack(alignment: .top, spacing: 8) {
                 Text("\(rank)")
                     .font(.caption.weight(.black))
-                    .foregroundStyle(rank <= 3 ? accent : theme.panelSecondary)
+                    .foregroundStyle(rank <= 3 ? theme.actionText : theme.panelSecondary)
                     .frame(width: 20, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -3945,7 +3866,7 @@ private struct IChartForumTopChartRow: View {
                         .foregroundStyle(theme.panelSecondary)
                         .lineLimit(1)
 
-                    IChartForumBadgeLabels(badges: featuredPost.authorBadges)
+                    IChartForumBadgeLabels(badges: featuredPost.authorBadges, foregroundColor: theme.actionText)
                 }
 
                 Spacer(minLength: 4)
@@ -3957,8 +3878,9 @@ private struct IChartForumTopChartRow: View {
             .padding(.vertical, 7)
             .padding(.horizontal, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(theme.panelBackground.opacity(theme.isDark ? 0.58 : 0.74))
-            .clipShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
+            .overlay(alignment: .bottom) {
+                Divider().overlay(theme.panelBorder.opacity(0.25))
+            }
             .contentShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -3983,17 +3905,6 @@ private struct IChartForumTopChartEmptyRow: View {
         .padding(.vertical, 9)
         .padding(.horizontal, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            LinearGradient(
-                colors: [
-                    IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.08 : 0.38),
-                    theme.panelBackground.opacity(theme.isDark ? 0.58 : 0.74)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
-        .clipShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
     }
 }
 
@@ -4073,7 +3984,7 @@ private struct IChartForumEmptyPublishBar: View {
                 }
             } icon: {
                 Image(systemName: localCharts.isEmpty ? "doc.badge.plus" : "square.and.arrow.up")
-                    .foregroundStyle(IChartHomeBrand.blue)
+                    .foregroundStyle(theme.actionText)
             }
 
             Spacer(minLength: 12)
@@ -4132,7 +4043,7 @@ private struct IChartForumInlineEmptyRow: View {
             }
         } icon: {
             Image(systemName: systemImageName)
-                .foregroundStyle(IChartHomeBrand.blue)
+                .foregroundStyle(theme.actionText)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -4169,7 +4080,7 @@ private struct IChartForumSongCard: View {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "music.note.list")
                     .font(.title3.weight(.semibold))
-                    .foregroundStyle(IChartHomeBrand.blue)
+                    .foregroundStyle(theme.actionText)
                     .frame(width: 32, height: 32)
 
                 VStack(alignment: .leading, spacing: 3) {
@@ -4236,12 +4147,12 @@ private struct IChartForumPostRow: View {
                         .foregroundStyle(theme.panelSecondary)
                         .lineLimit(1)
 
-                    IChartForumBadgeLabels(badges: authorBadges)
+                    IChartForumBadgeLabels(badges: authorBadges, foregroundColor: theme.actionText)
 
                     if !post.tags.isEmpty {
                         Text(post.tags.joined(separator: " · "))
                             .font(.caption2.weight(.semibold))
-                            .foregroundStyle(IChartHomeBrand.blue)
+                            .foregroundStyle(theme.actionText)
                             .lineLimit(1)
                     }
                 }
@@ -4271,6 +4182,7 @@ private struct IChartForumPostRow: View {
 struct IChartForumBadgeLabels: View {
     let badges: [ForumAuthorBadgeType]
     var showsExplanations = false
+    var foregroundColor = IChartInterfaceStyle.actionBlue
 
     var body: some View {
         if !badges.isEmpty {
@@ -4279,7 +4191,7 @@ struct IChartForumBadgeLabels: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Label(badge.displayText, systemImage: "checkmark.seal.fill")
                             .font((showsExplanations ? Font.caption : .caption2).weight(.semibold))
-                            .foregroundStyle(IChartHomeBrand.blue)
+                            .foregroundStyle(foregroundColor)
                         if showsExplanations {
                             Text(badge.explanation)
                                 .font(.caption)
@@ -4309,7 +4221,7 @@ private struct IChartForumUploadQueueView: View {
                 Spacer()
                 Text("\(items.count)")
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(IChartHomeBrand.blue)
+                    .foregroundStyle(theme.actionText)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(IChartHomeBrand.blue.opacity(theme.isDark ? 0.18 : 0.12))
@@ -4418,7 +4330,7 @@ private struct IChartForumUploadQueueRow: View {
         case .withdrawn, .removed:
             return .red
         case .queued, .preparingPDF, .uploadingPDF, .submittingMetadata, .validating:
-            return IChartHomeBrand.blue
+            return theme.actionText
         }
     }
 }
@@ -4446,7 +4358,7 @@ private struct IChartForumQualityPill: View {
         case .hidden, .removed:
             return .red
         case .new, .active:
-            return IChartHomeBrand.blue
+            return theme.actionText
         }
     }
 
@@ -4704,12 +4616,12 @@ private struct IChartForumPostDetailView: View {
                 .font(.subheadline)
                 .foregroundStyle(theme.panelSecondary)
 
-            IChartForumBadgeLabels(badges: detail.authorBadges.map(\.badgeType), showsExplanations: true)
+            IChartForumBadgeLabels(badges: detail.authorBadges.map(\.badgeType), showsExplanations: true, foregroundColor: theme.actionText)
 
             if !detail.post.tags.isEmpty {
                 Text(detail.post.tags.joined(separator: " · "))
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(IChartHomeBrand.blue)
+                    .foregroundStyle(theme.actionText)
             }
 
             if let note = detail.post.versionNote, !note.isEmpty {
@@ -4759,7 +4671,7 @@ private struct IChartForumPostDetailView: View {
                 Label("Upvote", systemImage: detail.currentUserVote == .up ? "hand.thumbsup.fill" : "hand.thumbsup")
             }
             .buttonStyle(.bordered)
-            .tint(IChartHomeBrand.blue)
+            .tint(theme.actionText)
 
             Button {
                 onVote(.down)
@@ -4971,14 +4883,14 @@ private struct IChartForumCommentRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "text.bubble")
-                .foregroundStyle(IChartHomeBrand.blue)
+                .foregroundStyle(theme.actionText)
                 .frame(width: 24, height: 24)
 
             VStack(alignment: .leading, spacing: 4) {
                 if let creatorDisplayName = comment.creatorDisplayName, !creatorDisplayName.isEmpty {
                     Text(creatorDisplayName)
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(IChartHomeBrand.blue)
+                        .foregroundStyle(theme.actionText)
                 }
 
                 Text(comment.body)
@@ -5245,7 +5157,7 @@ private struct IChartHelpTopicRow: View {
             HStack(spacing: 14) {
                 Image(systemName: topic.systemImageName)
                     .font(.body.weight(.semibold))
-                    .foregroundStyle(IChartHomeBrand.blue)
+                    .foregroundStyle(theme.actionText)
                     .frame(width: 30, height: 30)
 
                 VStack(alignment: .leading, spacing: 3) {
@@ -5262,11 +5174,11 @@ private struct IChartHelpTopicRow: View {
 
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(isSelected ? IChartHomeBrand.blue : theme.panelSecondary.opacity(0.7))
+                    .foregroundStyle(isSelected ? theme.actionText : theme.panelSecondary.opacity(0.7))
             }
             .padding(.vertical, 14)
             .padding(.horizontal, 8)
-            .background(isSelected ? IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.18 : 0.72) : Color.clear)
+            .background(isSelected ? theme.selectionBackground : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .contentShape(Rectangle())
         }
@@ -5343,7 +5255,7 @@ private struct IChartHelpArticlePage: View {
 
                 if topic == .legal {
                     IChartLegalLinksView()
-                        .tint(IChartHomeBrand.blue)
+                        .tint(theme.actionText)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .center)
@@ -5404,7 +5316,7 @@ private struct IChartPerformanceReportShareRow: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.regular)
-                .tint(IChartHomeBrand.blue)
+                .tint(theme.actionText)
 
             } else {
                 Label("No basic performance entries to share", systemImage: "doc.badge.clock")
@@ -5527,11 +5439,10 @@ private struct IChartHelpArticleSectionView: View {
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(expandedHelpDetailBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(expandedHelpDetailBorder, lineWidth: 1)
+                .overlay(alignment: .leading) {
+                    Rectangle()
+                        .fill(theme.panelBorder.opacity(0.32))
+                        .frame(width: 1)
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
@@ -5539,13 +5450,6 @@ private struct IChartHelpArticleSectionView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var expandedHelpDetailBackground: Color {
-        IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.10 : 0.45)
-    }
-
-    private var expandedHelpDetailBorder: Color {
-        IChartHomeBrand.blue.opacity(theme.isDark ? 0.52 : 0.34)
-    }
 }
 
 private struct IChartTutorialGuide: View {
@@ -5638,13 +5542,10 @@ private struct IChartQuickStartStepRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(12)
+        .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.emptyStateBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(theme.panelBorder, lineWidth: 1)
+        .overlay(alignment: .bottom) {
+            Divider().overlay(theme.panelBorder.opacity(0.25))
         }
     }
 }
@@ -5672,9 +5573,8 @@ private struct IChartHomePanel<Content: View>: View {
             HStack(spacing: 10) {
                 Image(systemName: systemImageName)
                     .font(.title3.weight(.semibold))
-                    .foregroundStyle(IChartTourStyle.navy)
-                    .frame(width: 36, height: 36)
-                    .background(IChartTourStyle.orangeSoft, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .foregroundStyle(IChartTourStyle.orange)
+                    .frame(width: 28, height: 28)
 
                 Text(title)
                     .font(.title3.weight(.semibold))
@@ -5688,13 +5588,9 @@ private struct IChartHomePanel<Content: View>: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.panelBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(theme.accentBorder, lineWidth: 1)
+        .overlay(alignment: .bottom) {
+            Divider().overlay(theme.panelBorder.opacity(0.32))
         }
-        .shadow(color: theme.panelShadow, radius: 16, y: 8)
     }
 }
 
@@ -5708,7 +5604,7 @@ private struct IChartSettingsRow: View {
         HStack(spacing: 14) {
             Image(systemName: systemImageName)
                 .font(.body.weight(.semibold))
-                .foregroundStyle(IChartHomeBrand.blue)
+                .foregroundStyle(theme.actionText)
                 .frame(width: 30, height: 30)
 
             Text(title)
@@ -5984,7 +5880,7 @@ private struct IChartAccountSettings: View {
             HStack(spacing: 14) {
                 Image(systemName: iconName)
                     .font(.body.weight(.semibold))
-                    .foregroundStyle(IChartHomeBrand.blue)
+                    .foregroundStyle(theme.actionText)
                     .frame(width: 30, height: 30)
 
                 VStack(alignment: .leading, spacing: 3) {
@@ -6282,7 +6178,7 @@ private struct IChartAccountSettings: View {
                     .font(.caption.weight(.semibold))
             }
             .buttonStyle(.plain)
-            .foregroundStyle(IChartHomeBrand.blue)
+            .foregroundStyle(theme.actionText)
             .disabled(authStore.isWorking)
 
             if isShowingVerificationRecovery {
@@ -6935,7 +6831,7 @@ private struct IChartPlanSettings: View {
 
     private var statusTint: Color {
         if isFreeAccess { return Color(red: 0.16, green: 0.48, blue: 0.24) }
-        if isFreeBeta { return IChartHomeBrand.blue }
+        if isFreeBeta { return theme.actionText }
         switch store.subscriptionState.status {
         case .proActive:
             return Color(red: 0.16, green: 0.48, blue: 0.24)
@@ -6946,7 +6842,7 @@ private struct IChartPlanSettings: View {
         case .unavailable:
             return Color(red: 0.48, green: 0.48, blue: 0.50)
         case .basic, .legacyLocalPro:
-            return IChartHomeBrand.blue
+            return theme.actionText
         }
     }
 
@@ -6993,7 +6889,7 @@ private struct IChartPlanSettings: View {
                     .foregroundStyle(theme.panelSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            IChartLegalLinksView().tint(IChartHomeBrand.blue)
+            IChartLegalLinksView().tint(theme.actionText)
         }
     }
 
@@ -7143,7 +7039,7 @@ private struct IChartPlanSettings: View {
                 .foregroundStyle(theme.panelSecondary)
                 .fixedSize(horizontal: false, vertical: true)
             IChartLegalLinksView()
-                .tint(IChartHomeBrand.blue)
+                .tint(theme.actionText)
 
             if let statusText = subscriptionStore.state.statusText {
                 Text(statusText)
@@ -7201,7 +7097,7 @@ private struct IChartPlanSettings: View {
                     }
                 } icon: {
                     Image(systemName: "person.3.sequence")
-                        .foregroundStyle(IChartHomeBrand.blue)
+                        .foregroundStyle(theme.actionText)
                 }
             }
             .toggleStyle(.switch)
@@ -7226,7 +7122,7 @@ private struct IChartCloudSyncSettings: View {
                             .font(.body.weight(.semibold))
                     }
                 }
-                .foregroundStyle(statusTint)
+                .foregroundStyle(statusForeground)
                 .frame(width: 30, height: 30)
 
                 VStack(alignment: .leading, spacing: 3) {
@@ -7268,7 +7164,7 @@ private struct IChartCloudSyncSettings: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
-            .tint(IChartHomeBrand.blue)
+            .tint(theme.actionText)
             .disabled(!canRunCloudRestore)
             .accessibilityHint(syncStore.state.cloudRestoreDisabledReason ?? "")
 
@@ -7360,6 +7256,16 @@ private struct IChartCloudSyncSettings: View {
         return "Restore Charts from Cloud"
     }
 
+    private var statusForeground: Color {
+        if syncStore.progress != nil { return theme.actionText }
+        switch syncStore.state {
+        case .idle, .syncing, .signedOut, .unconfigured:
+            return theme.actionText
+        default:
+            return statusTint
+        }
+    }
+
     private var statusTint: Color {
         if syncStore.progress != nil { return IChartHomeBrand.blue }
         switch syncStore.state {
@@ -7398,7 +7304,7 @@ private struct IChartDiagnosticsSettings: View {
                     }
                 } icon: {
                     Image(systemName: "waveform.path.ecg")
-                        .foregroundStyle(IChartHomeBrand.blue)
+                        .foregroundStyle(theme.actionText)
                 }
             }
             .toggleStyle(.switch)
@@ -7478,7 +7384,7 @@ private struct IChartAccountTextField: View {
         HStack(spacing: 12) {
             Image(systemName: systemImageName)
                 .font(.body.weight(.semibold))
-                .foregroundStyle(IChartHomeBrand.blue)
+                .foregroundStyle(theme.actionText)
                 .frame(width: 30, height: 30)
 
             Text(title)
@@ -7528,7 +7434,7 @@ private struct IChartAccountSecureField: View {
         HStack(spacing: 12) {
             Image(systemName: systemImageName)
                 .font(.body.weight(.semibold))
-                .foregroundStyle(IChartHomeBrand.blue)
+                .foregroundStyle(theme.actionText)
                 .frame(width: 30, height: 30)
 
             Text(title)
@@ -7600,11 +7506,6 @@ private struct IChartNewChartControl: View {
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.vertical, 14)
-        .background(theme.accentBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(theme.accentBorder, lineWidth: 1)
-        }
     }
 }
 
@@ -7630,7 +7531,7 @@ private struct IChartChartsWorkspaceModePicker: View {
                         .background {
                             if isSelected {
                                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                    .fill(IChartHomeBrand.paper.opacity(0.95))
+                                    .fill(IChartHomeBrand.blue)
                             }
                         }
                 }
@@ -7654,7 +7555,7 @@ private struct IChartChartsWorkspaceModePicker: View {
 
     private func textColor(isSelected: Bool) -> Color {
         if isSelected {
-            return IChartHomeBrand.ink
+            return .white
         }
 
         return theme.isDark ? IChartHomeBrand.paper : IChartHomeBrand.ink.opacity(0.72)
@@ -7687,8 +7588,6 @@ private struct IChartProjectCreateControl: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .center)
-        .background(theme.accentBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
@@ -7825,7 +7724,7 @@ private struct IChartProjectChartRow: View {
                     if !canOpenForEditing {
                         Label(lockMessage, systemImage: "lock.fill")
                             .font(.caption2.weight(.semibold))
-                            .foregroundStyle(IChartHomeBrand.blue)
+                            .foregroundStyle(theme.actionText)
                             .lineLimit(1)
                     }
                 }
@@ -7854,8 +7753,9 @@ private struct IChartProjectChartRow: View {
             .accessibilityLabel("Project chart actions")
         }
         .padding(12)
-        .background(theme.emptyStateBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(alignment: .bottom) {
+            Divider().overlay(theme.panelBorder.opacity(0.25))
+        }
     }
 }
 
@@ -7881,7 +7781,7 @@ private struct IChartPreviewModePicker: View {
                         .background {
                             if isSelected {
                                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                    .fill(IChartHomeBrand.paper.opacity(0.95))
+                                    .fill(IChartHomeBrand.blue)
                             }
                         }
                 }
@@ -7912,7 +7812,7 @@ private struct IChartPreviewModePicker: View {
 
     private func textColor(isSelected: Bool) -> Color {
         if isSelected {
-            return IChartHomeBrand.ink
+            return .white
         }
 
         return theme.isDark ? IChartHomeBrand.paper : IChartHomeBrand.ink.opacity(0.72)
@@ -8005,6 +7905,7 @@ private struct IChartStaffMeasureLines: View {
 
 private struct ProjectRowView: View {
     let chart: Chart
+    let theme: IChartHomeTheme
     let previewMode: IChartChartPreviewMode
     let isSelected: Bool
     let canDuplicate: Bool
@@ -8042,9 +7943,13 @@ private struct ProjectRowView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(cardBorderColor, lineWidth: 1)
+        .overlay(alignment: .bottom) {
+            if previewMode == .collapsed {
+                Divider().overlay(theme.panelBorder.opacity(0.32))
+            } else {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(cardBorderColor, lineWidth: 1)
+            }
         }
         .contextMenu {
             if canOpenForEditing {
@@ -8099,7 +8004,7 @@ private struct ProjectRowView: View {
             } label: {
                 Image(systemName: "ellipsis.circle")
                     .font(.title3.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.actionText)
                     .frame(width: 36, height: 36)
             }
             .accessibilityLabel("Chart actions")
@@ -8120,18 +8025,18 @@ private struct ProjectRowView: View {
         VStack(alignment: .leading, spacing: 3) {
             Text(chart.title)
                 .font(.headline.weight(.semibold))
-                .foregroundStyle(IChartHomeBrand.ink)
+                .foregroundStyle(theme.panelTitle)
                 .lineLimit(1)
 
             Text(rowSubtitle)
                 .font(.subheadline)
-                .foregroundStyle(IChartHomeBrand.ink.opacity(0.58))
+                .foregroundStyle(theme.panelSecondary)
                 .lineLimit(1)
 
             if !canOpenForEditing {
                 Label(lockMessage, systemImage: "lock.fill")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(IChartHomeBrand.blue)
+                    .foregroundStyle(theme.actionText)
                     .lineLimit(1)
             }
         }
@@ -8142,11 +8047,12 @@ private struct ProjectRowView: View {
     }
 
     private var cardBackground: Color {
-        isSelected ? IChartHomeBrand.blueSoft.opacity(0.82) : IChartHomeBrand.paper.opacity(0.92)
+        if isSelected { return theme.selectionBackground }
+        return previewMode == .collapsed ? .clear : theme.panelBackground
     }
 
     private var cardBorderColor: Color {
-        isSelected ? IChartHomeBrand.blue.opacity(0.35) : IChartHomeBrand.ink.opacity(0.07)
+        isSelected ? theme.actionText : theme.panelBorder
     }
 }
 

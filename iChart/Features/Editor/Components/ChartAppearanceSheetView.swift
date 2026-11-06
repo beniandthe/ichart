@@ -407,7 +407,7 @@ private struct AppearanceChoiceRow: View {
 
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(IChartInterfaceStyle.actionText)
                     }
                 }
 
@@ -426,12 +426,6 @@ private struct AppearanceChoiceRow: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity)
-            .background(IChartTourStyle.orange.opacity(isSelected ? 0.09 : 0.025),
-                in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(IChartTourStyle.orange.opacity(isSelected ? 0.42 : 0.14), lineWidth: 1)
-            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

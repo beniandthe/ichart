@@ -81,12 +81,14 @@ struct NewChartCreationView: View {
 
                     ForEach(ChartLayoutStyle.v1NewChartOptions) { layoutStyle in
                         layoutChoice(layoutStyle)
+                        Divider()
                     }
                 }
                 .padding(20)
             }
             .navigationTitle("New Chart")
             .navigationBarTitleDisplayMode(.inline)
+            .tint(IChartInterfaceStyle.actionText)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -110,11 +112,12 @@ struct NewChartCreationView: View {
                 ZStack(alignment: .trailing) {
                     Text(layoutStyle.displayText)
                         .font(.headline)
+                        .foregroundStyle(IChartInterfaceStyle.actionText)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.horizontal, 24)
                     Image(systemName: "chevron.right")
                         .font(.footnote.weight(.semibold))
-                        .foregroundStyle(IChartTourStyle.orange)
+                        .foregroundStyle(IChartInterfaceStyle.actionText)
                         .accessibilityHidden(true)
                 }
                 Text(layoutStyle.detailText)
@@ -128,22 +131,13 @@ struct NewChartCreationView: View {
                     .accessibilityHidden(true)
                 Text("Example layout")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(IChartTourStyle.navy)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(IChartTourStyle.orangeSoft, in: Capsule())
+                    .foregroundStyle(.secondary)
             }
             .foregroundStyle(.primary)
             .multilineTextAlignment(.center)
-            .padding(16)
+            .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .center)
-            .background(isTourTarget ? Color.accentColor.opacity(0.10) : Color(uiColor: .secondarySystemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(IChartTourStyle.orange.opacity(0.28), lineWidth: 1)
-                    .allowsHitTesting(false)
-            }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(layoutStyle.displayText)

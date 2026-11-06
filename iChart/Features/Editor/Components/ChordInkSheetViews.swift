@@ -113,7 +113,7 @@ private struct ChordInkSourcePreview: View {
         .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(IChartTourStyle.orange.opacity(0.22), lineWidth: 1)
+                .stroke(IChartInterfaceStyle.cardBorder, lineWidth: 1)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(sourceImage == nil ? "Source handwriting unavailable" : accessibilityDescription)
@@ -811,7 +811,9 @@ struct ChordInkBatchConfirmationSheetView: View {
             }
         }
         .padding(16)
-        .background(.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
     }
 
     private func chordEntryControls(for confirmation: PendingChordInkConfirmation) -> some View {
@@ -1035,11 +1037,11 @@ struct ChordInkConfirmationSheetView: View {
                     .padding(.horizontal, 18)
                     .padding(.vertical, 16)
                     .frame(maxWidth: .infinity, minHeight: 58)
-                    .background(Color(uiColor: .secondarySystemGroupedBackground))
+                    .background(IChartInterfaceStyle.cardBackground)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(isManualEntryFocused ? Color.blue.opacity(0.45) : Color.black.opacity(0.08), lineWidth: 1)
+                            .stroke(isManualEntryFocused ? IChartInterfaceStyle.selectionBorder : IChartInterfaceStyle.cardBorder, lineWidth: 1)
                     }
                     .accessibilityLabel("Manual chord entry")
 
@@ -1262,7 +1264,6 @@ struct ChordCorrectionSheetView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(16)
-                .background(.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 6) {
                 Text("Change to").font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
@@ -1278,11 +1279,11 @@ struct ChordCorrectionSheetView: View {
                     .padding(.horizontal, 18)
                     .padding(.vertical, 16)
                     .frame(maxWidth: .infinity, minHeight: 58)
-                    .background(Color(uiColor: .secondarySystemGroupedBackground))
+                    .background(IChartInterfaceStyle.cardBackground)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(isManualEntryFocused ? Color.blue.opacity(0.45) : Color.black.opacity(0.08), lineWidth: 1)
+                            .stroke(isManualEntryFocused ? IChartInterfaceStyle.selectionBorder : IChartInterfaceStyle.cardBorder, lineWidth: 1)
                     }
                     .accessibilityLabel("Manual chord entry")
                 }

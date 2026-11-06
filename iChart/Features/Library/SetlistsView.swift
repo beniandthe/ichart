@@ -15,6 +15,7 @@ private struct IChartSetlistAppearance: ViewModifier {
             .background(Color(uiColor: .systemBackground))
             .environment(\.colorScheme, colorScheme)
             .preferredColorScheme(colorScheme)
+            .tint(IChartInterfaceStyle.actionText)
     }
 }
 
@@ -45,7 +46,7 @@ struct SetlistsView: View {
                         IChartSetlistWorkspaceTitle(text: "Setlists", identifier: "setlists.title")
                             .frame(maxWidth: .infinity, alignment: .center)
                         IChartSetlistNativeActionButton(title: "New Setlist", systemImage: "plus", identifier: "setlists.create",
-                            isEnabled: setlistStore.loadError == nil) { showingCreate = true }
+                            isEnabled: setlistStore.loadError == nil, isProminent: true) { showingCreate = true }
                     }
                     .padding(.horizontal, 16).padding(.vertical, 8)
                     .background(Color(uiColor: .systemBackground))
@@ -64,7 +65,6 @@ struct SetlistsView: View {
                             placeholder: "Search setlists", identifier: "setlists.search")
                     }
                     .padding(.horizontal, 16).padding(.vertical, 10)
-                    .background(IChartTourStyle.orange.opacity(0.07))
                     List {
                         if let loadError = setlistStore.loadError {
                             Section {
@@ -80,6 +80,7 @@ struct SetlistsView: View {
                             } actions: {
                                 Button("Create Setlist") { showingCreate = true }
                                     .buttonStyle(.borderedProminent)
+                                    .tint(IChartInterfaceStyle.actionBlue)
                             }
                             .listRowBackground(Color.clear)
                         }
@@ -95,7 +96,7 @@ struct SetlistsView: View {
                                             .font(.subheadline).foregroundStyle(.secondary)
                                     }
                                     Spacer()
-                                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(IChartInterfaceStyle.actionText)
                                 }
                                 .padding(.vertical, 4)
                             }
@@ -109,6 +110,7 @@ struct SetlistsView: View {
                             }
                         }
                     }
+                    .listStyle(.plain)
                     .accessibilityIdentifier("setlists.list")
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -188,7 +190,7 @@ struct IChartSetlistDetailView: View {
                 IChartSetlistWorkspaceTitle(text: setlist?.name ?? "Setlist", identifier: "setlists.detail.title")
                     .frame(maxWidth: .infinity, alignment: .center)
                 IChartSetlistNativeActionButton(title: "Add PDFs", systemImage: "plus", identifier: "setlists.songs.add",
-                    isEnabled: setlist != nil) { showingAddPDFs = true }
+                    isEnabled: setlist != nil, isProminent: true) { showingAddPDFs = true }
                 IChartSetlistNativeActionButton(title: editMode.isEditing ? "Done" : "Edit", identifier: "setlists.reorder",
                     isEnabled: !entries.isEmpty) { editMode = editMode.isEditing ? .inactive : .active }
                 Menu {
@@ -218,6 +220,8 @@ struct IChartSetlistDetailView: View {
                                 .font(.footnote).foregroundStyle(.secondary)
                         }
                     }
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
                     if entries.isEmpty {
                         ContentUnavailableView {
                             Label("Add Your First Song", systemImage: "doc.badge.plus")
@@ -259,6 +263,7 @@ struct IChartSetlistDetailView: View {
                         perform { try setlistStore.removeEntries(at: offsets, from: setlistID) }
                     }
                 }
+                .listStyle(.plain)
                 .accessibilityIdentifier("setlists.detail.list")
                 .environment(\.editMode, $editMode)
             } else {
@@ -299,9 +304,8 @@ struct IChartSetlistDetailView: View {
         HStack(spacing: 14) {
             Text("\(index + 1)")
                 .font(.headline.monospacedDigit())
-                .foregroundStyle(IChartTourStyle.navy)
+                .foregroundStyle(.secondary)
                 .frame(minWidth: 32, minHeight: 32)
-                .background(IChartTourStyle.orangeSoft, in: Capsule())
             VStack(alignment: .leading, spacing: 4) {
                 Text(song.displayTitle).font(.headline)
                 if let item = song.pdfItem, pdfStore.exportedPDF(for: item) != nil {
@@ -313,7 +317,7 @@ struct IChartSetlistDetailView: View {
                 }
             }
             Spacer(minLength: 4)
-            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+            Image(systemName: "chevron.right").font(.caption).foregroundStyle(IChartInterfaceStyle.actionText)
         }
         .padding(.vertical, 4)
     }
@@ -375,12 +379,14 @@ struct IChartSetlistNameSheet: View {
                         .frame(maxWidth: .infinity)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                .listRowBackground(Color.clear)
                 Section("Setlist Name") {
                     IChartTypedTextField(placeholder: "Setlist Name", text: $name, isFocused: $isFocused,
                         autocapitalizationType: .words, autocorrectionType: .yes, borderStyle: .roundedRect)
                         .frame(minHeight: 44)
                         .accessibilityIdentifier("setlists.name")
                 }
+                .listRowBackground(Color.clear)
                 if let errorMessage {
                     Text(errorMessage).foregroundStyle(.red).font(.footnote)
                         .accessibilityIdentifier("setlists.name.error")
@@ -447,6 +453,8 @@ private struct IChartSetlistPDFPicker: View {
                         if replacementEntryID != nil { selectedIDs = [item.id] } else { selectedIDs.insert(item.id) }
                     }
                 }
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
                 if items.isEmpty {
                     ContentUnavailableView("No PDFs Available", systemImage: "doc.richtext", description: Text("Import a PDF from Files, export a chart, or download a forum PDF to add it to this setlist."))
                 }
@@ -467,16 +475,19 @@ private struct IChartSetlistPDFPicker: View {
                             }
                             Spacer()
                             Image(systemName: selectedIDs.contains(item.id) ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(selectedIDs.contains(item.id) ? IChartInterfaceStyle.actionText : Color.secondary)
                         }
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .listRowBackground(selectedIDs.contains(item.id) ? IChartInterfaceStyle.selectionFill : Color.clear)
                     .disabled(pdfStore.exportedPDF(for: item) == nil)
                     .accessibilityIdentifier("setlists.pick.\(item.id.uuidString)")
                     .accessibilityAddTraits(selectedIDs.contains(item.id) ? .isSelected : [])
                 }
                 if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(.red) }
             }
+            .listStyle(.plain)
             .navigationTitle(replacementEntryID == nil ? "Add PDFs" : "Replace PDF")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -749,13 +760,15 @@ private struct IChartSetlistNativeActionButton: UIViewRepresentable {
     var systemImage: String? = nil
     let identifier: String
     var isEnabled = true
+    var isProminent = false
     let action: () -> Void
 
     func makeUIView(context: Context) -> IChartSetlistActionButton { IChartSetlistActionButton() }
 
     func updateUIView(_ view: IChartSetlistActionButton, context: Context) {
         view.overrideUserInterfaceStyle = colorScheme == .dark ? .dark : .light
-        view.configure(title: title, systemImage: systemImage, identifier: identifier, isEnabled: isEnabled, tinted: false)
+        view.configure(title: title, systemImage: systemImage, identifier: identifier, isEnabled: isEnabled,
+            tinted: false, isProminent: isProminent)
         view.action = action
     }
 
@@ -780,8 +793,10 @@ private final class IChartSetlistActionButton: UIButton {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func configure(title: String, systemImage: String?, identifier: String, isEnabled: Bool, tinted: Bool) {
-        var configuration = tinted ? UIButton.Configuration.tinted() : .plain()
+    func configure(title: String, systemImage: String?, identifier: String, isEnabled: Bool, tinted: Bool, isProminent: Bool = false) {
+        var configuration = isProminent ? UIButton.Configuration.filled() : (tinted ? .tinted() : .plain())
+        configuration.baseForegroundColor = isEnabled ? (isProminent ? .white : UIColor(IChartInterfaceStyle.actionText)) : .secondaryLabel
+        configuration.baseBackgroundColor = isEnabled ? UIColor(IChartInterfaceStyle.actionBlue) : .tertiarySystemFill
         configuration.title = title
         configuration.image = systemImage.flatMap { UIImage(systemName: $0) }
         configuration.imagePadding = 8
