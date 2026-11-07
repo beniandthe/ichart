@@ -395,6 +395,9 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         chordDraftRenderCoordinator?.manualPreviewDrawingProvider = { [weak view] in
             view?.currentManualPreviewDrawing()
         }
+        chordDraftRenderCoordinator?.sourceDrawingProvider = { [weak view] in
+            view?.currentChordInkSourceDrawing()
+        }
         view.chordDraftRenderCoordinator = chordDraftRenderCoordinator
         view.manualRenderWithPreview = manualRenderWithPreview
         view.isInteractionSuspended = isInteractionSuspended
@@ -7373,6 +7376,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     func currentManualPreviewDrawing() -> PKDrawing? {
         guard manualRenderWithPreview, recognizesChordInk, interactionMode.allowsChordInkEditing,
+              let scope = activeCanvasScope, case .chords = scope else { return nil }
+        return pageInkCanvasView.drawing
+    }
+
+    func currentChordInkSourceDrawing() -> PKDrawing? {
+        guard interactionMode.allowsChordInkEditing,
               let scope = activeCanvasScope, case .chords = scope else { return nil }
         return pageInkCanvasView.drawing
     }

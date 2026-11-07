@@ -36,6 +36,13 @@ struct ChartHeaderSheetView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    EditorSheetInstruction(title: "Set the chart’s heading", steps: [
+                        "Edit the title, credit, and style note, then tap Apply.",
+                        "Cancel keeps the existing heading."
+                    ])
+                    .accessibilityIdentifier("header-sheet-instruction")
+                }
                 Section("Chart") {
                     VStack(spacing: 0) {
                         headerTextField(
@@ -134,7 +141,7 @@ struct ChartHeaderSheetView: View {
 }
 
 private struct ChartHeaderSheetPresentationModifier: ViewModifier {
-    private let compactHeight: CGFloat = 330
+    private let compactHeight: CGFloat = 440
 
     func body(content: Content) -> some View {
         content

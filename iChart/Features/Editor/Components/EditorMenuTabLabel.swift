@@ -10,7 +10,8 @@ struct EditorMenuTabLabel: View {
     var body: some View {
         Label(title, systemImage: systemImage)
             .font(.caption.weight(.semibold))
-            .lineLimit(1)
+            .lineLimit(2)
+            .multilineTextAlignment(.center)
             .padding(.horizontal, 9)
             .frame(minHeight: EditorCommandLayoutPolicy.minimumTapTarget)
             .frame(maxWidth: .infinity)
@@ -22,6 +23,7 @@ struct EditorMenuTabLabel: View {
             )
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .contentShape(Rectangle())
+            .accessibilityAddTraits(isSelected ? [.isSelected] : [])
             .tourActionHighlight(
                 isActive: isTourHighlighted,
                 cornerRadius: 12,

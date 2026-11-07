@@ -83,11 +83,11 @@ final class IChartPDFSetlistStore: ObservableObject {
     }
 
     @discardableResult
-    func create(name: String) throws -> IChartPDFSetlist {
+    func create(name: String, pdfItems: [IChartPDFLibraryItem] = []) throws -> IChartPDFSetlist {
         try requireLoadedManifest()
         let name = try normalizedName(name)
         let date = Date()
-        let setlist = IChartPDFSetlist(name: name, createdAt: date, updatedAt: date)
+        let setlist = IChartPDFSetlist(name: name, entries: Self.entries(for: pdfItems), createdAt: date, updatedAt: date)
         var candidate = setlists
         candidate.insert(setlist, at: 0)
         try commit(candidate)
@@ -114,15 +114,33 @@ final class IChartPDFSetlistStore: ObservableObject {
 
     @discardableResult
     func add(pdfItems: [IChartPDFLibraryItem], to setlistID: UUID) throws -> [IChartPDFSetlistEntry] {
-        let entries = pdfItems.map { item in
+        let entries = Self.entries(for: pdfItems)
+        try update(setlistID: setlistID) { $0.entries.append(contentsOf: entries) }
+        return entries
+    }
+
+    /// Replacing a song changes only the selected reference, preserving its
+    /// position and identity. The original PDF remains in the PDF Library.
+    func replace(entryID: UUID, in setlistID: UUID, with pdfItem: IChartPDFLibraryItem) throws {
+        try update(setlistID: setlistID) { setlist in
+            guard let index = setlist.entries.firstIndex(where: { $0.id == entryID }) else {
+                throw IChartPDFSetlistStoreError.entryNotFound
+            }
+            let replacement = Self.entries(for: [pdfItem])[0]
+            setlist.entries[index] = IChartPDFSetlistEntry(
+                id: entryID, pdfItemID: replacement.pdfItemID, displayTitle: replacement.displayTitle
+            )
+        }
+    }
+
+    private static func entries(for pdfItems: [IChartPDFLibraryItem]) -> [IChartPDFSetlistEntry] {
+        pdfItems.map { item in
             let title = item.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
             return IChartPDFSetlistEntry(
                 pdfItemID: item.id,
                 displayTitle: title.isEmpty ? "Untitled PDF" : item.displayTitle
             )
         }
-        try update(setlistID: setlistID) { $0.entries.append(contentsOf: entries) }
-        return entries
     }
 
     func remove(entryID: UUID, from setlistID: UUID) throws {

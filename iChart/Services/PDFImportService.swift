@@ -36,9 +36,8 @@ enum IChartPDFImportError: LocalizedError, Equatable {
             return "This PDF has no readable pages."
         case .encryptedPDF:
             return "Password-protected PDFs cannot be imported. Save an unlocked copy and try again."
-        case .fileTooLarge(let maximumBytes):
-            let size = ByteCountFormatter.string(fromByteCount: Int64(maximumBytes), countStyle: .file)
-            return "This PDF is too large. Choose a PDF smaller than \(size)."
+        case .fileTooLarge:
+            return "This PDF could not be imported. Save a reduced copy or split it into shorter PDFs, then try again."
         case .tooManyPages(let maximum):
             return "This PDF has too many pages. Import up to \(maximum) pages at a time."
         case .rollbackFailed(let message):

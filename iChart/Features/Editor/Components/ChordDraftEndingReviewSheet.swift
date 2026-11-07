@@ -5,6 +5,7 @@ import UIKit
 
 struct ChordDraftEndingReviewSheet: View {
     private let request: PendingChordDraftEndingReview
+    private let continuesRendering: Bool
     private let onApply: (String, EndingEndStyle, ClosedRange<Int>) -> Void
     private let onBackToWriting: (DraftBarline?) -> Void
     @State private var label: String
@@ -15,10 +16,12 @@ struct ChordDraftEndingReviewSheet: View {
 
     init(
         request: PendingChordDraftEndingReview,
+        continuesRendering: Bool? = nil,
         onApply: @escaping (String, EndingEndStyle, ClosedRange<Int>) -> Void,
         onBackToWriting: @escaping (DraftBarline?) -> Void
     ) {
         self.request = request
+        self.continuesRendering = continuesRendering ?? request.continuesRendering
         self.onApply = onApply
         self.onBackToWriting = onBackToWriting
         _label = State(initialValue: request.ending.label)
@@ -46,13 +49,24 @@ struct ChordDraftEndingReviewSheet: View {
         NavigationStack {
             Form {
                 Section {
+                    EditorSheetInstruction(
+                        title: "Check the handwritten ending",
+                        steps: ["Choose its measures, enter the label, and check the right edge.", approvalMessage]
+                    )
+                    .accessibilityIdentifier("draft-ending-review-instruction")
+                }
+
+                Section {
                     if let range = selectedRange {
                         Label(measureRangeText(range), systemImage: "music.note.list")
                             .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
                             .accessibilityIdentifier("draft-ending-review-measures")
                         Text("Based on the existing and drawn barlines.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
                     } else if !request.blockingBarlines.isEmpty {
                         Label("Fix the marks below to choose measures", systemImage: "exclamationmark.triangle")
                             .font(.subheadline.weight(.semibold))
@@ -74,6 +88,8 @@ struct ChordDraftEndingReviewSheet: View {
                         Text("The bracket suggests a range. You can correct its start and end measures below without redrawing the ink.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
                     }
                 } header: {
                     Text("Your ending")
@@ -140,6 +156,7 @@ struct ChordDraftEndingReviewSheet: View {
                                     .accessibilityLabel("Use ending label \(preset)")
                             }
                         }
+                        .frame(maxWidth: .infinity)
                     } header: {
                         Text("Ending label")
                     } footer: {
@@ -188,10 +205,17 @@ struct ChordDraftEndingReviewSheet: View {
                     .frame(width: 104, height: 44)
                     .disabled(!canUseEnding)
                     .accessibilityIdentifier("draft-ending-review-apply")
+                    .accessibilityHint(approvalMessage)
                 }
             }
         }
         .presentationDetents([.large])
+    }
+
+    private var approvalMessage: String {
+        continuesRendering
+            ? "Use Ending continues rendering. When it renders, the reviewed bracket and label ink are replaced with notation."
+            : "Use Ending keeps this ending ready for rendering. Its bracket and label ink stay until you render."
     }
 
     private func returnToWriting(focusing barline: DraftBarline?) {

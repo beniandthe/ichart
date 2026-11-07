@@ -15,6 +15,15 @@ enum IChartQuickStartSetupPolicy {
     }
 }
 
+struct ChartSetupDraftValues {
+    var numerator: Int
+    var denominator: Int
+    var key: DocumentKey
+    var clef: ChartClef
+    var startingMeasureCount: Int
+    var stylePreset: StylePreset
+}
+
 struct ChartSetupSheetView: View {
     @Environment(\.dismiss) private var dismiss
     @Binding private var chart: Chart
@@ -23,6 +32,9 @@ struct ChartSetupSheetView: View {
     let isCreateActionHighlighted: Bool
     let showsCreateTourBanner: Bool
     let onSkipTour: () -> Void
+    let onCancelCreation: (() -> Void)?
+    let onBackToLayout: ((ChartSetupDraftValues) -> Void)?
+    let onCreatePreparedChart: ((Chart) -> Bool)?
 
     @State private var numerator: Int
     @State private var denominator: Int
@@ -31,12 +43,17 @@ struct ChartSetupSheetView: View {
     @State private var startingMeasureCount: Int
     @State private var selectedStylePreset: StylePreset
     @State private var isApplyingSetup = false
+    @State private var creationError: String?
 
     init(
         chart: Binding<Chart>,
         isCreateActionHighlighted: Bool = false,
         showsCreateTourBanner: Bool = false,
         onSkipTour: @escaping () -> Void = {},
+        onCancelCreation: (() -> Void)? = nil,
+        initialDraftValues: ChartSetupDraftValues? = nil,
+        onBackToLayout: ((ChartSetupDraftValues) -> Void)? = nil,
+        onCreatePreparedChart: ((Chart) -> Bool)? = nil,
         onOperationStarted: @escaping (String) -> Void = { _ in },
         onOperationFinished: @escaping () -> Void = {}
     ) {
@@ -44,19 +61,22 @@ struct ChartSetupSheetView: View {
         self.isCreateActionHighlighted = isCreateActionHighlighted
         self.showsCreateTourBanner = showsCreateTourBanner
         self.onSkipTour = onSkipTour
+        self.onCancelCreation = onCancelCreation
+        self.onBackToLayout = onBackToLayout
+        self.onCreatePreparedChart = onCreatePreparedChart
         self.onOperationStarted = onOperationStarted
         self.onOperationFinished = onOperationFinished
         let profileDefaults = chart.wrappedValue.layoutStyle.profile.measureDefaults
         let setupPolicy = chart.wrappedValue.layoutStyle.profile.setupPolicy
-        _numerator = State(initialValue: chart.wrappedValue.defaultMeter.numerator)
-        _denominator = State(initialValue: chart.wrappedValue.defaultMeter.denominator)
-        _selectedKey = State(initialValue: chart.wrappedValue.displayedDocumentKey)
+        _numerator = State(initialValue: initialDraftValues?.numerator ?? chart.wrappedValue.defaultMeter.numerator)
+        _denominator = State(initialValue: initialDraftValues?.denominator ?? chart.wrappedValue.defaultMeter.denominator)
+        _selectedKey = State(initialValue: initialDraftValues?.key ?? chart.wrappedValue.displayedDocumentKey)
         _selectedClef = State(
-            initialValue: chart.wrappedValue.hasCompletedInitialSetup
+            initialValue: initialDraftValues?.clef ?? (chart.wrappedValue.hasCompletedInitialSetup
                 ? chart.wrappedValue.defaultClef
-                : setupPolicy.creationDefaultClef
+                : setupPolicy.creationDefaultClef)
         )
-        _selectedStylePreset = State(initialValue: chart.wrappedValue.stylePreset)
+        _selectedStylePreset = State(initialValue: initialDraftValues?.stylePreset ?? chart.wrappedValue.stylePreset)
         let initialMeasureCount: Int
         if chart.wrappedValue.hasCompletedInitialSetup {
             initialMeasureCount = max(1, chart.wrappedValue.measures.count)
@@ -67,13 +87,52 @@ struct ChartSetupSheetView: View {
                     && chart.wrappedValue.layoutStyle == .simpleChordSheet
             )
         }
-        _startingMeasureCount = State(initialValue: initialMeasureCount)
+        _startingMeasureCount = State(initialValue: initialDraftValues?.startingMeasureCount ?? initialMeasureCount)
     }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    if let onBackToLayout {
+                        Button {
+                            onBackToLayout(currentDraftValues)
+                        } label: {
+                            Label("Back to Layouts", systemImage: "chevron.left")
+                        }
+                        .frame(minHeight: 44)
+                        .accessibilityHint("Choose a different chart layout before creating the chart")
+                    }
+
+                    VStack(spacing: 6) {
+                        Text(chart.hasCompletedInitialSetup ? "Update this chart's setup" : "Prepare a blank chart")
+                            .font(.headline)
+                        Text(chart.hasCompletedInitialSetup
+                            ? "Choose the page settings, then tap Apply. Cancel leaves the chart unchanged."
+                            : "Choose the key, meter and sheet style, then tap Create Blank Page.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if onCreatePreparedChart != nil {
+                            Text("Nothing is added to your library until you create the page.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("chart-setup-instruction")
+
+                    if let creationError {
+                        Text(creationError)
+                            .font(.subheadline)
+                            .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("chart-creation-error")
+                    }
+
                     if showsCreateTourBanner && !chart.hasCompletedInitialSetup {
                         createTourBanner
                     }
@@ -105,10 +164,14 @@ struct ChartSetupSheetView: View {
                 }
             }
             .toolbar {
-                if chart.hasCompletedInitialSetup {
+                if chart.hasCompletedInitialSetup || onCancelCreation != nil {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel") {
-                            dismiss()
+                            if let onCancelCreation {
+                                onCancelCreation()
+                            } else {
+                                dismiss()
+                            }
                         }
                     }
                 }
@@ -132,6 +195,7 @@ struct ChartSetupSheetView: View {
                 }
             }
         }
+        .tint(IChartInterfaceStyle.actionText)
     }
 
     private var createTourBanner: some View {
@@ -188,6 +252,11 @@ struct ChartSetupSheetView: View {
         chart.layoutStyle.profile.setupPolicy
     }
 
+    private var currentDraftValues: ChartSetupDraftValues {
+        ChartSetupDraftValues(numerator: numerator, denominator: denominator, key: selectedKey,
+            clef: selectedClef, startingMeasureCount: startingMeasureCount, stylePreset: selectedStylePreset)
+    }
+
     private var operationMessage: String {
         chart.hasCompletedInitialSetup ? "Updating page setup..." : "Creating blank page..."
     }
@@ -198,16 +267,15 @@ struct ChartSetupSheetView: View {
 
     private var layoutSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Layout Style")
-                .font(.headline)
+            setupSectionHeading("Layout Style")
 
-            HStack(alignment: .top, spacing: 12) {
+            VStack(spacing: 8) {
                 Image(systemName: chart.layoutStyle.systemImageName)
                     .font(.title3.weight(.semibold))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(IChartInterfaceStyle.actionText)
                     .frame(width: 28, height: 28)
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(spacing: 4) {
                     Text(chart.layoutStyle.displayText)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
@@ -215,23 +283,20 @@ struct ChartSetupSheetView: View {
                     Text(chart.layoutStyle.detailText)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-
-                Spacer()
             }
+            .multilineTextAlignment(.center)
             .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(uiColor: .secondarySystemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .frame(maxWidth: .infinity)
         }
     }
 
     private var sheetStyleSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Sheet Style")
-                .font(.headline)
+            setupSectionHeading("Sheet Style")
 
-            VStack(spacing: 8) {
+            VStack(spacing: 0) {
                 ForEach(StylePreset.sheetPresets(for: chart.layoutStyle)) { preset in
                     Button {
                         selectedStylePreset = preset
@@ -239,7 +304,7 @@ struct ChartSetupSheetView: View {
                         HStack(alignment: .top, spacing: 12) {
                             Image(systemName: selectedStylePreset == preset ? "checkmark.circle.fill" : "circle")
                                 .font(.body.weight(.semibold))
-                                .foregroundStyle(selectedStylePreset == preset ? Color.accentColor : .secondary)
+                                .foregroundStyle(selectedStylePreset == preset ? IChartInterfaceStyle.actionText : .secondary)
                                 .frame(width: 24, height: 24)
 
                             VStack(alignment: .leading, spacing: 3) {
@@ -258,16 +323,13 @@ struct ChartSetupSheetView: View {
                         .padding(.horizontal, 14)
                         .padding(.vertical, 12)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            selectedStylePreset == preset
-                                ? Color.accentColor.opacity(0.10)
-                                : Color(uiColor: .secondarySystemBackground)
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(preset.sheetDisplayText(for: chart.layoutStyle))
                     .accessibilityHint(preset.sheetDetailText(for: chart.layoutStyle))
+
+                    Divider()
                 }
             }
         }
@@ -275,8 +337,7 @@ struct ChartSetupSheetView: View {
 
     private var keySection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Key")
-                .font(.headline)
+            setupSectionHeading("Key")
 
             Picker("Key", selection: $selectedKey) {
                 Section("Major") {
@@ -301,8 +362,7 @@ struct ChartSetupSheetView: View {
 
     private var clefSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Clef")
-                .font(.headline)
+            setupSectionHeading("Clef")
 
             Picker("Clef", selection: $selectedClef) {
                 ForEach(setupPolicy.clefOptions) { clef in
@@ -319,8 +379,7 @@ struct ChartSetupSheetView: View {
 
     private var meterSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Time Signature")
-                .font(.headline)
+            setupSectionHeading("Time Signature")
 
             HStack(spacing: 14) {
                 Stepper(value: $numerator, in: 1...12) {
@@ -349,8 +408,7 @@ struct ChartSetupSheetView: View {
 
     private var startingMeasuresSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Starting Measures")
-                .font(.headline)
+            setupSectionHeading("Starting Measures")
 
             Stepper(value: $startingMeasureCount, in: 1...64) {
                 HStack {
@@ -371,12 +429,25 @@ struct ChartSetupSheetView: View {
         }
     }
 
+    private func setupSectionHeading(_ title: String) -> some View {
+        VStack(spacing: 6) {
+            Text(title)
+                .font(.headline)
+            Capsule()
+                .fill(IChartTourStyle.orange.opacity(0.7))
+                .frame(width: 28, height: 3)
+                .accessibilityHidden(true)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
     private func applySetupWithFeedback() {
         guard !isApplyingSetup else {
             return
         }
 
         isApplyingSetup = true
+        creationError = nil
         onOperationStarted(operationMessage)
         let setupSpan = IChartPerformanceTrace.start(
             "chartSetup.applySetup",
@@ -389,9 +460,24 @@ struct ChartSetupSheetView: View {
                 "chartSetup.completeInitialSetup",
                 metadata: setupTraceMetadata
             )
-            applySetup()
+            var preparedChart = chart
+            applySetup(to: &preparedChart)
+            let didApply: Bool
+            if let onCreatePreparedChart {
+                didApply = onCreatePreparedChart(preparedChart)
+            } else {
+                chart = preparedChart
+                didApply = true
+            }
             IChartPerformanceTrace.end(completionSpan)
-            dismiss()
+            if didApply {
+                if onCreatePreparedChart == nil {
+                    dismiss()
+                }
+            } else {
+                creationError = "The chart could not be added. Check your chart limit and project access, then try again. Your setup is still here."
+                isApplyingSetup = false
+            }
             try? await Task.sleep(nanoseconds: 180_000_000)
             onOperationFinished()
             IChartPerformanceTrace.end(setupSpan)
@@ -410,7 +496,7 @@ struct ChartSetupSheetView: View {
         ]
     }
 
-    private func applySetup() {
+    private func applySetup(to preparedChart: inout Chart) {
         let resolvedMeter: Meter
         if setupPolicy.includesTimeSignatureSelection {
             resolvedMeter = Meter(numerator: numerator, denominator: denominator)
@@ -418,7 +504,7 @@ struct ChartSetupSheetView: View {
             resolvedMeter = chart.defaultMeter
         }
 
-        chart.completeInitialSetup(
+        preparedChart.completeInitialSetup(
             title: chart.title,
             key: setupPolicy.includesKeySelection
                 ? selectedKey.concertKey(for: chart.defaultTranspositionView)

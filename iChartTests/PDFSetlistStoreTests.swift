@@ -54,6 +54,40 @@ final class PDFSetlistStoreTests: XCTestCase {
         XCTAssertEqual(IChartPDFSetlistStore(baseDirectory: root).setlists, store.setlists)
     }
 
+    func testCreateWithSelectedPDFsSavesOneCompleteSetlist() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var writes = 0
+        let store = IChartPDFSetlistStore(baseDirectory: root, writeManifest: { data, url in
+            writes += 1
+            try data.write(to: url, options: .atomic)
+        })
+        let songs = [pdfItem(title: "First"), pdfItem(title: "Second")]
+        let setlist = try store.create(name: "  Tonight  ", pdfItems: songs)
+        XCTAssertEqual(writes, 1, "Create and add must not leave an empty setlist if a later write fails")
+        XCTAssertEqual(setlist.name, "Tonight")
+        XCTAssertEqual(setlist.entries.map(\.pdfItemID), songs.map(\.id))
+        XCTAssertEqual(IChartPDFSetlistStore(baseDirectory: root).setlists, [setlist])
+    }
+
+    func testReplaceKeepsEntryIdentityAndPositionAndChangesOnlyItsPDFReference() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = IChartPDFSetlistStore(baseDirectory: root)
+        let original = pdfItem(title: "Unavailable Original")
+        let other = pdfItem(title: "Other Song")
+        let setlist = try store.create(name: "Gig", pdfItems: [original, other, original])
+        let replacement = pdfItem(title: "Working Copy")
+        try store.replace(entryID: setlist.entries[0].id, in: setlist.id, with: replacement)
+        let updated = try XCTUnwrap(store.setlist(id: setlist.id))
+        XCTAssertEqual(updated.entries.map(\.id), setlist.entries.map(\.id))
+        XCTAssertEqual(updated.entries.map(\.pdfItemID), [replacement.id, other.id, original.id])
+        XCTAssertEqual(updated.entries[0].displayTitle, replacement.displayTitle)
+        XCTAssertEqual(updated.entries[1...], setlist.entries[1...])
+        XCTAssertEqual(updated.createdAt, setlist.createdAt)
+        XCTAssertEqual(IChartPDFSetlistStore(baseDirectory: root).setlists, [updated])
+    }
+
     func testReorderUsesSwiftUIOffsetSemanticsInBothDirections() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -82,6 +116,7 @@ final class PDFSetlistStoreTests: XCTestCase {
         XCTAssertThrowsError(try store.rename(setlistID: setlist.id, to: ""))
         XCTAssertThrowsError(try store.rename(setlistID: UUID(), to: "Missing"))
         XCTAssertThrowsError(try store.remove(entryID: UUID(), from: setlist.id))
+        XCTAssertThrowsError(try store.replace(entryID: UUID(), in: setlist.id, with: pdfItem(title: "Replacement")))
         XCTAssertThrowsError(try store.removeEntries(at: IndexSet(integer: 2), from: setlist.id))
         XCTAssertThrowsError(try store.moveEntries(in: setlist.id, fromOffsets: IndexSet(integer: 0), toOffset: 2))
         XCTAssertThrowsError(try store.moveEntries(in: setlist.id, fromOffsets: IndexSet(integer: 1), toOffset: 0))
@@ -106,9 +141,11 @@ final class PDFSetlistStoreTests: XCTestCase {
         writer.fails = true
         let mutations: [() throws -> Void] = [
             { _ = try store.create(name: "Failed Create") },
+            { _ = try store.create(name: "Failed With Songs", pdfItems: [song]) },
             { try store.rename(setlistID: setlist.id, to: "Failed Rename") },
             { _ = try store.add(pdfItem: song, to: setlist.id) },
             { _ = try store.add(pdfItems: [song, song], to: setlist.id) },
+            { try store.replace(entryID: entries[0].id, in: setlist.id, with: self.pdfItem(title: "Replacement")) },
             { try store.remove(entryID: entries[0].id, from: setlist.id) },
             { try store.removeEntries(at: IndexSet(integer: 0), from: setlist.id) },
             { try store.moveEntries(in: setlist.id, fromOffsets: IndexSet(integer: 0), toOffset: 2) },

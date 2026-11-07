@@ -30,19 +30,34 @@ final class DividerToolGuidanceTests: XCTestCase {
         let mounted = try await mount(chart)
         let title = tool == .browse ? "Select" : "Measures"
         try activate(await node(title, in: mounted.window, button: true))
-        var expected = tool.activeToolInstruction(layoutStyle: style,
+        let expected = tool.toolGuidance(layoutStyle: style,
             manualRenderWithPreview: false, hasFreeInkArticulations: true)
-        if tool == .measureEdit, style == .rhythmSectionSheet {
-            expected += " If a converted mark prevents merging or deleting measures, use Restore Ink in Free Ink first."
+        let purpose = try await node(expected.title, in: mounted.window)
+        let nextActionText = tool == .measureEdit && style == .rhythmSectionSheet
+            ? "Tap a measure and choose Add, Layout or Delete. If a converted mark blocks an edit, use Restore Ink in Free Ink first."
+            : expected.steps[0]
+        let nextAction = try await node(nextActionText, in: mounted.window)
+        assertVisible(purpose, in: mounted.window)
+        assertVisible(nextAction, in: mounted.window)
+        XCTAssertLessThan(purpose.frame(in: mounted.window).minY,
+            nextAction.frame(in: mounted.window).maxY,
+            "A concise purpose must introduce the tool's next action")
+        let guide = try await node(expected.detailsTitle, in: mounted.window, button: true)
+        assertVisible(guide, in: mounted.window)
+        try activate(guide)
+        let guideDone = try await presentedPanelButton("Done", in: mounted.window)
+        XCTAssertTrue(guideDone.isEnabled)
+        try activate(guideDone)
+        for _ in 0..<40 {
+            if mounted.window.rootViewController?.presentedViewController == nil { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
         }
-        let helper = try await node(expected, in: mounted.window)
-        assertVisible(helper, in: mounted.window)
-        XCTAssertGreaterThan(helper.frame(in: mounted.window).height, 25,
-            "The complete helper must wrap into readable lines at this text size")
+        XCTAssertNil(mounted.window.rootViewController?.presentedViewController,
+            "Local help returns to the tool without changing the chart")
 
         if tool == .browse {
-            XCTAssertTrue(expected.contains("Tap a converted mark"))
-            XCTAssertTrue(expected.contains("Tap an eligible divider, then its red X to merge the measures."))
+            XCTAssertTrue(expected.referenceText.contains("Tap a converted mark"))
+            XCTAssertTrue(expected.referenceText.contains("Tap an eligible divider, then its red X to merge the measures."))
             XCTAssertEqual(mounted.canvas.interactionMode, .browse)
             let measureID = chart.measures[0].id
             XCTAssertTrue(chart.canDeleteCommittedChordBarline(after: measureID))
@@ -74,7 +89,8 @@ final class DividerToolGuidanceTests: XCTestCase {
                 CGPoint(x: redX.midX, y: redX.midY), from: mounted.canvas), with: nil),
                 "The selected divider's red X must be reachable through the actual hit overlay")
         } else {
-            XCTAssertTrue(expected.contains("Layout includes Merge with Next Measure"))
+            XCTAssertTrue(expected.referenceText.contains("Open Layout to compare each action"))
+            XCTAssertTrue(expected.referenceText.contains("Merge with Next Measure"))
             XCTAssertEqual(mounted.canvas.interactionMode, .measureEdit)
             for label in ["Add", "Layout", "Delete", "Done"] {
                 let control = try await node(label, in: mounted.window, button: true)
@@ -90,7 +106,8 @@ final class DividerToolGuidanceTests: XCTestCase {
             mounted.window.layoutIfNeeded()
             try await Task.sleep(nanoseconds: 50_000_000)
             XCTAssertEqual(mounted.canvas.convert(mounted.canvas.bounds, to: mounted.window), stableFrame)
-            assertVisible(try await node(expected, in: mounted.window), in: mounted.window)
+            assertVisible(try await node(expected.title, in: mounted.window), in: mounted.window)
+            assertVisible(try await node(nextActionText, in: mounted.window), in: mounted.window)
         }
         XCTAssertGreaterThan(stableFrame.intersection(mounted.window.bounds).height, 100,
             "The helper and controls must leave usable canvas space")
@@ -140,12 +157,19 @@ final class DividerToolGuidanceTests: XCTestCase {
             previousWindow?.makeKey()
             try? FileManager.default.removeItem(at: directory)
         }
-        for _ in 0..<40 {
+        // A cold app launch can finish connecting its normal SwiftUI window
+        // after this fixture is installed. Keep the real fixture window key
+        // while waiting for UIKit's actual appearance callback.
+        for _ in 0..<100 {
+            if !window.isKeyWindow, scene.activationState == .foregroundActive {
+                window.makeKeyAndVisible()
+            }
             window.layoutIfNeeded()
             if host.hasAppeared, window.isKeyWindow, host.view.bounds.size == window.bounds.size { break }
             try await Task.sleep(nanoseconds: 50_000_000)
         }
-        XCTAssertTrue(host.hasAppeared && window.isKeyWindow)
+        XCTAssertTrue(host.hasAppeared && window.isKeyWindow,
+            "The actual fixture must appear and own input: appeared=\(host.hasAppeared), key=\(window.isKeyWindow), scene=\(scene.activationState.rawValue)")
         XCTAssertEqual(window.bounds.size, scene.coordinateSpace.bounds.size)
         XCTAssertEqual(host.view.bounds.size, window.bounds.size)
         let canvas = try XCTUnwrap(Self.descendants(host.view).compactMap { $0 as? LeadSheetCanvasUIKitView }.first)
@@ -169,6 +193,20 @@ final class DividerToolGuidanceTests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
         XCTFail("The actual editor did not expose \(label)")
+        throw GuidanceFailure.missingControl
+    }
+
+    private func presentedPanelButton(_ label: String, in window: UIWindow) async throws -> NativeAccessibilityLookup.Node {
+        for _ in 0..<40 {
+            window.layoutIfNeeded()
+            if let panel = window.rootViewController?.presentedViewController?.view,
+               let result = try NativeAccessibilityLookup.nodes(in: panel).first(where: {
+                   $0.isButton && $0.element.accessibilityLabel == label
+               }) { return result }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        attach(window, name: "Missing local guide action - \(label)")
+        XCTFail("The presented guide did not expose \(label)")
         throw GuidanceFailure.missingControl
     }
 

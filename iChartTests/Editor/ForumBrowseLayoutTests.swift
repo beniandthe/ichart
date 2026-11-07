@@ -8,7 +8,7 @@ import XCTest
 /// Mounted production views; no account, network, PDF upload or store mutation.
 @MainActor
 final class ForumBrowseLayoutTests: XCTestCase {
-    private let helperText = "Search songs, artists, arrangers, or tags, then tap Search. Use Load More for more matches. Open a chart to preview its PDF or discuss it."
+    private let helperText = "Search songs, artists, arrangers, or tags, then tap Search. Use Load More for more matches. Open a chart to save its PDF or discuss it."
 
     func testTopChartsCardsAndSearchFitNarrowAndAvailableWidthsForBothStyles() async throws {
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
@@ -148,15 +148,15 @@ final class ForumBrowseLayoutTests: XCTestCase {
 
         field.text = "Dm7 A"
         field.sendActions(for: .editingChanged)
-        try await wait(mounted.window) { fixture.searchText == "Dm7 A" && fixture.searchRequests == ["Dm7", ""] }
-        XCTAssertEqual(fixture.state, .loading,
-            "The fixture must exercise the real first-edit default-catalog refresh")
+        try await wait(mounted.window) { fixture.searchText == "Dm7 A" && fixture.searchRequests == ["Dm7"] }
+        XCTAssertEqual(fixture.state, .loaded(fixture.summaries),
+            "Refining a query must keep its current results until Search is submitted")
         try await assertSameFocusedField(field, frame: focusedFrame, in: mounted)
 
         field.text = "Dm7 Am"
         field.sendActions(for: .editingChanged)
         try await wait(mounted.window) { fixture.searchText == "Dm7 Am" }
-        XCTAssertEqual(fixture.searchRequests, ["Dm7", ""], "Typing must not add a request per character")
+        XCTAssertEqual(fixture.searchRequests, ["Dm7"], "Typing must not send any search request")
         for state in [IChartForumState.loaded(fixture.summaries), .failed("Disposable local retry fixture"), .loading] {
             fixture.state = state
             try await settle(mounted.window)
@@ -170,8 +170,12 @@ final class ForumBrowseLayoutTests: XCTestCase {
         try activate(try await node("Retry", in: mounted, button: true))
         try await wait(mounted.window) { fixture.retryCount == 1 && fixture.state == .loading }
         try await assertSameFocusedField(field, frame: focusedFrame, in: mounted)
-        XCTAssertEqual(fixture.searchRequests, ["Dm7", ""])
+        XCTAssertEqual(fixture.searchRequests, ["Dm7"])
         XCTAssertEqual(fixture.searchText, "Dm7 Am")
+        field.text = ""
+        field.sendActions(for: .editingChanged)
+        try await wait(mounted.window) { fixture.searchRequests == ["Dm7", ""] && fixture.submittedSearchText.isEmpty }
+        try await assertSameFocusedField(field, frame: focusedFrame, in: mounted)
         XCTAssertEqual(fixture.summaries, original)
         XCTAssertTrue(fixture.openedPosts.isEmpty)
         XCTAssertEqual(fixture.publishCount, 0)
@@ -180,7 +184,7 @@ final class ForumBrowseLayoutTests: XCTestCase {
         await mounted.close()
     }
 
-    func testSubmittedQuerySurvivesForumRecreationAndRetryUsesTheVisibleDraft() async throws {
+    func testSubmittedQuerySurvivesForumRecreationAndRetryUsesSubmittedQueryUntilNextSearch() async throws {
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
             let fixture = Fixture(style: style)
             fixture.searchText = " Dm7 "
@@ -210,7 +214,7 @@ final class ForumBrowseLayoutTests: XCTestCase {
                 "Exercise a new native control, not merely a loaded-state redraw")
             XCTAssertEqual(returnedField.text, " Dm7 ")
             XCTAssertEqual(fixture.submittedSearchText, "Dm7")
-            XCTAssertEqual(fixture.refreshQueries, [" Dm7 ", " Dm7 "])
+            XCTAssertEqual(fixture.refreshQueries, [" Dm7 ", "Dm7"])
             fixture.state = .loaded(fixture.summaries)
             try await assertResultsMode(true, in: mounted)
 
@@ -222,27 +226,27 @@ final class ForumBrowseLayoutTests: XCTestCase {
             returnedField.sendActions(for: .editingChanged)
             returnedField.sendActions(for: .editingChanged)
             try await wait(mounted.window) {
-                fixture.searchText == "Dm7 A" && fixture.searchRequests == [" Dm7 ", ""]
-                    && fixture.submittedSearchText == ""
+                fixture.searchText == "Dm7 A" && fixture.searchRequests == [" Dm7 "]
+                    && fixture.submittedSearchText == "Dm7"
             }
             try await assertSameFocusedField(returnedField, frame: focusedFrame, in: mounted)
             returnedField.text = "Dm7 Am"
             returnedField.sendActions(for: .editingChanged)
             try await wait(mounted.window) { fixture.searchText == "Dm7 Am" }
-            XCTAssertEqual(fixture.searchRequests, [" Dm7 ", ""],
-                "Only the original first-edit default reset may request a refresh")
+            XCTAssertEqual(fixture.searchRequests, [" Dm7 "],
+                "Editing retains the submitted results without a default-catalog refresh")
 
             fixture.state = .failed("Disposable local retry fixture")
             try await settle(mounted.window)
             try activate(try await node("Retry", in: mounted, button: true))
             try await wait(mounted.window) {
                 fixture.retryCount == 1 && fixture.state == .loading
-                    && fixture.submittedSearchText == "Dm7 Am"
+                    && fixture.submittedSearchText == "Dm7"
             }
             try await assertSameFocusedField(returnedField, frame: focusedFrame, in: mounted)
-            XCTAssertEqual(fixture.refreshQueries, [" Dm7 ", " Dm7 ", "", "Dm7 Am"],
-                "Retry must label the exact query it requests, not the earlier blank refresh")
-            XCTAssertEqual(fixture.searchRequests, [" Dm7 ", ""],
+            XCTAssertEqual(fixture.refreshQueries, [" Dm7 ", "Dm7", "Dm7"],
+                "Retry repeats the submitted query, while keeping the visible draft available")
+            XCTAssertEqual(fixture.searchRequests, [" Dm7 "],
                 "Retry must use its existing refresh callback without inventing a Search action")
             returnedField.resignFirstResponder()
             fixture.state = .loaded(fixture.summaries)
@@ -264,6 +268,19 @@ final class ForumBrowseLayoutTests: XCTestCase {
             let nodes = try NativeAccessibilityLookup.nodes(in: mounted.host.view)
             XCTAssertFalse(nodes.contains { $0.isButton && $0.element.accessibilityLabel == "Search" })
             XCTAssertFalse(nodes.contains { $0.element.accessibilityLabel == helperText })
+            XCTAssertTrue(fixture.searchRequests.isEmpty)
+            XCTAssertEqual(fixture.publishCount, 0)
+            await mounted.close()
+        }
+    }
+
+    func testAccountAndPlanGatesOfferDirectRecoveryWithoutStartingNetworkActions() async throws {
+        for (state, action) in [(IChartForumState.signedOut, "Sign In"), (.requiresPro, "Open Plan Settings")] {
+            let fixture = Fixture(style: .simpleChordSheet)
+            fixture.state = state
+            let mounted = try await mount(fixture, width: 360, category: .large)
+            try activate(try await node(action, in: mounted, button: true))
+            XCTAssertEqual(fixture.accountOpenCount, 1)
             XCTAssertTrue(fixture.searchRequests.isEmpty)
             XCTAssertEqual(fixture.publishCount, 0)
             await mounted.close()
@@ -480,6 +497,7 @@ final class ForumBrowseLayoutTests: XCTestCase {
         var refreshQueries: [String] = []
         var retryCount = 0
         var publishCount = 0
+        var accountOpenCount = 0
         var openedPosts: [UUID] = []
         var loadMoreRequests = 0
         init(style: ChartLayoutStyle) {
@@ -497,8 +515,8 @@ final class ForumBrowseLayoutTests: XCTestCase {
             state = .loaded(summaries)
         }
         func search(_ query: String) { searchRequests.append(query); request(query) }
-        func retry() { retryCount += 1; request(searchText) }
-        func recreateForum() { forumGeneration += 1; request(searchText) }
+        func retry() { retryCount += 1; request(submittedSearchText) }
+        func recreateForum() { forumGeneration += 1; request(submittedSearchText) }
         func loadMore() { loadMoreRequests += 1; isLoadingMoreSearchResults = true }
         private func request(_ query: String) {
             submittedSearchText = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -517,6 +535,7 @@ final class ForumBrowseLayoutTests: XCTestCase {
                 onRefresh: fixture.retry, onPublishChart: { _ in fixture.publishCount += 1 },
                 onRetryUpload: { _ in }, onWithdrawUpload: { _ in }, onDismissUpload: { _ in },
                 onOpenPost: { _, post in fixture.openedPosts.append(post.id) },
+                onOpenAccount: { fixture.accountOpenCount += 1 },
                 hasMoreSearchResults: fixture.hasMoreSearchResults,
                 isLoadingMoreSearchResults: fixture.isLoadingMoreSearchResults,
                 onLoadMoreSearchResults: fixture.loadMore)
