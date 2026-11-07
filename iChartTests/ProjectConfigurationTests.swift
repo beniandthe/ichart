@@ -1207,11 +1207,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("Collapse section"))
         XCTAssertTrue(libraryText.contains("Expand section"))
         XCTAssertTrue(libraryText.contains("isExpanded: expandedSectionIDs.contains(section.id)"))
-        XCTAssertTrue(libraryText.contains("expandedHelpDetailBackground"))
-        XCTAssertTrue(libraryText.contains("expandedHelpDetailBorder"))
-        XCTAssertTrue(libraryText.contains("IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.10 : 0.45)"))
-        XCTAssertTrue(libraryText.contains("IChartHomeBrand.blue.opacity(theme.isDark ? 0.52 : 0.34)"))
-        XCTAssertTrue(libraryText.contains(".stroke(expandedHelpDetailBorder, lineWidth: 1)"))
+        // The accepted clarity layout uses open sections instead of the former
+        // nested detail cards. Keep this contract about the reachable help
+        // content; dedicated workflow/UI tests cover its presentation.
         XCTAssertTrue(libraryText.contains("Start Quick Start"))
         XCTAssertFalse(libraryText.contains("Read through the main iChart systems here"))
         XCTAssertTrue(libraryText.contains("Make a first Simple Chord Sheet with one short guide"))

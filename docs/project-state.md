@@ -10,9 +10,11 @@ integrated with current main `c850c98d`, preserving #103 hardening and #104
 owner-scoped retention and consent-reset recovery. The dirty primary checkout
 and parked recognition lanes are separate, preserved work.
 
-`project.yml` now declares **1.9 (150)**. Build 150 is provisional until its
-availability is verified live in App Store Connect. The accepted development
-Build 149 is not the distribution artifact. See the
+`project.yml` now declares **1.9 (150)**. Live App Store Connect inspection found
+no existing 1.9 version or upload, and the latest completed upload was 1.2.3 (78).
+Version 1.9 has since been created for submission, with automatic release after
+approval and no phased rollout. The accepted development Build 149 is not the
+distribution artifact. See the
 [v1.9 release record](release-1.9-2026-11-06.md) for source, validation and delivery
 boundaries. Upload, Apple processing, review and public availability require
 separate live receipts; none follows merely from this source integration.

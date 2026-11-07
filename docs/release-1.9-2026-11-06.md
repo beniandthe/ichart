@@ -11,10 +11,15 @@ locally as recovery evidence.
 - Accepted branch: `codex/clarity-workflows-20261106`, tip `745f961a`.
 - Accepted app source: `d8774fa7`; the tip adds installation documentation only.
 - Main integrated alongside it: `c850c98d` (#104), with #103 already inherited.
-- Authoritative package configuration: **1.9 (150)**. Build availability remains
-  to be checked in live App Store Connect before upload.
+- Authoritative package configuration: **1.9 (150)**. Live App Store Connect
+  inspection confirmed no existing 1.9 version/upload; its latest completed
+  upload is 1.2.3 (78).
 - Personal comparison resources remain excluded explicitly with
   `ICHART_INCLUDE_PERSONAL_ML_COMPARISON=NO`.
+
+The 1.9 Apple version record is created with automatic release after approval
+and immediate release to all users (no phased rollout). These are saved release
+settings, not a review submission or public-availability receipt.
 
 ## Included behavior
 
@@ -45,6 +50,15 @@ strict artifact identity/signature/profile/ML-exclusion inspection, and live
 Apple upload/processing/selection/submission verification. Keep review and
 public-distribution status separate. Do not claim submission or availability
 from local archive or CI success.
+
+Fresh release checks caught an unconditional UIKit import in a shared styling
+file. The UIKit import and UIKit-only color enum are now conditionally compiled;
+the active iOS implementation is unchanged. Help-content contracts retain their
+content/access checks while dropping assertions for the retired nested-card
+styling. A separate simulator-wrapper fixture repair preserves the production
+wrapper and its child-reaping order, adds a bounded restoration deadline, and
+checks that restoration observes the child already reaped. Its 26 mock tests
+and 20 repeated cancellation subcases passed locally.
 
 ## Repository preservation
 

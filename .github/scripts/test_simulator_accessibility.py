@@ -13,6 +13,11 @@ import unittest
 SIMULATOR_ID = "12345678-1234-1234-1234-123456789ABC"
 DESTINATION = "platform=iOS Simulator,id=" + SIMULATOR_ID
 WRAPPER = Path(__file__).with_name("with-simulator-accessibility.sh")
+# The wrapper allows a two-second TERM grace before KILL/reap. Restoration
+# then starts 18 mock/parser processes, so it needs a separate bounded budget.
+CHILD_REAP_TIMEOUT = 5
+CANCELLATION_COMPLETION_TIMEOUT = 15
+FIXTURE_CLEANUP_TIMEOUT = 5
 
 MOCK_CLI = r'''#!/usr/bin/env python3
 import json
@@ -38,9 +43,23 @@ def fail(flag, code):
     if state.get(flag):
         sys.exit(code)
 
+def assert_child_reaped_before_restoration():
+    if not state.get("assert_child_reaped_before_restoration"):
+        return
+    child_pid = int(Path(os.environ["ICHART_SIMULATOR_TEST_STARTED"]).read_text())
+    try:
+        os.kill(child_pid, 0)
+    except ProcessLookupError:
+        record("restoration_child_reaped", [child_pid])
+        return
+    raise AssertionError("Preference restoration ran before the owned test child was reaped")
+
 name = Path(sys.argv[0]).name
 args = sys.argv[1:]
 record(name, args)
+if ((name == "defaults" and state.get("keyboard_restoration_called"))
+        or (name == "xcrun" and state.get("restoration_called"))):
+    time.sleep(state.get("post_restore_verification_delay", 0))
 if name == "xcodebuild":
     def cancelled(received, frame):
         record("test_signal", [received])
@@ -94,6 +113,7 @@ if name == "defaults":
             save()
             fail("keyboard_disable_failure", 46)
         else:
+            assert_child_reaped_before_restoration()
             state["keyboard_restoration_called"] = True
             save()
             fail("keyboard_restore_failure", 47)
@@ -107,6 +127,7 @@ if name == "defaults":
             save()
         sys.exit(0)
     if operation == "delete":
+        assert_child_reaped_before_restoration()
         state["keyboard_restoration_called"] = True
         save()
         fail("keyboard_restore_failure", 47)
@@ -166,6 +187,7 @@ if operation == "write":
         save()
         fail("enable_failure", 36)
     else:
+        assert_child_reaped_before_restoration()
         state["restoration_called"] = True
         save()
         fail("restore_failure", 37)
@@ -179,6 +201,7 @@ if operation == "write":
         save()
     sys.exit(0)
 if operation == "delete":
+    assert_child_reaped_before_restoration()
     state["restoration_called"] = True
     save()
     fail("restore_failure", 37)
@@ -383,15 +406,45 @@ class SimulatorAccessibilityWrapperTests(unittest.TestCase):
                  (signal.SIGTERM, True, False), (signal.SIGTERM, False, True))
         for received, ignore_cancellation, signal_before_pid in cases:
             with self.subTest(signal=received, ignore=ignore_cancellation, before_pid=signal_before_pid):
-                self.log_path.unlink(missing_ok=True)
-                self.started_path.unlink(missing_ok=True)
-                self.configure(command_wait=True, ignore_cancellation=ignore_cancellation)
-                environment = dict(self.environment)
-                if signal_before_pid:
-                    # Inject only in the test shell, exactly before the wrapper
-                    # records its asynchronous child PID. No production hook.
-                    bash_environment = self.directory / "signal-before-pid.sh"
-                    bash_environment.write_text(r'''trap 'if [[ "$BASH_COMMAND" == "command_pid=\"\$!\"" ]]; then
+                self.assert_cancellation_reaps(received, ignore_cancellation, signal_before_pid)
+
+    def test_cancellation_reaps_before_slow_preference_verification(self):
+        # Four post-write CLI calls deliberately add 3.2s after the child is
+        # gone. Correct KILL/reap + restoration can exceed the old shared 5s.
+        self.assert_cancellation_reaps(signal.SIGTERM, True, False, verification_delay=0.8)
+
+    def test_failed_fixture_cleanup_kills_pipe_holding_child_before_draining(self):
+        self.configure(command_wait=True, ignore_cancellation=True)
+        process = subprocess.Popen(self.arguments(), env=self.environment, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, text=True, start_new_session=True)
+        try:
+            child_pid = self.wait_for_mock_child(process)
+            # Reproduce a failed fixture's wrapper being killed while its
+            # SIGTERM-ignoring child still owns stdout/stderr pipe handles.
+            process.kill()
+            process.wait(timeout=FIXTURE_CLEANUP_TIMEOUT)
+            os.kill(child_pid, 0)
+            self.cleanup_mock_processes(process)
+            # Pipe EOF can precede the OS reaping this now-orphaned fake.
+            self.assert_mock_child_reaped(child_pid)
+            with self.assertRaises(ProcessLookupError):
+                os.kill(child_pid, 0)
+        finally:
+            self.cleanup_mock_processes(process)
+
+    def assert_cancellation_reaps(self, received, ignore_cancellation, signal_before_pid,
+                                 verification_delay=0):
+        self.log_path.unlink(missing_ok=True)
+        self.started_path.unlink(missing_ok=True)
+        self.configure(command_wait=True, ignore_cancellation=ignore_cancellation,
+                       assert_child_reaped_before_restoration=True,
+                       post_restore_verification_delay=verification_delay)
+        environment = dict(self.environment)
+        if signal_before_pid:
+            # Inject only in the test shell, exactly before the wrapper
+            # records its asynchronous child PID. No production hook.
+            bash_environment = self.directory / "signal-before-pid.sh"
+            bash_environment.write_text(r'''trap 'if [[ "$BASH_COMMAND" == "command_pid=\"\$!\"" ]]; then
   trap - DEBUG
   for ((attempt = 0; attempt < 250; attempt++)); do
     [[ -f "$ICHART_SIMULATOR_TEST_STARTED" ]] && break
@@ -400,41 +453,77 @@ class SimulatorAccessibilityWrapperTests(unittest.TestCase):
   kill -TERM "$$"
 fi' DEBUG
 ''')
-                    environment["BASH_ENV"] = str(bash_environment)
-                process = subprocess.Popen(self.arguments(), env=environment, stdout=subprocess.PIPE,
-                                           stderr=subprocess.PIPE, text=True, start_new_session=True)
-                try:
-                    deadline = time.monotonic() + 5
-                    while not self.started_path.exists() and process.poll() is None and time.monotonic() < deadline:
-                        time.sleep(0.02)
-                    self.assertTrue(self.started_path.exists(), "Fake xcodebuild did not start")
-                    if not signal_before_pid:
-                        process.send_signal(received)
-                    stdout, stderr = process.communicate(timeout=5)
-                    self.assertEqual(process.returncode, 128 + received, stdout + stderr)
-                    self.assert_preference(False)
-                    self.assert_keyboard_preference(True)
-                    calls = self.calls()
-                    child_signal_index = next(index for index, call in enumerate(calls) if call[0] == "test_signal")
-                    restore_index = next(index for index, call in enumerate(calls)
-                                         if call == ["xcrun", ["simctl", "spawn", SIMULATOR_ID, "defaults", "write",
-                                                                "com.apple.Accessibility", "ApplicationAccessibilityEnabled", "-bool", "NO"]])
-                    self.assertLess(child_signal_index, restore_index)
-                    keyboard_restore_index = next(index for index, call in enumerate(calls)
-                                                  if call == ["defaults", ["write", "com.apple.iphonesimulator",
-                                                                           "ConnectHardwareKeyboard", "-bool", "YES"]])
-                    self.assertLess(child_signal_index, keyboard_restore_index)
-                    with self.assertRaises(ProcessLookupError):
-                        os.kill(int(self.started_path.read_text()), 0)
-                finally:
-                    if process.poll() is None:
-                        process.kill()
-                        process.communicate()
-                    if self.started_path.exists():
-                        try:
-                            os.killpg(int(self.started_path.read_text()), signal.SIGKILL)
-                        except ProcessLookupError:
-                            pass
+            environment["BASH_ENV"] = str(bash_environment)
+        process = subprocess.Popen(self.arguments(), env=environment, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, text=True, start_new_session=True)
+        try:
+            child_pid = self.wait_for_mock_child(process)
+            if not signal_before_pid:
+                process.send_signal(received)
+            self.assert_mock_child_reaped(child_pid)
+            stdout, stderr = process.communicate(timeout=CANCELLATION_COMPLETION_TIMEOUT)
+            self.assertEqual(process.returncode, 128 + received, stdout + stderr)
+            self.assert_preference(False)
+            self.assert_keyboard_preference(True)
+            calls = self.calls()
+            child_signal_index = next(index for index, call in enumerate(calls) if call[0] == "test_signal")
+            restore_index = next(index for index, call in enumerate(calls)
+                                 if call == ["xcrun", ["simctl", "spawn", SIMULATOR_ID, "defaults", "write",
+                                                      "com.apple.Accessibility", "ApplicationAccessibilityEnabled", "-bool", "NO"]])
+            self.assertLess(child_signal_index, restore_index)
+            keyboard_restore_index = next(index for index, call in enumerate(calls)
+                                          if call == ["defaults", ["write", "com.apple.iphonesimulator",
+                                                                   "ConnectHardwareKeyboard", "-bool", "YES"]])
+            self.assertLess(child_signal_index, keyboard_restore_index)
+            self.assertEqual(sum(call[0] == "restoration_child_reaped" for call in calls), 2,
+                             "Both restoration writes must observe the child already reaped")
+            with self.assertRaises(ProcessLookupError):
+                os.kill(child_pid, 0)
+        finally:
+            self.cleanup_mock_processes(process)
+
+    def wait_for_mock_child(self, process):
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                child_pid = int(self.started_path.read_text())
+            except (FileNotFoundError, ValueError):
+                pass
+            else:
+                self.assertGreater(child_pid, 0)
+                return child_pid
+            # The pre-PID signal fixture may finish while this parent is
+            # descheduled. Its valid start marker still counts after exit.
+            if process.poll() is not None or time.monotonic() >= deadline:
+                break
+            time.sleep(0.02)
+        self.fail("Fake xcodebuild did not start")
+
+    def assert_mock_child_reaped(self, child_pid):
+        deadline = time.monotonic() + CHILD_REAP_TIMEOUT
+        while time.monotonic() < deadline:
+            try:
+                os.kill(child_pid, 0)
+            except ProcessLookupError:
+                return
+            time.sleep(0.02)
+        self.fail("The owned fake xcodebuild child was not reaped within its cancellation budget")
+
+    def cleanup_mock_processes(self, process):
+        # A live owned child can keep the captured pipes open even after Bash
+        # exits. Kill that group first, then bound the wrapper's reap/drain.
+        try:
+            child_pid = int(self.started_path.read_text())
+        except (FileNotFoundError, ValueError):
+            child_pid = None
+        if child_pid is not None:
+            try:
+                os.killpg(child_pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        if process.poll() is None:
+            process.kill()
+        process.communicate(timeout=FIXTURE_CLEANUP_TIMEOUT)
 
     def test_ci_summary_verifier_requires_executed_selected_device(self):
         workflow = WRAPPER.parent.parent / "workflows" / "ci.yml"

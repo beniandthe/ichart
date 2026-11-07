@@ -1,5 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
 import UIKit
+#endif
 
 enum IChartTourStyle {
     static let navy = Color(red: 0.04, green: 0.17, blue: 0.36)
@@ -12,6 +14,7 @@ enum IChartTourStyle {
 
 /// Color communicates a role; spacing and native separators group content.
 /// Keep gold for guidance, blue for actions, and neutral bounds for inputs.
+#if canImport(UIKit)
 enum IChartInterfaceStyle {
     static let actionBlue = Color(red: 0.10, green: 0.34, blue: 0.72)
     static let cardBackground = Color(uiColor: .systemBackground)
@@ -47,6 +50,7 @@ enum IChartInterfaceStyle {
             : UIColor(red: 0.55, green: 0.25, blue: 0.03, alpha: 1)
     })
 }
+#endif
 
 private struct TourActionHighlightModifier: ViewModifier {
     let isActive: Bool
