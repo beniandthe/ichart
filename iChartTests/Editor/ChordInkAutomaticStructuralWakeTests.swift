@@ -93,16 +93,15 @@ final class ChordInkAutomaticStructuralWakeTests: XCTestCase {
         // different continuesRendering value).
         let selectEnding = try XCTUnwrap(host.view.onChordInkDraftEndingSelected)
         selectEnding(ending.id)
+        var endingLabelField: IChartTypedUITextField?
         try await waitForCondition(in: host, timeout: 3) {
-            host.window.rootViewController?.presentedViewController != nil
-                && host.view.isInteractionSuspended
-                && host.view.chordDraftRenderCoordinator?.automaticRenderReferenceAt == nil
-                && self.descendants(host.window).contains {
-                    ($0 as? IChartTypedUITextField)?.placeholder == "Ending label"
-                }
+            guard host.window.rootViewController?.presentedViewController != nil,
+                  host.view.isInteractionSuspended,
+                  host.view.chordDraftRenderCoordinator?.automaticRenderReferenceAt == nil else { return false }
+            endingLabelField = self.revealEndingLabelInPresentedReview(in: host)
+            return endingLabelField != nil
         }
-        let field = try XCTUnwrap(descendants(host.window).compactMap { $0 as? IChartTypedUITextField }
-            .first { $0.placeholder == "Ending label" })
+        let field = try XCTUnwrap(endingLabelField)
         field.text = "On cue"
         field.sendActions(for: .editingChanged)
         try await waitForCondition(in: host, timeout: 2) {
@@ -126,6 +125,46 @@ final class ChordInkAutomaticStructuralWakeTests: XCTestCase {
         XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: source, current: receipt))
         XCTAssertEqual(host.model.chart.measures.map(\.id), originalMeasureIDs)
         XCTAssertNil(host.model.chart.pageHandwrittenChordData)
+    }
+
+    /// Review Form rows may be lazy. Reveal the real label row by scrolling
+    /// only the presented sheet; never move the editor's paper behind it.
+    private func revealEndingLabelInPresentedReview(in host: Mounted) -> IChartTypedUITextField? {
+        guard let panel = host.window.rootViewController?.presentedViewController?.view else { return nil }
+        panel.layoutIfNeeded()
+        let panelFrame = panel.convert(panel.bounds, to: host.window).intersection(host.window.bounds)
+        if let field = descendants(panel).compactMap({ $0 as? IChartTypedUITextField }).first(where: {
+            $0.placeholder == "Ending label"
+        }), let scroll = ancestorScrollView(of: field) {
+            let fieldFrame = field.convert(field.bounds, to: host.window)
+            let visibleForm = scroll.convert(scroll.bounds, to: host.window).intersection(panelFrame)
+            if !field.isHidden, field.isEnabled, !fieldFrame.isEmpty,
+               visibleForm.insetBy(dx: -1, dy: -1).contains(fieldFrame) {
+                return field
+            }
+            scroll.scrollRectToVisible(field.convert(field.bounds, to: scroll).insetBy(dx: 0, dy: -12), animated: false)
+        } else if let scroll = descendants(panel).compactMap({ $0 as? UIScrollView }).filter({
+            !$0.isHidden && $0.contentSize.height + $0.adjustedContentInset.top + $0.adjustedContentInset.bottom > $0.bounds.height + 1
+        }).max(by: {
+            let lhs = $0.convert($0.bounds, to: host.window).intersection(panelFrame)
+            let rhs = $1.convert($1.bounds, to: host.window).intersection(panelFrame)
+            return lhs.width * lhs.height < rhs.width * rhs.height
+        }) {
+            let maximumY = max(-scroll.adjustedContentInset.top,
+                scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom)
+            let nextY = min(maximumY, scroll.contentOffset.y + scroll.bounds.height * 0.55)
+            scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: nextY), animated: false)
+        }
+        return nil
+    }
+
+    private func ancestorScrollView(of view: UIView) -> UIScrollView? {
+        var ancestor = view.superview
+        while let current = ancestor {
+            if let scroll = current as? UIScrollView { return scroll }
+            ancestor = current.superview
+        }
+        return nil
     }
 
     private var ordinaryIdlePlusMargin: TimeInterval { ChordInkAutomaticRenderPolicy.idleDelay + 0.1 }

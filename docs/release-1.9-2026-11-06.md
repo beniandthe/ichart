@@ -72,6 +72,16 @@ both-layout tool/rotation, fractional-height, native pan/zoom and independent
 axis-clamp coverage. Fresh hosted checks and rebuilt release artifacts remain
 required for this source change.
 
+The next full native pass caught a review-form fixture assumption: the ending
+label row can remain uncreated below the unscrolled SwiftUI Form. The hosted
+failure and unchanged local reproduction both stopped before typing or approval;
+the panel, suspended input and cleared clock were already correct. The fixture
+now scrolls only the presented Form to reveal an enabled, visible label, following
+the existing feedback-test pattern. Its three-second panel budget, subsequent
+four-second commit budget and all source-ink/chart assertions remain intact.
+This follow-up changes tests and documentation only; the distribution runtime
+and captured screenshot source inputs are unchanged.
+
 ## Repository preservation
 
 Before integration, all 153 local refs (including raw tree refs and annotated
