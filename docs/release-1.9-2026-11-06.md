@@ -60,6 +60,18 @@ wrapper and its child-reaping order, adds a bounded restoration deadline, and
 checks that restoration observes the child already reaped. Its 26 mock tests
 and 20 repeated cancellation subcases passed locally.
 
+Both native CI lanes also exposed accumulated camera rounding when tool chrome
+changed the viewport height. Four repeated tool round trips measured two screen
+points of drift before rotation. The viewport now retains its requested paper
+focus separately from UIKit's pixel-rounded offset, while genuine pan/zoom
+changes establish a new focus and edge clamps admit the reachable focus on each
+axis. Paper geometry, source ink and saved notation are unchanged. The original
+failing integration test passes with its original one-point assertions intact.
+All 24 owning native geometry tests passed locally, including new repeated
+both-layout tool/rotation, fractional-height, native pan/zoom and independent
+axis-clamp coverage. Fresh hosted checks and rebuilt release artifacts remain
+required for this source change.
+
 ## Repository preservation
 
 Before integration, all 153 local refs (including raw tree refs and annotated

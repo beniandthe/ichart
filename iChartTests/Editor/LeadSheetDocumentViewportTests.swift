@@ -194,6 +194,100 @@ final class LeadSheetDocumentViewportTests: XCTestCase {
         }
     }
 
+    func testFractionalToolbarHeightsAndRotationsDoNotAccumulateCameraRounding() {
+        let fixture = makeViewport(documentSize: CGSize(width: 800, height: 2_400),
+            viewportSize: CGSize(width: 780, height: 793))
+        defer { fixture.window.isHidden = true }
+        let viewport = fixture.viewport
+        viewport.setZoomScale(viewport.fitWidthScale * 1.75, animated: false)
+        center(CGPoint(x: 400, y: 600), in: viewport)
+        let initialFocus = actualFocalPoint(in: viewport)
+        // These include the fractional toolbar height measured in the real
+        // editor. Native pixel rounding must remain bounded across repeats.
+        for _ in 0..<8 {
+            for size in [CGSize(width: 780, height: 885.5), CGSize(width: 780, height: 793),
+                CGSize(width: 1_180, height: 519), CGSize(width: 780, height: 793)] {
+                resize(viewport, to: size)
+                assertFocalPoint(initialFocus, in: viewport)
+                XCTAssertEqual(viewport.userZoomFactor, 1.75, accuracy: 0.0001)
+                assertLogicalDocumentUnchanged(fixture)
+            }
+        }
+    }
+
+    func testNativePanAndZoomAfterRestorationEstablishNewCameraFocus() {
+        let fixture = makeViewport(documentSize: CGSize(width: 800, height: 2_400),
+            viewportSize: CGSize(width: 780, height: 793))
+        defer { fixture.window.isHidden = true }
+        let viewport = fixture.viewport
+        viewport.setZoomScale(viewport.fitWidthScale * 1.75, animated: false)
+        center(CGPoint(x: 400, y: 600), in: viewport)
+        let originalFocus = actualFocalPoint(in: viewport)
+        resize(viewport, to: CGSize(width: 1_180, height: 519))
+
+        viewport.scrollViewWillBeginDragging(viewport)
+        center(CGPoint(x: 320, y: 800), in: viewport)
+        viewport.scrollViewDidEndDragging(viewport, willDecelerate: false)
+        let pannedFocus = actualFocalPoint(in: viewport)
+        XCTAssertNotEqual(pannedFocus, originalFocus)
+        resize(viewport, to: CGSize(width: 780, height: 793))
+        assertFocalPoint(pannedFocus, in: viewport)
+
+        viewport.scrollViewWillBeginZooming(viewport, with: viewport.documentContainerView)
+        viewport.setZoomScale(viewport.fitWidthScale * 2.25, animated: false)
+        viewport.scrollViewDidEndZooming(viewport, with: viewport.documentContainerView,
+            atScale: viewport.zoomScale)
+        let zoomedFocus = actualFocalPoint(in: viewport)
+        for size in [CGSize(width: 1_180, height: 519), CGSize(width: 780, height: 793)] {
+            resize(viewport, to: size)
+            assertFocalPoint(zoomedFocus, in: viewport)
+            XCTAssertEqual(viewport.userZoomFactor, 2.25, accuracy: 0.0001)
+            assertLogicalDocumentUnchanged(fixture)
+        }
+    }
+
+    func testHorizontalEdgeClampPreservesTheUnclampedVerticalFocus() {
+        let fixture = makeViewport(documentSize: CGSize(width: 800, height: 2_400),
+            viewportSize: CGSize(width: 780, height: 793))
+        defer { fixture.window.isHidden = true }
+        let viewport = fixture.viewport
+        viewport.setZoomScale(viewport.fitWidthScale * 1.75, animated: false)
+        center(CGPoint(x: 550, y: 1_000), in: viewport)
+        let initialFocus = actualFocalPoint(in: viewport)
+        let smallerWidth = CGSize(width: 400, height: 2_400)
+        viewport.update(documentID: fixture.documentID, documentSize: smallerWidth, interactionMode: .freeHand)
+        viewport.layoutIfNeeded()
+        let maximumX = viewport.contentSize.width - viewport.bounds.width + viewport.contentInset.right
+        XCTAssertEqual(viewport.contentOffset.x, maximumX, accuracy: oneScreenPixel(in: viewport))
+        XCTAssertLessThan(actualFocalPoint(in: viewport).x, initialFocus.x)
+        XCTAssertEqual(actualFocalPoint(in: viewport).y, initialFocus.y,
+            accuracy: oneScreenPixel(in: viewport) / viewport.zoomScale)
+        XCTAssertEqual(viewport.documentView.bounds.size, smallerWidth)
+        XCTAssertEqual(viewport.documentView.transform, .identity)
+        XCTAssertEqual(viewport.userZoomFactor, 1.75, accuracy: 0.0001)
+    }
+
+    func testVerticalEdgeClampPreservesTheUnclampedHorizontalFocus() {
+        let fixture = makeViewport(documentSize: CGSize(width: 800, height: 2_400),
+            viewportSize: CGSize(width: 780, height: 793))
+        defer { fixture.window.isHidden = true }
+        let viewport = fixture.viewport
+        viewport.setZoomScale(viewport.fitWidthScale * 1.75, animated: false)
+        center(CGPoint(x: 360, y: 1_900), in: viewport)
+        let initialFocus = actualFocalPoint(in: viewport)
+        let smallerHeight = CGSize(width: 800, height: 800)
+        viewport.update(documentID: fixture.documentID, documentSize: smallerHeight, interactionMode: .freeHand)
+        viewport.layoutIfNeeded()
+        let maximumY = viewport.contentSize.height - viewport.bounds.height + viewport.contentInset.bottom
+        XCTAssertEqual(viewport.contentOffset.y, maximumY, accuracy: oneScreenPixel(in: viewport))
+        XCTAssertLessThan(actualFocalPoint(in: viewport).y, initialFocus.y)
+        XCTAssertEqual(actualFocalPoint(in: viewport).x, initialFocus.x,
+            accuracy: oneScreenPixel(in: viewport) / viewport.zoomScale)
+        XCTAssertEqual(viewport.documentView.bounds.size, smallerHeight)
+        XCTAssertEqual(viewport.documentView.transform, .identity)
+        XCTAssertEqual(viewport.userZoomFactor, 1.75, accuracy: 0.0001)
+    }
+
     func testSixtyPinchUpdatesCompositeExistingPaperAndRefreshSharpnessOnceAtTheEnd() {
         let fixture = makeViewport(documentSize: CGSize(width: 932, height: 3_600),
             viewportSize: CGSize(width: 800, height: 1_000))
