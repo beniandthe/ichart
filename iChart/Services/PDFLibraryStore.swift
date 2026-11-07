@@ -208,6 +208,13 @@ final class IChartPDFLibraryStore: ObservableObject {
         return item.exportedPDF(relativeTo: baseDirectory)
     }
 
+    /// Returns a persisted reference for preview actions without saving or
+    /// importing a temporary export a second time.
+    func itemID(forExportedURL url: URL) -> UUID? {
+        let path = url.standardizedFileURL
+        return items.first { $0.url(relativeTo: baseDirectory).standardizedFileURL == path }?.id
+    }
+
     /// Copies and validates Files content off the main thread, then commits a
     /// durable manifest before publishing the new library item. No AI is used.
     @MainActor

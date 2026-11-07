@@ -199,7 +199,7 @@ final class ChordInkReviewInputTests: XCTestCase {
         host.view.layoutIfNeeded()
         try await Task.sleep(nanoseconds: 100_000_000)
         let buttons = descendants(host.view).compactMap { $0 as? PencilOnlyUIButton }
-        let footerButtons = buttons.filter { ["Render All", "Rewrite All Ink"].contains($0.accessibilityLabel ?? "") }
+        let footerButtons = buttons.filter { ["Render All", "Clear Draft Ink"].contains($0.accessibilityLabel ?? "") }
         XCTAssertEqual(footerButtons.count, 2)
         for button in footerButtons {
             XCTAssertGreaterThanOrEqual(button.bounds.height, 44)

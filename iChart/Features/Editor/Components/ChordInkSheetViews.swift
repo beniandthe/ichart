@@ -113,7 +113,7 @@ private struct ChordInkSourcePreview: View {
         .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                .stroke(IChartInterfaceStyle.cardBorder, lineWidth: 1)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(sourceImage == nil ? "Source handwriting unavailable" : accessibilityDescription)
@@ -650,6 +650,11 @@ struct ChordInkBatchConfirmationSheetView: View {
                         VStack(spacing: 5) {
                             Text(batch.displayTitle)
                                 .font(.system(.title2, design: .rounded).weight(.bold))
+                                .padding(.bottom, 5)
+                                .overlay(alignment: .bottom) {
+                                    Capsule().fill(IChartTourStyle.orange).frame(width: 36, height: 3)
+                                        .accessibilityHidden(true)
+                                }
 
                             Text(batch.instructionText)
                                 .font(.subheadline)
@@ -699,7 +704,7 @@ struct ChordInkBatchConfirmationSheetView: View {
                                 cornerRadius: 10
                             )
                         }
-                        ChordInkReviewButton(title: "Rewrite All Ink", style: .plain, role: .destructive) {
+                        ChordInkReviewButton(title: "Clear Draft Ink", style: .plain, role: .destructive) {
                             focusedConfirmationID = nil
                             confirmsRewriteAll = true
                         }
@@ -743,11 +748,11 @@ struct ChordInkBatchConfirmationSheetView: View {
         .onChange(of: editedTextByID) { _, entries in
             onEditedTextsChanged?(entries)
         }
-        .confirmationDialog("Rewrite all chord ink?", isPresented: $confirmsRewriteAll, titleVisibility: .visible) {
-            Button("Rewrite All Ink", role: .destructive) { onClearAndRewrite() }
+        .confirmationDialog("Clear draft ink?", isPresented: $confirmsRewriteAll, titleVisibility: .visible) {
+            Button("Clear Draft Ink", role: .destructive) { onClearAndRewrite() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This clears all pending chord ink. Use Rewrite This Chord to keep the rest of your writing.")
+            Text("This removes all unrendered writing in Write & Render. Rendered notation and Free Ink stay unchanged." + (onRewriteChord == nil ? "" : " Use Rewrite This Chord to keep the rest of your draft writing."))
         }
     }
 
@@ -806,7 +811,9 @@ struct ChordInkBatchConfirmationSheetView: View {
             }
         }
         .padding(16)
-        .background(.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
     }
 
     private func chordEntryControls(for confirmation: PendingChordInkConfirmation) -> some View {
@@ -995,6 +1002,11 @@ struct ChordInkConfirmationSheetView: View {
                     .font(.title2.weight(.bold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
+                    .padding(.bottom, 5)
+                    .overlay(alignment: .bottom) {
+                        Capsule().fill(IChartTourStyle.orange).frame(width: 36, height: 3)
+                            .accessibilityHidden(true)
+                    }
 
                 HStack(spacing: 16) {
                     ChordInkSourcePreview(drawingData: confirmation.drawingData)
@@ -1025,11 +1037,11 @@ struct ChordInkConfirmationSheetView: View {
                     .padding(.horizontal, 18)
                     .padding(.vertical, 16)
                     .frame(maxWidth: .infinity, minHeight: 58)
-                    .background(Color(uiColor: .secondarySystemGroupedBackground))
+                    .background(IChartInterfaceStyle.cardBackground)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(isManualEntryFocused ? Color.blue.opacity(0.45) : Color.black.opacity(0.08), lineWidth: 1)
+                            .stroke(isManualEntryFocused ? IChartInterfaceStyle.selectionBorder : IChartInterfaceStyle.cardBorder, lineWidth: 1)
                     }
                     .accessibilityLabel("Manual chord entry")
 
@@ -1049,7 +1061,7 @@ struct ChordInkConfirmationSheetView: View {
                         onRewriteChord(confirmation)
                     }
                 }
-                ChordInkReviewButton(title: "Rewrite All Ink", style: .plain, role: .destructive) {
+                ChordInkReviewButton(title: "Clear Draft Ink", style: .plain, role: .destructive) {
                     isManualEntryFocused = false
                     confirmsRewriteAll = true
                 }
@@ -1074,11 +1086,11 @@ struct ChordInkConfirmationSheetView: View {
         }
         .presentationDetents([.large])
         .interactiveDismissDisabled(true)
-        .confirmationDialog("Rewrite all chord ink?", isPresented: $confirmsRewriteAll, titleVisibility: .visible) {
-            Button("Rewrite All Ink", role: .destructive) { onClearAndRewrite() }
+        .confirmationDialog("Clear draft ink?", isPresented: $confirmsRewriteAll, titleVisibility: .visible) {
+            Button("Clear Draft Ink", role: .destructive) { onClearAndRewrite() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This clears all pending chord ink.")
+            Text("This removes all unrendered writing in Write & Render. Rendered notation and Free Ink stay unchanged.")
         }
     }
 
@@ -1221,11 +1233,18 @@ struct ChordCorrectionSheetView: View {
                     .font(.title2.weight(.bold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
+                    .padding(.bottom, 5)
+                    .overlay(alignment: .bottom) {
+                        Capsule().fill(IChartTourStyle.orange).frame(width: 36, height: 3)
+                            .accessibilityHidden(true)
+                    }
 
                 Text("Choose an alternative, change the quality, or edit the text. Save applies the chord shown in Change to.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
 
                 HStack(spacing: 16) {
                     if correction.sourceInkData != nil {
@@ -1245,7 +1264,6 @@ struct ChordCorrectionSheetView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(16)
-                .background(.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 6) {
                 Text("Change to").font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
@@ -1261,11 +1279,11 @@ struct ChordCorrectionSheetView: View {
                     .padding(.horizontal, 18)
                     .padding(.vertical, 16)
                     .frame(maxWidth: .infinity, minHeight: 58)
-                    .background(Color(uiColor: .secondarySystemGroupedBackground))
+                    .background(IChartInterfaceStyle.cardBackground)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(isManualEntryFocused ? Color.blue.opacity(0.45) : Color.black.opacity(0.08), lineWidth: 1)
+                            .stroke(isManualEntryFocused ? IChartInterfaceStyle.selectionBorder : IChartInterfaceStyle.cardBorder, lineWidth: 1)
                     }
                     .accessibilityLabel("Manual chord entry")
                 }

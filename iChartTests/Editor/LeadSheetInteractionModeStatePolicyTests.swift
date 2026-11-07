@@ -4430,75 +4430,64 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
     }
 
     func testWritingToolNamesExplainTheirPurposeWithoutChangingInputRoutingOrTelemetry() {
-        let automaticRhythm = EditorCanvasMode.chordEntry.activeToolInstruction(
-            layoutStyle: .rhythmSectionSheet, manualRenderWithPreview: false
-        )
-        let manualRhythm = EditorCanvasMode.chordEntry.activeToolInstruction(
-            layoutStyle: .rhythmSectionSheet, manualRenderWithPreview: true
-        )
-        let manualLeadSheet = EditorCanvasMode.chordEntry.activeToolInstruction(
-            layoutStyle: .leadSheet, manualRenderWithPreview: true
-        )
-        let automaticSimpleSheet = EditorCanvasMode.chordEntry.activeToolInstruction(
-            layoutStyle: .simpleChordSheet, manualRenderWithPreview: false
-        )
-        let freeInk = EditorCanvasMode.freeHand.activeToolInstruction(
-            layoutStyle: .rhythmSectionSheet, manualRenderWithPreview: false
-        )
-        let simpleFreeInk = EditorCanvasMode.freeHand.activeToolInstruction(
-            layoutStyle: .simpleChordSheet, manualRenderWithPreview: false
-        )
-        let rhythmSelect = EditorCanvasMode.browse.activeToolInstruction(
-            layoutStyle: .rhythmSectionSheet, manualRenderWithPreview: false
-        )
-        let rhythmSelectWithMarks = EditorCanvasMode.browse.activeToolInstruction(
-            layoutStyle: .rhythmSectionSheet, manualRenderWithPreview: false, hasFreeInkArticulations: true
-        )
-
-        XCTAssertTrue(automaticRhythm.contains("pause to render"))
-        XCTAssertTrue(automaticRhythm.contains("Use Fix Writing for unclear ink or Review Ending for brackets."))
-        XCTAssertTrue(automaticRhythm.contains("The first chord in each measure renders on beat 1."))
-        XCTAssertTrue(manualRhythm.contains("The first chord in each measure renders on beat 1."))
-        XCTAssertTrue(manualRhythm.contains("Render Chords for ready ink."))
-        XCTAssertTrue(manualRhythm.contains("Use Review & Render for chord corrections or ending review."))
-        XCTAssertTrue(manualRhythm.contains("Keep suffixes close to their roots"))
-        XCTAssertTrue(manualRhythm.contains("Unplaced ink stays on the page."))
-        XCTAssertTrue(manualRhythm.contains("split at a rhythmic boundary"))
-        XCTAssertTrue(manualRhythm.contains("If a note crosses the cut, the line stays as ink."))
-        XCTAssertTrue(manualRhythm.contains("Use Measures for other form edits."))
-        XCTAssertTrue(automaticSimpleSheet.contains("Draw tall barlines between chords"))
         for style in ChartLayoutStyle.allCases {
-            for manualRenderWithPreview in [false, true] {
-                let instruction = EditorCanvasMode.chordEntry.activeToolInstruction(
-                    layoutStyle: style, manualRenderWithPreview: manualRenderWithPreview
-                )
-                XCTAssertTrue(instruction.contains("Use Tools > Repeats for measure repeats or ranges."))
-                XCTAssertTrue(instruction.contains("chord-repeat symbols (%)"))
-                XCTAssertTrue(instruction.contains("Drawn bar-and-dot repeat signs are not recognized."))
-                XCTAssertFalse(instruction.contains("stacked dots beside the middle"))
-                XCTAssertFalse(instruction.contains("Right dots start; left dots end."))
-                XCTAssertTrue(instruction.contains("Unplaced ink stays on the page."))
+            for manual in [false, true] {
+                let guidance = EditorCanvasMode.chordEntry.toolGuidance(
+                    layoutStyle: style, manualRenderWithPreview: manual)
+                XCTAssertEqual(guidance.steps.count, 2,
+                    "Writing starts with a short sequence instead of a paragraph of constraints")
+                XCTAssertTrue(guidance.steps[0].contains("Apple Pencil"))
+                XCTAssertTrue(guidance.steps[0].contains("highlighted lane"))
+                XCTAssertEqual(guidance.context, manual ? "Rendering: Manual" : "Rendering: Automatic")
+                if manual {
+                    XCTAssertTrue(guidance.steps[1].contains("previews"))
+                    XCTAssertTrue(guidance.steps[1].contains("Render Chords"))
+                    XCTAssertTrue(guidance.steps[1].contains("Review & Render"))
+                } else {
+                    XCTAssertTrue(guidance.steps[1].contains("pause to render"))
+                    XCTAssertTrue(guidance.steps[1].contains("Follow the review action when offered"))
+                }
+                XCTAssertFalse(guidance.accessibilitySummary.contains("note crosses"),
+                    "Barline restrictions belong in local help, after the immediate writing action")
+                let reference = guidance.referenceText
+                XCTAssertEqual(EditorCanvasMode.chordEntry.activeToolInstruction(
+                    layoutStyle: style, manualRenderWithPreview: manual), reference)
+                XCTAssertTrue(reference.contains("Use Tools > Repeats for measure repeats or ranges."))
+                XCTAssertTrue(reference.contains("chord-repeat symbols (%)"))
+                XCTAssertTrue(reference.contains("Drawn bar-and-dot repeat signs are not recognized."))
+                XCTAssertFalse(reference.contains("stacked dots beside the middle"))
+                XCTAssertFalse(reference.contains("Right dots start; left dots end."))
+                XCTAssertTrue(reference.contains("Unplaced ink stays on the page."))
+                if style == .rhythmSectionSheet {
+                    XCTAssertTrue(reference.contains("split at a rhythmic boundary"))
+                    XCTAssertTrue(reference.contains("If a note crosses the cut, the line stays as ink."))
+                    XCTAssertTrue(reference.contains("Use Measures for other form edits."))
+                }
+                if style == .simpleChordSheet || style == .rhythmSectionSheet {
+                    XCTAssertTrue(reference.contains("A lone rendered chord moves to beat 1 when barlines form its measure."))
+                }
             }
         }
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
-            for manualRenderWithPreview in [false, true] {
-                let instruction = EditorCanvasMode.chordEntry.activeToolInstruction(
-                    layoutStyle: style, manualRenderWithPreview: manualRenderWithPreview
-                )
-                XCTAssertTrue(instruction.contains("A lone rendered chord moves to beat 1 when barlines form its measure."))
-            }
+            let freeInk = EditorCanvasMode.freeHand.toolGuidance(
+                layoutStyle: style, manualRenderWithPreview: false)
+            XCTAssertEqual(freeInk.title, "Write notes and reminders on the page")
+            XCTAssertTrue(freeInk.steps[0].contains("Staff notes stay handwritten"))
+            XCTAssertTrue(freeInk.accessibilitySummary.contains("fermata (arch over a dot)"),
+                "The quick Free Ink explainer must show the supported drawn symbols")
+            XCTAssertTrue(freeInk.accessibilitySummary.contains("accent (>)"))
+            XCTAssertTrue(freeInk.referenceText.contains("pause to convert"))
+            XCTAssertEqual(freeInk.referenceText.contains("marcato"), style == .rhythmSectionSheet)
+            let withoutMarks = EditorCanvasMode.browse.toolGuidance(
+                layoutStyle: style, manualRenderWithPreview: false)
+            let withMarks = EditorCanvasMode.browse.toolGuidance(
+                layoutStyle: style, manualRenderWithPreview: false, hasFreeInkArticulations: true)
+            XCTAssertTrue(withoutMarks.referenceText.contains("Tap an eligible divider, then its red X to merge the measures."))
+            XCTAssertFalse(withoutMarks.referenceText.contains("Tap a converted mark"))
+            XCTAssertTrue(withMarks.referenceText.contains("Tap a converted mark, then drag to move it."))
+            XCTAssertTrue(withMarks.referenceText.contains("Release to attach when the line is visible."))
+            XCTAssertTrue(withMarks.referenceText.contains("Tap its red X to delete."))
         }
-        XCTAssertFalse(manualLeadSheet.contains("split"))
-        XCTAssertTrue(freeInk.contains("Draw a fermata or accent anywhere, or a marcato (^) near a chord, note, or staff ink."))
-        XCTAssertTrue(simpleFreeInk.contains("Draw a fermata or accent anywhere"))
-        XCTAssertTrue(simpleFreeInk.contains("pause to convert"))
-        XCTAssertTrue(simpleFreeInk.contains("Marks near a rendered chord attach; others float."))
-        XCTAssertFalse(simpleFreeInk.contains("marcato"))
-        XCTAssertTrue(rhythmSelect.contains("Tap an eligible divider, then its red X to merge the measures."))
-        XCTAssertFalse(rhythmSelect.contains("Tap a converted mark"))
-        XCTAssertTrue(rhythmSelectWithMarks.contains("Tap a converted mark, then drag to move it."))
-        XCTAssertTrue(rhythmSelectWithMarks.contains("Release to attach when the line is visible."))
-        XCTAssertTrue(rhythmSelectWithMarks.contains("Tap its red X to delete."))
         XCTAssertTrue(EditorCanvasMode.chordEntry.allowsChordInkEditing)
         XCTAssertFalse(EditorCanvasMode.chordEntry.allowsPageInkEditing)
         XCTAssertTrue(EditorCanvasMode.freeHand.allowsPageInkEditing)

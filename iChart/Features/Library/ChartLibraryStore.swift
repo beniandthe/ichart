@@ -193,6 +193,33 @@ final class ChartLibraryStore: ObservableObject {
     }
 
     @discardableResult
+    func createPreparedChart(
+        _ preparedChart: Chart,
+        projectID: ChartProject.ID? = nil
+    ) -> Bool {
+        // New-chart setup is local until its final Create action. Admit the
+        // completed value once, with the same limits and project access used
+        // by the existing blank-chart path.
+        guard !hasUnresolvedLoadFailure,
+              preparedChart.hasCompletedInitialSetup,
+              !charts.contains(where: { $0.id == preparedChart.id }),
+              canCreateChart,
+              projectID == nil || canUse(.projects),
+              projectID == nil || projects.contains(where: { $0.id == projectID }) else {
+            return false
+        }
+
+        performPersistedBatch {
+            charts.insert(preparedChart, at: 0)
+            if let projectID {
+                addChartToProjectInPlace(chartID: preparedChart.id, projectID: projectID, atFront: true)
+            }
+            selectedChartID = preparedChart.id
+        }
+        return true
+    }
+
+    @discardableResult
     func createBlankChart(
         in key: DocumentKey = .cMajor,
         layoutStyle: ChartLayoutStyle = .leadSheet,

@@ -21,6 +21,7 @@ final class LeadSheetDocumentViewport: UIScrollView, UIScrollViewDelegate {
 
     private var settledViewportSize: CGSize?
     private var retainedFocalPoint: CGPoint?
+    private var lastObservedFocalPoint: CGPoint?
     private var needsDocumentLayout = false
     private var resetsViewportOnNextLayout = false
     private var isApplyingViewportGeometry = false
@@ -92,6 +93,7 @@ final class LeadSheetDocumentViewport: UIScrollView, UIScrollViewDelegate {
             hasPendingDocumentDisplayRefresh = false
             userZoomFactor = 1
             retainedFocalPoint = nil
+            lastObservedFocalPoint = nil
             resetsViewportOnNextLayout = true
         }
         setNeedsLayout()
@@ -284,6 +286,15 @@ final class LeadSheetDocumentViewport: UIScrollView, UIScrollViewDelegate {
         if contentOffset != offset {
             setContentOffset(offset, animated: false)
         }
+        // Native scrolling can round an offset to the display's pixel grid.
+        // Keep the requested paper focus across later geometry updates;
+        // otherwise each rounded restoration becomes the next target and
+        // repeated toolbar/rotation changes accumulate camera drift.
+        let actualFocalPoint = currentFocalPoint()
+        retainedFocalPoint = CGPoint(
+            x: offset.x == proposedOffset.x ? focalPoint.x : actualFocalPoint.x,
+            y: offset.y == proposedOffset.y ? focalPoint.y : actualFocalPoint.y)
+        lastObservedFocalPoint = actualFocalPoint
     }
 
     private func recordSettledViewportState() {
@@ -292,7 +303,14 @@ final class LeadSheetDocumentViewport: UIScrollView, UIScrollViewDelegate {
               settledViewportSize == bounds.size,
               zoomScale.isFinite, zoomScale > 0,
               fitWidthScale.isFinite, fitWidthScale > 0 else { return }
-        retainedFocalPoint = currentFocalPoint()
+        let actualFocalPoint = currentFocalPoint()
+        // A genuine scroll or native zoom establishes a new camera intent.
+        // Unchanged passive layout must preserve the logical focus retained
+        // above instead of adopting the same pixel-rounded offset again.
+        if retainedFocalPoint == nil || lastObservedFocalPoint != actualFocalPoint {
+            retainedFocalPoint = actualFocalPoint
+        }
+        lastObservedFocalPoint = actualFocalPoint
         userZoomFactor = min(4, max(0.25, zoomScale / fitWidthScale))
     }
 

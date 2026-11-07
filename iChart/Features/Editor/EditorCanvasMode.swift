@@ -1,5 +1,63 @@
 import Foundation
 
+struct EditorToolGuidance: Equatable {
+    let title: String
+    let steps: [String]
+    let context: String?
+    let detailsTitle: String
+    let details: [EditorToolGuidanceSection]
+
+    init(
+        title: String,
+        steps: [String],
+        context: String? = nil,
+        detailsTitle: String,
+        details: [EditorToolGuidanceSection] = []
+    ) {
+        self.title = title
+        self.steps = steps
+        self.context = context
+        self.detailsTitle = detailsTitle
+        self.details = details
+    }
+
+    /// The purpose and immediate action are sufficient for a tool's hint.
+    /// Longer gesture and recovery rules remain in the local guide.
+    var accessibilitySummary: String {
+        ([title] + steps + [context].compactMap { $0 }).map { text in
+            guard let last = text.last, !".!?".contains(last) else { return text }
+            return text + "."
+        }.joined(separator: " ")
+    }
+
+    /// Compatibility/reference text for callers that need the complete guide.
+    var referenceText: String {
+        ([accessibilitySummary] + details.map { $0.text }).joined(separator: " ")
+    }
+
+    func replacingNextAction(_ action: String) -> Self {
+        .init(title: title, steps: [action], context: context,
+            detailsTitle: detailsTitle, details: details)
+    }
+
+    func withContext(_ context: String?) -> Self {
+        .init(title: title, steps: steps, context: context,
+            detailsTitle: detailsTitle, details: details)
+    }
+}
+
+struct EditorToolGuidanceSection: Equatable {
+    let title: String
+    let text: String
+    let example: String?
+
+    init(title: String, text: String, example: String? = nil) {
+        self.title = title
+        self.text = text
+        self.example = example
+    }
+}
+
 enum EditorCanvasMode: Hashable {
     case browse
     case measureEdit
@@ -142,52 +200,201 @@ enum EditorCanvasMode: Hashable {
         manualRenderWithPreview: Bool,
         hasFreeInkArticulations: Bool = false
     ) -> String {
+        toolGuidance(
+            layoutStyle: layoutStyle,
+            manualRenderWithPreview: manualRenderWithPreview,
+            hasFreeInkArticulations: hasFreeInkArticulations
+        ).referenceText
+    }
+
+    func toolGuidance(
+        layoutStyle: ChartLayoutStyle,
+        manualRenderWithPreview: Bool,
+        hasFreeInkArticulations: Bool = false
+    ) -> EditorToolGuidance {
         switch self {
         case .browse:
-            let dividerGuidance = layoutStyle == .simpleChordSheet || layoutStyle == .rhythmSectionSheet
-                ? " Tap an eligible divider, then its red X to merge the measures."
-                : ""
-            if (layoutStyle == .simpleChordSheet || layoutStyle == .rhythmSectionSheet) && hasFreeInkArticulations {
-                return "Tap an item for actions. Double-tap a chord to correct it. Tap a converted mark, then drag to move it. Release to attach when the line is visible. Tap its red X to delete." + dividerGuidance
+            var details = [EditorToolGuidanceSection(
+                title: "Chords and cues",
+                text: "Tap a measure, chord, or cue to see its actions. Double-tap a chord to correct it."
+            )]
+            if layoutStyle == .simpleChordSheet || layoutStyle == .rhythmSectionSheet {
+                details.append(.init(
+                    title: "Merge measures",
+                    text: "Tap an eligible divider, then its red X to merge the measures."
+                ))
+                if hasFreeInkArticulations {
+                    details.append(.init(
+                        title: "Converted marks",
+                        text: "Tap a converted mark, then drag to move it. Release to attach when the line is visible. Tap its red X to delete."
+                    ))
+                }
             }
-            return "Tap a measure, chord, or cue to see its actions. Double-tap a chord to correct it." + dividerGuidance
+            return .init(
+                title: "Edit items on the chart",
+                steps: ["Tap a chord, measure, or cue to see its actions."],
+                detailsTitle: "Select guide",
+                details: details
+            )
         case .measureEdit:
-            return "Tap a measure, then use Add, Layout, or Delete to change the chart. Layout includes Merge with Next Measure when the boundary can be removed safely."
+            return .init(
+                title: "Change measures and rows",
+                steps: ["Tap a measure, then choose Add, Layout, or Delete."],
+                detailsTitle: "Measures guide",
+                details: [
+                    .init(title: "Add measures", text: "Use Add to extend the chart beside the selected measure or onto another row."),
+                    .init(title: "Change the layout", text: "Open Layout to compare each action and read why an option is unavailable. Tap an available action to apply it. Merge with Next Measure is available when the boundary can be removed safely. Select the first or last measure in a row for row-boundary actions."),
+                    .init(title: "Delete a range", text: "Choose the first measure and start the range. Tap the last measure, then choose Delete To. Review the range before deleting.")
+                ]
+            )
         case .repeatEdit:
-            return "Select a measure, then choose a repeat or ending. Use One Bar for a single measure or Manage for existing marks."
+            return .init(
+                title: "Repeat measures or add an ending",
+                steps: ["Select a measure, then choose Repeat Measures or Add Ending."],
+                detailsTitle: "Repeats and endings",
+                details: [
+                    .init(title: "Repeat a range", text: "Select the first measure and choose Repeat Measures > Start Repeat. Tap the last measure, then choose End Repeat. Cancel leaves the chart unchanged."),
+                    .init(title: "Repeat one measure", text: "Choose Repeat Measures > Repeat This Measure to place repeat boundaries around the selected measure. This differs from a % chord-repeat symbol."),
+                    .init(title: "Endings", text: "Use Add Ending to choose a 1st, 2nd, or custom ending. Choose the label and first and last measures, then check the right edge and preview before applying. For a range selected on the page, choose Start 1st Ending Here or Start 2nd Ending Here, then tap the last measure and finish the ending."),
+                    .init(title: "Existing marks", text: "Use Manage to remove repeats or edit and remove endings.")
+                ]
+            )
         case .timeSignatureEdit:
-            return "Tap the measure where the new time signature starts, then choose the meter and how far it applies."
+            return .init(
+                title: "Change the meter from a measure",
+                steps: ["Tap the starting measure, then choose the meter and how far it applies."],
+                detailsTitle: "Time signature guide",
+                details: [.init(title: "Choose the scope", text: "The time-signature change starts at the selected measure. Check its scope before applying it.")]
+            )
         case .rhythmicNotationEdit:
-            return "Tap a measure, then write rhythms inside it and check the preview."
+            return .init(
+                title: "Write rhythms in a measure",
+                steps: ["Tap a measure, then write with Apple Pencil and check the preview."],
+                detailsTitle: "Rhythm guide",
+                details: [.init(title: "Availability", text: "The dedicated Rhythm tool is available only when enabled for this chart. Use Free Ink for staff handwriting.")]
+            )
         case .headerEntry:
-            return "Write or erase in the page header. Tap Typed to enter header text."
+            return .init(
+                title: "Write the chart heading",
+                steps: ["Use Apple Pencil to write or erase in the page header. Choose Typed to enter text."],
+                detailsTitle: "Header guide",
+                details: [.init(title: "Typed or handwritten", text: "Typed lets you edit the title, credit, and style note. Handwritten lets you write directly in the page header.")]
+            )
         case .chordEntry:
-            let writing = switch layoutStyle {
-            case .simpleChordSheet:
-                "Write chords, chord-repeat symbols (%), and ending brackets in the blue lanes. Draw tall barlines between chords. A lone rendered chord moves to beat 1 when barlines form its measure."
-            case .rhythmSectionSheet:
-                "Write chords, chord-repeat symbols (%), and ending brackets in the blue lanes. The first chord in each measure renders on beat 1. Draw a tall barline to split at a rhythmic boundary. A lone rendered chord moves to beat 1 when barlines form its measure. If a note crosses the cut, the line stays as ink. Draw barlines on their own at the empty row end to add measures. Use Measures for other form edits."
-            case .leadSheet:
-                "Write chords, chord-repeat symbols (%), and ending brackets in the blue lanes."
-            }
-            let repeats = "Use Tools > Repeats for measure repeats or ranges. Drawn bar-and-dot repeat signs are not recognized."
-            let rendering = manualRenderWithPreview
-                ? "Keep suffixes close to their roots. Tap Render Chords for ready ink. Use Review & Render for chord corrections or ending review. Unplaced ink stays on the page."
-                : "Leave space between chords and pause to render. Use Fix Writing for unclear ink or Review Ending for brackets. Unplaced ink stays on the page."
-            return writing + " " + repeats + " " + rendering
+            return chordEntryGuidance(layoutStyle: layoutStyle, manualRenderWithPreview: manualRenderWithPreview)
         case .noteEdit:
-            return "Tap a rendered rhythm note to see its editing actions."
+            return .init(
+                title: "Edit a rendered rhythm note",
+                steps: ["Tap a rendered rhythm note to see its editing actions."],
+                detailsTitle: "Rhythm editing guide",
+                details: [.init(title: "Select the note", text: "Available editing actions follow the selected note and the chart's rhythm-tool availability.")]
+            )
         case .freeHand:
-            if layoutStyle == .simpleChordSheet {
-                return "Draw a fermata or accent anywhere. Lift the Pencil and pause to convert. Marks near a rendered chord attach; others float. Use Select to move or delete them."
+            let supportsSymbolRendering = layoutStyle == .simpleChordSheet || layoutStyle == .rhythmSectionSheet
+            var details = [EditorToolGuidanceSection(
+                title: "Handwriting",
+                text: "Use Apple Pencil to write notes and reminders directly on the page. Staff notes stay handwritten; Free Ink does not transcribe them into rhythm notation. Choose Erase to remove handwriting."
+            )]
+            switch layoutStyle {
+            case .simpleChordSheet:
+                details.append(.init(
+                    title: "Marks that can convert",
+                    text: "Draw a fermata or accent anywhere. Lift the Pencil and pause to convert. Marks near a rendered chord attach; others float. Use Select to move or delete them."
+                ))
+            case .rhythmSectionSheet:
+                details.append(.init(
+                    title: "Marks that can convert",
+                    text: "Draw a fermata or accent anywhere, or a marcato (^) near a chord, note, or staff ink. Lift the Pencil and pause to convert. Use Select to move or delete converted marks."
+                ))
+            case .leadSheet:
+                break
             }
-            if layoutStyle == .rhythmSectionSheet {
-                return "Draw a fermata or accent anywhere, or a marcato (^) near a chord, note, or staff ink. Lift the Pencil and pause to convert."
+            if supportsSymbolRendering {
+                details.append(.init(
+                    title: "Rendering symbols",
+                    text: "Leave clear space around each symbol. Rendering replaces only that symbol's strokes; other handwriting stays on the page. iChart keeps the original strokes with the converted mark."
+                ))
             }
-            return "Write or erase notes and marks that stay as handwriting."
+            if hasFreeInkArticulations && supportsSymbolRendering {
+                details.append(.init(title: "Restore handwriting", text: "Use Restore Ink to replace a converted mark with its original handwriting."))
+            }
+            details.append(.init(title: "Move around the page", text: "One finger scrolls. Two fingers pan and zoom."))
+            return .init(
+                title: "Write notes and reminders on the page",
+                steps: [
+                    "Use Apple Pencil to write, or choose Erase. Staff notes stay handwritten.",
+                    supportsSymbolRendering
+                        ? "Draw a fermata (arch over a dot) or accent (>). Lift the Pencil and pause to render."
+                        : "One finger scrolls. Two fingers pan and zoom."
+                ],
+                detailsTitle: "Free Ink guide",
+                details: details
+            )
         case .textEdit:
-            return "Tap a measure, then choose Above or Below to add a text cue."
+            return .init(
+                title: "Add a typed cue beside a measure",
+                steps: ["Tap a measure, then choose Above or Below to add a text cue."],
+                detailsTitle: "Text guide",
+                details: [.init(title: "Existing cues", text: "Tap an existing cue to edit it, change its size, or delete it. Changes apply to the selected cue.")]
+            )
         }
+    }
+
+    private func chordEntryGuidance(
+        layoutStyle: ChartLayoutStyle,
+        manualRenderWithPreview: Bool
+    ) -> EditorToolGuidance {
+        var details = [EditorToolGuidanceSection(
+            title: "Chords and chord repeats",
+            text: "Write chords and chord-repeat symbols (%) in the blue lanes. Keep suffixes close to their roots. Leave a clear gap before the next chord.",
+            example: "C∆7    D−7    G7    %"
+        )]
+        switch layoutStyle {
+        case .simpleChordSheet:
+            details.append(.init(
+                title: "Barlines",
+                text: "Draw tall barlines between chords. A lone rendered chord moves to beat 1 when barlines form its measure."
+            ))
+        case .rhythmSectionSheet:
+            details.append(.init(
+                title: "Barlines and measures",
+                text: "The first chord in each measure renders on beat 1. Draw a tall barline to split at a rhythmic boundary. A lone rendered chord moves to beat 1 when barlines form its measure. If a note crosses the cut, the line stays as ink. Draw barlines on their own at the empty row end to add measures. Use Measures for other form edits."
+            ))
+        case .leadSheet:
+            break
+        }
+        details.append(.init(
+            title: "Measure repeats",
+            text: "Use Tools > Repeats for measure repeats or ranges. Drawn bar-and-dot repeat signs are not recognized."
+        ))
+        details.append(.init(
+            title: "Ending brackets",
+            text: manualRenderWithPreview
+                ? "Draw an ending bracket in the blue lane. Use Review & Render for chord corrections or ending review. Enter the label, check the range and right edge, then confirm the ending."
+                : "Draw an ending bracket in the blue lane. Use Review Ending when offered. Enter the label, check the range and right edge, then confirm the ending."
+        ))
+        details.append(.init(
+            title: "Review prompts",
+            text: manualRenderWithPreview
+                ? "Use Review & Render to check chord guesses, enter missing chords, or review an ending's label and measures."
+                : "Use Review Chord to check a chord guess, Fix Writing for unclear or unplaced writing, and Review Ending to check an ending's label and measures."
+        ))
+        details.append(.init(
+            title: "Your source writing",
+            text: "Unplaced ink stays on the page. Rendering replaces only the writing used by the rendered notation. Clear Draft Ink removes all unrendered writing in Write & Render; rendered notation and Free Ink stay unchanged."
+        ))
+        return .init(
+            title: "Turn handwriting into chart notation",
+            steps: [
+                "Write with Apple Pencil in a highlighted lane. Keep each chord together and leave space between chords.",
+                manualRenderWithPreview
+                    ? "Check the previews. Tap Render Chords for ready ink, or Review & Render when entries need attention."
+                    : "Leave a gap, then pause to render. Follow the review action when offered."
+            ],
+            context: manualRenderWithPreview ? "Rendering: Manual" : "Rendering: Automatic",
+            detailsTitle: "Write & Render guide",
+            details: details
+        )
     }
 
     var allowsNoteSelection: Bool {

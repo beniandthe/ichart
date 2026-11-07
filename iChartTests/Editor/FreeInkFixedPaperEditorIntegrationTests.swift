@@ -191,6 +191,58 @@ final class FreeInkFixedPaperEditorIntegrationTests: XCTestCase {
         assertSameDrawing(drawing, try authoringCanvas(reopened.canvas).drawing)
     }
 
+    func testRepeatedToolRoundtripsAndRotationPreserveTheAdmittedPaperFocusInBothLayouts() async throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let chart = makeChart(sourceCanvasWidth: 800, withInk: true, layoutStyle: style)
+            let originalInk = try PKDrawing(data: XCTUnwrap(chart.pageHandwrittenNotationData))
+            let mounted = try await mount(chart, viewport: CGSize(width: 800, height: 1_180))
+            defer { mounted.close() }
+            let baseline = try snapshot(mounted.canvas)
+            let scroll = try parentScrollView(of: mounted.canvas)
+            let zoomTarget = try assertNativeZoomAvailable(in: mounted)
+            let requestedRatio = CGFloat(1.75)
+            scroll.setZoomScale(requestedRatio * fitWidthScale(in: scroll, zoomTarget: zoomTarget), animated: false)
+            await settle(mounted.window)
+            let requestedPoint = CGPoint(x: mounted.canvas.bounds.width / 2, y: 600)
+            let mapped = mounted.canvas.convert(requestedPoint, to: scroll)
+            let proposed = CGPoint(x: mapped.x - scroll.bounds.width / 2,
+                y: mapped.y - scroll.bounds.height / 2)
+            let admitted = clampedOffset(proposed, in: scroll)
+            XCTAssertEqual(admitted.x, proposed.x, accuracy: 0.01)
+            XCTAssertEqual(admitted.y, proposed.y, accuracy: 0.01)
+            scroll.setContentOffset(admitted, animated: false)
+            await settle(mounted.window)
+            assertPaperPoint(requestedPoint, atViewportCenterOf: scroll, canvas: mounted.canvas)
+            let initialFocus = scroll.convert(CGPoint(x: scroll.bounds.midX, y: scroll.bounds.midY),
+                to: mounted.canvas)
+
+            for _ in 0..<4 {
+                try await activate("Select", in: mounted)
+                try await activate("Free Ink", in: mounted)
+                assertPaperPoint(initialFocus, atViewportCenterOf: try parentScrollView(of: mounted.canvas),
+                    canvas: mounted.canvas)
+                assertSamePaper(baseline, try snapshot(mounted.canvas))
+                assertSameDrawing(originalInk, try authoringCanvas(mounted.canvas).drawing)
+                XCTAssertEqual(mounted.model.chart.pageHandwrittenNotationData, chart.pageHandwrittenNotationData)
+                XCTAssertEqual(mounted.model.chart.pageHandwrittenNotationCoordinateSpace,
+                    chart.pageHandwrittenNotationCoordinateSpace)
+            }
+            for size in [CGSize(width: 1_200, height: 900), CGSize(width: 800, height: 1_180)] {
+                try await resize(mounted, to: size)
+                let currentScroll = try parentScrollView(of: mounted.canvas)
+                let currentTarget = try assertNativeZoomAvailable(in: mounted)
+                XCTAssertEqual(currentScroll.zoomScale / fitWidthScale(in: currentScroll, zoomTarget: currentTarget),
+                    requestedRatio, accuracy: 0.005)
+                assertPaperPoint(initialFocus, atViewportCenterOf: currentScroll, canvas: mounted.canvas)
+                assertSamePaper(baseline, try snapshot(mounted.canvas))
+                assertSameDrawing(originalInk, try authoringCanvas(mounted.canvas).drawing)
+                XCTAssertEqual(mounted.model.chart.pageHandwrittenNotationData, chart.pageHandwrittenNotationData)
+                XCTAssertEqual(mounted.model.chart.pageHandwrittenNotationCoordinateSpace,
+                    chart.pageHandwrittenNotationCoordinateSpace)
+            }
+        }
+    }
+
     private struct PaperSnapshot {
         let documentWidth: CGFloat
         let paperFrames: [CGRect]
@@ -249,8 +301,9 @@ final class FreeInkFixedPaperEditorIntegrationTests: XCTestCase {
         }
     }
 
-    private func makeChart(sourceCanvasWidth: CGFloat, withInk: Bool) -> Chart {
-        var chart = Chart.draft(title: "Disposable fixed paper", layoutStyle: .rhythmSectionSheet)
+    private func makeChart(sourceCanvasWidth: CGFloat, withInk: Bool,
+        layoutStyle: ChartLayoutStyle = .rhythmSectionSheet) -> Chart {
+        var chart = Chart.draft(title: "Disposable fixed paper", layoutStyle: layoutStyle)
         chart.completeInitialSetup(title: chart.title, key: .cMajor,
             meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine, startingMeasureCount: 8)
         if withInk {

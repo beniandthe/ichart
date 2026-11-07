@@ -10,6 +10,18 @@ enum NativeAccessibilityLookup {
         let element: NSObject
         let owner: UIView
 
+        /// SwiftUI's dynamic accessibility nodes can vend this Objective-C
+        /// getter without declaring UIAccessibilityIdentification conformance.
+        /// Keep protocol and runtime lookup in one place for hosted UI tests.
+        var identifier: String? {
+            if let value = (element as? UIAccessibilityIdentification)?.accessibilityIdentifier {
+                return value
+            }
+            let getter = NSSelectorFromString("accessibilityIdentifier")
+            guard element.responds(to: getter) else { return nil }
+            return element.value(forKey: "accessibilityIdentifier") as? String
+        }
+
         var isButton: Bool {
             element is UIButton || element.accessibilityTraits.contains(.button)
         }
