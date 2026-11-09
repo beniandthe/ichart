@@ -835,7 +835,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(canvasHostText.contains("shouldReceive touch: UITouch"))
         XCTAssertTrue(canvasHostText.contains("gestureRecognizer === renderedObjectMovePanRecognizer"))
         XCTAssertTrue(canvasHostText.contains("LeadSheetObjectMoveTouchPolicy.allowsMovePan("))
-        XCTAssertTrue(canvasHostText.contains("startsOnMoveTarget: objectMovePanStartHitTarget(at: location)"))
+        XCTAssertTrue(canvasHostText.contains("beginRenderedObjectMoveTouch(at: location, touchType: touch.type)"))
         XCTAssertFalse(canvasHostText.contains("touch.type == .pencil {"))
     }
 
@@ -1207,9 +1207,11 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("Collapse section"))
         XCTAssertTrue(libraryText.contains("Expand section"))
         XCTAssertTrue(libraryText.contains("isExpanded: expandedSectionIDs.contains(section.id)"))
-        // The accepted clarity layout uses open sections instead of the former
-        // nested detail cards. Keep this contract about the reachable help
-        // content; dedicated workflow/UI tests cover its presentation.
+        XCTAssertTrue(libraryText.contains("ForEach(section.readingGroups) { group in"))
+        XCTAssertTrue(libraryText.contains("@State private var expandedGroups: Set<String> = [\"Start here\", \"Details\"]"))
+        XCTAssertTrue(libraryText.contains("DisclosureGroup(isExpanded: Binding("))
+        XCTAssertTrue(libraryText.contains(".fill(theme.panelBorder.opacity(0.32))"))
+        XCTAssertTrue(libraryText.contains(".overlay(alignment: .leading) {"))
         XCTAssertTrue(libraryText.contains("Start Quick Start"))
         XCTAssertFalse(libraryText.contains("Read through the main iChart systems here"))
         XCTAssertTrue(libraryText.contains("Make a first Simple Chord Sheet with one short guide"))
@@ -1227,7 +1229,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("Add A Cue And Review"))
         XCTAssertTrue(libraryText.contains("Export When Ready"))
         XCTAssertTrue(libraryText.contains("Quick Start prepares four measures"))
-        XCTAssertTrue(libraryText.contains("Tap Write & Render and use Apple Pencil to write C, F, G, C with space between chords. Chords render automatically after a pause."))
+        XCTAssertTrue(libraryText.contains("Tap Write & Render and use Apple Pencil to write C, F, G, C with space between chords. Complete chords render as you move on; pause to finish the last chord."))
+        XCTAssertTrue(libraryText.contains("Barlines and ending brackets wait briefly for their own writing to settle while ready chords can render elsewhere."))
         XCTAssertTrue(libraryText.contains("For previews, choose Manual in Rendering in Write & Render or Settings, then use Render Chords or Review & Render."))
         XCTAssertTrue(libraryText.contains("Need a specific command? How To keeps the complete tool reference."))
         XCTAssertFalse(libraryText.contains("checkmark.shield"))
@@ -1285,8 +1288,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(libraryText.contains("If the preview is wrong, erase or discard the writing and try again before rendering."))
         XCTAssertFalse(libraryText.contains("Use Discard to clear the current chord writing without changing the chart."))
         XCTAssertTrue(libraryText.contains("Changing Chords, Text, And Markers"))
-        XCTAssertTrue(libraryText.contains("Tap a chord in Select to correct or delete it."))
-        XCTAssertTrue(libraryText.contains("Drag a selected chord to move it. The right handle adjusts its width only."))
+        XCTAssertTrue(libraryText.contains("Double-tap a chord in Select to correct it. Tap once to show its controls."))
+        XCTAssertTrue(libraryText.contains("Drag a chord body to move it, then lift to place it. The width handle changes width; the red X deletes."))
         XCTAssertTrue(libraryText.contains("If a selected chord has a custom width, Reset Width returns it to 100% width without changing its placement."))
         XCTAssertTrue(libraryText.contains("Measures And Tools"))
         XCTAssertTrue(libraryText.contains("Measures groups Add, Layout, and Delete actions for the selected measure."))
@@ -1555,7 +1558,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(canvasHostText.contains("deleteRoadmapMarker"))
         XCTAssertTrue(canvasHostText.contains("movePointRoadmapMarkerHorizontally"))
         XCTAssertTrue(canvasHostText.contains("panStartLocation(for: recognizer)"))
-        XCTAssertTrue(canvasHostText.contains("objectMovePanStartHitTarget(at:"))
+        XCTAssertTrue(canvasHostText.contains("guard let dragState = renderedObjectMoveAdmittedDrag else {"))
+        XCTAssertTrue(canvasHostText.contains("return beginRenderedObjectMoveTouch(at: location, touchType: touch.type)"))
         XCTAssertFalse(canvasHostText.contains("drawRoadmapMarkerSelection"))
         XCTAssertTrue(canvasHostText.contains("drawCueTextSelection"))
         XCTAssertTrue(editorText.contains("Tap Measures"))
@@ -1799,8 +1803,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(projectText.contains("https://github.com/supabase/supabase-swift.git"))
         XCTAssertTrue(projectText.contains("product: Supabase"))
         XCTAssertTrue(projectText.contains("path: iChart/App/Info.plist"))
-        XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.9\""))
-        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"150\""))
+        XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.9.1\""))
+        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"155\""))
         // The requested build identity is pinned above. Also validate the
         // strictly positive numeric format required by the bundle contract.
         XCTAssertNotNil(projectText.range(

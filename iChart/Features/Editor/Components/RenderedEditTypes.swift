@@ -55,6 +55,7 @@ enum RenderedEditHitPriority: Int, Comparable {
     case measureSelect = 10
     case objectBodySelect = 20
     case selectedObjectMoveBody = 30
+    case objectBodyMove = 35
     case selectedObjectEditControl = 40
     case selectedObjectResizeHandle = 50
     case selectedObjectDestructiveControl = 60
@@ -83,6 +84,13 @@ struct RenderedEditHitTarget: Hashable {
     var frame: CGRect
     var requiresSelection: Bool
     var mutationRisk: RenderedEditMutationRisk
+    // Padded controls must never consume a visible object's body. Keep the
+    // generous outer target while reserving these regions for that object.
+    var excludedFrames: [CGRect] = []
+
+    func contains(_ location: CGPoint) -> Bool {
+        frame.contains(location) && !excludedFrames.contains { $0.contains(location) }
+    }
 
     static func highestPriority(in candidates: [RenderedEditHitTarget]) -> RenderedEditHitTarget? {
         candidates.reduce(nil) { bestCandidate, candidate in
@@ -131,6 +139,55 @@ struct RenderedEditHitTarget: Hashable {
         default:
             return .objectBodySelect
         }
+    }
+}
+
+struct RenderedEditTapIntent {
+    private var initialTarget: RenderedEditHitTarget?
+    private var wasCancelledByDrag = false
+    private var startLocation: CGPoint?
+    private var screenPointsPerDisplayedPoint: CGFloat = 1
+    private var maximumScreenMovement: CGFloat = 4
+
+    mutating func begin(target: RenderedEditHitTarget?, startLocation: CGPoint? = nil,
+        screenPointsPerDisplayedPoint: CGFloat = 1, maximumScreenMovement: CGFloat = 4) {
+        initialTarget = target
+        wasCancelledByDrag = false
+        self.startLocation = startLocation
+        self.screenPointsPerDisplayedPoint = max(screenPointsPerDisplayedPoint, 0.1)
+        self.maximumScreenMovement = maximumScreenMovement
+    }
+
+    mutating func cancelForDrag() {
+        wasCancelledByDrag = true
+    }
+
+    mutating func recordMovement(to location: CGPoint) {
+        guard let startLocation else { return }
+        if hypot(location.x - startLocation.x, location.y - startLocation.y)
+            * screenPointsPerDisplayedPoint > maximumScreenMovement {
+            wasCancelledByDrag = true
+        }
+    }
+
+    mutating func reset() {
+        initialTarget = nil
+        wasCancelledByDrag = false
+        startLocation = nil
+    }
+
+    func resolvedTarget(at endTarget: RenderedEditHitTarget?, endLocation: CGPoint? = nil) -> RenderedEditHitTarget? {
+        guard !wasCancelledByDrag, let endTarget else { return nil }
+        guard endTarget.action.isDestructive else { return endTarget }
+        guard let initialTarget,
+              initialTarget.objectID == endTarget.objectID,
+              initialTarget.action == endTarget.action else { return nil }
+        if let startLocation {
+            guard let endLocation,
+                  hypot(endLocation.x - startLocation.x, endLocation.y - startLocation.y)
+                    * screenPointsPerDisplayedPoint <= maximumScreenMovement else { return nil }
+        }
+        return endTarget
     }
 }
 

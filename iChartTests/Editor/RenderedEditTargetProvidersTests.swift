@@ -89,6 +89,68 @@ final class RenderedEditTargetProvidersTests: XCTestCase {
         XCTAssertNotEqual(leadingDragTarget?.action, .resizeLeading)
     }
 
+    func testNarrowChordBodiesStaySelectableAndMovableOutsideControlHitAreas() throws {
+        for width: CGFloat in [14, 20, 28] {
+            let fixture = pageFixture(chordFrame: CGRect(x: 130, y: 128, width: width, height: 28))
+            let objectID = RenderedEditObjectID.chord(fixture.chordID)
+            let context = RenderedEditContext(pageLayout: fixture.pageLayout,
+                selection: RenderedEditSelectionState(selectedObjectID: objectID))
+            let controls = LeadSheetChordEditOverlayGeometry.controlFrames(for: fixture.chordLayout)
+            let deleteHit = controls.delete.insetBy(dx: -LeadSheetChordEditOverlayGeometry.controlHitOutset,
+                dy: -LeadSheetChordEditOverlayGeometry.controlHitOutset)
+            let resizeHit = controls.trailingResize.insetBy(dx: -LeadSheetChordEditOverlayGeometry.controlHitOutset,
+                dy: -LeadSheetChordEditOverlayGeometry.controlHitOutset)
+            let router = RenderedEditRouter(providers: [ChordRenderedEditHitTargetProvider()])
+            for x in [fixture.chordLayout.frame.minX + 1, fixture.chordLayout.frame.midX,
+                fixture.chordLayout.frame.maxX - 1] {
+                let point = CGPoint(x: x, y: fixture.chordLayout.frame.midY)
+                XCTAssertFalse(deleteHit.contains(point))
+                XCTAssertFalse(resizeHit.contains(point))
+                XCTAssertEqual(router.tapTarget(at: point, in: context)?.action, .select)
+                let move = try XCTUnwrap(router.dragTarget(at: point, in: context))
+                XCTAssertEqual(move.objectID, objectID)
+                XCTAssertEqual(move.action, .move)
+            }
+        }
+    }
+
+    func testSelectContextAllowsUnselectedChordBodyMoveWithoutStealingOutsideHalo() throws {
+        let fixture = pageFixture(chordFrame: CGRect(x: 130, y: 128, width: 20, height: 28))
+        let context = RenderedEditContext(pageLayout: fixture.pageLayout, allowsUnselectedChordMove: true)
+        let router = RenderedEditRouter(providers: [ChordRenderedEditHitTargetProvider()])
+        let center = CGPoint(x: fixture.chordLayout.frame.midX, y: fixture.chordLayout.frame.midY)
+        let target = try XCTUnwrap(router.dragTarget(at: center, in: context))
+        XCTAssertEqual(target.objectID, .chord(fixture.chordID))
+        XCTAssertEqual(target.action, .move)
+        XCTAssertFalse(target.requiresSelection)
+
+        let selectionFrame = LeadSheetChordEditOverlayGeometry.bodySelectionFrame(for: fixture.chordLayout)
+        let outsideBody = CGPoint(x: selectionFrame.minX - 4, y: selectionFrame.midY)
+        XCTAssertNil(router.dragTarget(at: outsideBody, in: context),
+            "Direct movement must not give every unselected chord the selected movement halo")
+    }
+
+    func testSelectedControlCannotConsumeAnotherVisibleChordBody() throws {
+        let fixture = pageFixture(chordFrame: CGRect(x: 130, y: 128, width: 20, height: 28))
+        let controls = LeadSheetChordEditOverlayGeometry.controlFrames(for: fixture.chordLayout)
+        let point = CGPoint(x: controls.delete.midX, y: controls.delete.midY)
+        let neighborID = UUID()
+        let neighbor = LeadSheetChordLayout(id: neighborID, text: "G",
+            frame: CGRect(x: point.x - 8, y: point.y - 12, width: 16, height: 24),
+            snapGuideTarget: CGPoint(x: point.x, y: 178))
+        var page = fixture.pageLayout
+        page.systems[0].measures[0].chordLayouts.append(neighbor)
+        let context = RenderedEditContext(pageLayout: page,
+            selection: RenderedEditSelectionState(selectedObjectID: .chord(fixture.chordID)),
+            allowsUnselectedChordMove: true)
+        let router = RenderedEditRouter(providers: [ChordRenderedEditHitTargetProvider()])
+
+        XCTAssertEqual(router.tapTarget(at: point, in: context)?.objectID, .chord(neighborID))
+        XCTAssertEqual(router.tapTarget(at: point, in: context)?.action, .select)
+        XCTAssertEqual(router.dragTarget(at: point, in: context)?.objectID, .chord(neighborID))
+        XCTAssertEqual(router.dragTarget(at: point, in: context)?.action, .move)
+    }
+
     func testUnselectedChordBodyCannotStartMove() {
         let fixture = pageFixture()
         let context = RenderedEditContext(pageLayout: fixture.pageLayout)

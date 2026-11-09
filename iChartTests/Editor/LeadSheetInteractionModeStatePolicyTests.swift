@@ -4444,8 +4444,9 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
                     XCTAssertTrue(guidance.steps[1].contains("Render Chords"))
                     XCTAssertTrue(guidance.steps[1].contains("Review & Render"))
                 } else {
-                    XCTAssertTrue(guidance.steps[1].contains("pause to render"))
-                    XCTAssertTrue(guidance.steps[1].contains("Follow the review action when offered"))
+                    XCTAssertTrue(guidance.steps[1].contains("between strokes as you move on"))
+                    XCTAssertTrue(guidance.steps[1].contains("Pause to finish the last chord"))
+                    XCTAssertTrue(guidance.steps[1].contains("Follow review prompts when offered."))
                 }
                 XCTAssertFalse(guidance.accessibilitySummary.contains("note crosses"),
                     "Barline restrictions belong in local help, after the immediate writing action")

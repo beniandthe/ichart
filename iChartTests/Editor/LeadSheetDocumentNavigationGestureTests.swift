@@ -155,9 +155,29 @@ final class LeadSheetDocumentNavigationGestureTests: XCTestCase {
             setMode(mode, on: host)
             host.canvas.selectedMeasureID = nil
             let modeLayout = self.layout(for: host)
-            let blankMeasure = try XCTUnwrap(modeLayout.systems.flatMap(\.measures)
-                .first { $0.sourceMeasureID != nil && $0.chordLayouts.isEmpty })
-            let bodyPoint = CGPoint(x: blankMeasure.frame.midX, y: blankMeasure.frame.midY)
+            // An empty source measure can still contain a neighboring long
+            // chord's visible overhang. Use genuinely unoccupied visible paper;
+            // the rendered chord owner checks above must remain effective.
+            let occupiedFrames = modeLayout.systems.flatMap(\.measures)
+                .flatMap(\.chordLayouts).flatMap { chord -> [CGRect] in
+                    let controls = LeadSheetChordEditOverlayGeometry.controlFrames(
+                        for: chord, within: modeLayout.pageBounds)
+                    let outset = LeadSheetChordEditOverlayGeometry.controlHitOutset
+                    return [
+                        LeadSheetChordEditOverlayGeometry.selectedMoveBodyFrame(for: chord),
+                        controls.delete.insetBy(dx: -outset, dy: -outset),
+                        controls.trailingResize.insetBy(dx: -outset, dy: -outset)
+                    ]
+                }
+            let bodyPoint = try XCTUnwrap(modeLayout.systems.flatMap(\.measures)
+                .filter { $0.sourceMeasureID != nil && $0.chordLayouts.isEmpty }
+                .map { CGPoint(x: $0.frame.midX, y: $0.frame.midY) }
+                .first { point in
+                    !occupiedFrames.contains { $0.contains(point) }
+                        && host.viewport.bounds.contains(host.canvas.convert(point, to: host.viewport))
+                }, "The fixture must offer visible blank paper outside every chord and control")
+            XCTAssertFalse(occupiedFrames.contains { $0.contains(bodyPoint) })
+            XCTAssertTrue(host.viewport.bounds.contains(host.canvas.convert(bodyPoint, to: host.viewport)))
             XCTAssertTrue(try receives(vertical, touchType: .direct, at: bodyPoint, in: host.canvas),
                 "A broad measure selection target must not block scrolling across blank paper: \(mode.telemetryValue)")
             XCTAssertTrue(try receives(vertical, touchType: .pencil, at: bodyPoint, in: host.canvas), mode.telemetryValue)
@@ -243,11 +263,24 @@ final class LeadSheetDocumentNavigationGestureTests: XCTestCase {
             CGPoint(x: chord.frame.midX, y: chord.frame.midY),
             CGPoint(x: chord.frame.maxX - 1, y: chord.frame.midY)
         ]
-        let genericActions = glyphPoints.map {
-            LeadSheetChordEditOverlayGeometry.hitTarget(at: $0, in: currentLayout)?.action
+        let sourceMeasure = try XCTUnwrap(currentLayout.systems.flatMap(\.measures)
+            .first { $0.chordLayouts.contains { $0.id == chord.id } }?.sourceMeasureID)
+        let actualControls = LeadSheetChordEditOverlayGeometry.controlFrames(
+            for: chord, within: currentLayout.pageBounds)
+        let outset = LeadSheetChordEditOverlayGeometry.controlHitOutset
+        for control in [actualControls.delete, actualControls.trailingResize] {
+            XCTAssertFalse(control.insetBy(dx: -outset, dy: -outset)
+                .intersects(LeadSheetChordEditOverlayGeometry.bodySelectionFrame(for: chord)),
+                "Padded controls must stay outside the complete narrow glyph body")
         }
-        XCTAssertTrue(genericActions.contains { $0 == .delete || $0 == .resizeTrailing },
-            "At least one visible glyph sample must reproduce the old padded-control interception")
+        for glyphPoint in glyphPoints {
+            let target = try XCTUnwrap(LeadSheetChordEditOverlayGeometry.hitTarget(
+                at: glyphPoint, in: currentLayout))
+            XCTAssertEqual(target.action, .review,
+                "Visible glyph samples must no longer be intercepted by padded controls")
+            XCTAssertEqual(target.chordID, chord.id)
+            XCTAssertEqual(target.measureID, sourceMeasure)
+        }
 
         var correctedEventIDs: [UUID] = []
         host.canvas.onChordCorrectionRequested = { correctedEventIDs.append($0) }
@@ -271,7 +304,7 @@ final class LeadSheetDocumentNavigationGestureTests: XCTestCase {
             }
         }
 
-        let controls = LeadSheetChordEditOverlayGeometry.controlFrames(for: chord)
+        let controls = actualControls
         let outsideControls: [(CGPoint, ChordEditHitTarget.Action)] = [
             (CGPoint(x: controls.delete.midX, y: controls.delete.midY), .delete),
             (CGPoint(x: controls.trailingResize.midX, y: controls.trailingResize.midY), .resizeTrailing)

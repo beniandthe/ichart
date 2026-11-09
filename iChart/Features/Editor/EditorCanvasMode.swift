@@ -216,7 +216,7 @@ enum EditorCanvasMode: Hashable {
         case .browse:
             var details = [EditorToolGuidanceSection(
                 title: "Chords and cues",
-                text: "Tap a measure, chord, or cue to see its actions. Double-tap a chord to correct it."
+                text: "Drag a chord with Apple Pencil or a finger, then lift to place it. Beat guides show its destination. Tap a chord to show its controls: tap the red X to delete or drag the width handle to change width. Double-tap a chord to correct it. Tap a measure or cue to see its actions."
             )]
             if layoutStyle == .simpleChordSheet || layoutStyle == .rhythmSectionSheet {
                 details.append(.init(
@@ -232,7 +232,7 @@ enum EditorCanvasMode: Hashable {
             }
             return .init(
                 title: "Edit items on the chart",
-                steps: ["Tap a chord, measure, or cue to see its actions."],
+                steps: ["Drag a chord to move it; lift to place it. Tap an item for actions."],
                 detailsTitle: "Select guide",
                 details: details
             )
@@ -349,6 +349,12 @@ enum EditorCanvasMode: Hashable {
             text: "Write chords and chord-repeat symbols (%) in the blue lanes. Keep suffixes close to their roots. Leave a clear gap before the next chord.",
             example: "C∆7    D−7    G7    %"
         )]
+        if !manualRenderWithPreview {
+            details.append(.init(
+                title: "Automatic rendering",
+                text: "Complete chords render between strokes as you move on with clear gaps. A brief pause finishes the last chord. Barlines and ending brackets wait briefly for their own writing to settle; keep writing elsewhere while ready chords render."
+            ))
+        }
         switch layoutStyle {
         case .simpleChordSheet:
             details.append(.init(
@@ -389,7 +395,7 @@ enum EditorCanvasMode: Hashable {
                 "Write with Apple Pencil in a highlighted lane. Keep each chord together and leave space between chords.",
                 manualRenderWithPreview
                     ? "Check the previews. Tap Render Chords for ready ink, or Review & Render when entries need attention."
-                    : "Leave a gap, then pause to render. Follow the review action when offered."
+                    : "Complete chords render between strokes as you move on. Pause to finish the last chord. Follow review prompts when offered."
             ],
             context: manualRenderWithPreview ? "Rendering: Manual" : "Rendering: Automatic",
             detailsTitle: "Write & Render guide",

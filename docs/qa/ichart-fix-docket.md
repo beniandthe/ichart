@@ -1,5 +1,98 @@
 # iChart Fix Docket
 
+## Active fix — November 7, 2026
+
+**FIX-021: Incremental Automatic Write & Render cadence.** After Build 153, the
+user reports earlier chords remain handwriting until the writing sequence ends,
+then several render together. The saved rendering preference is Automatic.
+Priority P1: the main authoring loop must make progress as the writer moves on.
+
+Degree: completion scheduling and protected partial rendering. Preserve the
+installed selection/drag/library repairs and all source ink. Earlier complete
+independent chords should render at safe pen-up opportunities while later groups
+continue. Do not assign a new PencilKit drawing during an active stroke, relax
+current-source ownership, render over unfinished writing, split delayed suffixes,
+or add a mandatory pause/review step.
+
+Source review found a shared structural idle hold before independent chord
+selection and an idle-only separate-row completion path. The incremental reader
+already retains independent results; possible whole-canvas preparation starvation
+requires timing evidence. These mechanisms predate 153. Existing tests inject
+multiple completed glyphs in one pen episode or call rendering directly; they do
+not establish sequential-writing cadence through the real editor scheduler.
+New regressions will interleave real begin/change/end callbacks in both styles,
+including barline/row transitions, and verify exact unfinished source and saved
+results. Build 154 now passes 28 focused cases, including the previously failing
+shipping-editor sequence and the mark's own future deadline in both styles.
+The final broader selection has 727 passing cases and six optional capture
+replays skipped across the combined run and one corrected legacy help-test
+rerun. Build 154 was installed in place on November 8 with fresh matching stopped-app
+backups and direct pre/postlaunch content preservation. Fresh physical cadence
+acceptance remains pending. See [cadence repair evidence](automatic-render-cadence-2026-11-07.md).
+
+## Installed selection repair — November 7, 2026
+
+**FIX-019: Restore canvas measure selection inside tools.** In installed Build
+151, Repeats cannot select a new measure; the same guard also blocks Measures
+and Time Signature. Native tests reproduce this in both chart styles with
+synthetic direct/Pencil touches. The cause is a guard introduced by the Build
+151 chord-drag patch, not the accepted Build 149 explainer baseline: it gives
+measure taps to an edit overlay even when that overlay is hidden or disabled.
+Priority P1 because normal repeat/ending and measure workflows cannot finish.
+
+Degree: a focused touch-owner correction. Suppress the ancestor measure tap only
+for a live edit overlay. Preserve Select's chord movement/delete/resize ownership,
+Text's overlay selection, repeat-start state and all source ink. Existing helper
+instructions already promise tap-to-select and End Repeat; restore their actual
+behavior rather than adding another step or modal stop. The tool-explainer chat
+has been contacted for a read-only regression audit.
+
+**FIX-020: Tool switching responsiveness.** Audit active tools and remove repeated
+layout calculations on transient mode, selection or helper changes. The sizing
+engine-pair diagnostic measured approximately 1.6 ms (Rhythm) and 2.4 ms (Simple)
+for populated 32-measure fixtures in Simulator. This proves repeated work, not
+physical iPad tap latency. Keep layout output, ink, navigation, recognition and
+animations unchanged; validate cache invalidation against the full chart and
+logical size. Fresh physical responsiveness acceptance remains open.
+
+## Library repair checkpoint — November 7, 2026
+
+**FIX-018: Consecutive chart deletions from the library.** The user reports that
+the first three-dot **Delete** works, but the next chart's **Delete Chart?**
+confirmation does not appear until a chart is opened and the library revisited.
+Observed production version: 1.2.4 (151). Priority P2; deletion is blocked until
+navigation resets the screen.
+
+Degree: a focused library presentation change shared by all chart styles. Keep
+the immutable chart IDs, existing confirmation wording, store deletion, cloud
+tombstones, PDFs, setlists and saved ink unchanged. Use one identifiable alert
+presenter and bind dismissal to the exact presented request. Dismiss the
+confirmed request before deleting its source row. Baseline Simulator menu tests
+pass, so the physical failure is not yet reproduced or closed. See
+[FIX-018 validation](library-consecutive-deletion-2026-11-07.md).
+
+## Previous fix — November 7, 2026
+
+**FIX-017: Reliable, smooth rendered-chord dragging.** Priority P1 because a
+movement attempt can reach deletion. The user reports Apple Pencil in **Select**
+on a Rhythm Section Sheet; the connected iPad is running 1.2.4 (149). The relevant
+gesture, targeting and placement source matches the current integration baseline.
+
+The code exposes overlapping chord-body/delete/resize targets and inconsistent
+pan admission/startup hit tests. The repair protects the chord body, retains one
+touch-down target, separates tap deletion from dragging, and uses a transient
+movement preview. Direct dragging in Select selects the chord and moves it in
+one gesture. Chord identity, original source ink, musical timing, saved width and
+existing placement rules must survive movement, cancellation and reopening.
+
+Degree: a focused editor interaction change; no recognition or schema change.
+Source repair, native regression checks, visible Simulator checks and fresh
+physical Pencil acceptance are separate evidence gates. The focused native gate
+passed 120 tests with no failures or skips on the installed Build 149 source
+baseline. Captured previews in both layouts and the wrapped Select helper were
+checked visually. Fresh physical Pencil acceptance remains pending. See
+[FIX-017 validation](chord-drag-2026-11-07.md).
+
 ## Current override — November 5, 2026
 
 The user clarified that chord-repeat symbols (`%` / dot-slash-dot) remain
@@ -90,6 +183,11 @@ save and reopen. Preview, user edit, rendered result and saved data remain disti
 | FIX-013 | Preview engraving in the chart's own style and appearance. | Native/visual controls pass; fresh physical check pending. |
 | FIX-015 | Move an existing chord to beat one only in a newly formed final singleton measure. | Both styles/modes pass; requested device retest passed. Multi-chord placement retained. |
 | FIX-016 | Select an eligible divider and use its red X to merge; target Rhythm's staff divider. | Model/canvas/layout/reopen/guidance controls pass; fresh physical gesture check pending. |
+| FIX-017 | Drag a rendered chord directly in Select; protect its body from control overlap and keep movement separate from deletion; use a lightweight movement preview. | 120 native checks passed with no failures or skips on the Build 149 baseline; both-style previews/helper and edge controls checked. Build 151 installed with fresh backup and saved-data readback. Fresh physical Pencil acceptance pending. |
+| FIX-018 | Keep successive library row-menu deletion confirmations independently identified; reject stale dismissal of a newer request. | Build 153 installed with fresh backup and strict saved-data readback; 4 actual-app library cases pass. Original 2 prepatch menu cases also passed, so physical cause/acceptance remains open. |
+| FIX-019 | Allow measure taps in tools whose edit overlay is inactive; retain active overlay ownership in Select/Text. | Prepatch 3 routing cases failed; all 5 routing cases now pass. Full both-style Start Repeat/end selection/End Repeat UI passes, with exact saved endpoint readback. Combined 153 native gate: 468 pass, 2 private replay skips, 0 failures; 9 unique UI walkthroughs pass. Installed and reopened after independent preservation audit; physical acceptance pending. |
+| FIX-020 | Reuse unchanged editor sizing/layout results on tool-only updates with full-chart/size invalidation. | Both-style parity, ink/timestamp invalidation, independent cache sizes and zero-publication checks pass. Repeated unchanged sizing uses one engine-pair build. Physical response still requires acceptance. |
+| FIX-021 | Render completed independent chords while later ink continues, preserving active/unfinished source, structure and delayed suffix ownership. | Build 154 installed November 8 with saved-content preservation verified. Both styles: 28 focused cases pass; broader selection 727 passing and six optional skips across combined run/help-test rerun. Fresh physical cadence acceptance pending. |
 
 ## Rhythm workflow status
 

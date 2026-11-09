@@ -54,7 +54,10 @@ final class ChordInkDraftRenderCoordinator {
 
     var rewriter: ((Chart, ChordPreviewState, ChordInkDraft) -> RewriteOutcome?)?
     // Actual PencilKit input callbacks, not summed recognizer compute time.
-    var lastInputAt: Date?
+    var lastInputAt: Date? {
+        didSet { if lastInputAt == nil { structuralMaturity.reset() } }
+    }
+    let structuralMaturity = ChordInkStructuralMaturityTracker()
     // A fresh automatic census of existing ink can finish without fabricating
     // a Pencil callback. This deadline never enters pen timing diagnostics.
     var renderSessionReadyAt: Date?
@@ -210,7 +213,8 @@ final class ChordInkDraftRenderCoordinator {
         chart: Chart, state: ChordPreviewState, currentDrawing: PKDrawing,
         coordinateSpace: PersistentInkCoordinateSpace?, now: Date, lastInputAt: Date?, isUsingTool: Bool,
         allowsImmediateSpatialCompletion: Bool = false,
-        sourcePageLayout: LeadSheetPageLayout? = nil, sourceChordFrame: CGRect? = nil
+        sourcePageLayout: LeadSheetPageLayout? = nil, sourceChordFrame: CGRect? = nil,
+        matureStructuralIDs: Set<UUID> = []
     ) -> AutomaticAttempt {
         var feedback = ChordInkAutomaticRenderFeedback.baseline(for: state)
         var renderState = state
@@ -228,7 +232,8 @@ final class ChordInkDraftRenderCoordinator {
         let outcome = prepareAutomaticOutcome(chart: chart, state: renderState, currentDrawing: currentDrawing,
             coordinateSpace: coordinateSpace, now: now, lastInputAt: lastInputAt, isUsingTool: isUsingTool,
             allowsImmediateSpatialCompletion: allowsImmediateSpatialCompletion,
-            sourcePageLayout: sourcePageLayout, sourceChordFrame: sourceChordFrame, feedback: &feedback)
+            sourcePageLayout: sourcePageLayout, sourceChordFrame: sourceChordFrame,
+            matureStructuralIDs: matureStructuralIDs, feedback: &feedback)
         if let outcome {
             feedback = feedback.retainingDraftIDs(Set(outcome.remainingState.draftChords.map(\.id)),
                 keepsGlobalReason: !outcome.drawing.strokes.isEmpty)
@@ -241,6 +246,7 @@ final class ChordInkDraftRenderCoordinator {
         coordinateSpace: PersistentInkCoordinateSpace?, now: Date, lastInputAt: Date?, isUsingTool: Bool,
         allowsImmediateSpatialCompletion: Bool,
         sourcePageLayout: LeadSheetPageLayout?, sourceChordFrame: CGRect?,
+        matureStructuralIDs: Set<UUID>,
         feedback: inout ChordInkAutomaticRenderFeedback
     ) -> AutomaticOutcome? {
         // Structural-only failures use the global status route; per-draft
@@ -263,8 +269,9 @@ final class ChordInkDraftRenderCoordinator {
         }) else { feedback.set(.placementUnavailable, for: allIDs); return nil }
         let sourceFrame = sourceChordFrame ?? LeadSheetActiveInkScope.chordWritingFrame(for: sourceLayout)
 
-        // Barlines can materialize measures and alter chord placement. Commit
-        // them only with the entire current source after the full idle pause.
+        // A fully ready source may commit together after the shared pause.
+        // The independent paths below retain unfinished targets and validate
+        // any structural dependencies before consuming their exact source.
         if isIdle,
            state.draftChords.allSatisfy({ ChordInkAutomaticRenderPolicy.automaticCandidateText(for: $0) != nil }),
            state.unresolvedBarlineCount == 0,
@@ -294,21 +301,23 @@ final class ChordInkDraftRenderCoordinator {
             }
         }
 
-        // Structural ink still gets its full recognition pause. At idle, the
-        // independent path excludes any measure a retained mark could change.
+        // Structural ink still gets its full recognition pause. Independent
+        // chords in unaffected measures can finish while those marks remain
+        // ink; their transaction also preserves every retained writing lane.
         if !state.draftBarlines.isEmpty || !state.draftEndings.isEmpty {
             if !isIdle {
                 feedback.set(.waiting, for: allIDs)
-                return nil
             } else if state.unresolvedEndingCount > 0 {
                 feedback.globalReason = .endingReview
             } else if isIdle, state.unresolvedBarlineCount > 0 {
                 feedback.globalReason = .placementUnavailable
             }
         }
-        if isIdle, let structural = prepareIndependentStructuralOutcome(chart: chart, state: state,
+        if (isIdle || !matureStructuralIDs.isEmpty), let structural = prepareIndependentStructuralOutcome(chart: chart, state: state,
             currentDrawing: currentDrawing, coordinateSpace: coordinateSpace, now: now,
-            usesAutomaticPositioning: true, sourceLayout: sourceLayout, sourceFrame: sourceFrame) {
+            usesAutomaticPositioning: true, sourceLayout: sourceLayout, sourceFrame: sourceFrame,
+            eligibleStructuralIDs: isIdle ? nil : matureStructuralIDs,
+            includesCompletedPrecedingChords: true) {
             return structural
         }
         return prepareIndependentOutcome(chart: chart, state: state, currentDrawing: currentDrawing,
@@ -345,9 +354,12 @@ final class ChordInkDraftRenderCoordinator {
     private static func prepareIndependentStructuralOutcome(
         chart: Chart, state: ChordPreviewState, currentDrawing: PKDrawing,
         coordinateSpace: PersistentInkCoordinateSpace?, now: Date, usesAutomaticPositioning: Bool,
-        sourceLayout: LeadSheetPageLayout, sourceFrame: CGRect
+        sourceLayout: LeadSheetPageLayout, sourceFrame: CGRect,
+        eligibleStructuralIDs: Set<UUID>? = nil, includesCompletedPrecedingChords: Bool = false
     ) -> AutomaticOutcome? {
-        let selections = structuralSelections(in: state)
+        let selections = structuralSelections(in: state).filter { selection in
+            eligibleStructuralIDs.map { selection.isSubset(of: $0) } ?? true
+        }
         guard !selections.isEmpty, !currentDrawing.strokes.isEmpty else { return nil }
         var liveChart = chart
         let serialization = LeadSheetPersistentInkColorPolicy.serialization(for: currentDrawing)
@@ -360,19 +372,49 @@ final class ChordInkDraftRenderCoordinator {
             let endings = state.draftEndings.filter { selection.contains($0.id) }
             let indices = barlines.reduce(into: Set<Int>()) { $0.formUnion($1.ownedSourceStrokeIndices) }
                 .union(endings.reduce(into: Set<Int>()) { $0.formUnion($1.sourceStrokeIndices) })
-            guard !indices.isEmpty, indices.allSatisfy(currentDrawing.strokes.indices.contains),
-                  ChordInkAutomaticRenderPolicy.isSpatiallyIsolated(originalStrokeIndices: indices,
-                    source: currentDrawing, pageSize: state.layoutPageSize, requiresLaterInk: false)
-                    || isOnSeparateWritingRow(indices: indices, source: currentDrawing,
-                        layout: sourceLayout, sourceFrame: sourceFrame) else { continue }
-            var failure = ChordInkAutomaticRenderReason.placementUnavailable
-            if let outcome = preparePartial(chart: chart, state: state, currentDrawing: currentDrawing,
-                coordinateSpace: coordinateSpace, now: now, selectedDrafts: [], selectedIndices: indices,
-                usesAutomaticPositioning: usesAutomaticPositioning, selectedBarlines: barlines,
-                selectedEndings: endings, sourceLayout: sourceLayout, sourceFrame: sourceFrame,
-                failureReason: &failure, onRejectedResult: { result in
-                    rejectedStructuralIDs.formUnion(result.unresolvedDraftIDs)
-                }) { return outcome }
+            guard !indices.isEmpty, indices.allSatisfy(currentDrawing.strokes.indices.contains) else { continue }
+            var plans: [([ChordInkDraft], Set<Int>)] = []
+            if includesCompletedPrecedingChords {
+                // The split and its completed left-hand chords may need one
+                // transaction. Later/unfinished chords remain exact source.
+                let precedes = barlines.map(\.visualOrder).min()
+                let measureIDs = Set(barlines.map(\.measureID))
+                let drafts = state.draftChords.filter { draft in
+                    guard measureIDs.contains(draft.measureID),
+                          let precedes, let order = draft.visualOrder ?? draft.laneLocation?.visualOrder,
+                          order < precedes,
+                          ChordInkAutomaticRenderPolicy.automaticCandidateText(for: draft) != nil,
+                          ChordInkDraftLocalRewritePolicy.plan(for: draft, in: state, source: currentDrawing) != nil
+                    else { return false }
+                    return true
+                }
+                let combined = drafts.reduce(into: indices) { selected, draft in
+                    if let plan = ChordInkDraftLocalRewritePolicy.plan(for: draft, in: state, source: currentDrawing) {
+                        selected.formUnion(plan.originalStrokeIndices)
+                    }
+                }
+                if !drafts.isEmpty { plans.append((drafts, combined)) }
+            }
+            plans.append(([], indices))
+            for (selectedDrafts, selectedIndices) in plans {
+                let isolated = usesAutomaticPositioning
+                    ? isIndependentFromOtherWriting(indices: selectedIndices, source: currentDrawing,
+                        pageSize: state.layoutPageSize, layout: sourceLayout, sourceFrame: sourceFrame,
+                        requiresLaterInk: false)
+                    : (ChordInkAutomaticRenderPolicy.isSpatiallyIsolated(originalStrokeIndices: selectedIndices,
+                        source: currentDrawing, pageSize: state.layoutPageSize, requiresLaterInk: false)
+                        || isOnSeparateWritingRow(indices: selectedIndices, source: currentDrawing,
+                            layout: sourceLayout, sourceFrame: sourceFrame))
+                guard isolated else { continue }
+                var failure = ChordInkAutomaticRenderReason.placementUnavailable
+                if let outcome = preparePartial(chart: chart, state: state, currentDrawing: currentDrawing,
+                    coordinateSpace: coordinateSpace, now: now, selectedDrafts: selectedDrafts, selectedIndices: selectedIndices,
+                    usesAutomaticPositioning: usesAutomaticPositioning, selectedBarlines: barlines,
+                    selectedEndings: endings, sourceLayout: sourceLayout, sourceFrame: sourceFrame,
+                    failureReason: &failure, onRejectedResult: { result in
+                        rejectedStructuralIDs.formUnion(result.unresolvedDraftIDs)
+                    }) { return outcome }
+            }
         }
         return nil
     }
@@ -408,7 +450,7 @@ final class ChordInkDraftRenderCoordinator {
         var candidatePlans: [(ChordInkDraft, Set<Int>)] = []
         for draft in state.draftChords where isEligible(draft) {
             guard !blockedMeasures.contains(draft.measureID) else {
-                feedback.reasonsByDraftID[draft.id] = .placementUnavailable
+                feedback.reasonsByDraftID[draft.id] = isIdle ? .placementUnavailable : .waiting
                 continue
             }
             if !blockedMeasures.isEmpty,
@@ -420,11 +462,15 @@ final class ChordInkDraftRenderCoordinator {
                 feedback.reasonsByDraftID[draft.id] = .needsSourceRefresh
                 continue
             }
-            guard ChordInkAutomaticRenderPolicy.isSpatiallyIsolated(
-                    originalStrokeIndices: plan.originalStrokeIndices, source: currentDrawing,
-                    pageSize: state.layoutPageSize, requiresLaterInk: !isIdle
-                  ) || (isIdle && isOnSeparateWritingRow(indices: plan.originalStrokeIndices,
-                    source: currentDrawing, layout: sourceLayout, sourceFrame: sourceFrame)) else {
+            let isolated = usesAutomaticPositioning
+                ? isIndependentFromOtherWriting(indices: plan.originalStrokeIndices,
+                    source: currentDrawing, pageSize: state.layoutPageSize,
+                    layout: sourceLayout, sourceFrame: sourceFrame, requiresLaterInk: !isIdle)
+                : (ChordInkAutomaticRenderPolicy.isSpatiallyIsolated(originalStrokeIndices: plan.originalStrokeIndices,
+                    source: currentDrawing, pageSize: state.layoutPageSize, requiresLaterInk: !isIdle)
+                    || (isIdle && isOnSeparateWritingRow(indices: plan.originalStrokeIndices,
+                        source: currentDrawing, layout: sourceLayout, sourceFrame: sourceFrame)))
+            guard isolated else {
                 if isIdle { feedback.reasonsByDraftID[draft.id] = .adjacentWriting }
                 continue
             }
@@ -605,11 +651,21 @@ final class ChordInkDraftRenderCoordinator {
             let sourceRegion = LeadSheetActiveInkScope.chordWritingRegion(for: sourceLayout)
             let destinationRegion = LeadSheetActiveInkScope.chordWritingRegion(for: destination)
             guard sourceRegion == destinationRegion,
-                  retainsMeasureGeometry(in: remainingState, source: sourceLayout, destination: destination),
                   retainsUnrepresentedInkGeometry(state: state, drawing: currentDrawing,
                     source: sourceLayout, destination: destination, sourceFrame: sourceFrame) else {
                 failureReason = .needsSourceRefresh
                 return nil
+            }
+            if !retainsMeasureGeometry(in: remainingState, source: sourceLayout, destination: destination) {
+                // A divider keeps the original measure ID on its left. Ink
+                // on the right needs a fresh canonical target, even though its
+                // physical writing lane and exact strokes have not moved.
+                guard usesAutomaticPositioning, !selectedBarlines.isEmpty, selectedEndings.isEmpty,
+                      let reanchored = ChordInkRetainedSplitReanchorPolicy.reanchored(
+                        state: remainingState, drawing: remaining, originalLayout: sourceLayout,
+                        destinationLayout: destination, sourceFrame: sourceFrame, layoutStyle: chart.layoutStyle)
+                else { failureReason = .needsSourceRefresh; return nil }
+                remainingState = reanchored
             }
             for index in remainingState.draftChords.indices {
                 guard let measure = destination.systems.flatMap(\.measures).first(where: {
@@ -680,6 +736,45 @@ final class ChordInkDraftRenderCoordinator {
             blocked.formUnion(measureIDs[min(start, end)...max(start, end)])
         }
         return blocked
+    }
+
+    /// Each retained fragment needs either the normal horizontal word gap
+    /// or a different verified writing row. Mixing those two kinds of safe
+    /// neighbors must not make an older completed chord wait for global idle.
+    private static func isIndependentFromOtherWriting(
+        indices: Set<Int>, source: PKDrawing, pageSize: CGSize?,
+        layout: LeadSheetPageLayout, sourceFrame: CGRect, requiresLaterInk: Bool
+    ) -> Bool {
+        if ChordInkAutomaticRenderPolicy.isSpatiallyIsolated(originalStrokeIndices: indices,
+            source: source, pageSize: pageSize, requiresLaterInk: requiresLaterInk) { return true }
+        guard !indices.isEmpty, indices.allSatisfy(source.strokes.indices.contains) else { return false }
+        var visible: [(index: Int, bounds: CGRect)] = []
+        for (index, stroke) in source.strokes.enumerated() {
+            for fragment in PencilKitInkAdapter.visibleStrokeFragments(from: stroke) {
+                let bounds = fragment.renderBounds.standardized
+                    .offsetBy(dx: sourceFrame.minX, dy: sourceFrame.minY)
+                guard !bounds.isNull, !bounds.isInfinite,
+                      bounds.minX.isFinite, bounds.minY.isFinite,
+                      bounds.maxX.isFinite, bounds.maxY.isFinite else { return false }
+                visible.append((index, bounds))
+            }
+        }
+        guard let newestIndex = visible.last?.index,
+              !requiresLaterInk || !indices.contains(newestIndex) else { return false }
+        let owned = visible.filter { indices.contains($0.index) }
+        let other = visible.filter { !indices.contains($0.index) }
+        guard !owned.isEmpty, !other.isEmpty else { return false }
+        let rows = LeadSheetActiveInkScope.chordWritingRegion(for: layout).inputFrames
+        guard let row = rows.first(where: { frame in owned.allSatisfy { frame.contains($0.bounds) } }) else { return false }
+        let ownedBounds = owned.reduce(CGRect.null) { $0.union($1.bounds) }
+        let pageScale = pageSize.map { $0.width.isFinite && $0.width > 0 ? $0.width / 900 : 1 } ?? 1
+        let requiredGap = ChordInkAutomaticRenderPolicy.minimumChordGap * pageScale
+        return other.allSatisfy { fragment in
+            let bounds = fragment.bounds
+            let horizontalGap = max(bounds.minX - ownedBounds.maxX, ownedBounds.minX - bounds.maxX)
+            return horizontalGap >= requiredGap
+                || (!row.intersects(bounds) && rows.contains(where: { $0.contains(bounds) }))
+        }
     }
 
     private static func isOnSeparateWritingRow(

@@ -8,19 +8,22 @@ struct RenderedEditContext {
     var selection: RenderedEditSelectionState
     var committedChordBarlineMeasures: [LeadSheetMeasureLayout]
     var screenPointsPerDisplayedPoint: CGFloat
+    var allowsUnselectedChordMove: Bool
 
     init(
         pageLayout: LeadSheetPageLayout,
         layoutStyle: ChartLayoutStyle = .leadSheet,
         selection: RenderedEditSelectionState = RenderedEditSelectionState(),
         committedChordBarlineMeasures: [LeadSheetMeasureLayout] = [],
-        screenPointsPerDisplayedPoint: CGFloat = 1
+        screenPointsPerDisplayedPoint: CGFloat = 1,
+        allowsUnselectedChordMove: Bool = false
     ) {
         self.pageLayout = pageLayout
         self.layoutStyle = layoutStyle
         self.selection = selection
         self.committedChordBarlineMeasures = committedChordBarlineMeasures
         self.screenPointsPerDisplayedPoint = screenPointsPerDisplayedPoint
+        self.allowsUnselectedChordMove = allowsUnselectedChordMove
     }
 }
 
@@ -38,7 +41,7 @@ struct RenderedEditRouter {
     func hitTargets(at location: CGPoint, in context: RenderedEditContext) -> [RenderedEditHitTarget] {
         providers
             .flatMap { $0.hitTargets(in: context) }
-            .filter { $0.frame.contains(location) }
+            .filter { $0.contains(location) }
     }
 
     func topHitTarget(at location: CGPoint, in context: RenderedEditContext) -> RenderedEditHitTarget? {
@@ -58,7 +61,14 @@ struct RenderedEditRouter {
     }
 
     func dragTarget(at location: CGPoint, in context: RenderedEditContext) -> RenderedEditHitTarget? {
-        let dragCandidates = hitTargets(at: location, in: context)
+        let hits = hitTargets(at: location, in: context)
+        // Starting on an explicit chord X is a tap intent, never a body drag
+        // through the selected object's forgiving outer halo.
+        if hits.contains(where: {
+            if case .chord = $0.objectID { return $0.action.isDestructive }
+            return false
+        }) { return nil }
+        let dragCandidates = hits
             .filter { $0.action.isMove || $0.action.isResize }
             .compactMap {
                 RenderedEditSelectionPolicy.resolvedDragTarget(
@@ -91,16 +101,24 @@ enum RenderedEditTargetProviderSet {
 
 struct ChordRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
     func hitTargets(in context: RenderedEditContext) -> [RenderedEditHitTarget] {
-        context.pageLayout.systems.flatMap { system in
+        let protectedBodies = context.pageLayout.systems.flatMap(\.measures)
+            .flatMap(\.chordLayouts)
+            .map { LeadSheetChordEditOverlayGeometry.bodySelectionFrame(for: $0) }
+        return context.pageLayout.systems.flatMap { system in
             system.measures.flatMap { measure in
-                chordTargets(in: measure, selection: context.selection)
+                chordTargets(in: measure, selection: context.selection,
+                    allowsUnselectedMove: context.allowsUnselectedChordMove,
+                    protectedBodies: protectedBodies, canvasBounds: context.pageLayout.pageBounds)
             }
         }
     }
 
     private func chordTargets(
         in measure: LeadSheetMeasureLayout,
-        selection: RenderedEditSelectionState
+        selection: RenderedEditSelectionState,
+        allowsUnselectedMove: Bool,
+        protectedBodies: [CGRect],
+        canvasBounds: CGRect
     ) -> [RenderedEditHitTarget] {
         guard measure.sourceMeasureID != nil else {
             return []
@@ -109,7 +127,7 @@ struct ChordRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
         return measure.chordLayouts.flatMap { chordLayout in
             let objectID = RenderedEditObjectID.chord(chordLayout.id)
             let selectionFrame = LeadSheetChordEditOverlayGeometry.bodySelectionFrame(for: chordLayout)
-            let moveFrame = LeadSheetChordEditOverlayGeometry.selectedMoveBodyFrame(for: chordLayout)
+            let isSelected = selection.contains(objectID)
             var targets = [
                 RenderedEditHitTarget(
                     objectID: objectID,
@@ -122,18 +140,25 @@ struct ChordRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
                 RenderedEditHitTarget(
                     objectID: objectID,
                     action: .move,
-                    priority: .selectedObjectMoveBody,
-                    frame: moveFrame,
-                    requiresSelection: true,
+                    priority: .objectBodyMove,
+                    frame: selectionFrame,
+                    requiresSelection: !allowsUnselectedMove,
                     mutationRisk: .visual
                 )
             ]
+
+            if isSelected {
+                targets.append(RenderedEditHitTarget(objectID: objectID, action: .move,
+                    priority: .selectedObjectMoveBody,
+                    frame: LeadSheetChordEditOverlayGeometry.selectedMoveBodyFrame(for: chordLayout),
+                    requiresSelection: true, mutationRisk: .visual))
+            }
 
             guard selection.contains(objectID) else {
                 return targets
             }
 
-            let controlFrames = LeadSheetChordEditOverlayGeometry.controlFrames(for: chordLayout)
+            let controlFrames = LeadSheetChordEditOverlayGeometry.controlFrames(for: chordLayout, within: canvasBounds)
             let controlOutset = LeadSheetChordEditOverlayGeometry.controlHitOutset
             targets.append(
                 RenderedEditHitTarget(
@@ -142,7 +167,8 @@ struct ChordRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
                     priority: .selectedObjectDestructiveControl,
                     frame: controlFrames.delete.insetBy(dx: -controlOutset, dy: -controlOutset),
                     requiresSelection: true,
-                    mutationRisk: .destructive
+                    mutationRisk: .destructive,
+                    excludedFrames: protectedBodies
                 )
             )
             targets.append(
@@ -152,7 +178,8 @@ struct ChordRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
                     priority: .selectedObjectResizeHandle,
                     frame: controlFrames.trailingResize.insetBy(dx: -controlOutset, dy: -controlOutset),
                     requiresSelection: true,
-                    mutationRisk: .visual
+                    mutationRisk: .visual,
+                    excludedFrames: protectedBodies
                 )
             )
 
