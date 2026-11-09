@@ -19,8 +19,9 @@ final class EditorToolGuidanceTests: XCTestCase {
                     XCTAssertTrue(guidance.steps[1].contains("Render Chords"))
                     XCTAssertTrue(guidance.steps[1].contains("Review & Render"))
                 } else {
-                    XCTAssertTrue(guidance.steps[1].contains("pause to render"))
-                    XCTAssertTrue(guidance.steps[1].contains("Follow the review action when offered"))
+                    XCTAssertTrue(guidance.steps[1].contains("between strokes as you move on"))
+                    XCTAssertTrue(guidance.steps[1].contains("Pause to finish the last chord"))
+                    XCTAssertTrue(guidance.steps[1].contains("Follow review prompts when offered."))
                     XCTAssertFalse(guidance.steps[1].contains("Render Chords"))
                 }
                 // Advanced rules should not displace the next action above
@@ -32,6 +33,31 @@ final class EditorToolGuidanceTests: XCTestCase {
                 XCTAssertTrue(guidance.referenceText.contains("Unplaced ink stays on the page."))
             }
         }
+    }
+
+    func testAutomaticCadenceGuideKeepsStructuralWaitLocalAndManualInstructionsUnchanged() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let automatic = EditorCanvasMode.chordEntry.toolGuidance(
+                layoutStyle: style, manualRenderWithPreview: false)
+            let cadence = try XCTUnwrap(automatic.details.first { $0.title == "Automatic rendering" })
+            XCTAssertTrue(cadence.text.contains("between strokes as you move on with clear gaps"))
+            XCTAssertTrue(cadence.text.contains("A brief pause finishes the last chord"))
+            XCTAssertTrue(cadence.text.contains("Barlines and ending brackets wait briefly for their own writing"))
+            XCTAssertTrue(cadence.text.contains("keep writing elsewhere while ready chords render"))
+            XCTAssertTrue(automatic.steps[1].contains("Follow review prompts when offered."),
+                "Review is conditional on an offered prompt while ordinary Automatic writing continues")
+            XCTAssertFalse(automatic.steps[1].contains("Review & Render"))
+
+            let manual = EditorCanvasMode.chordEntry.toolGuidance(
+                layoutStyle: style, manualRenderWithPreview: true)
+            XCTAssertNil(manual.details.first { $0.title == "Automatic rendering" })
+            XCTAssertEqual(manual.steps[1],
+                "Check the previews. Tap Render Chords for ready ink, or Review & Render when entries need attention.")
+        }
+        XCTAssertTrue(ChordInkWorkflowSettings.automaticRenderingDescription.contains("between strokes as you move on"))
+        XCTAssertTrue(ChordInkWorkflowSettings.automaticRenderingDescription.contains("pause to finish the last chord"))
+        XCTAssertEqual(ChordInkWorkflowSettings.manualRenderingDescription,
+            "Show chord previews while you write, then tap Render Chords or Review & Render when you are ready.")
     }
 
     func testBarlineGuideKeepsLayoutSpecificConstraintsAndLegacyScope() {
@@ -110,6 +136,21 @@ final class EditorToolGuidanceTests: XCTestCase {
             XCTAssertTrue(empty.referenceText.contains("eligible divider"))
             XCTAssertFalse(empty.referenceText.contains("Tap a converted mark"))
             XCTAssertTrue(withMarks.referenceText.contains("Tap a converted mark"))
+        }
+    }
+
+    func testSelectionGuideExplainsDirectChordDragAndSeparateControlsInBothStyles() {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            for manual in [false, true] {
+                let guidance = EditorCanvasMode.browse.toolGuidance(
+                    layoutStyle: style, manualRenderWithPreview: manual)
+                XCTAssertTrue(guidance.steps.joined().contains("Drag a chord"))
+                XCTAssertTrue(guidance.steps.joined().contains("lift to place it"))
+                XCTAssertTrue(guidance.referenceText.contains("Apple Pencil or a finger"))
+                XCTAssertTrue(guidance.referenceText.contains("tap the red X to delete"))
+                XCTAssertTrue(guidance.referenceText.contains("drag the width handle to change width"))
+                XCTAssertTrue(guidance.referenceText.contains("Double-tap a chord to correct it"))
+            }
         }
     }
 

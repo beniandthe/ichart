@@ -6,9 +6,9 @@ import PencilKit
 /// Choosing an editable guess never changes the recognizer's trust decision.
 enum ChordInkAutomaticRenderPolicy {
     static let idleDelay: TimeInterval = 1.2
-    // A first vertical stroke can still acquire a second stroke, repeat dots,
-    // or an ending label. Structural ink keeps the full shared pause instead
-    // of using horizontal chord separation as an early completion signal.
+    // A first vertical stroke can still acquire another stroke or an ending
+    // label. Structural ink keeps its own full grace; later writing elsewhere
+    // must not restart the age of an unchanged mark.
     static let structuralIdleDelay: TimeInterval = 2
     static let spaceDelay: TimeInterval = 0.35
     static let minimumChordGap: CGFloat = 24

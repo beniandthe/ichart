@@ -296,7 +296,7 @@ private struct IChartQuickStartStep: Identifiable {
         IChartQuickStartStep(
             id: "chords",
             title: "Write And Render Chords",
-            detail: "Tap Write & Render and use Apple Pencil to write C, F, G, C with space between chords. Chords render automatically after a pause. For previews, choose Manual in Rendering in Write & Render or Settings, then use Render Chords or Review & Render."
+            detail: "Tap Write & Render and use Apple Pencil to write C, F, G, C with space between chords. Complete chords render as you move on; pause to finish the last chord. For previews, choose Manual in Rendering in Write & Render or Settings, then use Render Chords or Review & Render."
         ),
         IChartQuickStartStep(
             id: "form",
@@ -383,6 +383,8 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Tap Done to leave the current tool and return to Select.",
                 "You can switch directly between Write & Render, Free Ink, Measures, and Tools without returning to Select first.",
                 "Tap a chord, barline, text label, marker, or measure to show its buttons.",
+                "In Select, drag a chord with Apple Pencil or your finger, then lift to place it. You can start on the chord without selecting it first.",
+                "Tap a chord to show its controls. Tap the red X to delete it, or drag the width handle to change its width.",
                 "In either chart style, tap an eligible divider, then its red X or Delete to merge the two measures. Rhythm divider deletion is limited to chord-only measures; notes, attached marks or a merge that could move staff handwriting keep the boundary protected.",
                 "On a Simple Chord Sheet or Rhythm Section Sheet, tap a converted mark to select it. Drag to move it or tap the red X to delete it.",
                 "While you drag, a line points to a nearby chord. On a Rhythm Section Sheet, it can also point to a rhythm note or staff ink. Release to attach when the line is visible.",
@@ -401,7 +403,7 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Write chord-repeat symbols (%) in the lane alongside chords. Keep separate symbols apart and follow review prompts when offered.",
                 "Add measure repeats and repeat ranges with Tools > Repeats by selecting measures.",
                 "On a Rhythm Section Sheet, the first chord in each measure renders on beat 1 wherever you write it in that measure.",
-                "Chords render automatically after a pause. Keep the symbols for each chord together, with space before the next chord.",
+                "In Automatic, keep each chord together and leave clear gaps before the next. Complete chords render between strokes as you move on; pause to finish the last chord. Barlines and ending brackets wait briefly for their own writing to settle while ready chords can render elsewhere.",
                 "If a triangle is unclear, the ink stays on the chart. Tap Review Chord in Automatic, or Review & Render in Manual, to enter the intended chord.",
                 "Choose Manual under Rendering in Write & Render or app Settings to check the previews before tapping Render Chords or Review & Render.",
                 "On a Simple Chord Sheet or Rhythm Section Sheet, draw a tall, nearly vertical barline in the highlighted lane with space on either side.",
@@ -456,7 +458,7 @@ private struct IChartHelpArticleSection: Identifiable {
                 "After Back to Writing, your corrections stay with the same handwriting. Check the updated rows if you return to review.",
                 "If new strokes make a chord unreadable, Add chord marks the combined writing. If you see Separate chords, go back to writing and rewrite those chords with more space between them.",
                 "In Review Chords, Recognition guess marks a prefilled read and Your edit marks text you typed or chose. Fill in any missing chords and check the guesses. Render All uses the text shown in every row. Ink that cannot be placed stays on the page.",
-                "Choose Automatic to return to chord rendering after a pause.",
+                "Choose Automatic to return to rendering complete chords as you move on.",
                 "Clear Draft Ink removes all unrendered writing in Write & Render after confirmation."
             ]
         ),
@@ -466,8 +468,8 @@ private struct IChartHelpArticleSection: Identifiable {
             systemImageName: "square.and.pencil",
             body: "After something is on the chart, use Select to change it.",
             bullets: [
-                "Tap a chord in Select to correct or delete it.",
-                "Drag a selected chord to move it. The right handle adjusts its width only.",
+                "Double-tap a chord in Select to correct it. Tap once to show its controls.",
+                "Drag a chord body to move it, then lift to place it. The width handle changes width; the red X deletes.",
                 "If a selected chord has a custom width, Reset Width returns it to 100% width without changing its placement.",
                 "Tap text or roadmap markers in Select to move, resize, edit, or delete them.",
                 "To remove an eligible chord-only divider, choose Select, tap the divider, then its red X or Delete. Protected Rhythm boundaries keep their content and remain in place."
@@ -879,12 +881,11 @@ struct LibraryView: View {
     @State private var showingAccountLanding = false
     @State private var showingCreateProject = false
     @State private var renameRequest: ChartRenameRequest?
-    @State private var deleteRequest: IChartLibraryDeleteRequest?
+    @State private var libraryAlert = IChartLibraryAlertPresentation()
     @State private var isSelectingCharts = false
     @State private var selectedChartIDs: Set<Chart.ID> = []
     @State private var isSelectingPDFs = false
     @State private var selectedPDFIDs: Set<UUID> = []
-    @State private var libraryError: String?
     @State private var awaitingChartDeleteSave = false
     @State private var renameProjectRequest: ChartProjectRenameRequest?
     @State private var addChartsRequest: ChartProjectAddChartsRequest?
@@ -1288,28 +1289,31 @@ struct LibraryView: View {
                 }
             }
         }
-        .alert(
-            deleteRequest?.confirmationTitle ?? "Delete?",
-            isPresented: deleteConfirmationPresented,
-            presenting: deleteRequest
-        ) { request in
-            Button(request.deleteButtonTitle, role: .destructive) {
-                performDeletion(request)
-                deleteRequest = nil
+        .alert(item: libraryAlertBinding) { item in
+            switch item {
+            case .deletion(let request):
+                Alert(
+                    title: Text(request.confirmationTitle),
+                    message: Text(request.confirmationMessage),
+                    primaryButton: .destructive(Text(request.deleteButtonTitle)) {
+                        // Retire this presentation before removing its source
+                        // row. The action retains the immutable confirmed IDs.
+                        libraryAlert.dismiss(id: request.id)
+                        performDeletion(request)
+                    },
+                    secondaryButton: .cancel {
+                        libraryAlert.dismiss(id: request.id)
+                    }
+                )
+            case .failure(let id, let message):
+                Alert(
+                    title: Text("Library Needs Attention"),
+                    message: Text(message),
+                    dismissButton: .default(Text("OK")) {
+                        libraryAlert.dismiss(id: id)
+                    }
+                )
             }
-            Button("Cancel", role: .cancel) {
-                deleteRequest = nil
-            }
-        } message: { request in
-            Text(request.confirmationMessage)
-        }
-        .alert("Library Needs Attention", isPresented: Binding(
-            get: { libraryError != nil },
-            set: { if !$0 { libraryError = nil } }
-        )) {
-            Button("OK", role: .cancel) { libraryError = nil }
-        } message: {
-            Text(libraryError ?? "Please try again.")
         }
     }
 
@@ -1519,7 +1523,7 @@ struct LibraryView: View {
                     noun: "PDFs"
                 ) { shownSelectedIDs in
                     let items = filteredPDFs.filter { shownSelectedIDs.contains($0.id) }
-                    deleteRequest = IChartLibraryDeleteRequest(pdfs: items)
+                    libraryAlert.requestDeletion(IChartLibraryDeleteRequest(pdfs: items))
                 }
                 IChartPDFLibraryHomeView(
                     items: filteredPDFs,
@@ -1542,7 +1546,7 @@ struct LibraryView: View {
                         selectedPDFLibraryItem = item
                     },
                     onDelete: { item in
-                        deleteRequest = IChartLibraryDeleteRequest(pdfs: [item])
+                        libraryAlert.requestDeletion(IChartLibraryDeleteRequest(pdfs: [item]))
                     },
                     onAddToSetlist: { item in selectedAddToSetlistPDF = item },
                     isFiltering: !pdfSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -1660,7 +1664,7 @@ struct LibraryView: View {
                         .pickerStyle(.segmented)
                         .foregroundStyle(homeTheme.panelTitle)
                         .accessibilityIdentifier("rendering-mode-picker")
-                        .accessibilityHint("Automatic renders after a pause. Manual shows previews before you choose Render Chords or Review & Render.")
+                        .accessibilityHint("Automatic renders complete chords between strokes as you move on; pause to finish the last chord. Manual shows previews before you choose Render Chords or Review & Render.")
 
                         Text(manualRenderWithPreview
                             ? ChordInkWorkflowSettings.manualRenderingDescription
@@ -1878,7 +1882,7 @@ struct LibraryView: View {
                     availableIDs: Set(filteredCharts.map(\.id)),
                     noun: "Charts"
                 ) { shownSelectedIDs in
-                    deleteRequest = IChartLibraryDeleteRequest(charts: filteredCharts.filter { shownSelectedIDs.contains($0.id) })
+                    libraryAlert.requestDeletion(IChartLibraryDeleteRequest(charts: filteredCharts.filter { shownSelectedIDs.contains($0.id) }))
                 }
                 if store.canOpenChartsForEditing && !isSelectingCharts {
                     IChartPreviewModePicker(selection: chartPreviewModeBinding, theme: homeTheme)
@@ -1948,7 +1952,7 @@ struct LibraryView: View {
                                 }
                             },
                             onDelete: {
-                                deleteRequest = IChartLibraryDeleteRequest(charts: [chart])
+                                libraryAlert.requestDeletion(IChartLibraryDeleteRequest(charts: [chart]))
                             }
                         )
                         }
@@ -1958,12 +1962,15 @@ struct LibraryView: View {
         }
     }
 
-    private var deleteConfirmationPresented: Binding<Bool> {
-        Binding(
-            get: { deleteRequest != nil },
-            set: { isPresented in
-                if !isPresented {
-                    deleteRequest = nil
+    private var libraryAlertBinding: Binding<IChartLibraryAlertPresentation.Item?> {
+        let presentedID = libraryAlert.item?.id
+        return Binding(
+            get: { libraryAlert.item },
+            set: { item in
+                if item == nil {
+                    // SwiftUI may finish dismissing the previous alert after
+                    // the next menu action. Never clear that newer request.
+                    libraryAlert.dismiss(id: presentedID)
                 }
             }
         )
@@ -2082,7 +2089,7 @@ struct LibraryView: View {
         // Let the destructive confirmation finish dismissing before presenting
         // a save failure; competing alerts can otherwise hide the error.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            libraryError = message
+            libraryAlert.presentFailure(message)
         }
     }
 

@@ -281,6 +281,7 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     var documentSize = CGSize(width: 932, height: 1_200)
     var isInteractionSuspended = false
     var recognizesChordInk: Bool = true
+    var chordInkRecognizer: (any ChordInkRecognizing)? = nil
     var manualRenderWithPreview = ChordInkWorkflowSettings.defaultManualRenderWithPreview
     var chordPreviewState: ChordPreviewState = ChordPreviewState()
     var draftEndingBlockerFocus: ChordDraftEndingBlockerFocus?
@@ -339,7 +340,13 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
                 "chordCount": chart.measures.reduce(0) { $0 + $1.chordEvents.count }
             ]
         )
-        let view = LeadSheetCanvasUIKitView(frame: CGRect(origin: .zero, size: documentSize))
+        let frame = CGRect(origin: .zero, size: documentSize)
+        let view: LeadSheetCanvasUIKitView
+        if let chordInkRecognizer {
+            view = LeadSheetCanvasUIKitView(frame: frame, chordInkRecognizer: chordInkRecognizer)
+        } else {
+            view = LeadSheetCanvasUIKitView(frame: frame)
+        }
         // Attach the canvas to its navigation owner before configuring tools,
         // so the legacy parent gesture gate never claims this scroll view.
         let viewport = LeadSheetDocumentViewport(documentView: view)
@@ -1576,6 +1583,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             guard oldValue != chart else {
                 return
             }
+            let movingChordID = activeChordMoveDrag?.chordID ?? activeChordResizeDrag?.chordID
+            if let movingChordID, chart.chordEvent(id: movingChordID) == nil {
+                cancelRenderedObjectGesture()
+            } else if case .chord(let admittedID)? = renderedObjectMoveAdmittedDrag?.target.objectID,
+                      chart.chordEvent(id: admittedID) == nil {
+                cancelRenderedObjectGesture()
+            }
             if !endingEditInteraction.isCompatible(chart: chart, pageLayout: pageLayout,
                 selectedEndingID: selectedEndingSpanID) {
                 cancelEndingEditDrag()
@@ -1592,6 +1606,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 pageInkReprojectionSource = nil
             }
             if oldValue.id != chart.id {
+                cancelRenderedObjectGesture()
                 selectedFreeInkArticulationID = nil
                 currentAutomaticChordActivity = nil
                 lastBootstrappedChordDraftPreviewSnapshot = nil
@@ -1612,9 +1627,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                     "newChordCount": chart.measures.reduce(0) { $0 + $1.chordEvents.count }
                 ]
             )
-            if hasNewChordEvent(from: oldValue, to: chart) {
-                suppressChordObjectEditingTemporarily()
-            }
             if let selectedChordID,
                chart.chordEvent(id: selectedChordID) == nil {
                 self.selectedChordID = nil
@@ -1824,6 +1836,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             guard oldValue != isInteractionSuspended else { return }
             isUserInteractionEnabled = !isInteractionSuspended
             if isInteractionSuspended {
+                cancelRenderedObjectGesture()
                 cancelFreeInkArticulationDrag()
                 cancelAutomaticFreeInkArticulation()
                 cancelEndingEditDrag()
@@ -1869,6 +1882,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             )
             let previousActiveInkScope = activeInkScope(for: oldValue)
             let nextActiveInkScope = activeInkScope(for: interactionMode)
+            cancelRenderedObjectGesture()
             if LeadSheetInkCanvasSyncPolicy.shouldPersistOutgoingCanvas(
                 previousActiveInkScope: previousActiveInkScope,
                 nextActiveInkScope: nextActiveInkScope
@@ -1978,6 +1992,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private let freeInkArticulationDragGuide = CAShapeLayer()
     private let freeInkArticulationDragAnchor = CAShapeLayer()
     private var renderedObjectMoveTouchStart: CGPoint?
+    private var renderedObjectMoveAdmittedDrag: RenderedEditDragState?
+    private var renderedObjectMoveStartsOnFreeInkArticulation = false
+    private var renderedEditTapIntent = RenderedEditTapIntent()
+    var chordMovePreviewFrame: CGRect? { activeChordMoveDrag?.currentFrame }
 
     private struct FreeInkArticulationInput {
         let chartID: UUID
@@ -2153,7 +2171,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private var pendingSavedPageInkCanvasState: LeadSheetSavedInkCanvasState?
     private var inkPersistenceCoordinator = LeadSheetInkPersistenceCoordinator()
     private var activeChartUpdateReason: LeadSheetCanvasChartUpdateReason?
-    private var chordObjectEditingSuppressedUntil: Date?
     private var lastHandledChordDraftRenderInvalidationRequestID: UUID?
     private var lastBootstrappedChordDraftPreviewSnapshot: LeadSheetInkDrawingSnapshot?
     private var lastHandledRhythmicNotationPreviewConfirmationRequestID: UUID?
@@ -2167,7 +2184,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
     private var chordInkRecognitionRequestState = LeadSheetChordInkRecognitionRequestState()
     private var activeMeasureResizeDrag: ActiveMeasureResizeDrag?
-    private var activeChordMoveDrag: ActiveChordMoveDrag?
+    private var activeChordMoveDrag: ActiveChordMoveDrag? {
+        didSet {
+            if activeChordMoveDrag == nil { chordMoveOverlayView.end() }
+        }
+    }
+    private let chordMoveOverlayView = LeadSheetChordMoveOverlayView(frame: .zero)
     private var activeChordResizeDrag: ActiveChordResizeDrag?
     private var activeRoadmapMarkerEditDrag: ActiveRoadmapMarkerEditDrag?
     private var activeCueTextMoveDrag: ActiveCueTextMoveDrag?
@@ -2254,6 +2276,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window == nil {
+            cancelRenderedObjectGesture()
             cancelFreeInkArticulationDrag()
             cancelAutomaticFreeInkArticulation()
             cancelEndingEditDrag()
@@ -2274,6 +2297,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             hasLayout: pageLayout != nil
         )
         if requiresLayoutRefresh {
+            cancelRenderedObjectGesture()
             cancelEndingEditDrag()
             let viewportState = captureParentViewportAnchor()
             lastLayoutBoundsSize = bounds.size
@@ -2579,6 +2603,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         renderedEditHitOverlayView.containsEditableControl = { [weak self] location in
             self?.editableOverlayHitTarget(at: location) != nil
         }
+        renderedEditHitOverlayView.editableTouchMoved = { [weak self] location in
+            guard let self else { return }
+            renderedEditTapIntent.recordMovement(to:
+                renderedEditHitOverlayView.convert(location, to: self))
+        }
         renderedEditTapRecognizer.delegate = self
         chordCorrectionDoubleTapRecognizer.delegate = self
         chordCorrectionDoubleTapRecognizer.numberOfTapsRequired = 2
@@ -2588,7 +2617,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         renderedObjectMovePanRecognizer.maximumNumberOfTouches = 1
         renderedObjectMovePanRecognizer.delegate = self
         addGestureRecognizer(renderedObjectMovePanRecognizer)
+        selectionTapRecognizer.require(toFail: renderedObjectMovePanRecognizer)
+        inkSelectionTapRecognizer.require(toFail: renderedObjectMovePanRecognizer)
+        renderedEditTapRecognizer.require(toFail: renderedObjectMovePanRecognizer)
+        chordCorrectionDoubleTapRecognizer.require(toFail: renderedObjectMovePanRecognizer)
         addSubview(renderedEditHitOverlayView)
+        addSubview(chordMoveOverlayView)
         freeInkArticulationDeleteButton.accessibilityIdentifier = "free-ink-articulation-delete"
         freeInkArticulationDeleteButton.tintColor = .systemRed
         freeInkArticulationDeleteButton.isHidden = true
@@ -2632,6 +2666,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     @objc
     private func handleApplicationWillResignActive() {
+        cancelRenderedObjectGesture()
         cancelFreeInkArticulationDrag()
         cancelAutomaticFreeInkArticulation()
         persistDirtyActiveInkIfNeeded()
@@ -3038,6 +3073,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             drawnRepeatMarkerIDs.formUnion(LeadSheetRepeatBoundaryPolicy.markerIDs(leadingMarkers))
 
             for chordLayout in renderer.fittedChordLayouts(measure.chordLayouts) {
+                if chordMoveOverlayView.isActive, activeChordMoveDrag?.chordID == chordLayout.id {
+                    continue
+                }
                 let chordLayoutForDisplay = displayChordLayout(for: chordLayout)
                 renderer.drawChord(chordLayoutForDisplay)
                 if interactionMode.allowsChordObjectEditing,
@@ -3793,7 +3831,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         using renderer: LeadSheetNotationRenderer
     ) {
         let editFrame = LeadSheetChordEditOverlayGeometry.editFrame(for: chordLayout)
-        let controlFrames = LeadSheetChordEditOverlayGeometry.controlFrames(for: chordLayout)
+        let controlFrames = LeadSheetChordEditOverlayGeometry.controlFrames(for: chordLayout, within: bounds)
         let isActiveMove = activeChordMoveDrag?.chordID == chordLayout.id
         let isActiveResize = activeChordResizeDrag?.chordID == chordLayout.id
         let drawsControls = shouldDrawChordEditControls(for: chordLayout)
@@ -4183,41 +4221,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
     }
 
-    private func hasNewChordEvent(from oldChart: Chart, to newChart: Chart) -> Bool {
-        let oldChordIDs = Set(oldChart.measures.flatMap { measure in
-            measure.chordEvents.map(\.id)
-        })
-        let newChordIDs = Set(newChart.measures.flatMap { measure in
-            measure.chordEvents.map(\.id)
-        })
-
-        return !newChordIDs.subtracting(oldChordIDs).isEmpty
-    }
-
-    private func suppressChordObjectEditingTemporarily() {
-        chordObjectEditingSuppressedUntil = Date().addingTimeInterval(1.5)
-        activeChordMoveDrag = nil
-        activeChordResizeDrag = nil
-        unlockParentScrollForChordMove()
-    }
-
-    private func isChordObjectEditingTemporarilySuppressed() -> Bool {
-        if interactionMode.allowsChordInkEditing {
-            return false
-        }
-
-        guard let chordObjectEditingSuppressedUntil else {
-            return false
-        }
-
-        if Date() < chordObjectEditingSuppressedUntil {
-            return true
-        }
-
-        self.chordObjectEditingSuppressedUntil = nil
-        return false
-    }
-
     private func shouldDrawChordEditOverlay(for chordLayout: LeadSheetChordLayout) -> Bool {
         LeadSheetChordObjectInteractionPolicy.shouldDrawBox(
             for: chordLayout.id,
@@ -4238,7 +4241,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func chordEditHitTarget(at location: CGPoint) -> ChordEditHitTarget? {
         guard interactionMode.allowsChordObjectEditing,
-              !isChordObjectEditingTemporarilySuppressed(),
               let pageLayout else {
             return nil
         }
@@ -4294,8 +4296,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             providers.append(RoadmapMarkerRenderedEditHitTargetProvider())
         }
 
-        if interactionMode.allowsChordObjectEditing,
-           !isChordObjectEditingTemporarilySuppressed() {
+        if interactionMode.allowsChordObjectEditing {
             providers.append(ChordRenderedEditHitTargetProvider())
         }
 
@@ -4330,7 +4331,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             layoutStyle: chart.layoutStyle,
             selection: renderedEditSelectionState(),
             committedChordBarlineMeasures: committedBarlineMeasures,
-            screenPointsPerDisplayedPoint: canvasScreenPointsPerDisplayedPoint()
+            screenPointsPerDisplayedPoint: canvasScreenPointsPerDisplayedPoint(),
+            allowsUnselectedChordMove: interactionMode == .browse
         )
     }
 
@@ -4362,7 +4364,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func chordMoveHitTarget(at location: CGPoint) -> ChordEditHitTarget? {
         guard interactionMode.allowsChordObjectEditing,
-              !isChordObjectEditingTemporarilySuppressed(),
               let pageLayout else {
             return nil
         }
@@ -4376,7 +4377,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func chordResizeHitTarget(at location: CGPoint) -> ChordEditHitTarget? {
         guard interactionMode.allowsChordObjectEditing,
-              !isChordObjectEditingTemporarilySuppressed(),
               let pageLayout else {
             return nil
         }
@@ -4390,7 +4390,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func chordReviewHitTarget(at location: CGPoint) -> ChordEditHitTarget? {
         guard interactionMode.allowsChordObjectEditing,
-              !isChordObjectEditingTemporarilySuppressed(),
               let pageLayout else {
             return nil
         }
@@ -4562,8 +4561,48 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         return nil
     }
 
-    private func objectMovePanStartHitTarget(at location: CGPoint) -> Bool {
-        freeInkArticulationHit(at: location) != nil || renderedEditDragState(at: location) != nil
+    @discardableResult
+    func beginRenderedObjectMoveTouch(at location: CGPoint, touchType: UITouch.TouchType) -> Bool {
+        let articulation = freeInkArticulationHit(at: location) != nil
+        let drag = renderedEditDragState(at: location)
+        let allowed = !isInteractionSuspended && LeadSheetObjectMoveTouchPolicy.allowsMovePan(
+            touchType: touchType, interactionMode: interactionMode,
+            startsOnMoveTarget: articulation || drag != nil)
+        // A nonmovable direct touch may be observed by the pan recognizer, but
+        // must not later start a different object after the Pencil/finger moves.
+        renderedObjectMoveTouchStart = allowed ? location : nil
+        renderedObjectMoveAdmittedDrag = allowed ? drag : nil
+        renderedObjectMoveStartsOnFreeInkArticulation = allowed && articulation
+        return allowed
+    }
+
+    private func clearRenderedObjectMoveTouch() {
+        renderedObjectMoveTouchStart = nil
+        renderedObjectMoveAdmittedDrag = nil
+        renderedObjectMoveStartsOnFreeInkArticulation = false
+    }
+
+    private func cancelRenderedObjectGesture() {
+        clearRenderedObjectMoveTouch()
+        renderedEditTapIntent.cancelForDrag()
+        activeChordMoveDrag = nil
+        activeChordResizeDrag = nil
+        activeCueTextMoveDrag = nil
+        activeRoadmapMarkerEditDrag = nil
+        cancelEndingEditDrag()
+        cancelFreeInkArticulationDrag()
+        unlockParentScrollForChordMove()
+        setNeedsDisplay()
+    }
+
+    private func renderedObjectMoveStartLocation(for recognizer: UIPanGestureRecognizer) -> CGPoint {
+        renderedObjectMoveTouchStart ?? panStartLocation(for: recognizer)
+    }
+
+    func beginRenderedEditTap(at location: CGPoint, touchType: UITouch.TouchType = .pencil) {
+        renderedEditTapIntent.begin(target: renderedEditTapTarget(at: location), startLocation: location,
+            screenPointsPerDisplayedPoint: canvasScreenPointsPerDisplayedPoint(),
+            maximumScreenMovement: touchType == .pencil ? 4 : 6)
     }
 
     private func panStartLocation(for recognizer: UIPanGestureRecognizer) -> CGPoint {
@@ -4638,6 +4677,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         let drawing = canvasView.drawing
         if canvasView === pageInkCanvasView, activeInkAuthoringSessionRole() == .chord {
             chordDraftRenderCoordinator?.lastInputAt = Date()
+            chordDraftRenderCoordinator?.structuralMaturity.retainPresentSource(in: drawing)
         }
         let strokes = drawing.strokes
         let strokeCount = strokes.count
@@ -4995,10 +5035,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     @objc
-    private func handleRenderedEditTapGesture(_ recognizer: UITapGestureRecognizer) {
+    func handleRenderedEditTapGesture(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended else {
+            if recognizer.state == .cancelled || recognizer.state == .failed {
+                renderedEditTapIntent.cancelForDrag()
+            }
             return
         }
+        defer { renderedEditTapIntent.reset() }
 
         if handleFreeInkArticulationTap(at: recognizer.location(in: self)) { return }
         let location = recognizer.location(in: renderedEditHitOverlayView)
@@ -5012,11 +5056,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         if let hitTarget = renderedEditTapTarget(at: location) {
-            handleRenderedEditTap(hitTarget)
+            handleRenderedEditTap(hitTarget, at: location)
         }
     }
 
-    private func handleRenderedEditTap(_ hitTarget: RenderedEditHitTarget) {
+    private func handleRenderedEditTap(_ hitTarget: RenderedEditHitTarget, at location: CGPoint? = nil) {
+        if case .chord = hitTarget.objectID, hitTarget.action.isDestructive {
+            guard renderedEditTapIntent.resolvedTarget(at: hitTarget, endLocation: location) != nil else { return }
+        }
         switch hitTarget.objectID {
         case .chord(let chordID):
             handleRenderedChordTap(chordID: chordID, action: hitTarget.action)
@@ -5127,13 +5174,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
     }
 
-    private func selectRenderedChordFromCanvas(_ chordID: UUID) {
+    private func selectRenderedChordFromCanvas(_ chordID: UUID, opensInspector: Bool = true) {
         selectedChordID = chordID
         selectedCommittedBarlineMeasureID = nil
         selectedCueTextID = nil
         updateSelectedRoadmapMarkerID(nil)
         selectedNoteSelection = nil
-        if interactionMode == .browse {
+        if interactionMode == .browse && opensInspector {
             onChordSelectedFromCanvas?(chordID)
         }
         setNeedsDisplay()
@@ -5258,7 +5305,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         if let hitTarget = renderedEditTapTarget(at: location) {
-            handleRenderedEditTap(hitTarget)
+            handleRenderedEditTap(hitTarget, at: location)
             return
         }
 
@@ -5592,11 +5639,22 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     @objc
-    private func handleRenderedObjectMovePan(_ recognizer: UIPanGestureRecognizer) {
+    func handleRenderedObjectMovePan(_ recognizer: UIPanGestureRecognizer) {
+        defer {
+            if recognizer.state == .ended || recognizer.state == .cancelled || recognizer.state == .failed {
+                clearRenderedObjectMoveTouch()
+            }
+        }
+        if recognizer.state == .began
+            || ((recognizer.state == .cancelled || recognizer.state == .failed)
+                && (renderedObjectMoveAdmittedDrag != nil || renderedObjectMoveStartsOnFreeInkArticulation)) {
+            renderedEditTapIntent.cancelForDrag()
+        }
         if recognizer.state == .began {
-            let startPoint = renderedObjectMoveTouchStart ?? panStartLocation(for: recognizer)
-            renderedObjectMoveTouchStart = nil
-            if beginFreeInkArticulationDrag(at: startPoint) {
+            guard !isInteractionSuspended, renderedObjectMoveTouchStart != nil else { return }
+            let startPoint = renderedObjectMoveStartLocation(for: recognizer)
+            if renderedObjectMoveStartsOnFreeInkArticulation,
+               beginFreeInkArticulationDrag(at: startPoint) {
                 updateFreeInkArticulationDrag(to: recognizer.location(in: self))
                 return
             }
@@ -5634,8 +5692,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         if recognizer.state == .began {
-            let startLocation = panStartLocation(for: recognizer)
-            guard let dragState = renderedEditDragState(at: startLocation) else {
+            guard let dragState = renderedObjectMoveAdmittedDrag else {
                 activeChordMoveDrag = nil
                 setNeedsDisplay()
                 return
@@ -5665,11 +5722,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         switch recognizer.state {
         case .began:
-            let startLocation = panStartLocation(for: recognizer)
+            let startLocation = renderedObjectMoveStartLocation(for: recognizer)
             guard let pageLayout,
-                  let hitTarget = chordMoveHitTarget(at: startLocation),
+                  let target = renderedObjectMoveAdmittedDrag?.target,
+                  case .chord(let chordID) = target.objectID,
+                  target.action == .move,
                   let chordLayout = chordLayout(
-                    for: hitTarget.chordID,
+                    for: chordID,
                     in: pageLayout
                   ) else {
                 activeChordMoveDrag = nil
@@ -5677,15 +5736,28 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 return
             }
 
-            selectedChordID = hitTarget.chordID
-            activeChordMoveDrag = ActiveChordMoveDrag(
-                chordID: hitTarget.chordID,
+            selectRenderedChordFromCanvas(chordID, opensInspector: false)
+            let initialDrag = ActiveChordMoveDrag(
+                chordID: chordID,
                 sourcePageLayout: pageLayout,
                 initialFrame: chordLayout.frame,
                 currentFrame: chordLayout.frame,
                 startLocation: startLocation,
                 screenPointsPerDisplayedPoint: canvasScreenPointsPerDisplayedPoint()
             )
+            // UIPan has already crossed its threshold before .began. Draw that
+            // accumulated movement immediately instead of waiting for .changed.
+            activeChordMoveDrag = chordMoveDragWithPositionPreview(initialDrag,
+                at: location, in: pageLayout)
+            let renderer = notationRenderer
+            chordMoveOverlayView.begin(chordLayout: chordLayout, canvasBounds: bounds,
+                screenPointsPerDisplayedPoint: canvasScreenPointsPerDisplayedPoint(),
+                screenScale: window?.screen.scale ?? UIScreen.main.scale,
+                drawChord: renderer.drawChord)
+            if let activeChordMoveDrag {
+                chordMoveOverlayView.update(frame: activeChordMoveDrag.currentFrame,
+                    positionPreview: activeChordMoveDrag.currentPositionPreview)
+            }
             editorPerformanceMetrics.recordDragState(kind: .chordMove, state: recognizer.state)
             lockParentScrollForChordMove()
             setNeedsDisplay()
@@ -5707,7 +5779,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 in: pageLayout
             )
             self.activeChordMoveDrag = activeChordMoveDrag
-            setNeedsDisplay()
+            chordMoveOverlayView.update(frame: activeChordMoveDrag.currentFrame,
+                positionPreview: activeChordMoveDrag.currentPositionPreview)
 
             if recognizer.state == .ended {
                 commitChordMove(activeChordMoveDrag, at: location)
@@ -5732,11 +5805,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             cancelEndingEditDrag()
             return
         }
-        let start = panStartLocation(for: recognizer)
+        let start = renderedObjectMoveStartLocation(for: recognizer)
         let effect = endingEditInteraction.handle(state: recognizer.state, startLocation: start,
             location: recognizer.location(in: self), chart: chart, pageLayout: pageLayout,
             selectedEndingID: selectedEndingSpanID,
-            target: recognizer.state == .began ? renderedEditDragTarget(at: start) : nil,
+            target: recognizer.state == .began ? renderedObjectMoveAdmittedDrag?.target : nil,
             screenPointsPerDisplayedPoint: canvasScreenPointsPerDisplayedPoint())
         if effect.finished { unlockParentScrollForChordMove() }
         if effect.began { lockParentScrollForChordMove() }
@@ -5955,11 +6028,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         let location = recognizer.location(in: self)
         switch recognizer.state {
         case .began:
-            let startLocation = panStartLocation(for: recognizer)
+            let startLocation = renderedObjectMoveStartLocation(for: recognizer)
             guard let pageLayout,
-                  let hitTarget = chordResizeHitTarget(at: startLocation),
+                  let target = renderedObjectMoveAdmittedDrag?.target,
+                  case .chord(let chordID) = target.objectID,
+                  target.action == .resizeTrailing,
                   let chordLayout = chordLayout(
-                    for: hitTarget.chordID,
+                    for: chordID,
                     in: pageLayout
                   ) else {
                 activeChordResizeDrag = nil
@@ -5967,18 +6042,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 return
             }
 
-            switch hitTarget.action {
-            case .resizeTrailing:
-                break
-            default:
-                activeChordResizeDrag = nil
-                setNeedsDisplay()
-                return
-            }
-
-            selectedChordID = hitTarget.chordID
-            activeChordResizeDrag = ActiveChordResizeDrag(
-                chordID: hitTarget.chordID,
+            selectedChordID = chordID
+            var drag = ActiveChordResizeDrag(
+                chordID: chordID,
                 sourcePageLayout: pageLayout,
                 edge: .trailing,
                 initialFrame: chordLayout.frame,
@@ -5987,6 +6053,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 initialHorizontalScale: chordLayout.horizontalCompressionScale,
                 screenPointsPerDisplayedPoint: canvasScreenPointsPerDisplayedPoint()
             )
+            drag.currentFrame = LeadSheetChordResizeDragPolicy.previewFrame(for: drag,
+                at: location, boundedBy: paperFrame(containing: drag.initialFrame, in: pageLayout))
+            activeChordResizeDrag = drag
             editorPerformanceMetrics.recordDragState(kind: .chordResize, state: recognizer.state)
             lockParentScrollForChordMove()
             setNeedsDisplay()
@@ -6100,10 +6169,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         var positionedFrame = updatedDrag.currentFrame
         positionedFrame.origin.x = positionPreview.targetX
-        positionedFrame.size.width = min(
-            positionedFrame.width,
-            max(1, positionPreview.referenceFrame.maxX - positionedFrame.minX)
-        )
         updatedDrag.currentFrame = positionedFrame
         return updatedDrag
     }
@@ -6144,8 +6209,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func handleCueTextMovePan(_ recognizer: UIPanGestureRecognizer) {
         switch recognizer.state {
         case .began:
-            let startLocation = panStartLocation(for: recognizer)
-            guard let cueTextLayout = cueTextMoveHitTarget(at: startLocation),
+            let startLocation = renderedObjectMoveStartLocation(for: recognizer)
+            guard let target = renderedObjectMoveAdmittedDrag?.target,
+                  case .cueText(let cueTextID) = target.objectID,
+                  let cueTextLayout = cueTextLayouts().first(where: { $0.id == cueTextID }),
                   let cueText = chart.cueText(id: cueTextLayout.id) else {
                 activeCueTextMoveDrag = nil
                 setNeedsDisplay()
@@ -6221,8 +6288,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func handleRoadmapMarkerEditPan(_ recognizer: UIPanGestureRecognizer) {
         switch recognizer.state {
         case .began:
-            let startLocation = panStartLocation(for: recognizer)
-            guard let markerLayout = roadmapMarkerMoveHitTarget(at: startLocation) else {
+            let startLocation = renderedObjectMoveStartLocation(for: recognizer)
+            guard let target = renderedObjectMoveAdmittedDrag?.target,
+                  case .roadmapMarker(let markerID) = target.objectID,
+                  let markerLayout = roadmapMarkerLayouts().first(where: { $0.id == markerID }) else {
                 activeRoadmapMarkerEditDrag = nil
                 setNeedsDisplay()
                 return
@@ -7818,7 +7887,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
             if flow == .draftPreview, usesIncrementalChordRecognition {
                 chordInkRecognitionRequestState.clearActiveRequest()
-                installAutomaticChordCensus(requests, forInkRevision: scheduledInkRevision)
+                if installAutomaticChordCensus(requests, forInkRevision: scheduledInkRevision) {
+                    // Record first validated source observation synchronously.
+                    // The next Pencil stroke can begin before SwiftUI runs its
+                    // queued render attempt; that must not postpone this age.
+                    _ = chordDraftRenderCoordinator?.structuralMaturity.observe(chartID: chart.id,
+                        state: .init(draftBarlines: result.barlines, draftEndings: result.endings,
+                            layoutPageSize: pageLayout?.pageBounds.size),
+                        drawing: pageInkCanvasView.drawing, now: Date())
+                }
                 return
             }
             ChordLaneLocalBreadcrumbs.record(
@@ -7854,6 +7931,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             chordInkRecognitionRequestState.clearActiveRequest()
             completedManualChordPreview = manualPreview
             resetIncrementalChordRecognition()
+            chordDraftRenderCoordinator?.structuralMaturity.reset()
             if flow == .draftPreview {
                 publishEmptyChordDraftPreview(clearsBarlines: true)
                 publishAutomaticChordActivity(phase: .empty)
@@ -7864,7 +7942,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             chordInkRecognitionRequestState.clearActiveRequest()
             // A barline-only source has a valid empty chord census. The
             // ordinary full-source coverage check still owns its consumption.
-            installAutomaticChordCensus([], forInkRevision: scheduledInkRevision)
+            if installAutomaticChordCensus([], forInkRevision: scheduledInkRevision) {
+                _ = chordDraftRenderCoordinator?.structuralMaturity.observe(chartID: chart.id,
+                    state: .init(draftBarlines: result.barlines, draftEndings: result.endings,
+                        layoutPageSize: pageLayout?.pageBounds.size),
+                    drawing: pageInkCanvasView.drawing, now: Date())
+            }
 
         case .invalidDrawingData,
              .noRecognitionData,
@@ -7897,6 +7980,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         let context = ChordInkEditedTargetSessionState.Scope(
             chartID: chart.id, chordFrame: frame, pageLayout: pageLayout, layoutStyle: chart.layoutStyle)
         let profileRevision = currentChordProfileRevision
+        if let previous = incrementalChordCensusScope,
+           previous.chartID != context.chartID || previous.chordFrame != context.chordFrame
+                || previous.layoutStyle != context.layoutStyle
+                || incrementalChordProfileRevision != profileRevision
+                || incrementalChordOptions != chordInkRecognitionOptions {
+            chordDraftRenderCoordinator?.structuralMaturity.reset()
+        }
         if incrementalChordCensusScope != context || incrementalChordProfileRevision != profileRevision
             || incrementalChordOptions != chordInkRecognitionOptions {
             resetIncrementalChordRecognition()
@@ -8818,6 +8908,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
         guard !isUsingInkTool else { return .init(feedback: .init(globalReason: .waiting)) }
         guard !pageInkCanvasView.drawing.strokes.isEmpty else {
+            chordDraftRenderCoordinator?.structuralMaturity.reset()
             publishAutomaticChordActivity(phase: .empty)
             return .init(feedback: .init())
         }
@@ -8841,11 +8932,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
               activeCanvasScope?.identity == scope.identity else {
             return .init(feedback: .init(globalReason: .needsSourceRefresh))
         }
+        let matureStructuralIDs = chordDraftRenderCoordinator?.structuralMaturity.observe(
+            chartID: incomingChart.id, state: state, drawing: pageInkCanvasView.drawing, now: now) ?? []
         let attempt = ChordInkDraftRenderCoordinator.prepareAutomaticAttempt(
             chart: incomingChart, state: state, currentDrawing: pageInkCanvasView.drawing,
             coordinateSpace: persistedCoordinateSpace(for: scope), now: now, lastInputAt: lastInputAt,
             isUsingTool: isUsingInkTool, allowsImmediateSpatialCompletion: usesIncrementalChordRecognition,
-            sourcePageLayout: pageLayout, sourceChordFrame: scope.frame)
+            sourcePageLayout: pageLayout, sourceChordFrame: scope.frame,
+            matureStructuralIDs: matureStructuralIDs)
         if let outcome = attempt.outcome { consumeAutomaticChordOutcome(outcome, scope: scope) }
         publishAutomaticChordActivity(
             phase: incrementalChordDraftState.pendingRequests.isEmpty ? .settled : .reading,
@@ -9584,10 +9678,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         if gestureRecognizer === renderedObjectMovePanRecognizer {
-            if let start = renderedObjectMoveTouchStart, freeInkArticulationHit(at: start) != nil {
-                return true
-            }
-            return objectMovePanStartHitTarget(at: panStartLocation(for: renderedObjectMovePanRecognizer))
+            return !isInteractionSuspended && renderedObjectMoveTouchStart != nil
+                && (renderedObjectMoveStartsOnFreeInkArticulation || renderedObjectMoveAdmittedDrag != nil)
         }
 
         return super.gestureRecognizerShouldBegin(gestureRecognizer)
@@ -9599,6 +9691,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     ) -> Bool {
         let involvesRenderedObjectMove = gestureRecognizer === renderedObjectMovePanRecognizer
             || otherGestureRecognizer === renderedObjectMovePanRecognizer
+        if involvesRenderedObjectMove,
+           gestureRecognizer is UITapGestureRecognizer || otherGestureRecognizer is UITapGestureRecognizer {
+            return false
+        }
         let involvesParentScroll = isParentScrollGesture(gestureRecognizer)
             || isParentScrollGesture(otherGestureRecognizer)
         if !LeadSheetRenderedObjectMoveScrollLockPolicy.allowsSimultaneousRecognition(
@@ -9625,21 +9721,29 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 && chordReviewHitTarget(at: touch.location(in: self)) != nil
         }
         if gestureRecognizer === renderedObjectMovePanRecognizer {
+            guard gestureRecognizer.numberOfTouches == 0 else { return false }
             let location = touch.location(in: self)
-            if gestureRecognizer.numberOfTouches == 0 {
-                renderedObjectMoveTouchStart = location
-            }
-            return LeadSheetObjectMoveTouchPolicy.allowsMovePan(
-                touchType: touch.type,
-                interactionMode: interactionMode,
-                startsOnMoveTarget: objectMovePanStartHitTarget(at: location)
-            )
+            return beginRenderedObjectMoveTouch(at: location, touchType: touch.type)
         }
-
-        return LeadSheetLiveInkInputPolicy.allowsCanvasGestureTouch(
+        let allowed = LeadSheetLiveInkInputPolicy.allowsCanvasGestureTouch(
             touchType: touch.type,
             interactionMode: interactionMode
         )
+        if allowed, gestureRecognizer === selectionTapRecognizer,
+           renderedEditTapRecognizer.isEnabled,
+           !renderedEditHitOverlayView.isHidden,
+           renderedEditHitOverlayView.isUserInteractionEnabled,
+           editableOverlayHitTarget(at: touch.location(in: self)) != nil {
+            // Only a live overlay can own this touch. Repeat, Measures and
+            // Time Signature keep the overlay hidden and select on the canvas.
+            // In object-editing modes, the ancestor tap must not clear that
+            // selection before a drag or double tap starts.
+            return false
+        }
+        if allowed, gestureRecognizer === renderedEditTapRecognizer || gestureRecognizer === inkSelectionTapRecognizer {
+            beginRenderedEditTap(at: touch.location(in: self), touchType: touch.type)
+        }
+        return allowed
     }
 }
 

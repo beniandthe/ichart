@@ -8,6 +8,52 @@ import XCTest
 /// through the new disclosure without changing any chart content on entry.
 @MainActor
 final class SheetClarityWorkflowTests: XCTestCase {
+    func testSelectDragGuidanceWrapsAndKeepsGuideReachableAtLargestText() async throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            for textSize in [DynamicTypeSize.large, .accessibility5] {
+                let guidance = EditorCanvasMode.browse.toolGuidance(
+                    layoutStyle: style, manualRenderWithPreview: false)
+                let host = UIHostingController(rootView: VStack {
+                    EditorToolGuidanceView(guidance: guidance)
+                    Spacer(minLength: 0)
+                }.background(Color(UIColor.systemBackground))
+                    .dynamicTypeSize(textSize).environment(\.accessibilityEnabled, true))
+                let scene = try XCTUnwrap(UIApplication.shared.connectedScenes
+                    .compactMap { $0 as? UIWindowScene }.first { $0.activationState == .foregroundActive })
+                let previousWindow = scene.windows.first(where: \.isKeyWindow)
+                let window = UIWindow(windowScene: scene)
+                window.frame = CGRect(x: 0, y: 0, width: 400, height: 600)
+                window.rootViewController = host
+                window.makeKeyAndVisible()
+                defer {
+                    window.isHidden = true
+                    window.rootViewController = nil
+                    previousWindow?.makeKey()
+                }
+                try await settle(window)
+                let step = try await headerNode("editor-guidance-step-1", in: host.view, window: window)
+                let guide = try await headerNode("editor-tool-guide-button", in: host.view, window: window)
+                let purpose = try await headerNode("editor-guidance-purpose", in: host.view, window: window)
+                XCTAssertEqual(step.element.accessibilityLabel, guidance.steps[0])
+                for node in [purpose, guide, step] {
+                    let frame = node.frame(in: window)
+                    XCTAssertFalse(frame.isEmpty)
+                    XCTAssertTrue(window.bounds.insetBy(dx: -1, dy: -1).contains(frame))
+                }
+                XCTAssertGreaterThanOrEqual(guide.frame(in: window).width, 44)
+                XCTAssertGreaterThanOrEqual(guide.frame(in: window).height, 44)
+                XCTAssertGreaterThan(step.frame(in: window).minY, guide.frame(in: window).minY)
+                let image = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in
+                    host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+                }
+                let attachment = XCTAttachment(image: image)
+                attachment.name = "select-drag-guide-\(style)-\(textSize)"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+            }
+        }
+    }
+
     func testToolGuidanceHeaderKeepsGuideReadableAndPurposeCenteredAtLargestText() async throws {
         let configurations: [(size: DynamicTypeSize, category: UIContentSizeCategory, isDark: Bool)] = [
             (.large, .large, false),

@@ -322,7 +322,7 @@ enum IChartEditorGuidedTourStep: String, Identifiable {
         case .setup:
             "Four measures are ready. Change the setup if you want, then create the page."
         case .writeChords:
-            "Tap Write & Render and use Apple Pencil to write C, F, G, C in the first four measures. Leave space between chords; they render automatically after a pause."
+            "Tap Write & Render and use Apple Pencil to write C, F, G, C in the first four measures. Leave space between chords; completed chords render as you move on. Pause to finish the last chord."
         case .renderChords:
             "Double-tap a rendered chord to edit it. Use Fix Writing if handwriting needs attention. Choose Manual in Rendering to check previews, then use Render Chords or Review & Render. In Review Chords, check each recognition guess."
         case .shapeForm:
@@ -600,6 +600,7 @@ struct EditorView: View {
     @State private var showsFreeInkArticulationMessage = false
     @State private var isRetryingChartSave = false
     @State private var editorGuidedTourStep: IChartEditorGuidedTourStep?
+    @StateObject private var canvasGeometryCache = EditorCanvasGeometryCache()
     @State private var latestEditorContentSize = CGSize(width: 900, height: 1400)
     @State private var freeInkDocumentCanvasWidth: CGFloat?
     @State private var pendingChordDiagnosticReconciliationWorkItem: DispatchWorkItem?
@@ -614,6 +615,7 @@ struct EditorView: View {
     // Production uses the default reader. Hosted UI fixtures can freeze reads
     // at construction rather than toggling the live canvas during layout.
     private let recognizesChordInk: Bool
+    private let chordInkRecognizer: (any ChordInkRecognizing)?
 
     private static func releaseSafeInitialCanvasMode(_ mode: EditorCanvasMode) -> EditorCanvasMode {
         guard mode != .rhythmicNotationEdit
@@ -630,6 +632,7 @@ struct EditorView: View {
         chordInkUserCorrectionMemoryStore: ChordInkUserCorrectionMemoryStore = .live(),
         initialCanvasMode: EditorCanvasMode = .browse,
         recognizesChordInk: Bool = true,
+        chordInkRecognizer: (any ChordInkRecognizing)? = nil,
         onExit: (() -> Void)? = nil
     ) {
         self._chart = chart
@@ -637,6 +640,7 @@ struct EditorView: View {
         self.chordInkUserCorrectionMemoryStore = chordInkUserCorrectionMemoryStore
         self.onExit = onExit
         self.recognizesChordInk = recognizesChordInk
+        self.chordInkRecognizer = chordInkRecognizer
         _canvasMode = State(initialValue: Self.releaseSafeInitialCanvasMode(initialCanvasMode))
         _freeInkDocumentCanvasWidth = State(initialValue:
             LeadSheetFreeInkDocumentLayoutPolicy.savedCanvasWidth(for: chart.wrappedValue)
@@ -2008,7 +2012,7 @@ struct EditorView: View {
     private var renderingModeMenu: some View {
         Menu {
             Button { manualRenderWithPreview = false } label: {
-                notationMenuLabel("Automatic — render after a pause", isSelected: !manualRenderWithPreview)
+                notationMenuLabel("Automatic — render as you write", isSelected: !manualRenderWithPreview)
             }
             Button { manualRenderWithPreview = true } label: {
                 notationMenuLabel("Manual — check previews, then render", isSelected: manualRenderWithPreview)
@@ -2017,7 +2021,7 @@ struct EditorView: View {
             activeToolMenuLabel(title: manualRenderWithPreview ? "Manual" : "Automatic", systemImage: "slider.horizontal.3")
         }
         .accessibilityLabel("Rendering: \(manualRenderWithPreview ? "Manual" : "Automatic")")
-        .accessibilityHint("Choose automatic rendering after a pause, or manual previews and render actions")
+        .accessibilityHint("Choose automatic rendering between strokes as you move on, or manual previews and render actions")
         .accessibilityIdentifier("editor-rendering-mode")
     }
 
@@ -3043,6 +3047,7 @@ struct EditorView: View {
             documentSize: documentSize,
             isInteractionSuspended: isPresentingEditorPanel,
             recognizesChordInk: recognizesChordInk,
+            chordInkRecognizer: chordInkRecognizer,
             manualRenderWithPreview: manualRenderWithPreview,
             chordPreviewState: chordPreviewState,
             draftEndingBlockerFocus: draftEndingBlockerFocus,
@@ -3753,7 +3758,7 @@ struct EditorView: View {
             return []
         }
 
-        let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
+        let pageLayout = canvasGeometryCache.pageLayout(
             for: chart,
             pageSize: latestEditorContentSize
         )
@@ -5284,7 +5289,7 @@ struct EditorView: View {
         automaticChordRenderRequestID = requestID
         let workItem = DispatchWorkItem {
             attemptAutomaticChordRendering(requestID: requestID, chartID: chartID,
-                inputAt: inputAt, allowsIdleRetry: true)
+                inputAt: inputAt)
         }
         pendingAutomaticChordRenderWorkItem = workItem
         // Let the preview replacement and its chart persistence settle before
@@ -5293,7 +5298,7 @@ struct EditorView: View {
     }
 
     private func attemptAutomaticChordRendering(
-        requestID: UUID, chartID: UUID, inputAt: Date, allowsIdleRetry: Bool
+        requestID: UUID, chartID: UUID, inputAt: Date
     ) {
         guard automaticChordRenderRequestID == requestID,
               chart.id == chartID,
@@ -5336,18 +5341,22 @@ struct EditorView: View {
             }
         }
 
-        let remainingDelay = inputAt.addingTimeInterval(ChordInkAutomaticRenderPolicy.requiredIdleDelay(for: chordPreviewState))
-            .timeIntervalSinceNow
-        guard allowsIdleRetry, remainingDelay > 0 else {
+        // Structural marks keep their own grace while later writing updates
+        // the shared last-input clock. Schedule only a future deadline, so a
+        // refused placement cannot spin and a partial commit can still finish
+        // the last chord at its ordinary idle deadline.
+        let deadlines = [inputAt.addingTimeInterval(ChordInkAutomaticRenderPolicy.requiredIdleDelay(for: chordPreviewState)),
+            chordDraftRenderCoordinator.structuralMaturity.nextDeadline].compactMap { $0 }
+        guard let deadline = deadlines.filter({ $0.timeIntervalSinceNow > 0 }).min() else {
             cancelAutomaticChordRendering()
             return
         }
         let workItem = DispatchWorkItem {
             attemptAutomaticChordRendering(requestID: requestID, chartID: chartID,
-                inputAt: inputAt, allowsIdleRetry: false)
+                inputAt: inputAt)
         }
         pendingAutomaticChordRenderWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + remainingDelay + 0.01, execute: workItem)
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, deadline.timeIntervalSinceNow) + 0.01, execute: workItem)
     }
 
     private func handleChordInkDraftEndingsChanged(_ endings: [DraftEnding]) {
@@ -6818,24 +6827,7 @@ struct EditorView: View {
     }
 
     private func canvasHeight(for availableSize: CGSize) -> CGFloat {
-        if !chart.hasCompletedInitialSetup {
-            return max(760, availableSize.height)
-        }
-
-        let visibleSystemCount = LeadSheetPageLayoutEngine.estimatedSystemCount(
-            for: chart,
-            pageWidth: availableSize.width
-        )
-        let estimatedCanvasHeight = LeadSheetPageLayoutEngine.estimatedCanvasHeight(
-            for: chart,
-            pageSize: availableSize
-        )
-        return max(
-            availableSize.height,
-            1200,
-            estimatedCanvasHeight,
-            CGFloat(visibleSystemCount) * 168 + 320
-        )
+        canvasGeometryCache.canvasHeight(for: chart, pageSize: availableSize)
     }
 
     @ViewBuilder

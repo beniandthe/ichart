@@ -238,6 +238,58 @@ final class RenderedEditTypesTests: XCTestCase {
         XCTAssertNil(RenderedEditDragState(target: tapTarget, startLocation: startLocation))
     }
 
+    func testDestructiveTapRequiresTheSameTargetAtTouchDownAndLift() {
+        let objectID = RenderedEditObjectID.chord(UUID())
+        let delete = hitTarget(objectID: objectID, action: .delete,
+            priority: .selectedObjectDestructiveControl, requiresSelection: true, mutationRisk: .destructive)
+        let body = hitTarget(objectID: objectID, action: .select, priority: .objectBodySelect)
+        let otherDelete = hitTarget(objectID: .chord(UUID()), action: .delete,
+            priority: .selectedObjectDestructiveControl, requiresSelection: true, mutationRisk: .destructive)
+        var intent = RenderedEditTapIntent()
+
+        XCTAssertNil(intent.resolvedTarget(at: delete))
+        intent.begin(target: body)
+        XCTAssertNil(intent.resolvedTarget(at: delete), "Sliding off the body onto the red X cannot delete")
+        intent.begin(target: delete)
+        XCTAssertNil(intent.resolvedTarget(at: otherDelete), "A different chord's X cannot inherit intent")
+        XCTAssertNil(intent.resolvedTarget(at: nil))
+        XCTAssertEqual(intent.resolvedTarget(at: delete), delete)
+        intent.cancelForDrag()
+        XCTAssertNil(intent.resolvedTarget(at: delete), "Recognized or cancelled movement cannot fall through to delete")
+        intent.reset()
+        XCTAssertNil(intent.resolvedTarget(at: delete))
+    }
+
+    func testDestructiveTapMovementLimitUsesScreenPointsAtDifferentCanvasScales() {
+        let delete = hitTarget(objectID: .chord(UUID()), action: .delete,
+            priority: .selectedObjectDestructiveControl, requiresSelection: true, mutationRisk: .destructive)
+        let start = CGPoint(x: 20, y: 30)
+        var intent = RenderedEditTapIntent()
+        for scale: CGFloat in [0.5, 1, 2] {
+            intent.begin(target: delete, startLocation: start,
+                screenPointsPerDisplayedPoint: scale, maximumScreenMovement: 4)
+            let withinLimit = CGPoint(x: start.x + 4 / scale, y: start.y)
+            let beyondLimit = CGPoint(x: start.x + 4.25 / scale, y: start.y)
+            XCTAssertEqual(intent.resolvedTarget(at: delete, endLocation: withinLimit), delete)
+            XCTAssertNil(intent.resolvedTarget(at: delete, endLocation: beyondLimit),
+                "Remaining inside a large control hit area is not enough to establish tap intent")
+            XCTAssertNil(intent.resolvedTarget(at: delete), "A captured start requires a measured lift")
+        }
+        intent.begin(target: delete, startLocation: start,
+            screenPointsPerDisplayedPoint: 2, maximumScreenMovement: 6)
+        XCTAssertEqual(intent.resolvedTarget(at: delete,
+            endLocation: CGPoint(x: start.x + 3, y: start.y)), delete)
+        XCTAssertNil(intent.resolvedTarget(at: delete,
+            endLocation: CGPoint(x: start.x + 3.25, y: start.y)))
+    }
+
+    func testBodySelectionDoesNotNeedDestructiveControlIntent() {
+        let body = hitTarget(objectID: .chord(UUID()), action: .select, priority: .objectBodySelect)
+        var intent = RenderedEditTapIntent()
+        intent.begin(target: body)
+        XCTAssertEqual(intent.resolvedTarget(at: body), body)
+    }
+
     private func hitTarget(
         objectID: RenderedEditObjectID,
         action: RenderedEditAction,
