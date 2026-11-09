@@ -54,3 +54,29 @@ This distribution task does not stop, replace or alter the physical iPad app.
 It does not establish fresh physical Pencil cadence or drag-feel acceptance,
 backend health, or telemetry delivery. Parked ML work and other dirty worktrees
 are outside the integration.
+
+## Full hosted native follow-up
+
+Both original hosted native runs executed 3,479 cases and reported the same four
+assertion events in three existing document-navigation test methods. All 80 new
+unit methods passed. Local reproduction matched the hosted failures.
+
+The blank-paper fixture sampled (172.4, 248), inside the neighboring Cmaj7/E
+glyph frame (117, 212.843568, 86.74748, 66.312864). The point was inside the
+viewport with navigation enabled. Select correctly retained the visible chord
+owner immediately after the old post-render editing delay was removed. The
+fixture now chooses and asserts visible paper outside every chord body and
+padded control; finger and Pencil scrolling expectations remain true.
+
+The narrow C/G fixtures required the former padded-control interception that
+the installed Build 154 intentionally removes. They now require every visible
+sample to resolve review for the exact chord and measure, and require padded
+controls to remain outside the body. All selected/unselected finger/Pencil
+correction dispatch, outside-control rejection and exact chart/ink assertions
+remain. No tolerances or deadlines were relaxed.
+
+All eight owning navigation tests passed after these test-only corrections.
+An independent source review found no weakened contract. All 396 distribution
+source inputs and the delivered IPA remain byte-exact; no app, configuration,
+resource, signing or workflow changes follow the archive. The final hosted
+checks must run against the corrected test commit before merge/submission.
