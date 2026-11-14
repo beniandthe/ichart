@@ -324,13 +324,13 @@ enum IChartEditorGuidedTourStep: String, Identifiable {
         case .writeChords:
             "Tap Write & Render and use Apple Pencil to write C, F, G, C in the first four measures. Leave space between chords; completed chords render as you move on. Pause to finish the last chord."
         case .renderChords:
-            "Double-tap a rendered chord to edit it. Use Fix Writing if handwriting needs attention. Choose Manual in Rendering to check previews, then use Render Chords or Review & Render. In Review Chords, check each recognition guess."
+            "Double-tap a rendered chord with Apple Pencil to edit it. Use Fix Writing if handwriting needs attention. Choose Manual in Rendering to check previews, then use Render Chords or Review & Render. In Review Chords, check each recognition guess."
         case .shapeForm:
             "Tap Measures. Select a measure, then use Add, Layout, or Delete. Try one change, or continue."
         case .addCue:
-            "Open Tools > Text, choose a measure, then Above or Below. Add a short cue like Intro or Verse."
+            "Open Tools > Text, choose a measure, then Above or Below. Tap the field to type or use its Pencil icon for Scribble. Tap Add."
         case .review:
-            "Tap Done. In Select, tap anything you want to move, edit, resize, or delete."
+            "Tap Done. In Select, use Apple Pencil to select, move, resize, or delete items on the chart."
         case .export:
             "Tap Export PDF when the chart is ready. Your editable chart stays in Charts."
         case .finish:
@@ -716,10 +716,9 @@ struct EditorView: View {
                 editorSurface(availableSize: proxy.size)
             }
         }
-        // Sheets own their keyboard layout. Keep the paper viewport fixed
-        // underneath them so returning ink focus cannot move the document.
-        // The inline cue editor still needs the keyboard's available space.
-        .ignoresSafeArea(.keyboard, edges: showingCueTextEntry ? [] : .bottom)
+        // Keep the paper viewport fixed under text entry. The inline cue
+        // panel sits at the top so a docked keyboard leaves it reachable.
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .allowsHitTesting(!showingCueTextEntry)
         .background(
             LinearGradient(
@@ -746,7 +745,7 @@ struct EditorView: View {
                     onAdd: handleCueTextEntryAccepted,
                     onCancel: clearPendingCueTextEntry
                 )
-                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                .transition(.opacity)
             }
         }
         .animation(.easeOut(duration: 0.16), value: activeEditorOperationMessage)
@@ -2791,13 +2790,13 @@ struct EditorView: View {
         } else {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Ready for chords").font(.caption.weight(.semibold))
-                Text("Double-tap a chord to edit.").font(.caption2)
+                Text("Double-tap a chord with Apple Pencil to edit.").font(.caption2)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .padding(.horizontal, 9)
             .background(Color.blue.opacity(0.08))
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .accessibilityLabel("Ready for chords. Double-tap a chord to edit.")
+            .accessibilityLabel("Ready for chords. Double-tap a chord with Apple Pencil to edit.")
         }
     }
 
@@ -7746,7 +7745,6 @@ private struct CueTextEntryPanelView: View {
     var highlightsAction = false
     let onAdd: () -> Void
     let onCancel: () -> Void
-    @State private var keyboardFocusRequestID = 0
 
     private var canAdd: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -7754,7 +7752,7 @@ private struct CueTextEntryPanelView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            ZStack {
+            ZStack(alignment: .top) {
                 // An outside tap dismisses typing rather than reopening the
                 // keyboard while the user navigates the chart.
                 Color.clear
@@ -7766,7 +7764,7 @@ private struct CueTextEntryPanelView: View {
 
                 VStack(alignment: .leading, spacing: CueTextEntryPanelGeometry.verticalSpacing) {
                     HStack {
-                        PencilOnlyActionButton(title: "Cancel", style: .plain) {
+                        PencilOnlyActionButton(title: "Cancel", style: .plain, acceptsDirectTouches: true) {
                             endTyping()
                             onCancel()
                         }
@@ -7781,11 +7779,13 @@ private struct CueTextEntryPanelView: View {
                         PencilOnlyActionButton(
                             title: actionTitle,
                             style: .plain,
-                            isEnabled: canAdd
+                            isEnabled: canAdd,
+                            acceptsDirectTouches: true
                         ) {
                             endTyping()
                             onAdd()
                         }
+                        .accessibilityIdentifier("editor-cue-text-commit")
                         .tourActionHighlight(
                             isActive: highlightsAction && canAdd,
                             cornerRadius: 8
@@ -7803,19 +7803,13 @@ private struct CueTextEntryPanelView: View {
                                     .stroke(Color(.separator).opacity(0.55), lineWidth: 1)
                             )
 
-                        if text.isEmpty {
-                            Text("Text")
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 11)
-                                .allowsHitTesting(false)
-                        }
-
                         IChartTypedTextView(
                             text: $text,
-                            keyboardFocusRequestID: keyboardFocusRequestID
+                            placeholder: "Cue",
+                            accessibilityIdentifier: "editor-cue-text-entry",
+                            accessibilityLabel: "Cue text",
+                            accessibilityHint: "Tap to type. Use Start Scribble to write with Apple Pencil."
                         )
-                        .accessibilityLabel("Text")
                     }
                     .frame(height: CueTextEntryPanelGeometry.inputHeight)
                 }
@@ -7831,15 +7825,9 @@ private struct CueTextEntryPanelView: View {
                         .stroke(Color(.separator).opacity(0.35), lineWidth: 1)
                 }
                 .shadow(color: Color.black.opacity(0.18), radius: 22, y: 12)
+                .padding(.top, 12)
             }
         }
-        .task {
-            requestTextFocus()
-        }
-    }
-
-    private func requestTextFocus() {
-        keyboardFocusRequestID += 1
     }
 
     private func endTyping() {

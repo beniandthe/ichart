@@ -373,7 +373,7 @@ struct IChartSetlistNameSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    Text("Name this setlist, then tap \(saveTitle). Your PDFs stay in the PDF Library.")
+                    Text("Tap Setlist Name to type or use its Pencil icon for Scribble. Tap \(saveTitle). Your PDFs stay in the PDF Library.")
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
@@ -382,9 +382,10 @@ struct IChartSetlistNameSheet: View {
                 .listRowBackground(Color.clear)
                 Section("Setlist Name") {
                     IChartTypedTextField(placeholder: "Setlist Name", text: $name, isFocused: $isFocused,
-                        autocapitalizationType: .words, autocorrectionType: .yes, borderStyle: .roundedRect)
+                        autocapitalizationType: .words, autocorrectionType: .yes,
+                        accessibilityIdentifier: "setlists.name")
                         .frame(minHeight: 44)
-                        .accessibilityIdentifier("setlists.name")
+                        .background(IChartTypedSheetScrollSupport())
                 }
                 .listRowBackground(Color.clear)
                 if let errorMessage {
@@ -392,6 +393,7 @@ struct IChartSetlistNameSheet: View {
                         .accessibilityIdentifier("setlists.name.error")
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -411,7 +413,7 @@ struct IChartSetlistNameSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.large])
         .modifier(IChartSetlistAppearance())
     }
 }
@@ -449,6 +451,7 @@ private struct IChartSetlistPDFPicker: View {
                         .accessibilityIdentifier("setlists.pick.guidance")
                     IChartSetlistSearchControls(query: $searchText, order: $listOrder,
                         placeholder: "Search PDFs", identifier: "setlists.pick.search")
+                        .background(IChartTypedSheetScrollSupport())
                     IChartPDFImportButton(identifier: "setlists.pick.import") { item in
                         if replacementEntryID != nil { selectedIDs = [item.id] } else { selectedIDs.insert(item.id) }
                     }
@@ -488,6 +491,7 @@ private struct IChartSetlistPDFPicker: View {
                 if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(.red) }
             }
             .listStyle(.plain)
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle(replacementEntryID == nil ? "Add PDFs" : "Replace PDF")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -513,6 +517,7 @@ private struct IChartSetlistPDFPicker: View {
                 }
             }
         }
+        .presentationDetents([.large])
         .onChange(of: items.map(\.id)) { _, currentIDs in selectedIDs.formIntersection(currentIDs) }
         .modifier(IChartSetlistAppearance())
     }
@@ -659,11 +664,10 @@ private struct IChartSetlistSearchControls: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            TextField(placeholder, text: $query)
-                .textFieldStyle(.roundedBorder)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .accessibilityIdentifier(identifier)
+            IChartTypedTextField(placeholder: placeholder, text: $query,
+                returnKeyType: .search, accessibilityIdentifier: identifier,
+                accessibilityHint: "Tap to type. Use Start Scribble to write with Apple Pencil.")
+                .frame(minHeight: 44)
             Menu {
                 Picker("Sort", selection: $order) {
                     ForEach(IChartSetlistListOrder.allCases) { value in Text(value.rawValue).tag(value) }

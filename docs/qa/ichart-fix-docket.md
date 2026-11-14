@@ -1,6 +1,108 @@
 # iChart Fix Docket
 
-## Active fix — November 7, 2026
+## Pencil taps in text fields
+
+**FIX-026** addresses the period inserted when a Pencil tap is intended to focus
+a field. A field tap opens typing. Tap the field’s Pencil icon to start Scribble,
+then write in that field. The icon becomes a keyboard button while Scribble is
+active. It switches back to typing without changing the draft. A pause between
+words keeps Scribble active. Switching fields or leaving the editor clears it.
+
+The text controls use the same accessory slot and keep the native selection and
+draft. Header, Text, review panels, and library forms describe the new gesture.
+All 62 focused Simulator tests passed, plus the cue walkthrough in both chart
+styles. The walkthrough checked mode switching, field position, and saving or
+canceling the draft. The physical Pencil tap and first Scribble stroke still
+need an iPad retest.
+
+## Protect chart edits from finger and palm contact
+
+**FIX-025** is P1 because incidental contact could move or delete a saved
+object. Select now takes Apple Pencil for on-chart selection, dragging, resizing,
+correction, and red X controls. A finger can scroll from the same locations.
+Measures, Repeats, and Time Signature still accept finger taps to target a
+measure. Text accepts finger taps on measures and on the input field, and uses
+Pencil to select an existing cue on the chart. The tool helper, tour, and How To
+describe the new gestures.
+
+The iPad Simulator exercised device touch routing in both chart styles. Finger
+contacts on the chord body and red X were rejected for editing and accepted for
+scrolling. Pencil could start the drag and delete at the red X. Chord, converted
+mark, and measure targeting suites passed. After correcting a case-sensitive
+guidance assertion, that suite and the largest text layout check also passed.
+
+Development Build 157 combined FIX-022 through FIX-025 and was reopened for
+physical retesting on November 13.
+
+## Earlier text-entry work — November 13, 2026
+
+FIX-026 supersedes the direct-writing gesture below with a Pencil control on the field.
+
+**FIX-024: Make first-try text entry consistent across iChart.** Priority P2.
+Use the shared native controls for ordinary text input. A tap or the keyboard
+icon should start typing on the first try. Writing directly in the field should
+start Scribble without an intermediate keyboard or sheet expansion. Keep secure
+password fields on the system password control. Verify editor entry in both
+chart styles, and check library, setlist, forum, and account flows at their
+normal entry points. Keep search, draft, and submission behavior intact.
+
+The implementation covers chart cues, library and setlist search, chart and
+project names, PDF import, forum search/publishing/comments, account identity,
+and Personal Handwriting text. The cue panel stays at the top while typing and
+accepts finger or Pencil for Add, Apply, and Cancel. The Text helper, guided
+tour, and How To explain tap-to-type and direct Pencil entry.
+
+The focused iPad Air Simulator run passed 71 tests with no skips. This includes
+landscape review input in both chart styles, forum search focus through refresh
+and retry, publish sheet controls, and draft-only setlist/PDF name changes.
+The actual-app cue walkthrough also passed in both styles. The first tap
+typed with the panel in place, Cancel discarded its draft, and Edit reopened
+the cue saved through Add.
+Physical Apple Pencil acceptance of the follow-up is pending.
+
+## Header and Review Chords — November 13, 2026
+
+**FIX-023: Keep text entry steady on first focus.** The Header prompt opened with
+a compact and a large presentation size. UIKit could expand it during text entry,
+and repeated input-mode requests could update the native keyboard or selection
+after a field already had focus. Header now opens at a single large size. Review
+Chords keeps its Done control in the same toolbar position throughout editing.
+The shared input bridge keeps Scribble available and avoids redundant input-hint
+and selection updates. Header instructions describe direct Pencil writing and
+one-tap keyboard access.
+
+All 27 selected iPad Simulator tests passed, including Header focus and draft
+preservation, repeated keyboard requests, Scribble admission, and software
+keyboard reachability in landscape for both chart styles. The user confirmed on
+Build 156 that Header stays in place and Scribble works. Fresh physical Review
+Chords and keyboard-to-Pencil switching checks remain open.
+
+Development Build 156 combined FIX-022 and FIX-023 and was reopened for
+physical retesting on November 13.
+
+## Rhythm system fit — November 12, 2026
+
+**FIX-022: Fit a lone Rhythm measure into the preceding system.** An eight-measure
+Rhythm setup at a 932-point canvas width produced rows of 4, 3, and 1. The initial
+packing pass reserved extra width for the last open measure, although its rendered
+width fit on the second row. After resolving widths, the layout can append a lone
+measure to the preceding system when the full width fits within the paper margins.
+Explicit row, key-change, and page breaks set boundaries for this automatic move.
+Changing the chart key or instrument view keeps the same measure rows while the
+rendered measure widths adapt to the key-signature gutter.
+Shortening the preceding row with its terminal resize handle applies the same fit
+check on release. Staff ink follows a verified singleton row join or its reverse
+at the same paper width through display projection of its original archive. The
+Measures helper and How To describe the gesture and the fit condition.
+
+Verification covered 142 layout, split, and divider checks on macOS and 421 passing
+iPad Simulator cases across the native run and the hosted guidance rerun. Three
+optional device-capture replays were skipped. The five hosted guidance cases passed
+after enabling accessibility on the test simulator. The captured Rhythm Measures
+screen shows the resize helper, both handles, and the action controls. Physical
+iPad acceptance is pending.
+
+## Automatic cadence repair — November 7, 2026
 
 **FIX-021: Incremental Automatic Write & Render cadence.** After Build 153, the
 user reports earlier chords remain handwriting until the writing sequence ends,
@@ -188,6 +290,11 @@ save and reopen. Preview, user edit, rendered result and saved data remain disti
 | FIX-019 | Allow measure taps in tools whose edit overlay is inactive; retain active overlay ownership in Select/Text. | Prepatch 3 routing cases failed; all 5 routing cases now pass. Full both-style Start Repeat/end selection/End Repeat UI passes, with exact saved endpoint readback. Combined 153 native gate: 468 pass, 2 private replay skips, 0 failures; 9 unique UI walkthroughs pass. Installed and reopened after independent preservation audit; physical acceptance pending. |
 | FIX-020 | Reuse unchanged editor sizing/layout results on tool-only updates with full-chart/size invalidation. | Both-style parity, ink/timestamp invalidation, independent cache sizes and zero-publication checks pass. Repeated unchanged sizing uses one engine-pair build. Physical response still requires acceptance. |
 | FIX-021 | Render completed independent chords while later ink continues, preserving active/unfinished source, structure and delayed suffix ownership. | Build 154 installed November 8 with saved-content preservation verified. Both styles: 28 focused cases pass; broader selection 727 passing and six optional skips across combined run/help-test rerun. Fresh physical cadence acceptance pending. |
+| FIX-022 | Join an automatic single-measure Rhythm row to the preceding row when its rendered width fits. | Verified eight-measure reopen, actual resize commits, exact width threshold, explicit breaks, staff ink in both directions, and visible guidance. 142 macOS checks and 421 Simulator cases passed across runs, with three optional skips. Physical iPad acceptance pending. |
+| FIX-023 | Stabilize Header and Review Chords text entry while keeping native Scribble. | 27 Simulator tests passed. On Build 156 the user confirmed stable Header and working Scribble. Physical Review Chords and keyboard-to-Pencil switching checks remain open. |
+| FIX-024 | Apply first-try typing and Scribble to the rest of the app’s ordinary text inputs. | Implemented locally. 71 focused Simulator checks passed. Physical iPad retest pending. Password fields retain native secure entry. |
+| FIX-025 | Use Apple Pencil for on-chart edits and finger gestures for navigation. | 53 distinct focused Simulator tests passed across two runs. Build 157 installed. Physical finger, palm, and Pencil retest pending in both styles. |
+| FIX-026 | Reserve ordinary Pencil taps for typing and make Scribble a field action. | 62 focused Simulator tests and the cue walkthrough in both styles passed. Physical iPad retest pending. |
 
 ## Rhythm workflow status
 
@@ -199,7 +306,7 @@ save and reopen. Preview, user edit, rendered result and saved data remain disti
 | RHY-005 | Save failure retains rendering and the latest Retry Save state. Injected failure/reopen controls pass. |
 | RHY-006 | Reopened review uses current source and applicable edits; same-source render intent continues after recognition settles. |
 | RHY-007 | Ending blockers preserve ink/approvals; affected device render/reopen retest passed. |
-| RHY-008 | Bar-and-dot measure/range repeat ingestion remains retired after the Build 143 Rhythm failure. The user clarified that handwritten chord-repeat symbols (%) remain supported; the corrected candidate needs its own validation. Earlier controls stay historical. Preserve the measure-based tools and saved repeat/source data. |
+| RHY-008 | Handwritten chord-repeat symbols (%) remain supported. Bar-and-dot measure/range repeat ingestion stays retired. The November 13 Simulator replay passed in both styles and render modes, including source preservation and reopen. Fresh physical Pencil acceptance remains open. |
 
 ## Approved style boundaries
 
@@ -216,16 +323,27 @@ save and reopen. Preview, user edit, rendered result and saved data remain disti
 
 ## Remaining checks and parked work
 
-1. Validate the corrected split: handwritten chord-repeat symbols (`%` /
-   dot-slash-dot) work in both chart styles and render settings; bar-and-dot
-   measure/range repeat ingestion stays absent. Preserve saved-repeat/source
-   compatibility, ordinary barlines/endings and **Tools > Repeats**. Earlier
-   broad-retirement tests do not validate this correction or establish fresh
-   physical Pencil acceptance. Physical forum acceptance remains separate.
-2. Confirm the latest eligible/protected Rhythm divider gestures, style previews
+Retest FIX-026 first. In Header and Review Chords, use Apple Pencil to tap a
+field and check that the keyboard opens with the draft intact. Use the Pencil
+icon to start Scribble, write a word, pause, and write another word. Switch
+back to typing and check both words are present. Repeat in a multiline cue.
+
+1. Retest FIX-025 with a finger or resting palm over a selected chord and its red
+   X. Check that a finger scrolls and Apple Pencil still moves and deletes the
+   chord in both chart styles.
+2. Retest FIX-024 ordinary text input on the physical iPad, including
+   Text and Review in both chart styles and representative library, forum, and
+   account fields.
+3. Confirm FIX-022 on the installed Build 156 Rhythm chart. Reopen the eight-measure
+   chart and verify the lone measure moves up only when its full width fits.
+4. Retest handwritten chord-repeat symbols (`%` / dot-slash-dot) with Apple
+   Pencil in both chart styles and render settings. The November 13 replay
+   verified the corrected scope, source ink, and save/reopen. Also check ordinary
+   barlines, endings, and measure/range repeats via **Tools > Repeats**.
+5. Confirm the latest eligible/protected Rhythm divider gestures, style previews
    and forum PDF labels on the physical iPad. Continue checking fresh major-
    seventh and genuine half-diminished writing during normal use.
-3. Verify the exact corrected revision's checks before its normal publication or
+6. Verify the exact corrected revision's checks before its normal publication or
    merge. Source changes are not an App Store release or an iPad installation.
    Keep #96 open until its historical mechanism and any supported repair are
    established.

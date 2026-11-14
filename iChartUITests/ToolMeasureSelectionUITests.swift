@@ -122,6 +122,24 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             app.buttons["Above"].tap()
             let cancel = app.buttons["Cancel"]
             XCTAssertTrue(cancel.waitForExistence(timeout: 5))
+            let entry = app.textViews["editor-cue-text-entry"]
+            XCTAssertTrue(entry.waitForExistence(timeout: 5))
+            XCTAssertFalse(entry.hasFocus, "Opening Text leaves the cue field idle")
+            XCTAssertFalse(app.keyboards.firstMatch.exists)
+            let entryFrame = entry.frame
+            let startScribble = app.buttons["Start Scribble for Cue text"]
+            XCTAssertTrue(startScribble.isHittable)
+            startScribble.tap()
+            XCTAssertFalse(entry.hasFocus, "Preparing for Scribble must leave the field idle")
+            XCTAssertFalse(app.keyboards.firstMatch.exists)
+            XCTAssertEqual(entry.frame, entryFrame)
+            let keyboard = app.buttons["Use keyboard for Cue text"]
+            XCTAssertTrue(keyboard.isHittable)
+            keyboard.tap()
+            entry.typeText("Discard this cue")
+            XCTAssertEqual(entry.value as? String, "Discard this cue")
+            XCTAssertEqual(entry.frame.minX, entryFrame.minX, accuracy: 1)
+            XCTAssertEqual(entry.frame.minY, entryFrame.minY, accuracy: 1)
             cancel.tap()
             waitForRemoval(cancel, message: "Cancel closes the inline cue panel")
             waitForContext("Measure \(later) selected", in: app)
@@ -131,7 +149,24 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             XCTAssertTrue(app.buttons["Above"].isHittable)
             XCTAssertTrue(app.buttons["Below"].isHittable)
             waitForContext("Measure \(first) selected", in: app)
-            attach(app, name: "\(title) Text retargets after Guide and cue-panel dismissal")
+            app.buttons["Below"].tap()
+            XCTAssertTrue(entry.waitForExistence(timeout: 5))
+            let add = app.buttons["editor-cue-text-commit"]
+            XCTAssertTrue(add.exists)
+            let emptyDraft = entry.value as? String ?? ""
+            XCTAssertTrue(emptyDraft.isEmpty || emptyDraft == "Cue", "A canceled cue leaves the next draft empty")
+            entry.tap()
+            entry.typeText("Intro")
+            XCTAssertTrue(add.isEnabled)
+            add.tap()
+            waitForRemoval(entry, message: "Add closes the cue panel")
+
+            app.buttons["Edit"].tap()
+            XCTAssertTrue(entry.waitForExistence(timeout: 5))
+            XCTAssertEqual(entry.value as? String, "Intro", "Edit reopens the cue saved through Add")
+            cancel.tap()
+            waitForRemoval(entry, message: "Cancel closes the saved cue editor")
+            attach(app, name: "\(title) Text accepts first input and retargets after cancel")
             exitChart(in: app)
         }
     }

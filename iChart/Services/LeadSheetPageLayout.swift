@@ -1845,7 +1845,11 @@ enum LeadSheetPageLayoutEngine {
         )
         var currentBodyWidth: CGFloat = 0
         let forcedBreakStartIDs: Set<UUID>
-        if chart.layoutStyle == .rhythmSectionSheet || chart.layoutStyle == .leadSheet {
+        if chart.layoutStyle == .rhythmSectionSheet {
+            forcedBreakStartIDs = forcedSystemBreakStartIDs(for: chart)
+                .union(pageBreakStartMeasureIDs(for: chart))
+                .union(chart.keyChanges.map(\.measureID))
+        } else if chart.layoutStyle == .leadSheet {
             forcedBreakStartIDs = forcedSystemBreakStartIDs(for: chart)
                 .union(chart.keyChanges.map(\.measureID))
         } else {
@@ -1910,8 +1914,65 @@ enum LeadSheetPageLayoutEngine {
             return plans
         }
 
-        return standardizedRhythmSectionSystemPlans(plans, maxSystemWidth: maxSystemWidth,
+        let standardizedPlans = standardizedRhythmSectionSystemPlans(plans, maxSystemWidth: maxSystemWidth,
             measureWidthScale: metrics.measureWidthScale)
+        // Use the same key-independent gutter for both packing decisions.
+        // Rendering can fit the chosen rows into a wider key-signature gutter.
+        let packingPlans = plans.enumerated().map { index, plan in
+            var packingPlan = plan
+            packingPlan.leadingSignatureWidth = packingLeadingSignatureWidth(
+                for: chart, visualPolicy: visualPolicy, systemIndex: index
+            )
+            return packingPlan
+        }
+        let standardizedPackingPlans = zip(plans, packingPlans).allSatisfy {
+            $0.leadingSignatureWidth == $1.leadingSignatureWidth
+        } ? standardizedPlans : standardizedRhythmSectionSystemPlans(
+            packingPlans, maxSystemWidth: maxSystemWidth, measureWidthScale: metrics.measureWidthScale
+        )
+        return rhythmSectionPlansJoiningFittingSingletons(standardizedPlans,
+            packingPlans: standardizedPackingPlans,
+            maxSystemWidth: maxSystemWidth, forcedBreakStartIDs: forcedBreakStartIDs)
+    }
+
+    private static func rhythmSectionPlansJoiningFittingSingletons(
+        _ plans: [PackedLeadSheetSystemPlan],
+        packingPlans: [PackedLeadSheetSystemPlan],
+        maxSystemWidth: CGFloat,
+        forcedBreakStartIDs: Set<UUID>
+    ) -> [PackedLeadSheetSystemPlan] {
+        var rows: [PackedLeadSheetSystemPlan] = []
+        var packingWidths: [CGFloat] = []
+        for (plan, packingPlan) in zip(plans, packingPlans) {
+            // The initial pack reserves extra width for open measures. Use
+            // the final musical body width to see if a lone measure fits.
+            guard plan.measures.count == 1,
+                  let measure = plan.measures.first,
+                  let measureID = measure.measure?.id,
+                  !forcedBreakStartIDs.contains(measureID),
+                  let packingMeasure = packingPlan.measures.first,
+                  let previousIndex = rows.indices.last,
+                  packingWidths[previousIndex] + packingMeasure.width <= maxSystemWidth + 0.0001 else {
+                rows.append(plan)
+                packingWidths.append(packingPlan.frameWidth)
+                continue
+            }
+
+            packingWidths[previousIndex] += packingMeasure.width
+            var merged = rows[previousIndex]
+            merged.measures.append(measure)
+            let bodyWidth = merged.measures.reduce(CGFloat.zero) { $0 + $1.width }
+            let availableBodyWidth = max(1, maxSystemWidth - merged.leadingSignatureWidth - systemTrailingPadding)
+            if bodyWidth > availableBodyWidth {
+                let scale = availableBodyWidth / bodyWidth
+                for index in merged.measures.indices {
+                    merged.measures[index].width *= scale
+                }
+            }
+            merged.frameWidth = merged.leadingSignatureWidth + min(bodyWidth, availableBodyWidth) + systemTrailingPadding
+            rows[previousIndex] = merged
+        }
+        return rows
     }
 
     private static func forcedSystemBreakStartIDs(for chart: Chart) -> Set<UUID> {

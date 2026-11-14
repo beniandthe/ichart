@@ -112,6 +112,7 @@ struct PersonalHandwritingEvaluationView: View {
     @State private var selectedRunID: UUID?
     @State private var phase = PersonalInkEvaluationRun.Phase.beforeCorrections
     @State private var expectedCount = ""
+    @State private var isExpectedCountFocused = false
     @State private var slowInk = false
     @State private var unexpectedChanges = false
     @State private var cancelConfirmation = false
@@ -158,6 +159,7 @@ struct PersonalHandwritingEvaluationView: View {
                 }
             }
         }
+        .background(IChartTypedSheetScrollSupport())
         .disabled(model.busy)
         .onAppear { model.reload() }
         .confirmationDialog("End this capture without scoring? The captured data is kept and charts are unchanged.", isPresented: $cancelConfirmation, titleVisibility: .visible) {
@@ -249,6 +251,8 @@ struct PersonalHandwritingEvaluationView: View {
         case .labeling:
             Text("Tell us what each saved shape was intended to mean. Predictions stay hidden until the label is saved, so you are not copying the recognizer's answer.")
                 .font(.callout)
+            Text("Tap a field to type. For Scribble, tap its Pencil icon, then write in the field.")
+                .font(.callout).foregroundStyle(.secondary)
             Text("If two chords merged, one split, or ink is incomplete, mark Incorrect grouping instead. If a chord is completely missing, the total written count below keeps that failure visible.")
                 .font(.callout).foregroundStyle(.secondary)
             ForEach(Array(run.records.enumerated()), id: \.element.id) { index, record in
@@ -257,8 +261,14 @@ struct PersonalHandwritingEvaluationView: View {
                         model.perform { model.store.label(runID: run.id, recordID: record.id, text: text, groupingIssue: grouping, completion: $0) }
                     }, teach: {})
             }
-            TextField("How many complete chords did you write?", text: $expectedCount)
-                .keyboardType(.numberPad).textFieldStyle(.roundedBorder).accessibilityIdentifier("evaluation.expectedCount")
+            IChartTypedTextField(
+                placeholder: "How many complete chords did you write?",
+                text: $expectedCount,
+                isFocused: $isExpectedCountFocused,
+                keyboardType: .numberPad
+            )
+            .frame(minHeight: 48)
+            .accessibilityIdentifier("evaluation.expectedCount")
             Toggle("Writing felt slow or delayed", isOn: $slowInk)
             Toggle("Earlier chords changed unexpectedly", isOn: $unexpectedChanges)
             Button("Finish & save results") {
@@ -332,6 +342,7 @@ private struct PersonalEvaluationRecordCard: View {
     let teach: () -> Void
     @State private var label = ""
     @State private var editing = false
+    @State private var isLabelFocused = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -355,8 +366,12 @@ private struct PersonalEvaluationRecordCard: View {
             }.frame(height: 115).background(Color(uiColor: .tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10))
                 .accessibilityLabel("Captured handwriting for target \(ordinal)")
             if (record.intended == nil && !record.groupingIssue) || editing {
-                TextField("Intended chord, e.g. F#m7 or Bb7", text: $label)
-                    .textFieldStyle(.roundedBorder).textInputAutocapitalization(.never).autocorrectionDisabled()
+                IChartTypedTextField(
+                    placeholder: "Intended chord, e.g. F#m7 or Bb7",
+                    text: $label,
+                    isFocused: $isLabelFocused
+                )
+                .frame(minHeight: 48)
                 HStack {
                     Button("Save label") { save(label, false); editing = false }.buttonStyle(.borderedProminent).disabled(label.isEmpty)
                     Button("Incorrect grouping") { save(nil, true); editing = false }.buttonStyle(.bordered)

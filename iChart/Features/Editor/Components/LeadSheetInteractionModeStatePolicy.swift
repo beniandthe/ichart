@@ -301,9 +301,8 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
             return drawing
         }
 
-        // Rotation only changes the viewport. A new engraving preset actually
-        // moves/resizes the staff: project from the authored staff geometry so
-        // handwritten notes retain their line/space positions.
+        // Rotation changes the viewport. Engraving and row reflow can change
+        // the staff itself, so use the authored staff geometry when supported.
         if isPageCoordinateSpace(sourceCoordinateSpace)
             || isPageCoordinateSpace(targetCoordinateSpace) {
             return staffRelativeDrawing(drawing, from: sourceCoordinateSpace, to: targetCoordinateSpace)
@@ -439,22 +438,53 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
         bounds.minY > lastStaff.maxY + max(80, lastStaff.height * 2)
     }
 
+    private static func joinsSingletonStaffRows(_ sourceRows: [StaffRow], into targetRows: [StaffRow]) -> Bool {
+        guard sourceRows.count > targetRows.count else { return false }
+        var remaining = sourceRows[...]
+        for targetRow in targetRows {
+            guard let sourceRow = remaining.popFirst() else { return false }
+            let sourceIDs = sourceRow.anchors.map(\.measureID)
+            let targetIDs = targetRow.anchors.map(\.measureID)
+            guard targetIDs.starts(with: sourceIDs) else { return false }
+            for measureID in targetIDs.dropFirst(sourceIDs.count) {
+                guard let singleton = remaining.popFirst(),
+                      singleton.anchors.count == 1,
+                      singleton.anchors.first?.measureID == measureID else { return false }
+            }
+        }
+        return remaining.isEmpty
+    }
+
     private static func staffRelativeDrawing(
         _ drawing: PKDrawing,
         from source: PersistentInkCoordinateSpace,
         to target: PersistentInkCoordinateSpace
     ) -> PKDrawing {
-        guard changesStaffEngraving(from: source, to: target) else { return drawing }
+        let engravingChanged = changesStaffEngraving(from: source, to: target)
+        if !engravingChanged {
+            guard source.engravingPreset != nil, source.engravingPreset == target.engravingPreset,
+                  abs(source.width - target.width) < 0.01 else { return drawing }
+        }
         let sourceAnchors = (source.measureAnchors ?? []).filter { validStaffFrame($0.staffFrame) }
-        let targetAnchors = Dictionary((target.measureAnchors ?? []).filter {
-            validStaffFrame($0.staffFrame)
-        }.map { ($0.measureID, $0) }, uniquingKeysWith: { first, _ in first })
-        guard !sourceAnchors.isEmpty, !targetAnchors.isEmpty else { return drawing }
+        let targetStaffAnchors = (target.measureAnchors ?? []).filter { validStaffFrame($0.staffFrame) }
+        guard !sourceAnchors.isEmpty, !targetStaffAnchors.isEmpty else { return drawing }
+        let rows = staffRows(from: sourceAnchors)
+        if !engravingChanged {
+            guard sourceAnchors.count == source.measureAnchors?.count,
+                  targetStaffAnchors.count == target.measureAnchors?.count,
+                  Set(sourceAnchors.map(\.measureID)).count == sourceAnchors.count else { return drawing }
+            let targetRows = staffRows(from: targetStaffAnchors)
+            // Ink can be saved after the join, then need to follow the lone
+            // measure back down when a later width edit separates the rows.
+            guard joinsSingletonStaffRows(rows, into: targetRows)
+                    || joinsSingletonStaffRows(targetRows, into: rows) else { return drawing }
+        }
+        let targetAnchors = Dictionary(targetStaffAnchors.map { ($0.measureID, $0) },
+            uniquingKeysWith: { first, _ in first })
 
         // Every stroke on a row uses one transform, including beams spanning
         // barlines and notes made from separate notehead/stem/accidental strokes.
         // Never assign these pieces to separate chord hit regions.
-        let rows = staffRows(from: sourceAnchors)
         let transforms: [CGAffineTransform?] = rows.map { row in
             let matches = row.anchors.compactMap { targetAnchors[$0.measureID]?.staffFrame?.rect }
             guard matches.count == row.anchors.count, let first = matches.first,
@@ -481,13 +511,24 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
         let padding = rows.map { $0.staff.height / 4 }.min()! * 0.25
         for indices in connectedStrokeGroups(strokes, padding: padding) {
             let bounds = indices.reduce(CGRect.null) { $0.union(strokes[$1].renderBounds) }
-            guard bounds.maxY >= rows[0].top else { continue }
-            let index = rows.indices.last(where: { bounds.midY >= rows[$0].top }) ?? 0
-            // Headers and drawings in blank paper beyond the last staff are
-            // paper annotations. Only row-local handwriting follows engraving.
-            if index == rows.count - 1,
-               isUnownedTailPaperInk(bounds, below: rows[index].staff) {
-                continue
+            let index: Int
+            if engravingChanged {
+                guard bounds.maxY >= rows[0].top else { continue }
+                index = rows.indices.last(where: { bounds.midY >= rows[$0].top }) ?? 0
+                if index == rows.count - 1,
+                   isUnownedTailPaperInk(bounds, below: rows[index].staff) {
+                    continue
+                }
+            } else {
+                // A singleton row change moves only handwriting touching a single
+                // source staff. Paper annotations and ambiguous groups stay put.
+                let touchedRows = rows.indices.filter { index in
+                    let staff = rows[index].staff
+                    return bounds.intersects(staff)
+                        && indices.contains { strokes[$0].renderBounds.intersects(staff) }
+                }
+                guard touchedRows.count == 1, let touchedRow = touchedRows.first else { continue }
+                index = touchedRow
             }
             let transform: CGAffineTransform?
             if let rowTransform = transforms[index] {
@@ -743,22 +784,22 @@ enum LeadSheetRenderedObjectMoveScrollLockPolicy {
     }
 }
 
+enum LeadSheetRenderedEditTouchPolicy {
+    static func allowsTouch(
+        touchType: UITouch.TouchType,
+        environment: LeadSheetLiveInkInputPolicy.RuntimeEnvironment = .current
+    ) -> Bool {
+        touchType == .pencil || (environment == .simulator && touchType == .direct)
+    }
+}
+
 enum LeadSheetObjectMoveTouchPolicy {
     static func allowsMovePan(
         touchType: UITouch.TouchType,
-        interactionMode: EditorCanvasMode,
         startsOnMoveTarget: Bool,
         environment: LeadSheetLiveInkInputPolicy.RuntimeEnvironment = .current
     ) -> Bool {
-        guard LeadSheetLiveInkInputPolicy.allowsCanvasGestureTouch(
-            touchType: touchType,
-            interactionMode: interactionMode,
-            environment: environment
-        ) else {
-            return false
-        }
-
-        return touchType != .pencil || startsOnMoveTarget
+        startsOnMoveTarget && LeadSheetRenderedEditTouchPolicy.allowsTouch(touchType: touchType, environment: environment)
     }
 }
 

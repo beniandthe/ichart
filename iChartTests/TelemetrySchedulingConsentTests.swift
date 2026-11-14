@@ -95,7 +95,7 @@ final class TelemetrySchedulingConsentTests: XCTestCase {
         XCTAssertTrue(try queue.loadEvents().isEmpty)
     }
 
-    func testBasicAuthorizationCannotSurviveWithdrawalRegrantOrServiceReplacement() throws {
+    func testBasicAuthorizationCannotSurviveWithdrawalRegrantOrServiceReplacement() async throws {
         let consent = try makeConsent()
         let queue = IChartTelemetryQueueStore(url: FileManager.default.temporaryDirectory
             .appendingPathComponent("basic-token-\(UUID())/queue.json"))
@@ -106,7 +106,11 @@ final class TelemetrySchedulingConsentTests: XCTestCase {
         XCTAssertFalse(original.isCurrent)
         consent.setConsentGranted(true)
         XCTAssertFalse(original.isCurrent)
+        // The production read fails closed while projection owns the scheduling lock.
+        await consent.waitForPendingPersistence()
         let replacement = try XCTUnwrap(IChartTelemetry.basicRecordingAuthorization())
+        XCTAssertTrue(replacement.isCurrent)
+        XCTAssertFalse(original.isCurrent)
         IChartTelemetry.configure(nil)
         XCTAssertFalse(replacement.isCurrent)
     }

@@ -260,6 +260,95 @@ final class FreeInkEngravingAlignmentTests: XCTestCase {
         assertSamePoints(ink, project(ink, from: source.space, to: otherSpace))
     }
 
+    func testRhythmSingletonRowMergeMovesStaffInkAndKeepsPaperAnnotationsFixed() throws {
+        var chart = Chart.draft(title: "Rhythm Row Merge", layoutStyle: .rhythmSectionSheet)
+        chart.completeInitialSetup(title: chart.title, key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine, startingMeasureCount: 8)
+        let measureIDs = chart.measures.map(\.id)
+        let finalMeasureID = measureIDs[7]
+        let chord = try ChordSymbolParser.parse("G7")
+        XCTAssertNotNil(chart.appendRecognizedChordEvent(chord, rawInput: "G7",
+            to: finalMeasureID, atFraction: 0))
+        for (measureID, width) in zip(measureIDs[4...6], [CGFloat(202), 200, 200]) {
+            XCTAssertNotNil(chart.setMeasureManualLayoutWidth(width, for: measureID))
+        }
+        let paperSize = CGSize(width: 932, height: 1_100)
+        let source = try geometry(chart, pageSize: paperSize)
+        XCTAssertEqual(source.staffSystems.map { $0.measures.compactMap(\.sourceMeasureID) },
+            [Array(measureIDs.prefix(4)), Array(measureIDs[4..<7]), [finalMeasureID]])
+        let sourceStaff = try XCTUnwrap(source.space.measureAnchors?.first {
+            $0.measureID == finalMeasureID
+        }?.staffFrame?.rect)
+        let staffStroke = stroke([
+            CGPoint(x: sourceStaff.midX, y: sourceStaff.midY),
+            CGPoint(x: sourceStaff.midX + 9, y: sourceStaff.midY - 4)
+        ], seed: 400)
+        let annotations = PKDrawing(strokes: [
+            stroke([CGPoint(x: 30, y: 16), CGPoint(x: 43, y: 16)], seed: 401),
+            stroke([CGPoint(x: sourceStaff.midX, y: sourceStaff.minY - 24),
+                CGPoint(x: sourceStaff.midX + 9, y: sourceStaff.minY - 24)], seed: 402),
+            stroke([CGPoint(x: sourceStaff.midX, y: sourceStaff.maxY + 100),
+                CGPoint(x: sourceStaff.midX + 9, y: sourceStaff.maxY + 100)], seed: 403)
+        ])
+        let original = PKDrawing(strokes: [staffStroke] + annotations.strokes)
+        let archive = original.dataRepresentation()
+        chart.pageHandwrittenNotationData = archive
+        chart.pageHandwrittenNotationCoordinateSpace = source.space
+
+        let precedingRow = try XCTUnwrap(source.staffSystems.dropFirst().first)
+        let snapshots = precedingRow.measures.compactMap { measure -> LeadSheetMeasureResizeMeasureSnapshot? in
+            guard let id = measure.sourceMeasureID else { return nil }
+            let editable = LeadSheetMeasureResizeGeometry.editableMeasureLayout(measure, layoutStyle: chart.layoutStyle)
+            return LeadSheetMeasureResizeMeasureSnapshot(measureID: id, frame: editable.frame)
+        }
+        let scale = LeadSheetMeasureResizeGeometry.displayedToManualWidthScale(
+            rowMeasures: snapshots, chart: chart,
+            maxSystemWidth: source.layout.paperFrame(for: precedingRow).width - 68)
+        let transaction = try XCTUnwrap(LeadSheetMeasureResizeTransaction(
+            selectedMeasureID: measureIDs[6], edge: .right, rowMeasures: snapshots,
+            displayedToManualWidthScale: scale,
+            baselineCommitManualWidths: LeadSheetMeasureResizeGeometry.baselineManualWidthsForPrecisionEdit(
+                rowMeasures: snapshots, chart: chart, displayedToManualWidthScale: scale)))
+
+        var unmergedChart = chart
+        for (id, width) in transaction.preview(for: -10).committedManualWidths {
+            XCTAssertNotNil(unmergedChart.setMeasureManualLayoutWidth(width, for: id))
+        }
+        let unmerged = try geometry(unmergedChart, pageSize: paperSize)
+        assertSamePoints(original, project(original, from: source.space, to: unmerged.space))
+
+        for (id, width) in transaction.preview(for: -20).committedManualWidths {
+            XCTAssertNotNil(chart.setMeasureManualLayoutWidth(width, for: id))
+        }
+        let target = try geometry(chart, pageSize: paperSize)
+        XCTAssertEqual(target.staffSystems.map { $0.measures.compactMap(\.sourceMeasureID) },
+            [Array(measureIDs.prefix(4)), Array(measureIDs.suffix(4))])
+        XCTAssertEqual(source.space.width, target.space.width)
+        XCTAssertEqual(source.space.engravingPreset, target.space.engravingPreset)
+        let targetStaff = try XCTUnwrap(target.space.measureAnchors?.first {
+            $0.measureID == finalMeasureID
+        }?.staffFrame?.rect)
+        XCTAssertLessThan(targetStaff.midY, sourceStaff.midY)
+
+        let visible = project(original, from: source.space, to: target.space)
+        let visibleStaffStroke = try XCTUnwrap(visible.strokes.first)
+        XCTAssertEqual(visibleStaffStroke.randomSeed, staffStroke.randomSeed)
+        for (before, after) in zip(staffStroke.path, visibleStaffStroke.path) {
+            let originalPoint = before.location.applying(staffStroke.transform)
+            let visiblePoint = after.location.applying(visibleStaffStroke.transform)
+            XCTAssertEqual((visiblePoint.x - targetStaff.minX) / targetStaff.width,
+                (originalPoint.x - sourceStaff.minX) / sourceStaff.width, accuracy: 0.002)
+            XCTAssertEqual(visiblePoint.y - targetStaff.minY,
+                originalPoint.y - sourceStaff.minY, accuracy: 0.01)
+        }
+        assertSamePoints(annotations, PKDrawing(strokes: Array(visible.strokes.dropFirst())))
+        // If the joined layout becomes the saved ink source, widening the
+        // row again should bring the same staff ink back down with its bar.
+        assertSamePoints(original, project(visible, from: target.space, to: source.space))
+        XCTAssertEqual(chart.pageHandwrittenNotationData, archive)
+        XCTAssertEqual(chart.pageHandwrittenNotationCoordinateSpace, source.space)
+    }
+
     func testHeaderWritingRemainsFixedWhileStaffWritingFollowsEngraving() throws {
         var chart = makeChart(.leadSheet, preset: .wide)
         let source = try geometry(chart)

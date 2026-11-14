@@ -254,7 +254,7 @@ final class FormMarkerPlacementUITests: XCTestCase {
                 XCTAssertTrue(modeMenu.isHittable)
                 modeMenu.tap()
                 let choice = mode == "Automatic"
-                    ? "Automatic — render after a pause"
+                    ? "Automatic — render as you write"
                     : "Manual — check previews, then render"
                 let option = app.buttons[choice]
                 XCTAssertTrue(option.waitForExistence(timeout: 5))

@@ -306,7 +306,7 @@ private struct IChartQuickStartStep: Identifiable {
         IChartQuickStartStep(
             id: "cue",
             title: "Add A Cue And Review",
-            detail: "Open Tools > Text to add a cue. Tap Done for Select, then tap any chord, text, marker, barline, or measure you want to change."
+            detail: "Open Tools > Text, select a measure, then choose Above or Below. Tap the field to type or use its Pencil icon for Scribble. Tap Add, then tap Done for Select. Use Pencil to select items on the chart."
         ),
         IChartQuickStartStep(
             id: "export",
@@ -382,8 +382,8 @@ private struct IChartHelpArticleSection: Identifiable {
             bullets: [
                 "Tap Done to leave the current tool and return to Select.",
                 "You can switch directly between Write & Render, Free Ink, Measures, and Tools without returning to Select first.",
-                "Tap a chord, barline, text label, marker, or measure to show its buttons.",
-                "In Select, drag a chord with Apple Pencil or your finger, then lift to place it. You can start on the chord without selecting it first.",
+                "Tap a chord, barline, text label, marker, or measure with Apple Pencil to show its buttons. Use a finger to scroll.",
+                "In Select, drag a chord with Apple Pencil, then lift to place it. You can start on the chord without selecting it first.",
                 "Tap a chord to show its controls. Tap the red X to delete it, or drag the width handle to change its width.",
                 "In either chart style, tap an eligible divider, then its red X or Delete to merge the two measures. Rhythm divider deletion is limited to chord-only measures; notes, attached marks or a merge that could move staff handwriting keep the boundary protected.",
                 "On a Simple Chord Sheet or Rhythm Section Sheet, tap a converted mark to select it. Drag to move it or tap the red X to delete it.",
@@ -466,7 +466,7 @@ private struct IChartHelpArticleSection: Identifiable {
             id: "editor-rendered-objects",
             title: "Changing Chords, Text, And Markers",
             systemImageName: "square.and.pencil",
-            body: "After something is on the chart, use Select to change it.",
+            body: "In Select, use Apple Pencil to edit items on the chart. Use a finger to scroll.",
             bullets: [
                 "Double-tap a chord in Select to correct it. Tap once to show its controls.",
                 "Drag a chord body to move it, then lift to place it. The width handle changes width; the red X deletes.",
@@ -482,9 +482,12 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Measures stays one tap away; less-frequent structure and annotation commands live under Tools.",
             bullets: [
                 "Measures groups Add, Layout, and Delete actions for the selected measure.",
+                "On a Rhythm Section Sheet, select a measure to show its arrow handles. Use Apple Pencil to drag an inside handle to adjust the two neighboring widths, or drag the last measure’s right arrow left to shorten the row.",
+                "When you release, a lone measure on the next row moves up if its full width fits. Manual row or page breaks and key changes keep their boundaries.",
                 "Open Layout to compare Start New Row, Join Row Above, Move to Row Below, Even Row Widths, and Merge with Next Measure. The sheet explains each action and why an option is unavailable. Tap an available action to apply it.",
                 "Tools > Repeats groups Repeat Measures, Add Ending, and Manage. Add Ending offers 1st Ending…, 2nd Ending…, or Custom Ending… with a shared label and range editor.",
-                "Tools > Time Signature and Text use the selected measure. Tools > Form Markers opens a sheet: check the measure, choose a marker, then tap Add."
+                "Tools > Text uses the selected measure. Choose Above or Below. Tap the field to type, or tap its Pencil icon and write in the field. Tap Add or Apply.",
+                "Tools > Time Signature uses the selected measure. Tools > Form Markers opens a sheet: check the measure, choose a marker, then tap Add."
             ]
         ),
         IChartHelpArticleSection(
@@ -849,6 +852,8 @@ private enum IChartChartsWorkspaceMode: String, CaseIterable, Identifiable {
 }
 
 struct LibraryView: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @EnvironmentObject private var store: ChartLibraryStore
     @EnvironmentObject private var authStore: IChartAuthStore
     @EnvironmentObject private var cloudSyncStore: ChartCloudSyncStore
@@ -1559,7 +1564,7 @@ struct LibraryView: View {
     }
 
     private var forumsHomeContent: some View {
-        homeScroll {
+        homeScroll(supportsTextEntry: false) {
             IChartHomePanel(
                 title: "Forums",
                 systemImageName: "bubble.left.and.bubble.right",
@@ -1761,7 +1766,7 @@ struct LibraryView: View {
     }
 
     private var helpHomeContent: some View {
-        homeScroll {
+        homeScroll(supportsTextEntry: false) {
             IChartHomePanel(
                 title: "Help",
                 systemImageName: "questionmark.circle",
@@ -1804,41 +1809,41 @@ struct LibraryView: View {
     }
 
     private func homeScroll<Content: View>(
+        supportsTextEntry: Bool = true,
         @ViewBuilder content: () -> Content
     ) -> some View {
         ScrollView {
             content()
                 .padding(.horizontal, 24)
                 .padding(.vertical, 24)
+                .background {
+                    if supportsTextEntry { IChartTypedSheetScrollSupport() }
+                }
         }
     }
 
     private func libraryRetrievalControls(
         query: Binding<String>, order: Binding<LibrarySortOrder>, noun: String
     ) -> some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 12) {
-                librarySearchField(query: query, noun: noun)
-                librarySortMenu(order: order)
-            }
-            VStack(alignment: .center, spacing: 10) {
-                librarySearchField(query: query, noun: noun)
-                librarySortMenu(order: order)
-            }
+        let layout = dynamicTypeSize.isAccessibilitySize || horizontalSizeClass == .compact
+            ? AnyLayout(VStackLayout(spacing: 10))
+            : AnyLayout(HStackLayout(spacing: 12))
+        return layout {
+            librarySearchField(query: query, noun: noun)
+            librarySortMenu(order: order)
         }
     }
 
     private func librarySearchField(query: Binding<String>, noun: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass").foregroundStyle(homeTheme.panelSecondary)
-            TextField("", text: query, prompt: Text("Search \(noun.lowercased())")
-                .foregroundStyle(homeTheme.panelSecondary))
-                .foregroundStyle(homeTheme.panelTitle)
-                .tint(homeTheme.actionText)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .accessibilityLabel("Search \(noun)")
-                .accessibilityIdentifier("library.search.\(noun.lowercased())")
+            IChartTypedTextField(placeholder: "Search \(noun.lowercased())", text: query,
+                borderStyle: .none, returnKeyType: .search,
+                textColor: UIColor(homeTheme.panelTitle), placeholderColor: UIColor(homeTheme.panelSecondary),
+                tintColor: UIColor(homeTheme.actionText),
+                accessibilityIdentifier: "library.search.\(noun.lowercased())",
+                accessibilityLabel: "Search \(noun)")
+                .frame(minHeight: 44)
             if !query.wrappedValue.isEmpty {
                 Button { query.wrappedValue = "" } label: { Image(systemName: "xmark.circle.fill") }
                     .accessibilityLabel("Clear \(noun.lowercased()) search")
@@ -2405,6 +2410,7 @@ private struct RenameChartSheetView: View {
                     IChartTypedTextField(placeholder: "Chart title", text: $title, isFocused: $isTitleFocused,
                         autocapitalizationType: .words, autocorrectionType: .yes)
                         .frame(minHeight: 44)
+                        .background(IChartTypedSheetScrollSupport())
                 }
             }
             .navigationTitle("Rename Chart")
@@ -2650,6 +2656,7 @@ private struct IChartProjectFormSheet: View {
                     IChartTypedTextField(placeholder: "Song or project title", text: $projectTitle,
                         isFocused: $isProjectTitleFocused, autocapitalizationType: .words, autocorrectionType: .yes)
                         .frame(minHeight: 44)
+                        .background(IChartTypedSheetScrollSupport())
                 }
             }
             .navigationTitle(title)
@@ -2819,6 +2826,7 @@ private struct IChartProjectDuplicateVariantSheet: View {
                     }
                 }
                 .padding(24)
+                .background(IChartTypedSheetScrollSupport())
             }
             .navigationTitle("Duplicate Variant")
             .navigationBarTitleDisplayMode(.inline)
@@ -3166,6 +3174,7 @@ struct IChartForumHomeView: View {
             forumStateContent
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(IChartTypedSheetScrollSupport())
     }
 
     private var loadedSummaries: [IChartForumSongSummary]? {
@@ -3201,33 +3210,33 @@ struct IChartForumHomeView: View {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(theme.panelSecondary)
-                TextField(
-                    "",
+                IChartTypedTextField(
+                    placeholder: "Search songs, artists, arrangers, or tags",
                     text: $searchText,
-                    prompt: Text("Search songs, artists, arrangers, or tags")
-                        .foregroundStyle(theme.panelSecondary.opacity(theme.isDark ? 0.95 : 1.0))
+                    autocapitalizationType: .words,
+                    autocorrectionType: .default,
+                    borderStyle: .none,
+                    returnKeyType: .search,
+                    textColor: UIColor(theme.panelTitle),
+                    placeholderColor: UIColor(theme.panelSecondary.opacity(theme.isDark ? 0.95 : 1.0)),
+                    tintColor: UIColor(IChartHomeBrand.logoBlue),
+                    accessibilityIdentifier: "forum.search",
+                    accessibilityLabel: "Forum search",
+                    accessibilityHint: "Search song titles, artists, arrangers, or tags, then tap Search.",
+                    onSubmit: submitSearch
                 )
-                    .textInputAutocapitalization(.words)
-                    .submitLabel(.search)
-                    .foregroundStyle(theme.panelTitle)
-                    .tint(IChartHomeBrand.logoBlue)
-                    .accessibilityLabel("Forum search")
-                    .accessibilityIdentifier("forum.search")
-                    .accessibilityHint("Search song titles, artists, arrangers, or tags, then tap Search.")
-                    .onSubmit {
-                        submitSearch()
-                    }
+                    .frame(minHeight: 44)
                     .onChange(of: searchText) { _, newValue in
                         handleSearchTextChange(newValue)
                     }
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 10)
             .background(theme.panelBackground.opacity(theme.isDark ? 0.94 : 0.84))
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(theme.isDark ? Color.white.opacity(0.18) : theme.panelBorder, lineWidth: 1)
+                    .allowsHitTesting(false)
             }
 
             Button {
@@ -4376,21 +4385,13 @@ private struct IChartForumQualityPill: View {
 
 struct IChartForumPublishSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @ScaledMetric(relativeTo: .body) private var notesHeight: CGFloat = 72
     let request: IChartForumPublishRequest
     let theme: IChartHomeTheme
     let onPublish: (Chart, ForumPublishDraft) -> Void
 
     @State private var draft = ForumPublishDraft()
     @State private var validationErrors: [ForumPublishValidationError] = []
-    @FocusState private var focusedField: Field?
-
-    private enum Field: Hashable {
-        case song
-        case artist
-        case arranger
-        case tags
-        case note
-    }
 
     var body: some View {
         NavigationStack {
@@ -4402,12 +4403,22 @@ struct IChartForumPublishSheet: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("Forum instrument view guidance")
                 }
-                Section("Metadata") {
-                    forumTextField("Song Title", text: $draft.songTitle, field: .song)
-                    forumTextField("Artist", text: $draft.artistName, field: .artist)
-                    forumTextField("Arranger Credit", text: $draft.arrangerCredit, field: .arranger)
-                    forumTextField("Tags (Optional)", text: $draft.tagsText, field: .tags, prompt: "live, acoustic, rhythm section")
-                    forumMultilineTextField("Notes (Optional)", text: $draft.versionNote, field: .note)
+                Section {
+                    forumTextField("Song Title", text: $draft.songTitle)
+                        .background(IChartTypedSheetScrollSupport())
+                    forumTextField("Artist", text: $draft.artistName)
+                    forumTextField("Arranger Credit", text: $draft.arrangerCredit)
+                    forumTextField("Tags (Optional)", text: $draft.tagsText, prompt: "live, acoustic, rhythm section")
+                    IChartTypedTextView(
+                        text: $draft.versionNote,
+                        placeholder: "Notes (Optional)",
+                        accessibilityLabel: "Notes (Optional)"
+                    )
+                    .frame(height: notesHeight)
+                } header: {
+                    Text("Metadata")
+                } footer: {
+                    Text("Tap a field to type. For Scribble, tap its Pencil icon, then write in the field.")
                 }
 
                 if !validationErrors.isEmpty {
@@ -4419,6 +4430,7 @@ struct IChartForumPublishSheet: View {
                     }
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Submit To Forum")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -4440,6 +4452,7 @@ struct IChartForumPublishSheet: View {
                 configureDraftIfNeeded()
             }
         }
+        .presentationDetents([.large])
     }
 
     private func configureDraftIfNeeded() {
@@ -4454,45 +4467,17 @@ struct IChartForumPublishSheet: View {
     private func forumTextField(
         _ title: String,
         text: Binding<String>,
-        field: Field,
         prompt: String? = nil
     ) -> some View {
-        HStack(spacing: 8) {
-            if let prompt {
-                TextField(title, text: text, prompt: Text(prompt))
-                    .focused($focusedField, equals: field)
-            } else {
-                TextField(title, text: text)
-                    .focused($focusedField, equals: field)
-            }
-
-            IChartKeyboardFocusButton(accessibilityLabel: "Open keyboard for \(title)") {
-                focusedField = field
-            }
-        }
-    }
-
-    private func forumMultilineTextField(
-        _ title: String,
-        text: Binding<String>,
-        field: Field,
-        prompt: String? = nil
-    ) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            if let prompt {
-                TextField(title, text: text, prompt: Text(prompt), axis: .vertical)
-                    .lineLimit(2...4)
-                    .focused($focusedField, equals: field)
-            } else {
-                TextField(title, text: text, axis: .vertical)
-                    .lineLimit(2...4)
-                    .focused($focusedField, equals: field)
-            }
-
-            IChartKeyboardFocusButton(accessibilityLabel: "Open keyboard for \(title)") {
-                focusedField = field
-            }
-        }
+        IChartTypedTextField(
+            placeholder: prompt ?? title,
+            text: text,
+            autocapitalizationType: .sentences,
+            autocorrectionType: .default,
+            borderStyle: .none,
+            accessibilityLabel: title
+        )
+        .frame(minHeight: 44)
     }
 
     private func publish() {
@@ -4509,6 +4494,7 @@ struct IChartForumPublishSheet: View {
 
 private struct IChartForumPostDetailView: View {
     @Environment(\.dismiss) private var dismiss
+    @ScaledMetric(relativeTo: .body) private var commentHeight: CGFloat = 72
     let detail: IChartForumPostDetail
     let currentUserID: UUID?
     let downloadedPDF: ExportedPDF?
@@ -4532,7 +4518,6 @@ private struct IChartForumPostDetailView: View {
     @State private var commentText = ""
     @State private var isSubmittingComment = false
     @State private var blockConfirmationRequest: ForumBlockConfirmationRequest?
-    @FocusState private var isCommentFocused: Bool
 
     var body: some View {
         NavigationStack {
@@ -4545,7 +4530,9 @@ private struct IChartForumPostDetailView: View {
                     comments
                 }
                 .padding(22)
+                .background(IChartTypedSheetScrollSupport())
             }
+            .scrollDismissesKeyboard(.interactively)
             .safeAreaInset(edge: .top, spacing: 0) {
                 if let errorMessage {
                     IChartForumStatusBanner(
@@ -4570,6 +4557,7 @@ private struct IChartForumPostDetailView: View {
                 }
             }
         }
+        .presentationDetents([.large])
         .sheet(
             isPresented: Binding(
                 get: { downloadedPDF != nil },
@@ -4750,13 +4738,21 @@ private struct IChartForumPostDetailView: View {
 
             if detail.post.acceptsCommunityActions {
                 HStack(alignment: .top, spacing: 8) {
-                    TextField("Add a comment", text: $commentText, axis: .vertical)
-                        .lineLimit(2...5)
-                        .textFieldStyle(.roundedBorder)
-                        .focused($isCommentFocused)
-
-                    IChartKeyboardFocusButton(accessibilityLabel: "Open keyboard for forum comment") {
-                        isCommentFocused = true
+                    IChartTypedTextView(
+                        text: $commentText,
+                        placeholder: "Add a comment",
+                        textColor: UIColor(theme.panelTitle),
+                        placeholderColor: UIColor(theme.panelSecondary),
+                        tintColor: UIColor(theme.actionText),
+                        accessibilityLabel: "Add a comment",
+                        accessibilityHint: "Tap to type. Use Start Scribble to write with Apple Pencil."
+                    )
+                    .frame(height: commentHeight)
+                    .background(theme.emptyStateBackground, in: RoundedRectangle(cornerRadius: 8))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(theme.panelBorder, lineWidth: 1)
+                            .allowsHitTesting(false)
                     }
 
                     Button {
@@ -5683,6 +5679,7 @@ private struct IChartFirstRunAccountLandingView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .frame(minHeight: proxy.size.height, alignment: .center)
+                    .background(IChartTypedSheetScrollSupport())
                 }
                 .scrollIndicators(.hidden)
             }
@@ -5742,76 +5739,6 @@ private struct IChartKeyboardFocusButton: View {
     }
 }
 
-private struct IChartAccountScribbleSuppressionBridge: UIViewRepresentable {
-    func makeUIView(context: Context) -> IChartAccountScribbleSuppressionView {
-        let view = IChartAccountScribbleSuppressionView()
-        view.coordinator = context.coordinator
-        return view
-    }
-
-    func updateUIView(_ view: IChartAccountScribbleSuppressionView, context: Context) {
-        view.coordinator = context.coordinator
-        view.suppressScribbleWhenReady()
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    final class Coordinator: NSObject, UIScribbleInteractionDelegate {
-        private let fields = NSHashTable<UITextField>.weakObjects()
-
-        func suppressScribble(in root: UIView) {
-            for textField in root.accountTextFields {
-                guard !fields.contains(textField) else {
-                    continue
-                }
-
-                textField.addInteraction(UIScribbleInteraction(delegate: self))
-                fields.add(textField)
-            }
-        }
-
-        func scribbleInteraction(
-            _ interaction: UIScribbleInteraction,
-            shouldBeginAt location: CGPoint
-        ) -> Bool {
-            false
-        }
-    }
-}
-
-private final class IChartAccountScribbleSuppressionView: UIView {
-    weak var coordinator: IChartAccountScribbleSuppressionBridge.Coordinator?
-
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        suppressScribbleWhenReady()
-    }
-
-    func suppressScribbleWhenReady() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else {
-                return
-            }
-
-            coordinator?.suppressScribble(in: window ?? superview ?? self)
-        }
-    }
-}
-
-private extension UIView {
-    var accountTextFields: [UITextField] {
-        subviews.flatMap { subview in
-            var fields = subview.accountTextFields
-            if let textField = subview as? UITextField {
-                fields.append(textField)
-            }
-            return fields
-        }
-    }
-}
-
 private enum IChartAccountInputField: Hashable {
     case firstName
     case lastName
@@ -5841,7 +5768,8 @@ private struct IChartAccountSettings: View {
     @State private var didSendVerificationRecoveryEmail = false
     @State private var isSendingVerificationRecoveryEmail = false
     @State private var isShowingDeleteAccountConfirmation = false
-    @FocusState private var focusedField: IChartAccountInputField?
+    @State private var focusedField: IChartAccountInputField?
+    @FocusState private var focusedSecureField: IChartAccountInputField?
 
     init(
         authStore: IChartAuthStore,
@@ -5925,10 +5853,6 @@ private struct IChartAccountSettings: View {
             statusFooter
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(IChartAccountScribbleSuppressionBridge())
-        .task(id: "\(authStore.state.statusText)-\(entryMode.rawValue)") {
-            focusDefaultInputIfNeeded()
-        }
         .alert("Delete Account?", isPresented: $isShowingDeleteAccountConfirmation) {
             Button("Delete Account", role: .destructive) {
                 Task {
@@ -5974,8 +5898,8 @@ private struct IChartAccountSettings: View {
                     theme: theme,
                     focusedField: $focusedField,
                     field: .firstName,
-                    textInputAutocapitalization: .words,
-                    autocorrectionDisabled: false
+                    autocapitalizationType: .words,
+                    autocorrectionType: .yes
                 )
 
                 IChartAccountTextField(
@@ -5987,8 +5911,8 @@ private struct IChartAccountSettings: View {
                     theme: theme,
                     focusedField: $focusedField,
                     field: .lastName,
-                    textInputAutocapitalization: .words,
-                    autocorrectionDisabled: false
+                    autocapitalizationType: .words,
+                    autocorrectionType: .yes
                 )
             }
 
@@ -6009,7 +5933,7 @@ private struct IChartAccountSettings: View {
                 text: $password,
                 systemImageName: "lock",
                 theme: theme,
-                focusedField: $focusedField,
+                focusedField: $focusedSecureField,
                 field: .password
             )
         }
@@ -6030,7 +5954,7 @@ private struct IChartAccountSettings: View {
         Button {
             guard hasSignInCredentials else {
                 accountEntryPrompt = "Enter your email and password, then tap Sign In."
-                focusedField = trimmed(email).isEmpty ? .email : .password
+                focusInput(trimmed(email).isEmpty ? .email : .password)
                 return
             }
 
@@ -6147,7 +6071,7 @@ private struct IChartAccountSettings: View {
                         entryMode = .signIn
                         password = ""
                         accountEntryPrompt = "If your email is verified, sign in with that email and password."
-                        focusedField = .email
+                        focusInput(.email)
                     } label: {
                         Label("Already Verified? Sign In", systemImage: "checkmark.circle")
                             .frame(maxWidth: .infinity)
@@ -6162,7 +6086,7 @@ private struct IChartAccountSettings: View {
                         email = ""
                         password = ""
                         accountEntryPrompt = "Enter the email address you want to use, then tap Create Account."
-                        focusedField = .email
+                        focusInput(.email)
                     } label: {
                         Label("Use a Different Email", systemImage: "arrow.uturn.left")
                             .frame(maxWidth: .infinity)
@@ -6271,7 +6195,7 @@ private struct IChartAccountSettings: View {
                 text: $newPassword,
                 systemImageName: "lock",
                 theme: theme,
-                focusedField: $focusedField,
+                focusedField: $focusedSecureField,
                 field: .newPassword
             )
 
@@ -6407,8 +6331,8 @@ private struct IChartAccountSettings: View {
                 theme: theme,
                 focusedField: $focusedField,
                 field: .firstName,
-                textInputAutocapitalization: .words,
-                autocorrectionDisabled: false
+                autocapitalizationType: .words,
+                autocorrectionType: .yes
             )
 
             IChartAccountTextField(
@@ -6420,8 +6344,8 @@ private struct IChartAccountSettings: View {
                 theme: theme,
                 focusedField: $focusedField,
                 field: .lastName,
-                textInputAutocapitalization: .words,
-                autocorrectionDisabled: false
+                autocapitalizationType: .words,
+                autocorrectionType: .yes
             )
 
             Button {
@@ -6551,47 +6475,39 @@ private struct IChartAccountSettings: View {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func focusDefaultInputIfNeeded() {
-        guard !authStore.isWorking else {
-            return
-        }
-
-        switch authStore.state {
-        case .signedOut:
-            if requiresNameForSignup && entryMode == .createAccount {
-                focusedField = .firstName
-            } else {
-                focusedField = .email
-            }
-        case .passwordRecovery:
-            focusedField = .newPassword
-        case .unconfigured, .temporarilyOffline, .pendingEmailVerification, .signedIn:
-            break
+    private func focusInput(_ field: IChartAccountInputField) {
+        switch field {
+        case .firstName, .lastName, .email:
+            focusedSecureField = nil
+            focusedField = field
+        case .password, .newPassword:
+            focusedField = nil
+            focusedSecureField = field
         }
     }
 
     private func validateCreateAccountInputs() -> Bool {
         if requiresNameForSignup && trimmed(firstName).isEmpty {
             accountEntryPrompt = "Enter first name, last name, email, and a password with at least 8 characters. Then tap Create Account."
-            focusedField = .firstName
+            focusInput(.firstName)
             return false
         }
 
         if requiresNameForSignup && trimmed(lastName).isEmpty {
             accountEntryPrompt = "Enter first name, last name, email, and a password with at least 8 characters. Then tap Create Account."
-            focusedField = .lastName
+            focusInput(.lastName)
             return false
         }
 
         if trimmed(email).isEmpty {
             accountEntryPrompt = "Enter first name, last name, email, and a password with at least 8 characters. Then tap Create Account."
-            focusedField = .email
+            focusInput(.email)
             return false
         }
 
         if password.count < 8 {
             accountEntryPrompt = "Enter first name, last name, email, and a password with at least 8 characters. Then tap Create Account."
-            focusedField = .password
+            focusInput(.password)
             return false
         }
 
@@ -7382,48 +7298,48 @@ private struct IChartAccountTextField: View {
     let systemImageName: String
     let keyboardType: UIKeyboardType
     let theme: IChartHomeTheme
-    let focusedField: FocusState<IChartAccountInputField?>.Binding
+    @Binding var focusedField: IChartAccountInputField?
     let field: IChartAccountInputField
-    var textInputAutocapitalization: TextInputAutocapitalization = .never
-    var autocorrectionDisabled = true
+    var autocapitalizationType: UITextAutocapitalizationType = .none
+    var autocorrectionType: UITextAutocorrectionType = .no
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: systemImageName)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(theme.actionText)
-                .frame(width: 30, height: 30)
-
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(theme.panelTitle)
-                .lineLimit(1)
-                .minimumScaleFactor(0.82)
-                .frame(width: 104, alignment: .leading)
-
-            TextField(placeholder, text: $text)
-                .focused(focusedField, equals: field)
-                .keyboardType(keyboardType)
-                .textInputAutocapitalization(textInputAutocapitalization)
-                .autocorrectionDisabled(autocorrectionDisabled)
-                .font(.subheadline)
-                .foregroundStyle(theme.panelTitle)
-                .padding(.horizontal, 11)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(theme.emptyStateBackground)
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(theme.panelBorder, lineWidth: 1)
-                }
-
-            IChartKeyboardFocusButton(
-                accessibilityLabel: "Open keyboard for \(title)"
-            ) {
-                focusedField.wrappedValue = field
+        IChartAccountFieldRow(title: title, systemImageName: systemImageName, theme: theme) {
+            IChartTypedTextField(
+                placeholder: placeholder,
+                text: $text,
+                isFocused: Binding(
+                    get: { focusedField == field },
+                    set: { isFocused in
+                        if isFocused {
+                            focusedField = field
+                        } else if focusedField == field {
+                            focusedField = nil
+                        }
+                    }
+                ),
+                autocapitalizationType: autocapitalizationType,
+                autocorrectionType: autocorrectionType,
+                font: .preferredFont(forTextStyle: .subheadline),
+                borderStyle: .none,
+                keyboardType: keyboardType,
+                textColor: UIColor(theme.panelTitle),
+                placeholderColor: UIColor(theme.panelSecondary),
+                tintColor: UIColor(theme.actionText),
+                accessibilityLabel: title,
+                accessibilityHint: "Tap to type. Use Start Scribble to write with Apple Pencil."
+            )
+            .padding(.horizontal, 11)
+            .frame(minHeight: 44)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(theme.emptyStateBackground)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(theme.panelBorder, lineWidth: 1)
             }
+            .frame(maxWidth: .infinity)
         }
     }
 }
@@ -7438,41 +7354,66 @@ private struct IChartAccountSecureField: View {
     let field: IChartAccountInputField
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: systemImageName)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(theme.actionText)
-                .frame(width: 30, height: 30)
+        IChartAccountFieldRow(title: title, systemImageName: systemImageName, theme: theme) {
+            HStack(spacing: 12) {
+                SecureField(placeholder, text: $text)
+                    .focused(focusedField, equals: field)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .font(.subheadline)
+                    .foregroundStyle(theme.panelTitle)
+                    .accessibilityLabel(title)
+                    .padding(.horizontal, 11)
+                    .frame(minHeight: 44)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(theme.emptyStateBackground)
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(theme.panelBorder, lineWidth: 1)
+                    }
 
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(theme.panelTitle)
-                .lineLimit(1)
-                .minimumScaleFactor(0.82)
-                .frame(width: 104, alignment: .leading)
-
-            SecureField(placeholder, text: $text)
-                .focused(focusedField, equals: field)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .font(.subheadline)
-                .foregroundStyle(theme.panelTitle)
-                .padding(.horizontal, 11)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(theme.emptyStateBackground)
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(theme.panelBorder, lineWidth: 1)
+                IChartKeyboardFocusButton(
+                    accessibilityLabel: "Open keyboard for \(title)"
+                ) {
+                    focusedField.wrappedValue = field
                 }
-
-            IChartKeyboardFocusButton(
-                accessibilityLabel: "Open keyboard for \(title)"
-            ) {
-                focusedField.wrappedValue = field
             }
+        }
+    }
+}
+
+private struct IChartAccountFieldRow<Input: View>: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    let title: String
+    let systemImageName: String
+    let theme: IChartHomeTheme
+    @ViewBuilder let input: () -> Input
+
+    var body: some View {
+        let stacksLabel = horizontalSizeClass == .compact || dynamicTypeSize.isAccessibilitySize
+        let layout = stacksLabel
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+            : AnyLayout(HStackLayout(spacing: 12))
+
+        layout {
+            HStack(spacing: 12) {
+                Image(systemName: systemImageName)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(theme.actionText)
+                    .frame(width: 30, height: 30)
+                    .accessibilityHidden(true)
+
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(theme.panelTitle)
+                    .frame(width: stacksLabel ? nil : 104, alignment: .leading)
+                    .accessibilityHidden(true)
+            }
+
+            input()
         }
     }
 }

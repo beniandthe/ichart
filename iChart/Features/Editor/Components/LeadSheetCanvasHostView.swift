@@ -1970,7 +1970,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
     }
     private var lastDeletedFreeInkArticulation: (chartID: UUID, mark: FreeInkArticulation, index: Int)?
-    private let freeInkArticulationDeleteButton = UIButton(type: .system)
+    private let freeInkArticulationDeleteButton = PencilOnlyUIButton(type: .system)
+    private let inputEnvironment: LeadSheetLiveInkInputPolicy.RuntimeEnvironment
 
     private struct FreeInkArticulationDrag {
         let chartID: UUID
@@ -2243,6 +2244,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     override init(frame: CGRect) {
+        inputEnvironment = .current
         chordInkRecognizer = ChordInkMaximumTrustRecognizer()
         chordInkAutomaticFallbackRecognizers = ChordInkAutomaticFallbackProviders.live
         super.init(frame: frame)
@@ -2250,7 +2252,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     init(frame: CGRect, chordInkRecognizer: any ChordInkRecognizing,
-        automaticFallbackRecognizers: [any ChordInkAutomaticFallbackRecognizing] = []) {
+        automaticFallbackRecognizers: [any ChordInkAutomaticFallbackRecognizing] = [],
+        inputEnvironment: LeadSheetLiveInkInputPolicy.RuntimeEnvironment = .current) {
+        self.inputEnvironment = inputEnvironment
         self.chordInkRecognizer = chordInkRecognizer
         self.chordInkAutomaticFallbackRecognizers = automaticFallbackRecognizers
         super.init(frame: frame)
@@ -2258,6 +2262,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     required init?(coder: NSCoder) {
+        inputEnvironment = .current
         chordInkRecognizer = ChordInkMaximumTrustRecognizer()
         chordInkAutomaticFallbackRecognizers = ChordInkAutomaticFallbackProviders.live
         super.init(coder: coder)
@@ -2603,8 +2608,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         renderedEditHitOverlayView.containsEditableControl = { [weak self] location in
             self?.editableOverlayHitTarget(at: location) != nil
         }
-        renderedEditHitOverlayView.editableTouchMoved = { [weak self] location in
-            guard let self else { return }
+        renderedEditHitOverlayView.editableTouchMoved = { [weak self] location, touchType in
+            guard let self, allowsRenderedEditTouch(touchType) else { return }
             renderedEditTapIntent.recordMovement(to:
                 renderedEditHitOverlayView.convert(location, to: self))
         }
@@ -2818,19 +2823,21 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     func allowsDocumentVerticalScrollStart(at point: CGPoint, touchType: UITouch.TouchType) -> Bool {
-        guard !isInteractionSuspended,
-              measureResizeHandleHitTarget(at: point) == nil,
-              freeInkArticulationHit(at: point) == nil,
-              freeInkArticulationDeleteButton.isHidden
-                || !freeInkArticulationDeleteButton.frame.contains(point),
-              !chordInkConfirmSurfaceContains(point) else { return false }
-        if let target = editableOverlayHitTarget(at: point) {
-            switch target {
-            case .rendered(let rendered) where rendered.priority == .measureSelect:
-                // Measure selection owns a tap, not a vertical page drag.
-                break
-            default:
-                return false
+        guard !isInteractionSuspended else { return false }
+        if allowsRenderedEditTouch(touchType) {
+            guard measureResizeHandleHitTarget(at: point) == nil,
+                  freeInkArticulationHit(at: point) == nil,
+                  freeInkArticulationDeleteButton.isHidden
+                    || !freeInkArticulationDeleteButton.frame.contains(point),
+                  !chordInkConfirmSurfaceContains(point) else { return false }
+            if let target = editableOverlayHitTarget(at: point) {
+                switch target {
+                case .rendered(let rendered) where rendered.priority == .measureSelect:
+                    // A measure can own a tap without owning a vertical drag.
+                    break
+                default:
+                    return false
+                }
             }
         }
         guard !pageInkCanvasView.isHidden, pageInkCanvasView.isUserInteractionEnabled else { return true }
@@ -4563,17 +4570,18 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     @discardableResult
     func beginRenderedObjectMoveTouch(at location: CGPoint, touchType: UITouch.TouchType) -> Bool {
+        guard !isInteractionSuspended, allowsRenderedEditTouch(touchType) else { return false }
         let articulation = freeInkArticulationHit(at: location) != nil
         let drag = renderedEditDragState(at: location)
-        let allowed = !isInteractionSuspended && LeadSheetObjectMoveTouchPolicy.allowsMovePan(
-            touchType: touchType, interactionMode: interactionMode,
-            startsOnMoveTarget: articulation || drag != nil)
-        // A nonmovable direct touch may be observed by the pan recognizer, but
-        // must not later start a different object after the Pencil/finger moves.
-        renderedObjectMoveTouchStart = allowed ? location : nil
-        renderedObjectMoveAdmittedDrag = allowed ? drag : nil
-        renderedObjectMoveStartsOnFreeInkArticulation = allowed && articulation
-        return allowed
+        guard LeadSheetObjectMoveTouchPolicy.allowsMovePan(touchType: touchType,
+            startsOnMoveTarget: articulation || drag != nil, environment: inputEnvironment) else {
+            clearRenderedObjectMoveTouch()
+            return false
+        }
+        renderedObjectMoveTouchStart = location
+        renderedObjectMoveAdmittedDrag = drag
+        renderedObjectMoveStartsOnFreeInkArticulation = articulation
+        return true
     }
 
     private func clearRenderedObjectMoveTouch() {
@@ -4600,6 +4608,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     func beginRenderedEditTap(at location: CGPoint, touchType: UITouch.TouchType = .pencil) {
+        guard allowsRenderedEditTouch(touchType) else { return }
         renderedEditTapIntent.begin(target: renderedEditTapTarget(at: location), startLocation: location,
             screenPointsPerDisplayedPoint: canvasScreenPointsPerDisplayedPoint(),
             maximumScreenMovement: touchType == .pencil ? 4 : 6)
@@ -9716,8 +9725,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         if touch.view?.isDescendant(of: freeInkArticulationDeleteButton) == true {
             return false
         }
+        let isRenderedEditTouch = allowsRenderedEditTouch(touch.type)
         if gestureRecognizer === chordCorrectionDoubleTapRecognizer {
-            return (touch.type == .direct || touch.type == .pencil)
+            return isRenderedEditTouch
                 && chordReviewHitTarget(at: touch.location(in: self)) != nil
         }
         if gestureRecognizer === renderedObjectMovePanRecognizer {
@@ -9727,23 +9737,38 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
         let allowed = LeadSheetLiveInkInputPolicy.allowsCanvasGestureTouch(
             touchType: touch.type,
-            interactionMode: interactionMode
+            interactionMode: interactionMode,
+            environment: inputEnvironment
         )
-        if allowed, gestureRecognizer === selectionTapRecognizer,
-           renderedEditTapRecognizer.isEnabled,
-           !renderedEditHitOverlayView.isHidden,
-           renderedEditHitOverlayView.isUserInteractionEnabled,
-           editableOverlayHitTarget(at: touch.location(in: self)) != nil {
-            // Only a live overlay can own this touch. Repeat, Measures and
-            // Time Signature keep the overlay hidden and select on the canvas.
-            // In object-editing modes, the ancestor tap must not clear that
-            // selection before a drag or double tap starts.
-            return false
+        guard allowed else { return false }
+        if gestureRecognizer === measureResizePanRecognizer || gestureRecognizer === renderedEditTapRecognizer {
+            guard isRenderedEditTouch else { return false }
         }
-        if allowed, gestureRecognizer === renderedEditTapRecognizer || gestureRecognizer === inkSelectionTapRecognizer {
+        if gestureRecognizer === selectionTapRecognizer {
+            let location = touch.location(in: self)
+            if interactionMode == .browse && !isRenderedEditTouch { return false }
+            if interactionMode == .textEdit && !isRenderedEditTouch {
+                // Keep finger measure targeting in Text. The ancestor tap
+                // also selects cues, which are reserved for Pencil.
+                return cueTextHitTarget(at: location) == nil
+            }
+            if renderedEditTapRecognizer.isEnabled,
+               !renderedEditHitOverlayView.isHidden,
+               renderedEditHitOverlayView.isUserInteractionEnabled,
+               editableOverlayHitTarget(at: location) != nil {
+                // Only a live overlay can own this touch. Repeat, Measures and
+                // Time Signature keep the overlay hidden and select on the canvas.
+                return false
+            }
+        }
+        if gestureRecognizer === renderedEditTapRecognizer || gestureRecognizer === inkSelectionTapRecognizer {
             beginRenderedEditTap(at: touch.location(in: self), touchType: touch.type)
         }
-        return allowed
+        return true
+    }
+
+    private func allowsRenderedEditTouch(_ touchType: UITouch.TouchType) -> Bool {
+        LeadSheetRenderedEditTouchPolicy.allowsTouch(touchType: touchType, environment: inputEnvironment)
     }
 }
 

@@ -212,19 +212,15 @@ final class ChordInkReviewInputTests: XCTestCase {
         XCTAssertEqual(fields.count, 5)
         let first = try XCTUnwrap(fields.first)
         let second = try XCTUnwrap(fields.dropFirst().first)
-        let firstKeyboard = first.keyboardButton
-        let secondKeyboard = second.keyboardButton
         XCTAssertTrue(fields.allSatisfy { !$0.isFirstResponder }, "Opening review must not open text entry")
         for field in fields {
             let scribble = try XCTUnwrap(field.interactions.compactMap { $0 as? UIScribbleInteraction }.first)
-            XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: 10, y: 10)), true,
-                           "Writing inside a field must remain available before its keyboard action is tapped")
-            XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: -1, y: 10)), false,
-                           "Writing cannot start in the scrolling space beside a field")
-            XCTAssertTrue(field.rightView === field.keyboardButton)
+            XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: 10, y: 10)), false,
+                           "Review opens with the field ready for tap-to-type")
+            XCTAssertTrue(field.rightView === field.inputModeButton)
             XCTAssertEqual(field.rightViewMode, .always)
-            XCTAssertGreaterThanOrEqual(field.keyboardButton.bounds.width, 44)
-            XCTAssertGreaterThanOrEqual(field.keyboardButton.bounds.height, 44)
+            XCTAssertGreaterThanOrEqual(field.inputModeButton.bounds.width, 44)
+            XCTAssertGreaterThanOrEqual(field.inputModeButton.bounds.height, 44)
         }
         let reviewScroll = try XCTUnwrap(ancestorScrollView(of: first))
         let pencil = NSNumber(value: UITouch.TouchType.pencil.rawValue)
@@ -236,20 +232,20 @@ final class ChordInkReviewInputTests: XCTestCase {
         reviewScroll.setContentOffset(CGPoint(x: 0, y: 100), animated: false)
         try await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertTrue(fields.allSatisfy { !$0.isFirstResponder }, "Moving the review viewport must not start typing")
-        firstKeyboard.sendActions(for: .touchUpInside)
+        first.requestKeyboard()
         try await waitForFocus(first)
-        XCTAssertTrue(first.isFirstResponder, "One embedded keyboard action must survive the SwiftUI state update")
+        XCTAssertTrue(first.isFirstResponder, "One field tap must survive the SwiftUI state update")
         XCTAssertFalse(inputContext.isPencilInputExpected)
         let scribble = try XCTUnwrap(first.interactions.compactMap { $0 as? UIScribbleInteraction }.first)
-        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: 10, y: 10)), true,
-                       "Keyboard editing cannot permanently disable subsequent Scribble")
+        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: 10, y: 10)), false,
+                       "Tapping during keyboard editing must not start Scribble")
         first.text = "Ebmaj7"
         first.sendActions(for: .editingChanged)
         try await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertTrue(first.isFirstResponder, "Editing must not dismiss the keyboard")
         XCTAssertEqual(first.text, "Ebmaj7")
         let selection = first.selectedTextRange
-        firstKeyboard.sendActions(for: .touchUpInside)
+        first.requestKeyboard()
         try await waitForFocus(first)
         XCTAssertEqual(first.text, "Ebmaj7", "Repeating the keyboard action after native input must keep the draft")
         if let selection, let current = first.selectedTextRange {
@@ -266,7 +262,7 @@ final class ChordInkReviewInputTests: XCTestCase {
         try await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertTrue(second.isFirstResponder)
         XCTAssertEqual(second.text, "D7")
-        firstKeyboard.sendActions(for: .touchUpInside)
+        first.requestKeyboard()
         try await waitForFocus(first)
         XCTAssertTrue(first.isFirstResponder, "Switching backwards must also preserve focus")
         XCTAssertEqual(first.text, "Ebmaj7")
@@ -274,7 +270,7 @@ final class ChordInkReviewInputTests: XCTestCase {
         try endTyping(first)
         try await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertTrue(fields.allSatisfy { !$0.isFirstResponder }, "Done must end typing and retain every value")
-        secondKeyboard.sendActions(for: .touchUpInside)
+        second.requestKeyboard()
         try await waitForFocus(second)
         XCTAssertEqual(second.text, "D7")
         XCTAssertNil(acceptedTexts, "Editing must not implicitly render or train")
@@ -334,7 +330,7 @@ final class ChordInkReviewInputTests: XCTestCase {
         let fields = try await mountedReviewFields(in: host, window: window, count: batch.confirmations.count)
         let field = fields[1]
         let scroll = try XCTUnwrap(ancestorScrollView(of: field))
-        field.keyboardButton.sendActions(for: .touchUpInside)
+        field.requestKeyboard()
         try await waitForFocus(field)
         try await Task.sleep(nanoseconds: 600_000_000)
         window.layoutIfNeeded()
@@ -364,7 +360,7 @@ final class ChordInkReviewInputTests: XCTestCase {
         // avoidance is covered separately by the landscape hosted editor tests.
         NotificationCenter.default.post(name: UIResponder.keyboardDidShowNotification,
             object: nil, userInfo: duplicateKeyboardInfo)
-        field.keyboardButton.sendActions(for: .touchUpInside)
+        field.requestKeyboard()
         NotificationCenter.default.post(name: UIResponder.keyboardDidShowNotification,
             object: nil, userInfo: duplicateKeyboardInfo)
 
@@ -477,11 +473,10 @@ final class ChordInkReviewInputTests: XCTestCase {
         XCTAssertFalse(field.isFirstResponder, "An unread preview must not focus itself")
         XCTAssertEqual(field.text, initialText)
         let scribble = try XCTUnwrap(field.interactions.compactMap { $0 as? UIScribbleInteraction }.first)
-        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: .zero), true)
-        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: -1, y: 0)), false)
-        XCTAssertTrue(field.rightView === field.keyboardButton)
+        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: 10, y: 10)), false)
+        XCTAssertTrue(field.rightView === field.inputModeButton)
         XCTAssertEqual(field.rightViewMode, .always)
-        field.keyboardButton.sendActions(for: .touchUpInside)
+        field.requestKeyboard()
         try await waitForFocus(field)
         XCTAssertTrue(field.isFirstResponder)
         XCTAssertFalse(inputContext.isPencilInputExpected)

@@ -38,8 +38,8 @@ struct ChartHeaderSheetView: View {
             Form {
                 Section {
                     EditorSheetInstruction(title: "Set the chart’s heading", steps: [
-                        "Edit the title, credit, and style note, then tap Apply.",
-                        "Cancel keeps the existing heading."
+                        "Tap a field to type. For Scribble, tap its Pencil icon, then write in the field.",
+                        "Tap Apply to save or Cancel to keep the existing heading."
                     ])
                     .accessibilityIdentifier("header-sheet-instruction")
                 }
@@ -88,7 +88,7 @@ struct ChartHeaderSheetView: View {
                 }
             }
         }
-        .modifier(ChartHeaderSheetPresentationModifier())
+        .presentationDetents([.large])
     }
 
     private func headerTextField(
@@ -115,8 +115,7 @@ struct ChartHeaderSheetView: View {
         )
             .frame(minHeight: 52)
             .accessibilityLabel(title)
-            .accessibilityHint("Write with Scribble, or tap the keyboard icon to type")
-
+            .accessibilityHint("Tap to type. Use Start Scribble to write with Apple Pencil.")
     }
 
     private func requestKeyboard(for field: ChartHeaderTextInputField) {
@@ -137,15 +136,5 @@ struct ChartHeaderSheetView: View {
     private func normalizedText(_ text: String) -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
-    }
-}
-
-private struct ChartHeaderSheetPresentationModifier: ViewModifier {
-    private let compactHeight: CGFloat = 440
-
-    func body(content: Content) -> some View {
-        content
-            .presentationDetents([.height(compactHeight), .large])
-            .presentationDragIndicator(.visible)
     }
 }
