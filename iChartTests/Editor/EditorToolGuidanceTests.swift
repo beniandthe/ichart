@@ -119,10 +119,20 @@ final class EditorToolGuidanceTests: XCTestCase {
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
             let guidance = EditorCanvasMode.measureEdit.toolGuidance(
                 layoutStyle: style, manualRenderWithPreview: false)
-            XCTAssertEqual(guidance.steps, ["Tap a measure, then choose Add, Layout, or Delete."])
             XCTAssertTrue(guidance.referenceText.contains("Open Layout to compare each action"))
             XCTAssertTrue(guidance.referenceText.contains("read why an option is unavailable"))
             XCTAssertTrue(guidance.referenceText.contains("Tap an available action to apply it"))
+            let selectGuide = EditorCanvasMode.browse.toolGuidance(
+                layoutStyle: style, manualRenderWithPreview: false)
+            if style == .rhythmSectionSheet {
+                XCTAssertTrue(guidance.accessibilitySummary.contains("right arrow left"))
+                XCTAssertTrue(guidance.referenceText.contains("When you release, a lone measure on the next row moves up if its full width fits."))
+                XCTAssertTrue(selectGuide.referenceText.contains("Manual row or page breaks and key changes keep their boundaries."))
+            } else {
+                XCTAssertEqual(guidance.steps, ["Tap a measure, then choose Add, Layout, or Delete."])
+                XCTAssertFalse(guidance.referenceText.contains("lone measure on the next row"))
+                XCTAssertFalse(selectGuide.referenceText.contains("lone measure on the next row"))
+            }
         }
     }
 
@@ -144,9 +154,9 @@ final class EditorToolGuidanceTests: XCTestCase {
             for manual in [false, true] {
                 let guidance = EditorCanvasMode.browse.toolGuidance(
                     layoutStyle: style, manualRenderWithPreview: manual)
-                XCTAssertTrue(guidance.steps.joined().contains("Drag a chord"))
-                XCTAssertTrue(guidance.steps.joined().contains("lift to place it"))
-                XCTAssertTrue(guidance.referenceText.contains("Apple Pencil or a finger"))
+                XCTAssertTrue(guidance.steps.joined().contains("Use Apple Pencil to select, move, or delete"))
+                XCTAssertTrue(guidance.steps.joined().contains("Scroll with a finger"))
+                XCTAssertTrue(guidance.referenceText.contains("Drag a chord with Apple Pencil, then lift to place it"))
                 XCTAssertTrue(guidance.referenceText.contains("tap the red X to delete"))
                 XCTAssertTrue(guidance.referenceText.contains("drag the width handle to change width"))
                 XCTAssertTrue(guidance.referenceText.contains("Double-tap a chord to correct it"))

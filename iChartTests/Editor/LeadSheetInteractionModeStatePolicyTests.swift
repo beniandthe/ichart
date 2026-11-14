@@ -1938,34 +1938,40 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(EditorCanvasMode.textEdit.activeToolTitle, "Text")
     }
 
-    func testPencilObjectMoveStartsOnlyOnMovableTargets() {
+    func testRenderedObjectMovesRequirePencilOnDeviceAndAMovableTarget() {
         XCTAssertFalse(
             LeadSheetObjectMoveTouchPolicy.allowsMovePan(
                 touchType: .pencil,
-                interactionMode: .browse,
-                startsOnMoveTarget: false
+                startsOnMoveTarget: false,
+                environment: .device
             )
         )
         XCTAssertTrue(
             LeadSheetObjectMoveTouchPolicy.allowsMovePan(
                 touchType: .pencil,
-                interactionMode: .browse,
-                startsOnMoveTarget: true
-            )
-        )
-        XCTAssertTrue(
-            LeadSheetObjectMoveTouchPolicy.allowsMovePan(
-                touchType: .direct,
-                interactionMode: .browse,
-                startsOnMoveTarget: false
-            )
-        )
-        XCTAssertFalse(
-            LeadSheetObjectMoveTouchPolicy.allowsMovePan(
-                touchType: .direct,
-                interactionMode: .chordEntry,
                 startsOnMoveTarget: true,
                 environment: .device
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetObjectMoveTouchPolicy.allowsMovePan(
+                touchType: .direct,
+                startsOnMoveTarget: false,
+                environment: .simulator
+            )
+        )
+        XCTAssertFalse(
+            LeadSheetObjectMoveTouchPolicy.allowsMovePan(
+                touchType: .direct,
+                startsOnMoveTarget: true,
+                environment: .device
+            )
+        )
+        XCTAssertTrue(
+            LeadSheetObjectMoveTouchPolicy.allowsMovePan(
+                touchType: .direct,
+                startsOnMoveTarget: true,
+                environment: .simulator
             )
         )
     }

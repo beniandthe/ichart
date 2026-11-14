@@ -249,6 +249,7 @@ struct PersonalHandwritingView: View {
     @State private var drawing = PKDrawing()
     @State private var clearID = UUID()
     @State private var intendedText = ""
+    @State private var isIntendedTextFocused = false
     @State private var confirmsReset = false
 
     var body: some View {
@@ -406,9 +407,14 @@ struct PersonalHandwritingView: View {
                 }
                 if comparison.intendedText == nil {
                     HStack {
-                        TextField("What chord did you mean?", text: $intendedText)
-                            .textFieldStyle(.roundedBorder).textInputAutocapitalization(.never).autocorrectionDisabled()
-                            .accessibilityIdentifier("personal.intended")
+                        IChartTypedTextField(
+                            placeholder: "What chord did you mean?",
+                            text: $intendedText,
+                            isFocused: $isIntendedTextFocused
+                        )
+                        .frame(minHeight: 48)
+                        .accessibilityHint("Tap to type. Use Start Scribble to write with Apple Pencil.")
+                        .accessibilityIdentifier("personal.intended")
                         Button("Record Result") { model.score(intendedText: intendedText) }
                             .buttonStyle(.bordered).disabled(intendedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                             .accessibilityIdentifier("personal.score")
@@ -443,6 +449,7 @@ struct PersonalHandwritingView: View {
     }
 
     private func clear() {
+        isIntendedTextFocused = false
         clearID = UUID(); drawing = PKDrawing(); model.comparison = nil; model.learnedComparison = false; intendedText = ""
     }
 

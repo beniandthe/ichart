@@ -3319,6 +3319,120 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertEqual(firstMeasure.chordWritingFrame.width, firstMeasure.staffFrame.width - 4, accuracy: 0.001)
     }
 
+    func testEightMeasureRhythmSetupFitsOpenMeasureOnSecondRow() throws {
+        let chart = makeEightMeasureRhythmSetup()
+        let measureIDs = chart.measures.map(\.id)
+        let expectedRows = [Array(measureIDs.prefix(4)), Array(measureIDs.suffix(4))]
+        let pageSize = CGSize(width: 932, height: 1100)
+        let reopened = try JSONDecoder().decode(Chart.self, from: JSONEncoder().encode(chart))
+
+        for version in [chart, reopened] {
+            XCTAssertEqual(version.measures.last?.authoringState, .open)
+            let layout = LeadSheetPageLayoutEngine.pageLayout(for: version, pageSize: pageSize)
+            XCTAssertEqual(layout.systems.map { $0.measures.compactMap(\.sourceMeasureID) }, expectedRows)
+            let secondRow = try XCTUnwrap(layout.systems.dropFirst().first)
+            let finalMeasure = try XCTUnwrap(secondRow.measures.last)
+            XCTAssertEqual(finalMeasure.sourceMeasureID, measureIDs.last)
+            XCTAssertLessThanOrEqual(secondRow.frame.maxX, layout.paperFrame.maxX - 34 + 0.001)
+        }
+    }
+
+    func testRhythmOverflowMeasureJoinsOnlyAfterEnoughWidthIsFreed() throws {
+        var chart = makeEightMeasureRhythmSetup()
+        let measureIDs = chart.measures.map(\.id)
+        let pageSize = CGSize(width: 932, height: 1100)
+        let finalMeasureID = measureIDs[7]
+        try appendChord("G7", to: finalMeasureID, in: &chart, atFraction: 0)
+        XCTAssertEqual(chart.measure(id: finalMeasureID)?.authoringState, .open)
+        let originalChord = try XCTUnwrap(chart.measure(id: finalMeasureID)?.chordEvents.first)
+        let overflowRows = [Array(measureIDs.prefix(4)), Array(measureIDs[4..<7]), [finalMeasureID]]
+
+        // A terminal handle resize freezes the other measure bodies in its row.
+        XCTAssertNotNil(chart.setMeasureManualLayoutWidth(202, for: measureIDs[4]))
+        XCTAssertNotNil(chart.setMeasureManualLayoutWidth(200, for: measureIDs[5]))
+        for terminalWidth: CGFloat in [200, 190] {
+            XCTAssertNotNil(chart.setMeasureManualLayoutWidth(terminalWidth, for: measureIDs[6]))
+            let overflow = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize)
+            XCTAssertEqual(overflow.systems.map { $0.measures.compactMap(\.sourceMeasureID) }, overflowRows)
+        }
+
+        XCTAssertNotNil(chart.setMeasureManualLayoutWidth(180, for: measureIDs[6]))
+        let fitted = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize)
+        XCTAssertEqual(fitted.systems.map { $0.measures.compactMap(\.sourceMeasureID) },
+                       [Array(measureIDs.prefix(4)), Array(measureIDs.suffix(4))])
+        let secondRow = try XCTUnwrap(fitted.systems.dropFirst().first)
+        let movedMeasure = try XCTUnwrap(secondRow.measures.first { $0.sourceMeasureID == finalMeasureID })
+        XCTAssertEqual(movedMeasure.chordLayouts.map(\.id), [originalChord.id])
+        XCTAssertEqual(chart.measure(id: finalMeasureID)?.chordEvents, [originalChord])
+        for (measure, width) in zip(secondRow.measures, [CGFloat(202), 200, 180, 182]) {
+            XCTAssertEqual(measure.staffFrame.width, width, accuracy: 0.001)
+        }
+        XCTAssertLessThanOrEqual(secondRow.frame.maxX, fitted.paperFrame.maxX - 34 + 0.001)
+    }
+
+    func testRhythmSingletonFitKeepsRowsAcrossSignatureWidths() throws {
+        var chart = makeEightMeasureRhythmSetup()
+        let measureIDs = chart.measures.map(\.id)
+        let finalMeasureID = measureIDs[7]
+        try appendChord("G7", to: finalMeasureID, in: &chart, atFraction: 0)
+        let chordID = try XCTUnwrap(chart.measure(id: finalMeasureID)?.chordEvents.first?.id)
+        for (measureID, width) in zip(measureIDs[4..<7], [CGFloat(202), 200, 180]) {
+            XCTAssertNotNil(chart.setMeasureManualLayoutWidth(width, for: measureID))
+        }
+        let pageSize = CGSize(width: 932, height: 1100)
+        let expectedRows = [Array(measureIDs.prefix(4)), Array(measureIDs.suffix(4))]
+        func assertFit(_ chart: Chart) throws {
+            let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize)
+            XCTAssertEqual(layout.systems.map { $0.measures.compactMap(\.sourceMeasureID) }, expectedRows)
+            let row = try XCTUnwrap(layout.systems.last)
+            let movedMeasure = try XCTUnwrap(row.measures.last)
+            XCTAssertEqual(movedMeasure.sourceMeasureID, finalMeasureID)
+            XCTAssertEqual(movedMeasure.chordLayouts.map(\.id), [chordID])
+            XCTAssertLessThanOrEqual(row.frame.maxX, layout.paperFrame.maxX - 34 + 0.001)
+        }
+
+        try assertFit(chart)
+        XCTAssertTrue(chart.setDisplayedDocumentKey(.gMajor))
+        try assertFit(chart)
+        chart.defaultTranspositionView = .eb
+        try assertFit(chart)
+    }
+
+    func testRhythmOverflowFitRespectsAuthoredSystemKeyAndPageBoundaries() throws {
+        let chart = makeEightMeasureRhythmSetup()
+        let measureIDs = chart.measures.map(\.id)
+        let finalMeasureID = measureIDs[7]
+        let expectedRows = [Array(measureIDs.prefix(4)), Array(measureIDs[4..<7]), [finalMeasureID]]
+        let pageSize = CGSize(width: 932, height: 1100)
+
+        var systemBreak = chart
+        XCTAssertTrue(systemBreak.insertSystemBreak(before: finalMeasureID))
+
+        var keyChange = chart
+        keyChange.keyChanges = [KeyChange(measureID: finalMeasureID, key: .gMajor)]
+
+        var pageBreak = systemBreak
+        let lastSystemIndex = try XCTUnwrap(pageBreak.systems.indices.last)
+        pageBreak.systems[lastSystemIndex].lineBreakRule = .automatic
+        pageBreak.systems[lastSystemIndex].startsNewPage = true
+
+        for (label, version) in [("system break", systemBreak), ("key change", keyChange), ("page break", pageBreak)] {
+            let layout = LeadSheetPageLayoutEngine.pageLayout(for: version, pageSize: pageSize)
+            XCTAssertEqual(layout.systems.map { $0.measures.compactMap(\.sourceMeasureID) }, expectedRows, label)
+        }
+        let paged = LeadSheetPageLayoutEngine.pageLayout(for: pageBreak, pageSize: pageSize)
+        let finalSystem = try XCTUnwrap(paged.systems.last)
+        XCTAssertEqual(paged.pages.count, 2)
+        XCTAssertEqual(paged.pages.last?.systemIDs, [finalSystem.id])
+    }
+
+    private func makeEightMeasureRhythmSetup() -> Chart {
+        var chart = Chart.draft(title: "Eight Measure Rhythm Setup", layoutStyle: .rhythmSectionSheet)
+        chart.completeInitialSetup(title: chart.title, key: .cMajor, meter: Meter(numerator: 4, denominator: 4),
+                                   staffStyle: .fiveLine, startingMeasureCount: 8)
+        return chart
+    }
+
     func testRhythmSectionManualSystemBreakControlsRenderedRows() throws {
         var chart = Chart.blank(title: "Pocket Rows", measureCount: 4, layoutStyle: .rhythmSectionSheet)
         let measureIDs = chart.measures.map(\.id)

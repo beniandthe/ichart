@@ -65,30 +65,34 @@ struct AddPDFToSetlistSheet: View {
                     }
                 }
                 Section {
-                    DisclosureGroup("New Setlist", isExpanded: $creating) {
-                        IChartTypedTextField(placeholder: "Setlist name", text: $newName, isFocused: $nameFocused,
-                            autocapitalizationType: .words, autocorrectionType: .yes, borderStyle: .roundedRect)
-                            .frame(minHeight: 44)
-                            .accessibilityIdentifier("setlists.destination.name")
-                        Button("Create & Add PDFs") {
-                            perform {
-                                let items = try checkedItems()
-                                _ = try setlistStore.create(name: newName, pdfItems: items)
-                                nameFocused = false
-                                dismiss()
+                    VStack(alignment: .leading, spacing: 12) {
+                        DisclosureGroup("New Setlist", isExpanded: $creating) {
+                            IChartTypedTextField(placeholder: "Setlist name", text: $newName, isFocused: $nameFocused,
+                                autocapitalizationType: .words, autocorrectionType: .yes,
+                                accessibilityIdentifier: "setlists.destination.name",
+                                accessibilityHint: "Tap to type. Use Start Scribble to write with Apple Pencil.")
+                                .frame(minHeight: 44)
+                            Button("Create & Add PDFs") {
+                                perform {
+                                    let items = try checkedItems()
+                                    _ = try setlistStore.create(name: newName, pdfItems: items)
+                                    nameFocused = false
+                                    dismiss()
+                                }
                             }
+                            .buttonStyle(.borderedProminent)
+                            .tint(IChartInterfaceStyle.actionBlue)
+                            .disabled(!canAdd || newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            .accessibilityIdentifier("setlists.destination.create")
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(IChartInterfaceStyle.actionBlue)
-                        .disabled(!canAdd || newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        .accessibilityIdentifier("setlists.destination.create")
+                        IChartTypedTextField(placeholder: "Search setlists", text: $query,
+                            returnKeyType: .search, accessibilityIdentifier: "setlists.destination.search",
+                            accessibilityHint: "Tap to type. Use Start Scribble to write with Apple Pencil.")
+                            .frame(minHeight: 44)
                     }
+                    .background(IChartTypedSheetScrollSupport())
                 }
                 Section("Existing Setlists") {
-                    TextField("Search setlists", text: $query)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .accessibilityIdentifier("setlists.destination.search")
                     if targets.isEmpty {
                         Text(setlistStore.setlists.isEmpty ? "No setlists yet. Create one above." : "No setlists match this search.")
                             .foregroundStyle(.secondary)
@@ -125,11 +129,13 @@ struct AddPDFToSetlistSheet: View {
                 }
             }
             .listStyle(.plain)
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Add to Setlist")
             .navigationBarTitleDisplayMode(.inline)
             .tint(IChartInterfaceStyle.actionText)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         }
+        .presentationDetents([.large])
         .preferredColorScheme(appearance.colorScheme)
         .environment(\.colorScheme, appearance.colorScheme)
     }

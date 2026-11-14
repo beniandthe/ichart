@@ -6,10 +6,33 @@ import XCTest
 
 @MainActor
 final class TypedTextInputTests: XCTestCase {
-    func testScribbleStartsWithinOwnedControlsAndPencilScrollingStartsOutside() throws {
-        let context = try XCTUnwrap(UITextInputContext.current())
-        let originalExpectation = context.isPencilInputExpected
-        defer { context.isPencilInputExpected = originalExpectation }
+    func testStandaloneSearchAcceptsFirstKeyboardActionAndKeepsFocusWhileResultsChange() async throws {
+        let model = TextFieldModel()
+        let host = UIHostingController(rootView: SearchFieldHarness(model: model))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 820, height: 1180))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        host.view.layoutIfNeeded()
+
+        let field = try XCTUnwrap(descendants(host.view).compactMap { $0 as? IChartTypedUITextField }.first)
+        let scribble = try XCTUnwrap(field.interactions.compactMap { $0 as? UIScribbleInteraction }.first)
+        XCTAssertFalse(field.isFirstResponder)
+        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: 10, y: 10)), false)
+        field.requestKeyboard()
+        try await waitForFocus(field)
+        XCTAssertTrue((field.text ?? "").isEmpty, "Focusing the search field must leave the query empty")
+        field.insertText("Autumn.")
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertTrue(field.isFirstResponder)
+        XCTAssertEqual(model.text, "Autumn.", "Intentional keyboard punctuation must reach the query")
+        XCTAssertEqual(field.returnKeyType, .search)
+        XCTAssertEqual(field.delegate?.textFieldShouldReturn?(field), false)
+        XCTAssertEqual(model.submitted, "Autumn.")
+        XCTAssertTrue(field.isFirstResponder)
+    }
+
+    func testPencilScrollingStartsOutsideOwnedTextControls() throws {
         let scrollView = UIScrollView(frame: CGRect(x: 0, y: 0, width: 320, height: 480))
         scrollView.contentSize = CGSize(width: 320, height: 1200)
         let content = UIView(frame: CGRect(x: 0, y: 0, width: 320, height: 1200))
@@ -18,34 +41,6 @@ final class TypedTextInputTests: XCTestCase {
         let textView = IChartTypedUITextView(frame: CGRect(x: 40, y: 300, width: 240, height: 120), textContainer: nil)
         content.addSubview(field)
         content.addSubview(textView)
-        for view in [field as UIView, textView] {
-            let scribble = try XCTUnwrap(view.interactions.compactMap { $0 as? UIScribbleInteraction }.first)
-            XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: 10, y: 10)), true)
-            for point in [CGPoint(x: -1, y: 10), CGPoint(x: view.bounds.maxX + 1, y: 10),
-                          CGPoint(x: 10, y: view.bounds.maxY + 1)] {
-                XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: point), false)
-            }
-        }
-        field.layoutIfNeeded()
-        textView.layoutIfNeeded()
-        for button in [field.keyboardButton, textView.keyboardButton] {
-            XCTAssertGreaterThanOrEqual(button.bounds.width, 44)
-            XCTAssertGreaterThanOrEqual(button.bounds.height, 44)
-        }
-        let fieldScribble = try XCTUnwrap(field.interactions.compactMap { $0 as? UIScribbleInteraction }.first)
-        XCTAssertEqual(fieldScribble.delegate?.scribbleInteraction?(fieldScribble,
-            shouldBeginAt: CGPoint(x: field.bounds.maxX - 22, y: 22)), false,
-            "The keyboard action is not a handwriting target")
-        field.isEnabled = false
-        XCTAssertEqual(fieldScribble.delegate?.scribbleInteraction?(fieldScribble, shouldBeginAt: .zero), false)
-        field.isEnabled = true
-        let textScribble = try XCTUnwrap(textView.interactions.compactMap { $0 as? UIScribbleInteraction }.first)
-        XCTAssertEqual(textScribble.delegate?.scribbleInteraction?(textScribble,
-            shouldBeginAt: CGPoint(x: textView.bounds.maxX - 22, y: 22)), false)
-        textView.isEditable = false
-        XCTAssertEqual(textScribble.delegate?.scribbleInteraction?(textScribble, shouldBeginAt: .zero), false)
-        textView.isEditable = true
-
         let marker = IChartTypedSheetScrollSupport.ScrollMarker()
         content.addSubview(marker)
         let originalTouchTypes = scrollView.panGestureRecognizer.allowedTouchTypes
@@ -79,7 +74,7 @@ final class TypedTextInputTests: XCTestCase {
         XCTAssertTrue(scrollView.panGestureRecognizer.delegate === originalDelegate)
     }
 
-    func testRepeatedKeyboardRequestKeepsNativeDraftSelectionAndScribbleAvailable() async throws {
+    func testRepeatedKeyboardRequestKeepsNativeDraftAndSelection() async throws {
         let context = try XCTUnwrap(UITextInputContext.current())
         let originalExpectation = context.isPencilInputExpected
         context.isPencilInputExpected = true
@@ -96,9 +91,9 @@ final class TypedTextInputTests: XCTestCase {
         try await Task.sleep(nanoseconds: 100_000_000)
         let field = try XCTUnwrap(descendants(host.view).compactMap { $0 as? IChartTypedUITextField }.first)
         XCTAssertFalse(field.isFirstResponder)
-        XCTAssertTrue(field.rightView === field.keyboardButton)
-        XCTAssertEqual(field.rightViewMode, .always, "Typing must be one action before the field is focused")
-        field.keyboardButton.sendActions(for: .touchUpInside)
+        XCTAssertTrue(field.rightView === field.inputModeButton)
+        XCTAssertEqual(field.rightViewMode, .always, "Scribble must be reachable before the field is focused")
+        field.requestKeyboard()
         try await waitForFocus(field)
         XCTAssertTrue(field.isFirstResponder)
         XCTAssertFalse(context.isPencilInputExpected, "The action must convey keyboard intent, not only reissue focus")
@@ -107,7 +102,7 @@ final class TypedTextInputTests: XCTestCase {
         let start = try XCTUnwrap(field.position(from: field.beginningOfDocument, offset: 2))
         field.selectedTextRange = field.textRange(from: start, to: start)
         let session = TypedEditingSessionProbe(input: field)
-        field.keyboardButton.sendActions(for: .touchUpInside)
+        field.requestKeyboard()
         try await waitForFocus(field)
         XCTAssertTrue(field.isFirstResponder)
         XCTAssertEqual(session.ended, 0, "Reusing the keyboard action cannot dismiss and reopen the active editor")
@@ -116,21 +111,14 @@ final class TypedTextInputTests: XCTestCase {
         let selection = try XCTUnwrap(field.selectedTextRange)
         XCTAssertEqual(field.offset(from: field.beginningOfDocument, to: selection.start), 2)
         let scribble = try XCTUnwrap(field.interactions.compactMap { $0 as? UIScribbleInteraction }.first)
-        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: -1, y: 10)), false)
-        XCTAssertFalse(context.isPencilInputExpected, "Outside-field Pencil starts cannot change keyboard intent")
-        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: 10, y: 10)), true,
-                       "An explicit keyboard request cannot leave a hidden persistent Scribble mode")
-        XCTAssertTrue(context.isPencilInputExpected, "Pencil intent must be restored before accepting the new Scribble start")
-        field.keyboardButton.sendActions(for: .touchUpInside)
-        try await waitForFocus(field)
-        XCTAssertFalse(context.isPencilInputExpected)
-        XCTAssertEqual(session.ended, 0, "Switching an active Scribble field to typing must not restart its focus")
-        XCTAssertEqual(session.began, 0)
+        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: 10, y: 10)), false,
+                       "A second Pencil tap in the text body must still be reserved for typing or moving the caret")
+        XCTAssertFalse(context.isPencilInputExpected, "Checking for Scribble cannot change keyboard intent")
         let toolbar = try XCTUnwrap(field.inputAccessoryView as? UIToolbar)
         let done = try XCTUnwrap(toolbar.items?.first { $0.accessibilityLabel == "Done typing" })
         XCTAssertTrue(UIApplication.shared.sendAction(try XCTUnwrap(done.action), to: done.target, from: done, for: nil))
         XCTAssertTrue(context.isPencilInputExpected, "Done restores the expectation that preceded typing")
-        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: 10, y: 10)), true)
+        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: 10, y: 10)), false)
     }
 
     func testKeyboardIntentOwnershipIgnoresSiblingResignAndUnrelatedInputs() throws {
@@ -227,8 +215,19 @@ final class TypedTextInputTests: XCTestCase {
             try await Task.sleep(nanoseconds: 50_000_000)
         }
         XCTAssertTrue(window.isKeyWindow, "The header's owning scene window must be key for real input presentation")
-        XCTAssertNotNil(host.presentedViewController, "Exercise Header in a sheet, matching its editor presentation")
-        XCTAssertTrue(host.presentedViewController?.view.window === window, "The header sheet must belong to its focused test window")
+        let presented = try XCTUnwrap(host.presentedViewController,
+            "Exercise Header in a sheet, matching its editor presentation")
+        XCTAssertTrue(presented.view.window === window, "The header sheet must belong to its focused test window")
+        func assertLargeDetent() {
+            // Some presentation environments adapt the sheet without exposing
+            // a UISheetPresentationController to the hosting controller.
+            guard let sheet = presented.sheetPresentationController else { return }
+            XCTAssertEqual(sheet.detents.count, 1)
+            if let selectedDetent = sheet.selectedDetentIdentifier {
+                XCTAssertEqual(selectedDetent, .large)
+            }
+        }
+        assertLargeDetent()
         let title = try XCTUnwrap(fields.first { $0.placeholder == "Title" })
         let composer = try XCTUnwrap(fields.first { $0.placeholder == "Composer / Credit" })
         let style = try XCTUnwrap(fields.first { $0.placeholder == "Style Note" })
@@ -236,19 +235,22 @@ final class TypedTextInputTests: XCTestCase {
         XCTAssertTrue(fields.allSatisfy { !$0.isFirstResponder })
         for field in fields {
             let scribble = try XCTUnwrap(field.interactions.compactMap { $0 as? UIScribbleInteraction }.first)
-            XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: .zero), true)
+            XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: 10, y: 10)), false)
             XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: -1, y: 0)), false)
-            XCTAssertTrue(field.rightView === field.keyboardButton)
+            XCTAssertTrue(field.rightView === field.inputModeButton)
             XCTAssertEqual(field.rightViewMode, .always)
-            XCTAssertGreaterThanOrEqual(field.keyboardButton.bounds.width, 44)
-            XCTAssertGreaterThanOrEqual(field.keyboardButton.bounds.height, 44)
+            XCTAssertGreaterThanOrEqual(field.inputModeButton.bounds.width, 44)
+            XCTAssertGreaterThanOrEqual(field.inputModeButton.bounds.height, 44)
         }
-        title.keyboardButton.sendActions(for: .touchUpInside)
+        title.requestKeyboard()
         try await waitForFocus(title)
-        XCTAssertTrue(title.isFirstResponder, "One embedded action must focus the header without a preceding field/Edit step")
+        XCTAssertTrue(title.isFirstResponder, "One field tap must focus the header")
         XCTAssertFalse(context.isPencilInputExpected)
         title.text = "Typed draft"
         title.sendActions(for: .editingChanged)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertTrue(title.isFirstResponder, "Editing the draft must keep focus on Title")
+        assertLargeDetent()
         XCTAssertEqual(title.delegate?.textFieldShouldReturn?(title), false)
         try await waitForFocus(composer)
         XCTAssertTrue(composer.isFirstResponder)
@@ -256,36 +258,59 @@ final class TypedTextInputTests: XCTestCase {
         XCTAssertEqual(composer.delegate?.textFieldShouldReturn?(composer), false)
         try await waitForFocus(style)
         XCTAssertTrue(style.isFirstResponder)
+        XCTAssertFalse(composer.isFirstResponder)
+        assertLargeDetent()
         XCTAssertEqual(style.returnKeyType, .done)
         XCTAssertEqual(style.delegate?.textFieldShouldReturn?(style), false)
         try await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertTrue(fields.allSatisfy { !$0.isFirstResponder })
+        assertLargeDetent()
         XCTAssertEqual(title.text, "Typed draft")
         XCTAssertEqual(chart.title, "Original title", "Next and Done only navigate; Apply owns the chart transaction")
         XCTAssertNil(descendants(window).compactMap { $0 as? UIButton }
             .first { $0.accessibilityLabel == "Use keyboard for header text" },
             "There must not be a second conditional toolbar step")
         captureHeaderDiagnostics(window)
-        let titleKeyboard = title.keyboardButton
-        XCTAssertEqual(titleKeyboard.accessibilityLabel, "Use keyboard for Title")
-        titleKeyboard.sendActions(for: .touchUpInside)
+        let titleMode = title.inputModeButton
+        let titleScribble = try XCTUnwrap(title.interactions.compactMap { $0 as? UIScribbleInteraction }.first)
+        let composerScribble = try XCTUnwrap(composer.interactions.compactMap { $0 as? UIScribbleInteraction }.first)
+        let titleFrame = title.convert(title.bounds, to: window)
+        let writePoint = CGPoint(x: 10, y: 10)
+        XCTAssertEqual(titleMode.accessibilityLabel, "Start Scribble for Title")
+        try assertPencilTapRouting(in: title, at: writePoint, expectsTyping: true)
+        context.isPencilInputExpected = false
+        titleMode.sendActions(for: .touchUpInside)
+        XCTAssertTrue(title.isScribbleEnabled)
+        XCTAssertFalse(title.isFirstResponder, "Arming Scribble must not present the keyboard")
+        try assertPencilTapRouting(in: title, at: writePoint, expectsTyping: false)
+        XCTAssertEqual(titleMode.accessibilityLabel, "Use keyboard for Title")
+        XCTAssertEqual(titleScribble.delegate?.scribbleInteraction?(titleScribble, shouldBeginAt: writePoint), true)
+        XCTAssertFalse(context.isPencilInputExpected, "Admission alone must leave the input hint untouched")
+        XCTAssertEqual(composerScribble.delegate?.scribbleInteraction?(composerScribble, shouldBeginAt: writePoint), false)
+        let buttonPoint = CGPoint(x: titleMode.frame.midX, y: titleMode.frame.midY)
+        XCTAssertEqual(titleScribble.delegate?.scribbleInteraction?(titleScribble, shouldBeginAt: buttonPoint), false)
+        titleScribble.delegate?.scribbleInteractionWillBeginWriting?(titleScribble)
+        XCTAssertTrue(context.isPencilInputExpected, "Only a real writing session changes the input hint")
+        titleScribble.delegate?.scribbleInteractionDidFinishWriting?(titleScribble)
+        XCTAssertTrue(title.isScribbleEnabled, "Pausing between words must leave Scribble armed")
+        XCTAssertEqual(title.convert(title.bounds, to: window), titleFrame, "Changing input mode must not move the field")
+        titleMode.sendActions(for: .touchUpInside)
         try await waitForFocus(title)
         XCTAssertTrue(title.isFirstResponder)
-        titleKeyboard.sendActions(for: .touchUpInside)
-        try await waitForFocus(title)
-        XCTAssertTrue(title.isFirstResponder, "The same native action must work repeatedly without adding a mode toggle")
+        XCTAssertFalse(title.isScribbleEnabled)
+        XCTAssertFalse(context.isPencilInputExpected)
         XCTAssertEqual(title.text, "Typed draft")
         XCTAssertEqual(title.delegate?.textFieldShouldReturn?(title), false)
         try await waitForFocus(composer)
         XCTAssertTrue(composer.isFirstResponder)
         for field in fields {
             let scribble = try XCTUnwrap(field.interactions.compactMap { $0 as? UIScribbleInteraction }.first)
-            XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: .zero), true,
-                           "Done and repeated keyboard actions cannot leave Scribble disabled")
+            XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: writePoint), false,
+                           "Moving focus to a sibling must leave ordinary field taps in typing mode")
         }
     }
 
-    func testTextViewFocusRequestAndDoneKeepTextWithoutRestartingFocus() async throws {
+    func testTextViewScribbleAndTypingKeepTextWithoutRestartingFocus() async throws {
         let context = try XCTUnwrap(UITextInputContext.current())
         let originalExpectation = context.isPencilInputExpected
         let model = TextViewModel()
@@ -302,11 +327,24 @@ final class TypedTextInputTests: XCTestCase {
         let view = try XCTUnwrap(descendants(host.view).compactMap { $0 as? IChartTypedUITextView }.first)
         XCTAssertFalse(view.isFirstResponder)
         let scribble = try XCTUnwrap(view.interactions.compactMap { $0 as? UIScribbleInteraction }.first)
-        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: .zero), true)
+        let writePoint = CGPoint(x: 10, y: 10)
+        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: writePoint), false)
+        try assertPencilTapRouting(in: view, at: writePoint, expectsTyping: true)
+        let button = view.inputModeButton
+        XCTAssertGreaterThanOrEqual(button.bounds.width, 44)
+        XCTAssertGreaterThanOrEqual(button.bounds.height, 44)
+        button.sendActions(for: .touchUpInside)
+        XCTAssertTrue(view.isScribbleEnabled)
+        XCTAssertFalse(view.isFirstResponder)
+        try assertPencilTapRouting(in: view, at: writePoint, expectsTyping: false)
+        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: writePoint), true)
+        let buttonPoint = CGPoint(x: button.frame.midX, y: button.frame.midY)
+        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: buttonPoint), false)
         XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: -1, y: 0)), false)
-        model.focusRequest += 1
+        button.sendActions(for: .touchUpInside)
         for _ in 0..<20 where !view.isFirstResponder { try await Task.sleep(nanoseconds: 50_000_000) }
         XCTAssertTrue(view.isFirstResponder)
+        XCTAssertFalse(view.isScribbleEnabled)
         XCTAssertFalse(context.isPencilInputExpected)
         view.text = "Verse\nKeep this exact text"
         view.delegate?.textViewDidChange?(view)
@@ -315,7 +353,7 @@ final class TypedTextInputTests: XCTestCase {
         let cursor = try XCTUnwrap(view.position(from: view.beginningOfDocument, offset: 3))
         view.selectedTextRange = view.textRange(from: cursor, to: cursor)
         let session = TypedEditingSessionProbe(input: view)
-        view.keyboardButton.sendActions(for: .touchUpInside)
+        view.requestKeyboard()
         try await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertTrue(view.isFirstResponder)
         XCTAssertEqual(session.ended, 0, "The shared text-view action must also keep its editing session")
@@ -330,6 +368,16 @@ final class TypedTextInputTests: XCTestCase {
         try await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertFalse(view.isFirstResponder, "A text update after Done cannot reopen the keyboard")
         XCTAssertEqual(view.text, "Verse\nKeep this exact text!")
+        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: writePoint), false)
+    }
+
+    private func assertPencilTapRouting(in input: UIView, at point: CGPoint, expectsTyping: Bool) throws {
+        let tap = try XCTUnwrap(input.gestureRecognizers?.first { $0 is UITapGestureRecognizer && $0.delegate === input })
+        let pencil = NSNumber(value: UITouch.TouchType.pencil.rawValue)
+        let touch = TextInputPencilTouch(point: point, input: input)
+        let acceptsPencil = tap.allowedTouchTypes.contains(pencil)
+            && tap.delegate?.gestureRecognizer?(tap, shouldReceive: touch) != false
+        XCTAssertEqual(acceptsPencil, expectsTyping)
     }
 
     private func waitForFocus(_ field: UITextField) async throws {
@@ -358,6 +406,21 @@ final class TypedTextInputTests: XCTestCase {
         return ([details] + view.subviews.map { viewHierarchy($0, depth: depth + 1) }).joined(separator: "\n")
     }
     private func descendants(_ view: UIView) -> [UIView] { view.subviews.flatMap { [$0] + descendants($0) } }
+}
+
+@MainActor
+private final class TextInputPencilTouch: UITouch {
+    let point: CGPoint
+    let input: UIView
+
+    init(point: CGPoint, input: UIView) {
+        self.point = point
+        self.input = input
+        super.init()
+    }
+
+    override var type: UITouch.TouchType { .pencil }
+    override func location(in view: UIView?) -> CGPoint { input.convert(point, to: view) }
 }
 
 @MainActor
@@ -393,13 +456,12 @@ private struct HeaderPresentationHarness: View {
 @MainActor
 private final class TextViewModel: ObservableObject {
     @Published var text = ""
-    @Published var focusRequest = 0
 }
 
 private struct TextViewHarness: View {
     @ObservedObject var model: TextViewModel
     var body: some View {
-        IChartTypedTextView(text: $model.text, keyboardFocusRequestID: model.focusRequest).frame(height: 100)
+        IChartTypedTextView(text: $model.text).frame(height: 100)
     }
 }
 
@@ -407,6 +469,19 @@ private struct TextViewHarness: View {
 private final class TextFieldModel: ObservableObject {
     @Published var text = ""
     @Published var focused = false
+    @Published var submitted = ""
+}
+
+private struct SearchFieldHarness: View {
+    @ObservedObject var model: TextFieldModel
+    var body: some View {
+        VStack {
+            IChartTypedTextField(placeholder: "Search charts", text: $model.text,
+                returnKeyType: .search, onSubmit: { model.submitted = model.text })
+                .frame(height: 52)
+            if !model.text.isEmpty { Text("Results for \(model.text)") }
+        }
+    }
 }
 
 private struct TextFieldHarness: View {

@@ -140,16 +140,16 @@ final class LeadSheetDocumentNavigationGestureTests: XCTestCase {
             "Navigation must not consume or reclassify source ink")
     }
 
-    func testActiveVerticalDelegateLeavesRenderedChordAndMeasureResizeContactsWithTheirOwners() throws {
-        let host = try makeHost(withRenderedChord: true)
+    func testDeviceVerticalDelegateAllowsFingerOverChordsAndResizeHandles() throws {
+        let host = try makeHost(withRenderedChord: true, inputEnvironment: .device)
         defer { host.window.isHidden = true }
         let vertical = try verticalPan(in: host.viewport)
         let layout = self.layout(for: host)
         let chord = try XCTUnwrap(layout.systems.flatMap(\.measures).flatMap(\.chordLayouts).first)
         let body = CGPoint(x: chord.frame.midX, y: chord.frame.midY)
         XCTAssertFalse(try receives(vertical, touchType: .pencil, at: body, in: host.canvas))
-        XCTAssertFalse(try receives(vertical, touchType: .direct, at: body, in: host.canvas),
-            "A finger on an explicit rendered edit target must not start page scrolling")
+        XCTAssertTrue(try receives(vertical, touchType: .direct, at: body, in: host.canvas),
+            "Finger navigation must work over a rendered chord")
 
         for mode in [EditorCanvasMode.browse, .measureEdit] {
             setMode(mode, on: host)
@@ -189,11 +189,49 @@ final class LeadSheetDocumentNavigationGestureTests: XCTestCase {
         let handle = LeadSheetMeasureResizeGeometry.handleFrames(for: measure).left
         let handlePoint = CGPoint(x: handle.midX, y: handle.midY)
         XCTAssertFalse(try receives(vertical, touchType: .pencil, at: handlePoint, in: host.canvas))
-        XCTAssertFalse(try receives(vertical, touchType: .direct, at: handlePoint, in: host.canvas))
+        XCTAssertTrue(try receives(vertical, touchType: .direct, at: handlePoint, in: host.canvas))
     }
 
-    func testRenderedChordDoubleTapRoutesExactEventForFingerAndPencilWithoutDrawingOrConsumingSource() throws {
-        let host = try makeHost(withRenderedChord: true)
+    func testDeviceRoutesChordEditingToPencilAndFingerToScrollInBothStyles() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let host = try makeHost(withRenderedChord: true, renderedChordText: "C",
+                style: style, inputEnvironment: .device)
+            defer { host.window.isHidden = true }
+            setMode(.browse, on: host)
+            let chartBefore = host.canvas.chart
+            let layout = self.layout(for: host)
+            let chord = try XCTUnwrap(layout.systems.flatMap(\.measures).flatMap(\.chordLayouts).first)
+            host.canvas.selectedChordID = chord.id
+            let overlay = try XCTUnwrap(host.canvas.subviews.compactMap { $0 as? RenderedEditHitOverlayView }.first)
+            let taps = try XCTUnwrap(overlay.gestureRecognizers?.compactMap { $0 as? UITapGestureRecognizer })
+            let editTap = try XCTUnwrap(taps.first { $0.numberOfTapsRequired == 1 })
+            let correctionTap = try XCTUnwrap(taps.first { $0.numberOfTapsRequired == 2 })
+            let movePan = try XCTUnwrap(host.canvas.gestureRecognizers?.compactMap { $0 as? UIPanGestureRecognizer }
+                .first { $0.maximumNumberOfTouches == 1 })
+            let vertical = try verticalPan(in: host.viewport)
+            let body = CGPoint(x: chord.frame.midX, y: chord.frame.midY)
+            let delete = LeadSheetChordEditOverlayGeometry.controlFrames(for: chord, within: layout.pageBounds).delete
+            let deletePoint = CGPoint(x: delete.midX, y: delete.midY)
+
+            XCTAssertFalse(try receives(movePan, touchType: .direct, at: body, in: host.canvas))
+            XCTAssertFalse(try receives(editTap, touchType: .direct, at: body, in: host.canvas))
+            XCTAssertFalse(try receives(correctionTap, touchType: .direct, at: body, in: host.canvas))
+            XCTAssertFalse(try receives(editTap, touchType: .direct, at: deletePoint, in: host.canvas))
+            XCTAssertTrue(try receives(vertical, touchType: .direct, at: body, in: host.canvas))
+            XCTAssertTrue(try receives(vertical, touchType: .direct, at: deletePoint, in: host.canvas))
+            XCTAssertEqual(host.canvas.chart, chartBefore)
+
+            XCTAssertTrue(try receives(movePan, touchType: .pencil, at: body, in: host.canvas))
+            XCTAssertTrue(try receives(correctionTap, touchType: .pencil, at: body, in: host.canvas))
+            XCTAssertTrue(try receives(editTap, touchType: .pencil, at: deletePoint, in: host.canvas))
+            XCTAssertFalse(try receives(vertical, touchType: .pencil, at: deletePoint, in: host.canvas))
+            host.canvas.handleRenderedEditTapGesture(NavigationTapFixture(point: deletePoint, coordinateView: host.canvas))
+            XCTAssertNil(host.canvas.chart.chordEvent(id: chord.id), "The Pencil must still be able to delete a selected chord")
+        }
+    }
+
+    func testSimulatorRenderedChordDoubleTapRoutesExactEventWithoutDrawingOrConsumingSource() throws {
+        let host = try makeHost(withRenderedChord: true, inputEnvironment: .simulator)
         defer { host.window.isHidden = true }
         let overlay = try XCTUnwrap(host.canvas.subviews.compactMap { $0 as? RenderedEditHitOverlayView }.first)
         let doubleTap = try XCTUnwrap(overlay.gestureRecognizers?.compactMap { $0 as? UITapGestureRecognizer }
@@ -235,7 +273,7 @@ final class LeadSheetDocumentNavigationGestureTests: XCTestCase {
     }
 
     private func assertNarrowChordDoubleTap(_ text: String) throws {
-        let host = try makeHost(withRenderedChord: true, renderedChordText: text)
+        let host = try makeHost(withRenderedChord: true, renderedChordText: text, inputEnvironment: .simulator)
         defer { host.window.isHidden = true }
         host.inkCanvas.drawing = sourceDrawing()
         let sourceBefore = host.canvas.chart.measures.flatMap(\.chordEvents).map(\.sourceInkData)
@@ -336,8 +374,13 @@ final class LeadSheetDocumentNavigationGestureTests: XCTestCase {
         let inkCanvas: LeadSheetScopedInkCanvasView
     }
 
-    private func makeHost(withRenderedChord: Bool = false, renderedChordText: String = "Cmaj7/E") throws -> Host {
-        var chart = Chart.draft(title: "Document navigation", layoutStyle: .simpleChordSheet)
+    private func makeHost(
+        withRenderedChord: Bool = false,
+        renderedChordText: String = "Cmaj7/E",
+        style: ChartLayoutStyle = .simpleChordSheet,
+        inputEnvironment: LeadSheetLiveInkInputPolicy.RuntimeEnvironment = .device
+    ) throws -> Host {
+        var chart = Chart.draft(title: "Document navigation", layoutStyle: style)
         chart.completeInitialSetup(title: chart.title, key: .cMajor,
             meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine, startingMeasureCount: 32)
         if withRenderedChord {
@@ -346,7 +389,9 @@ final class LeadSheetDocumentNavigationGestureTests: XCTestCase {
                 to: chart.measures[0].id, atFraction: 0.15))
             chart.systems[0].measures[0].chordEvents[0].sourceInkData = sourceDrawing().dataRepresentation()
         }
-        let canvas = LeadSheetCanvasUIKitView(frame: CGRect(origin: .zero, size: documentSize))
+        let canvas = LeadSheetCanvasUIKitView(frame: CGRect(origin: .zero, size: documentSize),
+            chordInkRecognizer: ChordInkMaximumTrustRecognizer(),
+            inputEnvironment: inputEnvironment)
         canvas.recognizesChordInk = false
         canvas.chart = chart
         canvas.interactionMode = .chordEntry

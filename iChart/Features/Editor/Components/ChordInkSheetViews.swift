@@ -270,7 +270,7 @@ struct PendingChordInkBatchConfirmation: Identifiable {
         if requiresSeparatedChordInk {
             return "Separate the grouped chords before rendering."
         }
-        return "Check each recognition guess and enter any missing chords. \(actionTitle) uses the chord text shown in each row."
+        return "Check the guesses and enter any missing chords. Tap a field to type or use its Pencil icon for Scribble. \(actionTitle) uses the chord text shown in each row."
     }
 
     var actionTitle: String {
@@ -728,10 +728,11 @@ struct ChordInkBatchConfirmationSheetView: View {
             .navigationTitle("Review Chords")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                if focusedConfirmationID != nil {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Done") { focusedConfirmationID = nil }
-                    }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { focusedConfirmationID = nil }
+                        .opacity(focusedConfirmationID == nil ? 0 : 1)
+                        .disabled(focusedConfirmationID == nil)
+                        .accessibilityHidden(focusedConfirmationID == nil)
                 }
             }
         }
@@ -848,6 +849,7 @@ struct ChordInkBatchConfirmationSheetView: View {
             .frame(height: 52)
             .accessibilityLabel("Chord entry for measure \(confirmation.displayMeasureNumber)")
             .accessibilityIdentifier("Chord review entry \(confirmation.id.uuidString)")
+            .accessibilityHint("Tap to type. Use Start Scribble to write with Apple Pencil.")
 
             if let feedback = ChordInkReviewEntryValidation(text: entryText(for: confirmation))
                 .feedbackText(hasMissingChordGuidance: confirmation.requiresDirectEntry && confirmation.reviewMessage != nil) {
@@ -1018,6 +1020,10 @@ struct ChordInkConfirmationSheetView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
+                Text("Tap the chord field to type or use its Pencil icon for Scribble.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+
                 IChartTypedTextField(
                     placeholder: "Type chord",
                     text: $manualCandidateText,
@@ -1044,6 +1050,7 @@ struct ChordInkConfirmationSheetView: View {
                             .stroke(isManualEntryFocused ? IChartInterfaceStyle.selectionBorder : IChartInterfaceStyle.cardBorder, lineWidth: 1)
                     }
                     .accessibilityLabel("Manual chord entry")
+                    .accessibilityHint("Tap to type. Use Start Scribble to write with Apple Pencil.")
 
                 if let feedback = ChordInkReviewEntryValidation(text: manualCandidateText)
                     .feedbackText(hasMissingChordGuidance: confirmation.requiresDirectEntry && confirmation.reviewMessage != nil) {
@@ -1239,7 +1246,7 @@ struct ChordCorrectionSheetView: View {
                             .accessibilityHidden(true)
                     }
 
-                Text("Choose an alternative, change the quality, or edit the text. Save applies the chord shown in Change to.")
+                Text("Choose an alternative or change the quality. Tap the field to type or use its Pencil icon for Scribble. Save applies the chord shown in Change to.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1286,6 +1293,7 @@ struct ChordCorrectionSheetView: View {
                             .stroke(isManualEntryFocused ? IChartInterfaceStyle.selectionBorder : IChartInterfaceStyle.cardBorder, lineWidth: 1)
                     }
                     .accessibilityLabel("Manual chord entry")
+                    .accessibilityHint("Tap to type. Use Start Scribble to write with Apple Pencil.")
                 }
 
                 if trimmedCandidateText.isEmpty {

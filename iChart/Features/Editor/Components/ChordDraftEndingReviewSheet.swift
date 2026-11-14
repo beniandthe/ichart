@@ -51,7 +51,7 @@ struct ChordDraftEndingReviewSheet: View {
                 Section {
                     EditorSheetInstruction(
                         title: "Check the handwritten ending",
-                        steps: ["Choose its measures, enter the label, and check the right edge.", approvalMessage]
+                        steps: ["Choose its measures and check the right edge. Tap the label field to type or use its Pencil icon for Scribble.", approvalMessage]
                     )
                     .accessibilityIdentifier("draft-ending-review-instruction")
                 }
@@ -147,7 +147,7 @@ struct ChordDraftEndingReviewSheet: View {
                         .frame(minHeight: 56)
                         .accessibilityLabel("Ending label")
                         .accessibilityIdentifier("draft-ending-review-label")
-                        .accessibilityHint("Write with Scribble, or tap the keyboard icon to type")
+                        .accessibilityHint("Tap to type. Use Start Scribble to write with Apple Pencil.")
                         .background(IChartTypedSheetScrollSupport())
                         HStack(spacing: 12) {
                             ForEach(["1.", "2.", "3."], id: \.self) { preset in

@@ -89,10 +89,12 @@ struct IChartPDFImportConfirmationView: View {
             Form {
                 Section("Title") {
                     IChartTypedTextField(placeholder: "Chart Title", text: $title, isFocused: $isTitleFocused,
-                        autocapitalizationType: .words, autocorrectionType: .yes, borderStyle: .roundedRect)
+                        autocapitalizationType: .words, autocorrectionType: .yes,
+                        accessibilityIdentifier: "pdf.import.title",
+                        accessibilityHint: "Tap to type. Use Start Scribble to write with Apple Pencil.")
                         .frame(minHeight: 44)
                         .disabled(isImporting)
-                        .accessibilityIdentifier("pdf.import.title")
+                        .background(IChartTypedSheetScrollSupport())
                 }
                 Section("Original PDF") {
                     Text(sourceURL.lastPathComponent)
@@ -117,6 +119,7 @@ struct IChartPDFImportConfirmationView: View {
                         .accessibilityIdentifier("pdf.import.error")
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Import PDF")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -132,6 +135,7 @@ struct IChartPDFImportConfirmationView: View {
                 }
             }
         }
+        .presentationDetents([.large])
         .interactiveDismissDisabled(isImporting)
         .onDisappear { importTask?.cancel() }
     }

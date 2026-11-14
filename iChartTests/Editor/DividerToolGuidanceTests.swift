@@ -25,15 +25,21 @@ final class DividerToolGuidanceTests: XCTestCase {
         try await assertGuidance(style: .rhythmSectionSheet, tool: .measureEdit)
     }
 
-    private func assertGuidance(style: ChartLayoutStyle, tool: EditorCanvasMode) async throws {
-        let chart = try fixture(style)
+    func testRhythmMeasuresShowsResizeGuidanceAndReachableControls() async throws {
+        try await assertGuidance(style: .rhythmSectionSheet, tool: .measureEdit, hasConvertedMarks: false)
+    }
+
+    private func assertGuidance(style: ChartLayoutStyle, tool: EditorCanvasMode,
+                                hasConvertedMarks: Bool = true) async throws {
+        var chart = try fixture(style)
+        if !hasConvertedMarks { chart.freeInkArticulations.removeAll() }
         let mounted = try await mount(chart)
         let title = tool == .browse ? "Select" : "Measures"
         try activate(await node(title, in: mounted.window, button: true))
         let expected = tool.toolGuidance(layoutStyle: style,
-            manualRenderWithPreview: false, hasFreeInkArticulations: true)
+            manualRenderWithPreview: false, hasFreeInkArticulations: hasConvertedMarks)
         let purpose = try await node(expected.title, in: mounted.window)
-        let nextActionText = tool == .measureEdit && style == .rhythmSectionSheet
+        let nextActionText = tool == .measureEdit && style == .rhythmSectionSheet && hasConvertedMarks
             ? "Tap a measure and choose Add, Layout or Delete. If a converted mark blocks an edit, use Restore Ink in Free Ink first."
             : expected.steps[0]
         let nextAction = try await node(nextActionText, in: mounted.window)

@@ -1310,7 +1310,7 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
 
         let scroll = try XCTUnwrap(ancestorScrollView(of: fields[0]))
         scroll.scrollRectToVisible(fields[0].convert(fields[0].bounds, to: scroll).insetBy(dx: 0, dy: -8), animated: false)
-        fields[0].keyboardButton.sendActions(for: .touchUpInside)
+        fields[0].requestKeyboard()
         try await assertSoftwareKeyboardViewport(for: fields[0], keyboard: keyboard, in: mounted)
         fields[0].text = "C7"
         fields[0].sendActions(for: .editingChanged)
@@ -1397,11 +1397,11 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
         let fields = try await waitForReviewFields(in: mounted.window, count: 2, requiresFocus: false)
         XCTAssertEqual(fields.map(\.text), ["C", "Bb"])
         try await establishReviewKeyboardWindow(for: fields[1], in: mounted)
-        fields[1].keyboardButton.sendActions(for: .touchUpInside)
+        fields[1].requestKeyboard()
         _ = try await waitForReviewFields(in: mounted.window, count: 2)
         XCTAssertTrue(fields[1].isFirstResponder)
         try await establishReviewKeyboardWindow(for: fields[1], in: mounted)
-        fields[1].keyboardButton.sendActions(for: .touchUpInside)
+        fields[1].requestKeyboard()
         return fields
     }
 

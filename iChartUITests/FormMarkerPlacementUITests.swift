@@ -254,7 +254,7 @@ final class FormMarkerPlacementUITests: XCTestCase {
                 XCTAssertTrue(modeMenu.isHittable)
                 modeMenu.tap()
                 let choice = mode == "Automatic"
-                    ? "Automatic — render after a pause"
+                    ? "Automatic — render as you write"
                     : "Manual — check previews, then render"
                 let option = app.buttons[choice]
                 XCTAssertTrue(option.waitForExistence(timeout: 5))
@@ -276,7 +276,8 @@ final class FormMarkerPlacementUITests: XCTestCase {
                 XCTAssertEqual(purpose.label, "Turn handwriting into chart notation")
                 XCTAssertEqual(context.label, "Rendering: \(mode)")
                 XCTAssertTrue(firstStep.label.contains("Apple Pencil"))
-                XCTAssertTrue(secondStep.label.contains(mode == "Automatic" ? "pause" : "Render Chords"))
+                let expectedAction = mode == "Automatic" ? "Pause to finish the last chord" : "Render Chords"
+                XCTAssertTrue(secondStep.label.contains(expectedAction), "Expected \(expectedAction) in \(secondStep.label)")
                 XCTAssertLessThan(purpose.frame.minY, firstStep.frame.maxY)
                 XCTAssertLessThanOrEqual(firstStep.frame.minY, secondStep.frame.minY)
                 for label in ["Write", "Erase", "Done"] {

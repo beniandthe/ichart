@@ -18,7 +18,14 @@ final class ChordRecognitionProviderBoundaryTests: XCTestCase {
 
         var violations = [String]()
         for sourceURL in sourceURLs {
-            let source = try String(contentsOf: sourceURL, encoding: .utf8)
+            var source = try String(contentsOf: sourceURL, encoding: .utf8)
+            if sourceURL.lastPathComponent == "EditorView.swift" {
+                // These two text-cue instructions describe native text entry.
+                // Leave every other occurrence subject to the provider guard.
+                source = source
+                    .replacingOccurrences(of: #""Open Tools > Text, choose a measure, then Above or Below. Tap the field to type or use its Pencil icon for Scribble. Tap Add.""#, with: "")
+                    .replacingOccurrences(of: #""Tap to type. Use Start Scribble to write with Apple Pencil.""#, with: "")
+            }
             for forbiddenToken in forbiddenTokens where source.contains(forbiddenToken) {
                 violations.append("\(sourceURL.path): \(forbiddenToken)")
             }

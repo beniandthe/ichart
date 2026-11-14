@@ -128,7 +128,7 @@ struct EndingEditorSheet: View {
             Form {
                 Section {
                     EditorSheetInstruction(title: "Set the ending’s label and range", steps: [
-                        "Choose the start and end measures, enter a label, and check the right edge.",
+                        "Choose the start and end measures and check the right edge. Tap the label field to type or use its Pencil icon for Scribble.",
                         "Tap Apply to save the ending. Cancel keeps the chart unchanged."
                     ])
                     .accessibilityIdentifier("ending-editor-instruction")
@@ -143,7 +143,7 @@ struct EndingEditorSheet: View {
                     .frame(minHeight: 56)
                     .accessibilityLabel("Ending label")
                     .accessibilityIdentifier("ending-editor-label")
-                    .accessibilityHint("Write with Scribble, or tap the keyboard icon to type")
+                    .accessibilityHint("Tap to type. Use Start Scribble to write with Apple Pencil.")
                     .background(IChartTypedSheetScrollSupport())
 
                     HStack(spacing: 12) {
