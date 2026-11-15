@@ -56,7 +56,7 @@ These are not bugs in the handoff. They are expected unfinished areas:
 ## First steps on the Mac
 
 If full Xcode is not installed yet, you can still validate that the shared chart logic compiles:
-- `swift build`
+- `./scripts/swiftpm-local.sh build`
 
 1. Install or verify:
    - Xcode

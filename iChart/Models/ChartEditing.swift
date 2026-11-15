@@ -321,6 +321,14 @@ extension Chart {
             return normalizedWidth
         }
 
+        if let fittedRowID = systems[location.systemIndex].measures[location.measureIndex].rhythmFittedRowID {
+            for systemIndex in systems.indices {
+                for measureIndex in systems[systemIndex].measures.indices where
+                    systems[systemIndex].measures[measureIndex].rhythmFittedRowID == fittedRowID {
+                    systems[systemIndex].measures[measureIndex].rhythmFittedRowID = nil
+                }
+            }
+        }
         if let splitGroupID {
             // A deliberate resize, reset or Equal Row makes these physical
             // measures independent sizing units. Internal divider writes use
@@ -336,6 +344,48 @@ extension Chart {
         systems[location.systemIndex].measures[location.measureIndex].usesDrawnRhythmTailWidth = false
         updatedAt = .now
         return normalizedWidth
+    }
+
+    @discardableResult
+    mutating func fitRhythmMeasureRows(_ rows: [[UUID]], availableWidths: [CGFloat]) -> Bool {
+        guard layoutStyle == .rhythmSectionSheet,
+              !rows.isEmpty,
+              rows.count == availableWidths.count,
+              availableWidths.allSatisfy({ $0.isFinite && $0 > 0 }) else {
+            return false
+        }
+        let orderedMeasureIDs = measures.map(\.id)
+        let requestedIDs = rows.flatMap { $0 }
+        guard Set(requestedIDs).count == requestedIDs.count,
+              rows.allSatisfy({ row in
+                  guard let firstID = row.first,
+                        let start = orderedMeasureIDs.firstIndex(of: firstID) else { return false }
+                  return orderedMeasureIDs.dropFirst(start).prefix(row.count).elementsEqual(row)
+              }) else {
+            return false
+        }
+
+        for (row, availableWidth) in zip(rows, availableWidths) {
+            for measureID in row {
+                // Keep an ordinary manual width for the edit that follows a
+                // responsive fit and for builds that read just the widths.
+                setMeasureManualLayoutWidth(availableWidth / CGFloat(row.count), for: measureID)
+            }
+        }
+        let fittedRowIDs = Dictionary(uniqueKeysWithValues: rows.flatMap { row in
+            let fittedRowID = UUID()
+            return row.map { ($0, fittedRowID) }
+        })
+        for systemIndex in systems.indices {
+            for measureIndex in systems[systemIndex].measures.indices {
+                let measureID = systems[systemIndex].measures[measureIndex].id
+                if let fittedRowID = fittedRowIDs[measureID] {
+                    systems[systemIndex].measures[measureIndex].rhythmFittedRowID = fittedRowID
+                }
+            }
+        }
+        updatedAt = .now
+        return true
     }
 
     func canInsertSystemBreak(before measureID: UUID) -> Bool {
@@ -368,122 +418,75 @@ extension Chart {
         return mergedMeasureCount <= simpleSystemMeasureCap
     }
 
-    func measureIDsForJoiningRow(startingAt measureID: UUID) -> [UUID]? {
-        guard supportsManualSystemBreaks,
-              let location = measureLocation(id: measureID),
-              location.systemIndex > 0,
-              location.measureIndex == 0,
-              systems[location.systemIndex].lineBreakRule == .forced,
-              !systems[location.systemIndex].startsNewPage,
-              keyChange(atStartOf: measureID) == nil else {
-            return nil
-        }
-
-        let destinationMeasureIDs = systems[location.systemIndex - 1].measures.map(\.id)
-        guard layoutStyle != .simpleChordSheet
-                || destinationMeasureIDs.count + 1 <= simpleSystemMeasureCap else {
-            return nil
-        }
-
-        return destinationMeasureIDs + [measureID]
+    func hasExplicitPageBreak(before measureID: UUID) -> Bool {
+        currentPageBreakStartIDs().contains(measureID)
     }
 
+    /// Move the break between two neighboring visual rows while keeping
+    /// measure order, identity, and musical contents intact.
     @discardableResult
-    mutating func joinRow(
-        startingAt measureID: UUID,
-        equalizedManualWidths: [UUID: CGFloat]
-    ) -> Bool {
-        guard let joinedRowMeasureIDs = measureIDsForJoiningRow(startingAt: measureID),
-              !joinedRowMeasureIDs.isEmpty,
-              joinedRowMeasureIDs.allSatisfy({ equalizedManualWidths[$0] != nil }) else {
-            return false
-        }
-
-        // Apply to a candidate so an invalid break removal cannot leave behind
-        // a partially resized row.
-        var candidate = self
-        for joinedMeasureID in joinedRowMeasureIDs {
-            guard let width = equalizedManualWidths[joinedMeasureID] else {
-                return false
-            }
-            _ = candidate.setMeasureManualLayoutWidth(width, for: joinedMeasureID)
-        }
-        let flattenedMeasures = candidate.measures
-        guard let selectedIndex = flattenedMeasures.firstIndex(where: { $0.id == measureID }) else {
-            return false
-        }
-        let followingMeasureID = flattenedMeasures.indices.contains(selectedIndex + 1)
-            ? flattenedMeasures[selectedIndex + 1].id
-            : nil
-        var forcedBreakStartIDs = candidate.currentForcedSystemBreakStartIDs()
-        forcedBreakStartIDs.remove(measureID)
-        if let followingMeasureID {
-            // Join Row moves exactly the selected leading measure upward. Keep
-            // the rest of its source row together by moving the explicit break
-            // to the following measure instead of dissolving the whole row.
-            forcedBreakStartIDs.insert(followingMeasureID)
-        }
-        candidate.rebuildSystems(
-            using: flattenedMeasures,
-            forcedBreakStartIDsOverride: forcedBreakStartIDs
-        )
-        candidate.updatedAt = .now
-
-        self = candidate
-        return true
-    }
-
-    func canMoveMeasureToRowBelow(
-        _ measureID: UUID,
-        nextRowStartingAt nextMeasureID: UUID
+    mutating func reflowMeasureRows(
+        _ originalRows: [[UUID]],
+        into rows: [[UUID]],
+        equalizedWidthPerMeasure: [CGFloat]
     ) -> Bool {
         guard supportsManualSystemBreaks,
-              let selectedIndex = measures.firstIndex(where: { $0.id == measureID }),
-              measures.indices.contains(selectedIndex + 1),
-              measures[selectedIndex + 1].id == nextMeasureID,
-              selectedIndex > 0,
-              !currentForcedSystemBreakStartIDs().contains(measureID),
-              !currentPageBreakStartIDs().contains(measureID),
-              !currentPageBreakStartIDs().contains(nextMeasureID),
-              keyChange(atStartOf: measureID) == nil,
-              keyChange(atStartOf: nextMeasureID) == nil else {
+              originalRows.count == 2,
+              let previousBreakID = originalRows.last?.first,
+              let firstID = originalRows.first?.first,
+              (1...2).contains(rows.count),
+              rows.count == equalizedWidthPerMeasure.count,
+              equalizedWidthPerMeasure.allSatisfy({ $0.isFinite && $0 > 0 }),
+              rows.allSatisfy({ !$0.isEmpty && (layoutStyle != .simpleChordSheet || $0.count <= simpleSystemMeasureCap) }),
+              originalRows != rows,
+              !hasExplicitPageBreak(before: previousBreakID),
+              keyChange(atStartOf: previousBreakID) == nil else {
             return false
         }
 
-        return true
-    }
-
-    @discardableResult
-    mutating func moveMeasureToRowBelow(
-        _ measureID: UUID,
-        nextRowStartingAt nextMeasureID: UUID,
-        equalizedManualWidths: [UUID: CGFloat]
-    ) -> Bool {
-        guard canMoveMeasureToRowBelow(measureID, nextRowStartingAt: nextMeasureID),
-              equalizedManualWidths[measureID] != nil,
-              equalizedManualWidths[nextMeasureID] != nil,
-              equalizedManualWidths.keys.allSatisfy({ measure(id: $0) != nil }) else {
+        let flatMeasures = measures
+        let orderedIDs = originalRows.flatMap { $0 }
+        guard orderedIDs == rows.flatMap({ $0 }),
+              let firstIndex = flatMeasures.firstIndex(where: { $0.id == firstID }),
+              flatMeasures.dropFirst(firstIndex).prefix(orderedIDs.count).map(\.id) == orderedIDs else {
             return false
         }
 
-        // Apply the complete width and row-break transaction to a candidate so
-        // a rejected layout cannot leave either neighboring row partially moved.
-        var candidate = self
-        for (affectedMeasureID, width) in equalizedManualWidths {
-            guard candidate.setMeasureManualLayoutWidth(width, for: affectedMeasureID) != nil else {
-                return false
+        var breaks = currentForcedSystemBreakStartIDs()
+        let fixedBreaks = breaks.union(currentPageBreakStartIDs()).union(keyChanges.map(\.measureID))
+        guard originalRows.allSatisfy({ row in
+            row.dropFirst().allSatisfy { !fixedBreaks.contains($0) }
+        }) else {
+            return false
+        }
+        let replacesForcedBreak = breaks.remove(previousBreakID) != nil
+        if layoutStyle == .simpleChordSheet || replacesForcedBreak,
+           let newBreakID = rows.dropFirst().first?.first {
+            breaks.insert(newBreakID)
+        }
+        if layoutStyle == .simpleChordSheet {
+            // Simple renders its model systems directly. Keep the boundaries
+            // surrounding these rows when either used to begin at the cap.
+            breaks.insert(firstID)
+            let followingIndex = firstIndex + orderedIDs.count
+            if flatMeasures.indices.contains(followingIndex) {
+                breaks.insert(flatMeasures[followingIndex].id)
             }
         }
 
-        var forcedBreakStartIDs = candidate.currentForcedSystemBreakStartIDs()
-        forcedBreakStartIDs.remove(nextMeasureID)
-        forcedBreakStartIDs.insert(measureID)
-        candidate.rebuildSystems(
-            using: candidate.measures,
-            forcedBreakStartIDsOverride: forcedBreakStartIDs
-        )
+        var candidate = self
+        candidate.rebuildSystems(using: flatMeasures, forcedBreakStartIDsOverride: breaks)
+        if layoutStyle == .rhythmSectionSheet {
+            let bodyWidths = zip(rows, equalizedWidthPerMeasure).map { CGFloat($0.count) * $1 }
+            guard candidate.fitRhythmMeasureRows(rows, availableWidths: bodyWidths) else { return false }
+        } else {
+            for (row, width) in zip(rows, equalizedWidthPerMeasure) {
+                for id in row {
+                    candidate.setMeasureManualLayoutWidth(width, for: id)
+                }
+            }
+        }
         candidate.updatedAt = .now
-
         self = candidate
         return true
     }
@@ -720,6 +723,39 @@ extension Chart {
         appendPreparedMeasure(newMeasure)
         updatedAt = .now
         return newMeasure.id
+    }
+
+    @discardableResult
+    mutating func insertMeasure(
+        inRhythmRow measureIDs: [UUID],
+        availableWidth: CGFloat,
+        after measureID: UUID? = nil,
+        barlineAfter: BarlineType = .single
+    ) -> UUID? {
+        guard layoutStyle == .rhythmSectionSheet, let rowStartID = measureIDs.first else {
+            return nil
+        }
+
+        var candidate = self
+        var row = measureIDs
+        let insertedMeasureID: UUID
+        if let measureID {
+            guard let offset = row.firstIndex(of: measureID),
+                  let target = candidate.measure(id: measureID) else { return nil }
+            let inserted = target.authoringState == .open
+                ? candidate.commitOpenMeasure(barlineAfter: barlineAfter)
+                : candidate.insertMeasure(after: measureID, barlineAfter: barlineAfter)
+            guard let inserted else { return nil }
+            insertedMeasureID = inserted
+            row.insert(inserted, at: offset + 1)
+        } else {
+            guard candidate.measures.first?.id == rowStartID else { return nil }
+            insertedMeasureID = candidate.insertMeasureAtBeginning(barlineAfter: barlineAfter)
+            row.insert(insertedMeasureID, at: 0)
+        }
+        guard candidate.fitRhythmMeasureRows([row], availableWidths: [availableWidth]) else { return nil }
+        self = candidate
+        return insertedMeasureID
     }
 
     @discardableResult
@@ -1201,7 +1237,17 @@ extension Chart {
         leftMeasure.roadmapObjectIDs.append(contentsOf: rightMeasure.roadmapObjectIDs.filter {
             !leftMeasure.roadmapObjectIDs.contains($0)
         })
-        if leftMeasure.manualLayoutWidth != nil || rightMeasure.manualLayoutWidth != nil {
+        if let fittedRowID = leftMeasure.rhythmFittedRowID,
+           fittedRowID == rightMeasure.rhythmFittedRowID,
+           let leftFittedWeight = leftMeasure.manualLayoutWidth,
+           let rightFittedWeight = rightMeasure.manualLayoutWidth,
+           leftFittedWeight.isFinite, leftFittedWeight > 0,
+           rightFittedWeight.isFinite, rightFittedWeight > 0,
+           (leftFittedWeight + rightFittedWeight).isFinite {
+            // A fitted row stores relative widths. Keep its total weight
+            // so joining a pair does not move the rest of the barlines.
+            leftMeasure.manualLayoutWidth = leftFittedWeight + rightFittedWeight
+        } else if leftMeasure.manualLayoutWidth != nil || rightMeasure.manualLayoutWidth != nil {
             leftMeasure.manualLayoutWidth = Double(
                 Measure.clampedManualLayoutWidth(CGFloat(leftWeight + rightWeight))
             )

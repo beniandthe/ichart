@@ -15,15 +15,18 @@ final class MeasureLayoutActionGuidanceTests: XCTestCase {
                 let newRow = MeasureLayoutActionGuidance.availability(for: .startNewRow, chart: chart, measureID: id, pageLayout: layout)
                 XCTAssertEqual(newRow.isEnabled, chart.canInsertSystemBreak(before: id))
                 let move = MeasureLayoutActionGuidance.availability(for: .moveToRowBelow, chart: chart, measureID: id, pageLayout: layout)
-                XCTAssertEqual(move.isEnabled, LeadSheetMoveMeasureToRowBelowPolicy.plan(for: id, in: layout, chart: chart) != nil)
+                let below = try? LeadSheetAdjacentRowMovePolicy.plan(for: id, direction: .below, in: layout, chart: chart).get()
+                XCTAssertEqual(move.isEnabled, below != nil)
                 let join = MeasureLayoutActionGuidance.availability(for: .joinRowAbove, chart: chart, measureID: id, pageLayout: layout)
-                XCTAssertEqual(join.isEnabled, chart.measureIDsForJoiningRow(startingAt: id) != nil && !LeadSheetJoinRowEqualizationPolicy.manualLayoutWidths(startingAt: id, in: layout, chart: chart).isEmpty)
+                let above = try? LeadSheetAdjacentRowMovePolicy.plan(for: id, direction: .above, in: layout, chart: chart).get()
+                XCTAssertEqual(join.isEnabled, above != nil)
                 for action in MeasureLayoutAction.allCases {
                     let result = MeasureLayoutActionGuidance.availability(for: action, chart: chart, measureID: id, pageLayout: layout)
                     XCTAssertEqual(result.reason == nil, result.isEnabled)
                 }
             }
-            XCTAssertEqual(MeasureLayoutActionGuidance.availability(for: .moveToRowBelow, chart: chart, measureID: ids[1], pageLayout: layout).reason, "Select the last measure in this row.")
+            XCTAssertTrue(MeasureLayoutActionGuidance.availability(for: .moveToRowBelow, chart: chart, measureID: ids[1], pageLayout: layout).isEnabled)
+            XCTAssertTrue(MeasureLayoutActionGuidance.availability(for: .joinRowAbove, chart: chart, measureID: ids[5], pageLayout: layout).isEnabled)
         }
     }
 

@@ -26,9 +26,9 @@ enum MeasureLayoutAction: String, CaseIterable, Identifiable, Hashable {
         case .startNewRow:
             "Make the selected measure the start of a new row."
         case .joinRowAbove:
-            "Move this row's first measure to the end of the row above. The remaining measures stay together."
+            "Move this row’s first measure through the selected measure into the row above. Both rows resize evenly."
         case .moveToRowBelow:
-            "Move this row's last measure to the beginning of the row below."
+            "Move the selected measure and any measures after it in this row into the row below. Both rows resize evenly."
         case .mergeWithNext:
             "Remove the divider after the selected measure, combining it with the next measure."
         case .evenRowWidths:
@@ -96,62 +96,24 @@ enum MeasureLayoutActionGuidance {
             let enabled = chart.layoutStyle == .simpleChordSheet ? !rowIDs.isEmpty : rowIDs.count > 1
             return enabled ? .available : .unavailable("This row needs at least two measures to even their widths.")
 
-        case .moveToRowBelow:
-            if LeadSheetMoveMeasureToRowBelowPolicy.plan(for: measureID, in: pageLayout, chart: chart) != nil {
+        case .joinRowAbove, .moveToRowBelow:
+            let direction: LeadSheetRowMoveDirection = action == .joinRowAbove ? .above : .below
+            switch LeadSheetAdjacentRowMovePolicy.plan(
+                for: measureID, direction: direction, in: pageLayout, chart: chart
+            ) {
+            case .success:
                 return .available
-            }
-            guard rowIDs.last == measureID else {
-                return .unavailable("Select the last measure in this row.")
-            }
-            guard rowIDs.count > 1 else {
-                return .unavailable("Keep at least one measure in the current row.")
-            }
-            guard pageLayout.systems.indices.contains(systemIndex + 1),
-                  let nextID = pageLayout.systems[systemIndex + 1].measures.first?.sourceMeasureID else {
-                return .unavailable("There is no row below this measure.")
-            }
-            let nextRow = pageLayout.systems[systemIndex + 1]
-            if pageIndex(for: row, in: pageLayout) != pageIndex(for: nextRow, in: pageLayout) {
-                return .unavailable("A measure cannot move across a page boundary.")
-            }
-            if chart.keyChange(atStartOf: measureID) != nil || chart.keyChange(atStartOf: nextID) != nil {
+            case .failure(.noNeighbor):
+                return .unavailable(direction == .above
+                    ? "There is no row above this measure."
+                    : "There is no row below this measure.")
+            case .failure(.pageBreak):
+                return .unavailable("A measure cannot move across an explicit page break.")
+            case .failure(.keyChange):
                 return .unavailable("Keep the row boundary at this key change.")
+            case .failure(.measureLimit):
+                return .unavailable("The destination row would exceed the measure limit.")
             }
-            if let cap = chart.layoutStyle.profile.measureDefaults.maximumMeasuresPerSystem,
-               nextRow.measures.count + 1 > cap {
-                return .unavailable("The row below already has its maximum number of measures.")
-            }
-            if !chart.canMoveMeasureToRowBelow(measureID, nextRowStartingAt: nextID) {
-                return .unavailable("This measure starts a required row or page boundary.")
-            }
-            return .unavailable("The affected rows need more room to keep every measure at an editable width.")
-
-        case .joinRowAbove:
-            let widths = LeadSheetJoinRowEqualizationPolicy.manualLayoutWidths(
-                startingAt: measureID, in: pageLayout, chart: chart)
-            if chart.measureIDsForJoiningRow(startingAt: measureID) != nil && !widths.isEmpty {
-                return .available
-            }
-            guard rowIDs.first == measureID else {
-                return .unavailable("Select the first measure in this row.")
-            }
-            guard systemIndex > 0 else {
-                return .unavailable("There is no row above this measure.")
-            }
-            if let location = sourceLocation(of: measureID, in: chart), chart.systems[location.systemIndex].startsNewPage {
-                return .unavailable("A measure cannot move across a page boundary.")
-            }
-            if chart.keyChange(atStartOf: measureID) != nil {
-                return .unavailable("Keep the row boundary at this key change.")
-            }
-            if let location = sourceLocation(of: measureID, in: chart),
-               location.measureIndex != 0 || chart.systems[location.systemIndex].lineBreakRule != .forced {
-                return .unavailable("Select the first measure of a row started with New Row.")
-            }
-            if chart.measureIDsForJoiningRow(startingAt: measureID) == nil {
-                return .unavailable("The row above already has its maximum number of measures.")
-            }
-            return .unavailable("The row above needs more room to keep every measure at an editable width.")
 
         case .mergeWithNext:
             let selectedInRow = rowIDs.firstIndex(of: measureID)
@@ -186,19 +148,6 @@ enum MeasureLayoutActionGuidance {
             }
             return .unavailable("These measures contain rhythm or handwriting that must be preserved separately.")
         }
-    }
-
-    private static func pageIndex(for system: LeadSheetSystemLayout, in pageLayout: LeadSheetPageLayout) -> Int? {
-        pageLayout.pages.first { $0.systemIDs.contains(system.id) }?.index
-    }
-
-    private static func sourceLocation(of measureID: UUID, in chart: Chart) -> (systemIndex: Int, measureIndex: Int)? {
-        for (systemIndex, system) in chart.systems.enumerated() {
-            if let measureIndex = system.measures.firstIndex(where: { $0.id == measureID }) {
-                return (systemIndex, measureIndex)
-            }
-        }
-        return nil
     }
 }
 

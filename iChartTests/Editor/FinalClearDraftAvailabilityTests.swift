@@ -52,11 +52,13 @@ final class FinalClearDraftAvailabilityTests: XCTestCase {
                 recognitionStartedAt: date, recognitionFinishedAt: date, strokeCount: 1))
         let callback = try XCTUnwrap(mounted.canvas.onChordInkDraftPreviewChanged)
         callback([proposal])
-        for _ in 0..<20 where mounted.canvas.chordPreviewState.isEmpty {
+        for _ in 0..<20 {
+            mounted.window.layoutIfNeeded()
+            if !mounted.canvas.chordPreviewState.isEmpty { break }
             try await Task.sleep(nanoseconds: 50_000_000)
         }
-        XCTAssertFalse(mounted.canvas.chordPreviewState.isEmpty,
-            "The positive control must reach the production EditorView preview state.")
+        XCTAssertEqual(mounted.canvas.chordPreviewState.draftChords.map(\.anchor.measureID),
+            [proposal.target.measureID], "The production EditorView must represent the injected proposal.")
         try await assertEnabledClear(in: mounted)
     }
 
@@ -83,11 +85,15 @@ final class FinalClearDraftAvailabilityTests: XCTestCase {
     private func mountEditor(with chart: Chart) async throws -> MountedEditor {
         let model = FinalClearDraftChartModel(chart)
         let isolatedRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let defaultsSuite = "FinalClearDraftAvailabilityTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuite))
+        defaults.set(true, forKey: ChordInkWorkflowSettings.manualRenderWithPreviewKey)
         let root = NavigationStack {
             EditorView(chart: Binding(get: { model.chart }, set: { model.chart = $0 }),
                 chordInkUserCorrectionMemoryStore: .init(url: isolatedRoot.appendingPathComponent("corrections.json")),
-                initialCanvasMode: .chordEntry)
+                initialCanvasMode: .chordEntry, recognizesChordInk: false)
         }
+            .defaultAppStorage(defaults)
             .environmentObject(ChartLibraryStore(charts: [chart], selectedChartID: chart.id))
             .environmentObject(IChartPDFLibraryStore(baseDirectory: isolatedRoot.appendingPathComponent("PDF Library")))
             .environment(\.accessibilityEnabled, true)
@@ -102,9 +108,8 @@ final class FinalClearDraftAvailabilityTests: XCTestCase {
         for _ in 0..<40 {
             window.layoutIfNeeded()
             host.view.layoutIfNeeded()
-            if let canvas = descendants(host.view).compactMap({ $0 as? LeadSheetCanvasUIKitView }).first {
-                // Let stored-ink bootstrap settle before the callback control.
-                try await Task.sleep(nanoseconds: 300_000_000)
+            if let canvas = descendants(host.view).compactMap({ $0 as? LeadSheetCanvasUIKitView }).first,
+               canvas.interactionMode == .chordEntry, canvas.onChordInkDraftPreviewChanged != nil {
                 return MountedEditor(model: model, window: window, previousKeyWindow: previousKeyWindow, canvas: canvas)
             }
             try await Task.sleep(nanoseconds: 50_000_000)

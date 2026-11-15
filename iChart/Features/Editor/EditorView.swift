@@ -2357,9 +2357,9 @@ struct EditorView: View {
                         action: { presentEndingEditor(endingID: ending.id) }
                     )
                 } else if selectedMeasureID != nil {
-                    if canRemoveSystemBreakBeforeSelectedMeasure {
+                    if let selectedMeasureID, adjacentRowMovePlan(for: selectedMeasureID, direction: .above) != nil {
                         activeToolButton(
-                            title: "Join Row",
+                            title: "Join Row Above",
                             systemImage: "arrow.up.to.line",
                             action: handleJoinSelectedMeasureRow
                         )
@@ -3463,31 +3463,6 @@ struct EditorView: View {
         return chart.canInsertSystemBreak(before: targetMeasureID)
     }
 
-    private var canRemoveSystemBreakBeforeSelectedMeasure: Bool {
-        guard let targetMeasureID = resolvedMeasureActionTargetID() else {
-            return false
-        }
-
-        return chart.measureIDsForJoiningRow(startingAt: targetMeasureID) != nil
-            && !joinRowEqualizedManualWidths(startingAt: targetMeasureID).isEmpty
-    }
-
-    private var selectedMeasureStartsJoinableRow: Bool {
-        guard let targetMeasureID = resolvedMeasureActionTargetID() else {
-            return false
-        }
-
-        return chart.measureIDsForJoiningRow(startingAt: targetMeasureID) != nil
-    }
-
-    private var canMoveSelectedMeasureToRowBelow: Bool {
-        guard let targetMeasureID = resolvedMeasureActionTargetID() else {
-            return false
-        }
-
-        return moveMeasureToRowBelowPlan(for: targetMeasureID) != nil
-    }
-
     private var canRemoveCueTextAtSelectedMeasure: Bool {
         guard let targetMeasureID = resolvedMeasureActionTargetID() else {
             return false
@@ -3721,6 +3696,13 @@ struct EditorView: View {
             return
         }
 
+        if chart.measure(id: targetMeasureID)?.rhythmFittedRowID != nil,
+           let row = rhythmRowLayout(containing: targetMeasureID),
+           chart.fitRhythmMeasureRows([row.measureIDs], availableWidths: [row.availableWidth]) {
+            selectedMeasureID = targetMeasureID
+            return
+        }
+
         let equalizedWidths = measureRowEqualizedManualWidths(containing: targetMeasureID)
         guard !equalizedWidths.isEmpty else {
             return
@@ -3803,30 +3785,17 @@ struct EditorView: View {
         }
     }
 
-    private func joinRowEqualizedManualWidths(startingAt measureID: UUID) -> [UUID: CGFloat] {
+    private func adjacentRowMovePlan(
+        for measureID: UUID,
+        direction: LeadSheetRowMoveDirection
+    ) -> LeadSheetAdjacentRowMovePlan? {
         let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
             for: chart,
             pageSize: latestEditorContentSize
         )
-        return LeadSheetJoinRowEqualizationPolicy.manualLayoutWidths(
-            startingAt: measureID,
-            in: pageLayout,
-            chart: chart
-        )
-    }
-
-    private func moveMeasureToRowBelowPlan(
-        for measureID: UUID
-    ) -> LeadSheetMoveMeasureToRowBelowPlan? {
-        let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
-            for: chart,
-            pageSize: latestEditorContentSize
-        )
-        return LeadSheetMoveMeasureToRowBelowPolicy.plan(
-            for: measureID,
-            in: pageLayout,
-            chart: chart
-        )
+        return try? LeadSheetAdjacentRowMovePolicy.plan(
+            for: measureID, direction: direction, in: pageLayout, chart: chart
+        ).get()
     }
 
     @discardableResult
@@ -3858,6 +3827,7 @@ struct EditorView: View {
     }
 
     private func handleAddMeasureAtBeginning() {
+        let firstRhythmRow = chart.measures.first.flatMap { rhythmRowLayout(containing: $0.id) }
         guard enterMeasureEditMode() else {
             return
         }
@@ -3866,8 +3836,22 @@ struct EditorView: View {
         pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
-        selectedMeasureID = chart.insertMeasureAtBeginning()
+        if let row = firstRhythmRow {
+            selectedMeasureID = chart.insertMeasure(inRhythmRow: row.measureIDs, availableWidth: row.availableWidth)
+        } else {
+            selectedMeasureID = chart.insertMeasureAtBeginning()
+        }
         completeEditorGuidedTourStep(.shapeForm)
+    }
+
+    private func rhythmRowLayout(containing measureID: UUID) -> (measureIDs: [UUID], availableWidth: CGFloat)? {
+        guard chart.layoutStyle == .rhythmSectionSheet else { return nil }
+        let pageLayout = canvasGeometryCache.pageLayout(for: chart, pageSize: latestEditorContentSize)
+        guard let row = pageLayout.systems.first(where: { system in
+            system.measures.contains { $0.sourceMeasureID == measureID }
+        }) else { return nil }
+        return (row.measures.compactMap(\.sourceMeasureID),
+            LeadSheetPageLayoutEngine.rhythmSectionAvailableRowWidth(for: row, in: pageLayout))
     }
 
     private func handleAddMeasureAfterSelected() {
@@ -3939,7 +3923,10 @@ struct EditorView: View {
             return
         }
 
-        if chart.measure(id: targetMeasureID)?.authoringState == .open {
+        if let row = rhythmRowLayout(containing: targetMeasureID) {
+            selectedMeasureID = chart.insertMeasure(inRhythmRow: row.measureIDs,
+                availableWidth: row.availableWidth, after: targetMeasureID, barlineAfter: barlineAfter)
+        } else if chart.measure(id: targetMeasureID)?.authoringState == .open {
             selectedMeasureID = chart.commitOpenMeasure(barlineAfter: barlineAfter)
         } else {
             selectedMeasureID = chart.insertMeasure(after: targetMeasureID, barlineAfter: barlineAfter)
@@ -4025,34 +4012,19 @@ struct EditorView: View {
     }
 
     private func handleJoinSelectedMeasureRow() {
-        let targetMeasureID = resolvedMeasureActionTargetID()
-        guard enterMeasureEditMode(),
-              let targetMeasureID,
-              chart.joinRow(
-                startingAt: targetMeasureID,
-                equalizedManualWidths: joinRowEqualizedManualWidths(startingAt: targetMeasureID)
-              ) else {
-            return
-        }
-
-        pendingRepeatStartMeasureID = nil
-        pendingDeleteStartMeasureID = nil
-        pendingEndingStartMeasureID = nil
-        pendingEndingType = nil
-        selectedMeasureID = targetMeasureID
-        completeEditorGuidedTourStep(.shapeForm)
+        handleMoveSelectedMeasure(to: .above)
     }
 
     private func handleMoveSelectedMeasureToRowBelow() {
+        handleMoveSelectedMeasure(to: .below)
+    }
+
+    private func handleMoveSelectedMeasure(to direction: LeadSheetRowMoveDirection) {
         let targetMeasureID = resolvedMeasureActionTargetID()
         guard enterMeasureEditMode(),
               let targetMeasureID,
-              let plan = moveMeasureToRowBelowPlan(for: targetMeasureID),
-              chart.moveMeasureToRowBelow(
-                targetMeasureID,
-                nextRowStartingAt: plan.nextRowFirstMeasureID,
-                equalizedManualWidths: plan.equalizedManualWidths
-              ) else {
+              let plan = adjacentRowMovePlan(for: targetMeasureID, direction: direction),
+              plan.apply(to: &chart) else {
             return
         }
 

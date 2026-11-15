@@ -243,11 +243,21 @@ enum EditorCanvasMode: Hashable {
             var steps = ["Tap a measure, then choose Add, Layout, or Delete."]
             var details: [EditorToolGuidanceSection] = [
                 .init(title: "Add measures", text: "Use Add to extend the chart beside the selected measure or onto another row."),
-                .init(title: "Change the layout", text: "Open Layout to compare each action and read why an option is unavailable. Tap an available action to apply it. Merge with Next Measure is available when the boundary can be removed safely. Select the first or last measure in a row for row-boundary actions."),
+                .init(title: "Change the layout", text: "Open Layout to compare each action and read why an option is unavailable. Tap an available action to apply it. Merge with Next Measure is available when the boundary can be removed safely."),
                 .init(title: "Delete a range", text: "Choose the first measure and start the range. Tap the last measure, then choose Delete To. Review the range before deleting.")
             ]
+            if layoutStyle == .simpleChordSheet || layoutStyle == .rhythmSectionSheet {
+                details.insert(.init(
+                    title: "Move between rows",
+                    text: "Select a measure and open Layout. Join Row Above moves from the start of the row through your selection. Move to Row Below moves from your selection through the end of the row. The rows adjust to fit."
+                ), at: 2)
+            }
             if layoutStyle == .rhythmSectionSheet {
-                steps = ["Tap a measure for Add, Layout, or Delete. Use Apple Pencil to drag the last measure’s right arrow left to make room."]
+                steps = ["Tap a measure for Add, Layout, or Delete. Add One After fits the new measure in the row."]
+                details[0] = .init(
+                    title: "Add measures",
+                    text: "Choose Add > Add One After to insert a measure and give the row even widths, including when it’s already full. Add Multiple After… can extend the chart onto more rows."
+                )
                 details.insert(Self.rhythmMeasureResizeGuide, at: 1)
             }
             return .init(
@@ -302,7 +312,7 @@ enum EditorCanvasMode: Hashable {
             let supportsSymbolRendering = layoutStyle == .simpleChordSheet || layoutStyle == .rhythmSectionSheet
             var details = [EditorToolGuidanceSection(
                 title: "Handwriting",
-                text: "Use Apple Pencil to write notes and reminders directly on the page. Staff notes stay handwritten; Free Ink does not transcribe them into rhythm notation. Choose Erase to remove handwriting."
+                text: "Use Apple Pencil to write notes and reminders directly on the page. Staff notes stay handwritten. Ink in or just below a measure follows it when the layout changes. Ink directly below a chord can follow that chord. Choose Erase to remove handwriting."
             )]
             switch layoutStyle {
             case .simpleChordSheet:
@@ -331,7 +341,7 @@ enum EditorCanvasMode: Hashable {
             return .init(
                 title: "Write notes and reminders on the page",
                 steps: [
-                    "Use Apple Pencil to write, or choose Erase. Staff notes stay handwritten.",
+                    "Use Apple Pencil to write, or choose Erase. Staff notes stay handwritten and follow their measure.",
                     supportsSymbolRendering
                         ? "Draw a fermata (arch over a dot) or accent (>). Lift the Pencil and pause to render."
                         : "One finger scrolls. Two fingers pan and zoom."

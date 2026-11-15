@@ -94,6 +94,7 @@ struct Measure: Identifiable, Codable, Hashable {
     var rhythmMap: MeasureRhythmMap? = nil
     var pitchedNoteEvents: [LeadSheetPitchedNoteEvent]
     var manualLayoutWidth: Double? = nil
+    var rhythmFittedRowID: UUID? = nil
     var usesDrawnRhythmTailWidth = false
     var rhythmSectionSplitLayoutSource: RhythmSectionSplitLayoutSource? = nil
     var handwrittenRhythmicNotationData: Data? = nil
@@ -147,6 +148,7 @@ struct Measure: Identifiable, Codable, Hashable {
         case rhythmMap
         case pitchedNoteEvents
         case manualLayoutWidth
+        case rhythmFittedRowID
         case usesDrawnRhythmTailWidth
         case rhythmSectionSplitLayoutSource
         case handwrittenRhythmicNotationData
@@ -167,6 +169,7 @@ struct Measure: Identifiable, Codable, Hashable {
         rhythmMap = try container.decodeIfPresent(MeasureRhythmMap.self, forKey: .rhythmMap)
         pitchedNoteEvents = try container.decodeIfPresent([LeadSheetPitchedNoteEvent].self, forKey: .pitchedNoteEvents) ?? []
         manualLayoutWidth = try container.decodeIfPresent(Double.self, forKey: .manualLayoutWidth)
+        rhythmFittedRowID = try container.decodeIfPresent(UUID.self, forKey: .rhythmFittedRowID)
         usesDrawnRhythmTailWidth = try container.decodeIfPresent(Bool.self, forKey: .usesDrawnRhythmTailWidth) ?? false
         rhythmSectionSplitLayoutSource = try container.decodeIfPresent(RhythmSectionSplitLayoutSource.self,
             forKey: .rhythmSectionSplitLayoutSource)
@@ -198,6 +201,7 @@ struct Measure: Identifiable, Codable, Hashable {
             try container.encode(pitchedNoteEvents, forKey: .pitchedNoteEvents)
         }
         try container.encodeIfPresent(manualLayoutWidth, forKey: .manualLayoutWidth)
+        try container.encodeIfPresent(rhythmFittedRowID, forKey: .rhythmFittedRowID)
         if usesDrawnRhythmTailWidth {
             try container.encode(true, forKey: .usesDrawnRhythmTailWidth)
         }

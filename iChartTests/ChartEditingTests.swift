@@ -1927,166 +1927,70 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertEqual(chart.systems[0].lineBreakRule, .automatic)
     }
 
-    func testJoinRowPreservesSelectedMeasureIdentityAndContent() throws {
-        var chart = Chart.blank(title: "Join Row", measureCount: 6, layoutStyle: .rhythmSectionSheet)
-        let measureIDs = chart.measures.map(\.id)
-        let selectedMeasureID = measureIDs[4]
-        let chordID = try XCTUnwrap(
-            chart.appendRecognizedChordEvent(
-                try ChordSymbolParser.parse("Bb7"),
-                rawInput: "Bb7",
-                to: selectedMeasureID,
-                atFraction: 0.25
-            )
-        )
-        let repeatID = try XCTUnwrap(
-            chart.addRepeatSpan(startMeasureID: measureIDs[0], endMeasureID: selectedMeasureID)
-        )
-        XCTAssertTrue(chart.insertSystemBreak(before: selectedMeasureID))
-        let joinedMeasureIDs = try XCTUnwrap(chart.measureIDsForJoiningRow(startingAt: selectedMeasureID))
-        let widths = Dictionary(uniqueKeysWithValues: joinedMeasureIDs.map { ($0, CGFloat(100)) })
+    func testReflowMeasureRowsPreservesMusicalContentAndDraftInBothStyles() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            var chart = Chart.blank(title: "Move row break", measureCount: 6, layoutStyle: style)
+            let ids = chart.measures.map(\.id)
+            let chordID = try XCTUnwrap(chart.appendRecognizedChordEvent(
+                try ChordSymbolParser.parse("Bb7"), rawInput: "Bb7", to: ids[3], atFraction: 0.25
+            ))
+            let repeatID = try XCTUnwrap(chart.addRepeatSpan(startMeasureID: ids[0], endMeasureID: ids[4]))
+            let endingID = try XCTUnwrap(chart.addEndingSpan(.ending1, startMeasureID: ids[3], endMeasureID: ids[4]))
+            _ = chart.applyMeterChange(Meter(numerator: 3, denominator: 4), after: ids[2], scope: .toEndOfPiece)
+            XCTAssertTrue(chart.insertSystemBreak(before: ids[2]))
+            let draftID = chart.appendMeasure(authoringState: .open)
+            let draft = try XCTUnwrap(chart.measure(id: draftID))
+            let timeSignatureChanges = chart.timeSignatureChanges
 
-        XCTAssertEqual(joinedMeasureIDs, Array(measureIDs[0...4]))
-        XCTAssertTrue(chart.joinRow(startingAt: selectedMeasureID, equalizedManualWidths: widths))
+            let originalRows = [Array(ids[..<2]), Array(ids[2...]) + [draftID]]
+            let rows = [Array(ids[..<4]), Array(ids[4...]) + [draftID]]
+            XCTAssertTrue(chart.reflowMeasureRows(originalRows, into: rows, equalizedWidthPerMeasure: [120, 160]))
 
-        XCTAssertEqual(chart.measures.map(\.id), measureIDs)
-        XCTAssertEqual(chart.chordEvent(id: chordID)?.symbol.displayText, "Bb7")
-        XCTAssertEqual(chart.roadmapObject(id: repeatID)?.endMeasureID, selectedMeasureID)
-        XCTAssertEqual(chart.measure(id: selectedMeasureID)?.manualLayoutWidth, 100)
-        XCTAssertFalse(chart.canRemoveSystemBreak(before: selectedMeasureID))
+            XCTAssertEqual(chart.measures.map(\.id), ids + [draftID])
+            XCTAssertEqual(chart.systems.map { $0.measures.map(\.id) }, rows)
+            XCTAssertEqual(chart.chordEvent(id: chordID)?.symbol.displayText, "Bb7")
+            XCTAssertEqual(chart.roadmapObject(id: repeatID)?.endMeasureID, ids[4])
+            XCTAssertEqual(chart.roadmapObject(id: endingID)?.startMeasureID, ids[3])
+            XCTAssertEqual(chart.roadmapObject(id: endingID)?.endMeasureID, ids[4])
+            XCTAssertEqual(chart.timeSignatureChanges, timeSignatureChanges)
+            XCTAssertEqual(chart.measure(id: draftID)?.authoringState, draft.authoringState)
+            XCTAssertEqual(chart.measure(id: ids[3])?.manualLayoutWidth, 120)
+            XCTAssertEqual(chart.measure(id: ids[4])?.manualLayoutWidth, 160)
+        }
     }
 
-    func testJoinRowIsAtomicWhenEqualizedWidthsAreIncomplete() throws {
-        var chart = Chart.blank(title: "Join Row Guard", measureCount: 6, layoutStyle: .rhythmSectionSheet)
-        let measureIDs = chart.measures.map(\.id)
-        let selectedMeasureID = measureIDs[4]
-        XCTAssertTrue(chart.insertSystemBreak(before: selectedMeasureID))
-        let originalChart = chart
-
-        XCTAssertFalse(
-            chart.joinRow(
-                startingAt: selectedMeasureID,
-                equalizedManualWidths: [selectedMeasureID: 110]
-            )
-        )
-        XCTAssertEqual(chart, originalChart)
+    func testReflowMeasureRowsRejectsMissingWidthsAndChangedOrderAtomically() {
+        var chart = Chart.blank(title: "Move row guard", measureCount: 4, layoutStyle: .rhythmSectionSheet)
+        let ids = chart.measures.map(\.id)
+        let original = chart
+        let originalRows = [Array(ids[..<2]), Array(ids[2...])]
+        XCTAssertFalse(chart.reflowMeasureRows(
+            originalRows, into: [[ids[0]], Array(ids[1...])], equalizedWidthPerMeasure: [120]
+        ))
+        XCTAssertFalse(chart.reflowMeasureRows(
+            originalRows, into: [[ids[0], ids[2], ids[1], ids[3]]], equalizedWidthPerMeasure: [120]
+        ))
+        XCTAssertEqual(chart, original)
     }
 
-    func testJoinRowRefusesPageAndKeyChangeBoundaries() throws {
-        var pageChart = Chart.blank(title: "Join Page Guard", measureCount: 4, layoutStyle: .rhythmSectionSheet)
-        let firstAddedPageMeasureID = try XCTUnwrap(pageChart.appendPage())
-        XCTAssertNil(pageChart.measureIDsForJoiningRow(startingAt: firstAddedPageMeasureID))
+    func testReflowMeasureRowsPreservesExplicitPageAndKeyBreaks() throws {
+        var pageChart = Chart.blank(title: "Keep page break", measureCount: 4, layoutStyle: .rhythmSectionSheet)
+        let firstPageIDs = pageChart.measures.map(\.id)
+        let nextPageID = try XCTUnwrap(pageChart.appendPage())
+        let originalPageChart = pageChart
+        XCTAssertFalse(pageChart.reflowMeasureRows(
+            [firstPageIDs, [nextPageID]], into: [firstPageIDs + [nextPageID]], equalizedWidthPerMeasure: [100]
+        ))
+        XCTAssertEqual(pageChart, originalPageChart)
 
-        var keyChart = Chart.blank(title: "Join Key Guard", measureCount: 6, layoutStyle: .rhythmSectionSheet)
-        let keyChangeMeasureID = keyChart.measures[4].id
-        XCTAssertTrue(keyChart.setKeyChange(.fMajor, atStartOf: keyChangeMeasureID))
-        XCTAssertNil(keyChart.measureIDsForJoiningRow(startingAt: keyChangeMeasureID))
-    }
-
-    func testMoveMeasureToRowBelowPreservesIdentityContentAndMovesForcedBreak() throws {
-        var chart = Chart.blank(title: "Move Down", measureCount: 8, layoutStyle: .rhythmSectionSheet)
-        let measureIDs = chart.measures.map(\.id)
-        let selectedMeasureID = measureIDs[3]
-        let nextRowFirstMeasureID = measureIDs[4]
-        let chordID = try XCTUnwrap(
-            chart.appendRecognizedChordEvent(
-                try ChordSymbolParser.parse("Bb7"),
-                rawInput: "Bb7",
-                to: selectedMeasureID,
-                atFraction: 0.25
-            )
-        )
-        let repeatID = try XCTUnwrap(
-            chart.addRepeatSpan(startMeasureID: measureIDs[0], endMeasureID: selectedMeasureID)
-        )
-        XCTAssertTrue(chart.insertSystemBreak(before: nextRowFirstMeasureID))
-        let widths = Dictionary(uniqueKeysWithValues: measureIDs.map { ($0, CGFloat(120)) })
-
-        XCTAssertTrue(
-            chart.canMoveMeasureToRowBelow(
-                selectedMeasureID,
-                nextRowStartingAt: nextRowFirstMeasureID
-            )
-        )
-        XCTAssertTrue(
-            chart.moveMeasureToRowBelow(
-                selectedMeasureID,
-                nextRowStartingAt: nextRowFirstMeasureID,
-                equalizedManualWidths: widths
-            )
-        )
-
-        XCTAssertEqual(chart.measures.map(\.id), measureIDs)
-        XCTAssertEqual(chart.systems[0].measures.map(\.id), Array(measureIDs[0..<3]))
-        XCTAssertEqual(chart.systems[1].measures.map(\.id), Array(measureIDs[3..<8]))
-        XCTAssertEqual(chart.systems[1].lineBreakRule, .forced)
-        XCTAssertEqual(chart.chordEvent(id: chordID)?.symbol.displayText, "Bb7")
-        XCTAssertEqual(chart.roadmapObject(id: repeatID)?.endMeasureID, selectedMeasureID)
-        XCTAssertEqual(chart.measure(id: selectedMeasureID)?.manualLayoutWidth, 120)
-        XCTAssertTrue(chart.canRemoveSystemBreak(before: selectedMeasureID))
-        XCTAssertFalse(chart.canRemoveSystemBreak(before: nextRowFirstMeasureID))
-    }
-
-    func testSimpleChordSheetMoveMeasureToRowBelowShiftsForcedBreak() throws {
-        var chart = Chart.blank(title: "Move Down Simple", measureCount: 8, layoutStyle: .simpleChordSheet)
-        let measureIDs = chart.measures.map(\.id)
-        let selectedMeasureID = measureIDs[3]
-        let nextRowFirstMeasureID = measureIDs[4]
-        XCTAssertTrue(chart.insertSystemBreak(before: nextRowFirstMeasureID))
-        let widths = Dictionary(uniqueKeysWithValues: measureIDs.map { ($0, CGFloat(100)) })
-
-        XCTAssertTrue(
-            chart.moveMeasureToRowBelow(
-                selectedMeasureID,
-                nextRowStartingAt: nextRowFirstMeasureID,
-                equalizedManualWidths: widths
-            )
-        )
-
-        XCTAssertEqual(chart.measures.map(\.id), measureIDs)
-        XCTAssertEqual(chart.systems[0].measures.map(\.id), Array(measureIDs[0..<3]))
-        XCTAssertEqual(chart.systems[1].measures.map(\.id), Array(measureIDs[3..<8]))
-        XCTAssertEqual(chart.systems[1].lineBreakRule, .forced)
-    }
-
-    func testMoveMeasureToRowBelowIsAtomicWhenEqualizedWidthsAreIncomplete() throws {
-        var chart = Chart.blank(title: "Move Down Guard", measureCount: 8, layoutStyle: .rhythmSectionSheet)
-        let measureIDs = chart.measures.map(\.id)
-        let selectedMeasureID = measureIDs[3]
-        let nextRowFirstMeasureID = measureIDs[4]
-        XCTAssertTrue(chart.insertSystemBreak(before: nextRowFirstMeasureID))
-        let originalChart = chart
-
-        XCTAssertFalse(
-            chart.moveMeasureToRowBelow(
-                selectedMeasureID,
-                nextRowStartingAt: nextRowFirstMeasureID,
-                equalizedManualWidths: [selectedMeasureID: 110]
-            )
-        )
-        XCTAssertEqual(chart, originalChart)
-    }
-
-    func testMoveMeasureToRowBelowRefusesPageAndKeyChangeBoundaries() throws {
-        var pageChart = Chart.blank(title: "Move Down Page Guard", measureCount: 4, layoutStyle: .rhythmSectionSheet)
-        let originalLastMeasureID = try XCTUnwrap(pageChart.measures.last?.id)
-        let firstAddedPageMeasureID = try XCTUnwrap(pageChart.appendPage())
-        XCTAssertFalse(
-            pageChart.canMoveMeasureToRowBelow(
-                originalLastMeasureID,
-                nextRowStartingAt: firstAddedPageMeasureID
-            )
-        )
-
-        var keyChart = Chart.blank(title: "Move Down Key Guard", measureCount: 8, layoutStyle: .rhythmSectionSheet)
-        let keyMeasureIDs = keyChart.measures.map(\.id)
-        XCTAssertTrue(keyChart.setKeyChange(.fMajor, atStartOf: keyMeasureIDs[4]))
-        XCTAssertFalse(
-            keyChart.canMoveMeasureToRowBelow(
-                keyMeasureIDs[3],
-                nextRowStartingAt: keyMeasureIDs[4]
-            )
-        )
+        var keyChart = Chart.blank(title: "Keep key break", measureCount: 6, layoutStyle: .rhythmSectionSheet)
+        let ids = keyChart.measures.map(\.id)
+        XCTAssertTrue(keyChart.setKeyChange(.fMajor, atStartOf: ids[3]))
+        let originalKeyChart = keyChart
+        XCTAssertFalse(keyChart.reflowMeasureRows(
+            [Array(ids[..<3]), Array(ids[3...])], into: [ids], equalizedWidthPerMeasure: [100]
+        ))
+        XCTAssertEqual(keyChart, originalKeyChart)
     }
 
     func testSimpleNamedSystemBreakControlsRemainSimpleOnly() throws {

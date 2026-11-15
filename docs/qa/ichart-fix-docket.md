@@ -1,5 +1,30 @@
 # iChart Fix Docket
 
+## Measure rows and Free Ink — November 14, 2026
+
+**FIX-027: Fit measure inserts and adjacent-row moves.** Priority P1. In Rhythm
+Section Sheet, Add One After must fit a new measure in the selected row, including
+a ninth measure in a row of eight. Verify even widths and the same row membership
+after reopening. In both chart styles, Join Row Above and Move to Row Below must
+work from an interior measure and across automatically wrapped rows. Verify that
+the boundary shifts through the selected measure, the affected rows fit the page,
+and musical order, measure contents, and protected key and page boundaries are
+preserved.
+
+**FIX-028: Keep Free Ink with its music.** Priority P1. Existing handwriting
+within a measure or directly below it should follow the measure during insert,
+resize, or row movement. Writing directly below one identifiable chord should
+follow the chord when moved. Verify Simple and Rhythm with existing ink,
+connected writing, standalone page notes, a save and reopen, and PDF projection.
+
+Build 160 was tested locally on iPad. The Rhythm Section Sheet retest confirmed
+that measure rows and their handwriting stayed together after saving and
+reopening. Saved-data readback confirmed the original measure order and stroke
+paths. Simulator walkthroughs covered Add One After on a full Rhythm row and
+both row moves in Simple and Rhythm. Native tests cover measure and chord
+identity and shared editor/PDF ink projection. The Simple physical retest and
+a separate physical chord-drag check remain open.
+
 ## Pencil taps in text fields
 
 **FIX-026** addresses the period inserted when a Pencil tap is intended to focus
@@ -323,8 +348,12 @@ save and reopen. Preview, user edit, rendered result and saved data remain disti
 
 ## Remaining checks and parked work
 
-Retest FIX-026 first. In Header and Review Chords, use Apple Pencil to tap a
-field and check that the keyboard opens with the draft intact. Use the Pencil
+For the remaining FIX-027 and FIX-028 physical checks, retest row moves and
+ink after reopening a Simple Chord Sheet, then verify that a chord carries
+its attached handwriting when dragged.
+
+For FIX-026, use Apple Pencil to tap a field in Header and Review Chords and
+check that the keyboard opens with the draft intact. Use the Pencil
 icon to start Scribble, write a word, pause, and write another word. Switch
 back to typing and check both words are present. Repeat in a multiline cue.
 

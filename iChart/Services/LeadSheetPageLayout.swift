@@ -1049,6 +1049,16 @@ enum LeadSheetPageLayoutEngine {
         return defaultWidth / max(1, standardMeasureWidth)
     }
 
+    static func rhythmSectionAvailableRowWidth(
+        for system: LeadSheetSystemLayout,
+        in pageLayout: LeadSheetPageLayout
+    ) -> CGFloat {
+        let leadingSignatureWidth = max(0,
+            (system.measures.first?.frame.width ?? 0) - (system.measures.first?.staffFrame.width ?? 0)
+        )
+        return max(1, pageLayout.paperFrame(for: system).width - 68 - leadingSignatureWidth - systemTrailingPadding)
+    }
+
     static func simpleChordSheetMaximumRowBodyWidth(
         chart: Chart,
         maxSystemWidth: CGFloat
@@ -1885,7 +1895,11 @@ enum LeadSheetPageLayoutEngine {
         }
 
         for measure in sourceMeasures {
-            if !currentMeasures.isEmpty && forcedBreakStartIDs.contains(measure.id) {
+            let fittedRowID = chart.layoutStyle == .rhythmSectionSheet ? measure.rhythmFittedRowID : nil
+            let currentFittedRowID = currentMeasures.first?.measure?.rhythmFittedRowID
+            if !currentMeasures.isEmpty
+                && (forcedBreakStartIDs.contains(measure.id)
+                    || (chart.layoutStyle == .rhythmSectionSheet && fittedRowID != currentFittedRowID)) {
                 flushCurrentSystem()
             }
 
@@ -1895,7 +1909,9 @@ enum LeadSheetPageLayoutEngine {
                 + preferredWidth
                 + systemTrailingPadding
 
-            if !currentMeasures.isEmpty && nextFrameWidth > maxSystemWidth {
+            // Explicitly fitted rows resolve against the current paper width
+            // as a unit. Ordinary manual and automatic rows still wrap.
+            if fittedRowID == nil && !currentMeasures.isEmpty && nextFrameWidth > maxSystemWidth {
                 flushCurrentSystem()
             }
 
@@ -1948,6 +1964,7 @@ enum LeadSheetPageLayoutEngine {
             // the final musical body width to see if a lone measure fits.
             guard plan.measures.count == 1,
                   let measure = plan.measures.first,
+                  measure.measure?.rhythmFittedRowID == nil,
                   let measureID = measure.measure?.id,
                   !forcedBreakStartIDs.contains(measureID),
                   let packingMeasure = packingPlan.measures.first,
@@ -2053,21 +2070,34 @@ enum LeadSheetPageLayoutEngine {
             }
             return CGFloat(manualLayoutWidth)
         }
+        let isExplicitlyFittedRow = plan.measures.first?.measure?.rhythmFittedRowID != nil
         let isPersistentlyEqualizedRow = plan.measures.count > 1
             && manualWidths.count == plan.measures.count
             && !plan.measures.contains(where: { $0.measure?.drawnRhythmTailLayoutWidth != nil })
             && (manualWidths.max() ?? 0) - (manualWidths.min() ?? 0) <= 0.001
-        let responsiveEqualWidth = max(
+        let availableBodyWidth = max(
             1,
-            (maxSystemWidth - plan.leadingSignatureWidth - systemTrailingPadding)
-                / CGFloat(max(1, plan.measures.count))
+            maxSystemWidth - plan.leadingSignatureWidth - systemTrailingPadding
         )
+        let responsiveEqualWidth = availableBodyWidth / CGFloat(max(1, plan.measures.count))
+        func fittedWidthWeight(_ measurePlan: PackedLeadSheetMeasurePlan) -> CGFloat {
+            guard let width = measurePlan.measure?.manualLayoutWidth, width.isFinite, width > 0 else {
+                return measurePlan.width
+            }
+            return CGFloat(width)
+        }
+        let fittedWidthScale = isExplicitlyFittedRow ? availableBodyWidth / max(
+            1, plan.measures.reduce(0) { $0 + fittedWidthWeight($1) }
+        ) : nil
         var standardizedMeasures = plan.measures.map { measurePlan in
             let width: CGFloat
-            if isPersistentlyEqualizedRow {
-                // Equal Row and Join Row store a shared manual width as intent.
-                // Resolve that intent against the current paper width so the
-                // row stays even and keeps both margins after rotation.
+            if let fittedWidthScale {
+                // A drawn divider can partition one fitted measure while the
+                // other members retain their positions and widths.
+                width = fittedWidthWeight(measurePlan) * fittedWidthScale
+            } else if isPersistentlyEqualizedRow {
+                // Resolve equalized rows against the current paper so they
+                // keep both margins after rotation.
                 width = responsiveEqualWidth
             } else if let drawnWidth = measurePlan.measure?.drawnRhythmTailLayoutWidth {
                 width = drawnWidth
@@ -2083,10 +2113,6 @@ enum LeadSheetPageLayoutEngine {
                 width: width
             )
         }
-        let availableBodyWidth = max(
-            1,
-            maxSystemWidth - plan.leadingSignatureWidth - systemTrailingPadding
-        )
         let resolvedBodyWidth = standardizedMeasures.map(\.width).reduce(0, +)
         if resolvedBodyWidth > availableBodyWidth {
             // A wide key signature consumes more of the left gutter, but it

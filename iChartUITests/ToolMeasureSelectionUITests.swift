@@ -172,6 +172,76 @@ final class ToolMeasureSelectionUITests: XCTestCase {
     }
 
     @MainActor
+    func testRowMovesFitBothChartStyles() throws {
+        let app = try fixtureApplication()
+        app.launch()
+        defer { app.terminate() }
+        for title in fixtureTitles {
+            openFixture(title, in: app)
+            app.buttons["Measures"].tap()
+            // The two layouts use different first-row widths and leading
+            // signatures. Confirm the selection via the displayed context.
+            for x: CGFloat in [0.30, 0.38, 0.21] {
+                tapFirstRow(at: x, in: app)
+                if try selectedMeasure(in: app) == 2 { break }
+            }
+            XCTAssertEqual(try selectedMeasure(in: app), 2, title)
+            chooseLayoutAction("startNewRow", in: app)
+            waitForContext("Measure 2 selected", in: app)
+
+            // Move measure 2 into the singleton row above, then select it
+            // from its new location and move it back using the other action.
+            chooseLayoutAction("joinRowAbove", in: app)
+            tapFirstRow(at: 0.76, in: app)
+            waitForContext("Measure 2 selected", in: app)
+            chooseLayoutAction("moveToRowBelow", in: app)
+            tapFirstRow(at: 0.76, in: app)
+            waitForContext("Measure 1 selected", in: app)
+            attach(app, name: "\(title) row fits after moving measures in both directions")
+            exitChart(in: app)
+        }
+    }
+
+    @MainActor
+    func testAddingToFullRhythmRowKeepsNinthMeasureOnFirstRow() throws {
+        let app = try fixtureApplication()
+        app.launch()
+        defer { app.terminate() }
+        openFixture(fixtureTitles[1], in: app)
+        app.buttons["Measures"].tap()
+        tapFirstRow(at: 0.18, in: app)
+        waitForContext("Measure 1 selected", in: app)
+
+        // Grow the first row through the same Add menu used in a real chart.
+        // The final canvas tap checks placement instead of relying on automatic
+        // selection of the inserted measure.
+        for measure in 2...9 {
+            app.buttons["Add"].tap()
+            let insert = app.buttons["Add One After"]
+            XCTAssertTrue(insert.waitForExistence(timeout: 5))
+            insert.tap()
+            waitForContext("Measure \(measure) selected", in: app)
+        }
+        tapFirstRow(at: 0.18, in: app)
+        waitForContext("Measure 1 selected", in: app)
+        tapFirstRow(at: 0.93, in: app)
+        XCTAssertGreaterThanOrEqual(try waitForDifferentSelectedMeasure(than: 1, in: app), 9)
+        attach(app, name: "Rhythm Section Sheet keeps at least nine measures in the first row")
+    }
+
+    @MainActor
+    private func chooseLayoutAction(_ id: String, in app: XCUIApplication) {
+        app.buttons["measure-layout-open"].tap()
+        let sheet = app.navigationBars["Measure Layout"]
+        XCTAssertTrue(sheet.waitForExistence(timeout: 5))
+        let action = app.buttons["measure-layout-action-\(id)"]
+        XCTAssertTrue(action.exists)
+        XCTAssertTrue(action.isEnabled, "Layout must accept \(id) for this selection")
+        action.tap()
+        waitForRemoval(sheet, message: "The selected layout action closes the sheet")
+    }
+
+    @MainActor
     private func fixtureApplication() throws -> XCUIApplication {
         #if targetEnvironment(simulator)
         XCUIDevice.shared.orientation = .portrait
