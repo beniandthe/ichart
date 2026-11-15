@@ -2,6 +2,12 @@
 
 Ground decisions in the current code, tests, and available device evidence. Be direct about what you verified and what still needs checking.
 
+## Keep generated build files local
+
+Run `./scripts/swiftpm-local.sh build` or `./scripts/swiftpm-local.sh test` for local SwiftPM work. When calling Swift directly, give each checkout a separate `--scratch-path` outside iCloud.
+
+Use Xcode’s default Derived Data or give `-derivedDataPath` and `-clonedSourcePackagesDirPath` local paths outside iCloud. Keep explicit archive and test-result destinations. The repository’s `.build` directory also holds iPad backups, QA evidence, and worktrees.
+
 ## Keep tool guidance in sync
 
 Treat user-facing tool guidance as part of the feature. Whenever a change adds, removes, renames, moves, or changes a tool function, update the affected on-screen helper in the same patch. This applies to commands, gestures, settings, defaults, supported chart layouts, feature gates, prerequisites, button availability, and recovery steps. A refactor that preserves user-facing behavior still requires a check that the existing guidance matches.

@@ -230,13 +230,16 @@ Historical or setup context:
 
 ## Local validation
 
-If full Xcode is not installed yet, the shared chart logic can still be compiled on macOS with Swift Package Manager:
+Build and test the shared chart logic on macOS with Swift Package Manager. Run these commands from the checkout you want to validate.
 
 ```sh
-swift build
+./scripts/swiftpm-local.sh build
+./scripts/swiftpm-local.sh test
 ```
 
-This validates the non-UI parsing, transposition, timing, entitlement, and library-store layer. The iPad app target and XCTest suite still require Xcode plus XcodeGen.
+The script stores generated files in a checkout-specific directory under `~/Library/Caches/Smart Chart/SwiftPM`. Bare `swift build` and `swift test` default to the checkout's `.build` directory, which can also hold saved QA evidence, iPad backups, and worktrees.
+
+SwiftPM validates the non-UI parsing, transposition, timing, entitlement, and library-store layer. The iPad app and its native tests require Xcode and XcodeGen. Xcode's default Derived Data is already outside iCloud. For custom command-line builds, put `-derivedDataPath` and `-clonedSourcePackagesDirPath` outside the synced checkout and use `-resultBundlePath` or `-archivePath` for evidence you want to retain.
 
 ## Prototype success criteria
 

@@ -140,7 +140,7 @@ ICHART_SUPABASE_INTEGRATION=1 \
 SUPABASE_URL=http://127.0.0.1:54321 \
 SUPABASE_PUBLISHABLE_KEY=<local-publishable-key> \
 SUPABASE_SERVICE_ROLE_KEY=<local-service-role-key> \
-swift test --filter SupabaseIntegrationTests
+./scripts/swiftpm-local.sh test --filter SupabaseIntegrationTests
 ```
 
 The integration test creates throwaway accounts, saves a profile, creates a chart document, inserts a whole-chart snapshot, points the document to that snapshot, then tombstones the document. The Pro Forum integration lane also uses a local service-role key to grant the throwaway Pro entitlement, approve the pending forum post, and clean up test data. The app itself must never receive or bundle that key.
