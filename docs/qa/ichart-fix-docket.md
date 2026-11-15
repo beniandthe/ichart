@@ -17,13 +17,13 @@ resize, or row movement. Writing directly below one identifiable chord should
 follow the chord when moved. Verify Simple and Rhythm with existing ink,
 connected writing, standalone page notes, a save and reopen, and PDF projection.
 
-Build 160 is a local iPad retest candidate based on 1.9.2 (159). The iPad
-Simulator walkthrough exercised Add One After on a full Rhythm row and both
-row moves in Simple and Rhythm. Native coverage checked reopening the resized
-row, preserved measure and chord identity, and shared editor/PDF ink
-projection. The paired iPad reported 1.9.1 (158). Its selected Rhythm chart
-had saved measure and chord anchors with its Free Ink. The chart still
-needs a physical retest.
+Build 160 was tested locally on iPad. The Rhythm Section Sheet retest confirmed
+that measure rows and their handwriting stayed together after saving and
+reopening. Saved-data readback confirmed the original measure order and stroke
+paths. Simulator walkthroughs covered Add One After on a full Rhythm row and
+both row moves in Simple and Rhythm. Native tests cover measure and chord
+identity and shared editor/PDF ink projection. The Simple physical retest and
+a separate physical chord-drag check remain open.
 
 ## Pencil taps in text fields
 
@@ -348,12 +348,9 @@ save and reopen. Preview, user edit, rendered result and saved data remain disti
 
 ## Remaining checks and parked work
 
-Retest FIX-027 and FIX-028 on Build 160. On the existing Rhythm chart, select
-a measure in the full row and use Add One After. Join the next measure to the
-singleton row above, then try Move to Row Below. Check the existing
-handwriting as the measures are moved or resized, and as the chord directly
-above it is moved. Reopen the chart and check the row and ink. Repeat the row
-move and ink check in Simple.
+For the remaining FIX-027 and FIX-028 physical checks, retest row moves and
+ink after reopening a Simple Chord Sheet, then verify that a chord carries
+its attached handwriting when dragged.
 
 For FIX-026, use Apple Pencil to tap a field in Header and Review Chords and
 check that the keyboard opens with the draft intact. Use the Pencil
