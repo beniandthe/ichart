@@ -486,7 +486,9 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
             let strokeBounds = indices.map { strokes[$0].renderBounds }
             let bounds = strokeBounds.reduce(CGRect.null) { $0.union($1) }
             let transform: CGAffineTransform?
-            if let chordTransform = chordAttachments.transform(for: bounds) {
+            // A stationary chord must not prevent a shortened measure from
+            // moving its handwriting inside the new barline.
+            if let chordTransform = chordAttachments.transform(for: bounds), !chordTransform.isIdentity {
                 transform = chordTransform
             } else if let index = owningRow(for: bounds, strokeBounds: strokeBounds,
                 in: rows, engravingChanged: engravingChanged && usesStaffFrames) {

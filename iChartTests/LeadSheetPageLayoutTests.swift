@@ -3072,6 +3072,45 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         XCTAssertTrue(reopened.measure(id: insertedID)?.chordEvents.isEmpty == true)
     }
 
+    func testJoiningTwoFittedRhythmMeasuresPreservesTheOtherMeasureFrames() throws {
+        var chart = Chart.blank(title: "Join Fitted Rhythm Measures", measureCount: 10, layoutStyle: .rhythmSectionSheet)
+        let rowIDs = Array(chart.measures.prefix(8).map(\.id))
+        for id in rowIDs {
+            chart.setMeasureManualLayoutWidth(Measure.minimumManualLayoutWidth, for: id)
+        }
+        let size = CGSize(width: 990, height: 1_100)
+        let initial = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: size)
+        let initialRow = try XCTUnwrap(initial.systems.first)
+        XCTAssertEqual(initialRow.measures.compactMap(\.sourceMeasureID), rowIDs)
+        let availableWidth = LeadSheetPageLayoutEngine.rhythmSectionAvailableRowWidth(for: initialRow, in: initial)
+        _ = try XCTUnwrap(chart.insertMeasure(inRhythmRow: rowIDs, availableWidth: availableWidth, after: rowIDs[4]))
+
+        let fitted = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: size)
+        let fittedRow = try XCTUnwrap(fitted.systems.first)
+        XCTAssertEqual(fittedRow.measures.count, 9)
+        let left = try XCTUnwrap(fittedRow.measures[1].sourceMeasureID)
+        let right = try XCTUnwrap(fittedRow.measures[2].sourceMeasureID)
+        let leftFrame = fittedRow.measures[1].staffFrame
+        let rightFrame = fittedRow.measures[2].staffFrame
+        XCTAssertTrue(chart.joinMeasure(after: left, sourceMeasureWidths: [
+            left: Double(leftFrame.width), right: Double(rightFrame.width),
+        ]))
+        let reopened = try JSONDecoder().decode(Chart.self, from: JSONEncoder().encode(chart))
+        let merged = LeadSheetPageLayoutEngine.pageLayout(for: reopened, pageSize: size)
+        let mergedRow = try XCTUnwrap(merged.systems.first)
+        let expectedIDs = fittedRow.measures.compactMap(\.sourceMeasureID).filter { $0 != right }
+        XCTAssertEqual(mergedRow.measures.compactMap(\.sourceMeasureID), expectedIDs)
+        let oldFrames = Dictionary(uniqueKeysWithValues: fittedRow.measures.compactMap { item in
+            item.sourceMeasureID.map { ($0, item.staffFrame) }
+        })
+        for item in mergedRow.measures {
+            let id = try XCTUnwrap(item.sourceMeasureID)
+            let expected = id == left ? leftFrame.union(rightFrame) : try XCTUnwrap(oldFrames[id])
+            XCTAssertEqual(item.staffFrame.minX, expected.minX, accuracy: 0.001)
+            XCTAssertEqual(item.staffFrame.maxX, expected.maxX, accuracy: 0.001)
+        }
+    }
+
     func testRhythmAddDoubleBarlineFitsNewOpenMeasureInSameRow() throws {
         var chart = makeEightMeasureRhythmSetup()
         let measureIDs = chart.measures.map(\.id)

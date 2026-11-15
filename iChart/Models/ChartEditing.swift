@@ -1237,7 +1237,17 @@ extension Chart {
         leftMeasure.roadmapObjectIDs.append(contentsOf: rightMeasure.roadmapObjectIDs.filter {
             !leftMeasure.roadmapObjectIDs.contains($0)
         })
-        if leftMeasure.manualLayoutWidth != nil || rightMeasure.manualLayoutWidth != nil {
+        if let fittedRowID = leftMeasure.rhythmFittedRowID,
+           fittedRowID == rightMeasure.rhythmFittedRowID,
+           let leftFittedWeight = leftMeasure.manualLayoutWidth,
+           let rightFittedWeight = rightMeasure.manualLayoutWidth,
+           leftFittedWeight.isFinite, leftFittedWeight > 0,
+           rightFittedWeight.isFinite, rightFittedWeight > 0,
+           (leftFittedWeight + rightFittedWeight).isFinite {
+            // A fitted row stores relative widths. Keep its total weight
+            // so joining a pair does not move the rest of the barlines.
+            leftMeasure.manualLayoutWidth = leftFittedWeight + rightFittedWeight
+        } else if leftMeasure.manualLayoutWidth != nil || rightMeasure.manualLayoutWidth != nil {
             leftMeasure.manualLayoutWidth = Double(
                 Measure.clampedManualLayoutWidth(CGFloat(leftWeight + rightWeight))
             )

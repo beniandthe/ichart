@@ -100,6 +100,60 @@ final class FreeInkChordAttachmentTests: XCTestCase {
             CGAffineTransform(translationX: 20, y: 0))
     }
 
+    func testStationaryLeadingChordDoesNotLeaveStaffInkAcrossShortenedBarline() throws {
+        var chart = Chart.blank(title: "Stationary chord resize", key: .cMajor,
+            measureCount: 20, layoutStyle: .rhythmSectionSheet)
+        let ids = chart.measures.map(\.id)
+        let firstID = try XCTUnwrap(ids.first)
+        chart.setMeasureManualLayoutWidth(240, for: firstID)
+        let text = "C7(b9)(#5)"
+        let chordID = try XCTUnwrap(chart.appendRecognizedChordEvent(
+            ChordSymbolParser.parse(text), rawInput: text, to: firstID, atFraction: 0))
+        XCTAssertTrue(chart.moveChordEventInCommittedChordLane(chordID, to: firstID,
+            atFraction: 0, visualFraction: 0, preserveMusicalPlacement: true))
+
+        let pageSize = CGSize(width: 990, height: 1_200)
+        func space(for chart: Chart) throws -> PersistentInkCoordinateSpace {
+            let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize)
+            return try XCTUnwrap(LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(
+                for: layout, relativeTo: LeadSheetActiveInkScope.pageWritingFrame(for: layout)))
+        }
+        func staff(in space: PersistentInkCoordinateSpace) throws -> CGRect {
+            try XCTUnwrap(space.measureAnchors?.first { $0.measureID == firstID }?.staffFrame).rect
+        }
+        let source = try space(for: chart)
+        let oldStaff = try staff(in: source)
+        let before = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize)
+        let firstRow = try XCTUnwrap(before.systems.first)
+        let availableBody = LeadSheetPageLayoutEngine.rhythmSectionAvailableRowWidth(for: firstRow, in: before)
+        var resized = chart
+        XCTAssertTrue(resized.fitRhythmMeasureRows([ids], availableWidths: [availableBody]))
+        let target = try space(for: resized)
+        let newStaff = try staff(in: target)
+        let chord = try XCTUnwrap(source.chordAnchors?.first { $0.chordID == chordID })
+        XCTAssertEqual(target.chordAnchors?.first { $0.chordID == chordID }, chord,
+            "The leading chord must remain stationary through fitted-row compression")
+        let frame = chord.frame.rect
+        let startX = max(newStaff.maxX + 5, frame.minX + 5)
+        let endX = min(frame.maxX - 5, oldStaff.maxX - 5)
+        XCTAssertGreaterThan(endX, startX, "A long leading glyph must overhang the compressed staff")
+        let x = (startX + endX) / 2
+        let y = max(oldStaff.midY, frame.maxY + 6)
+        XCTAssertLessThan(y + 4, oldStaff.maxY, "The stroke must be on the original staff")
+        let sourceStroke = stroke([CGPoint(x: x, y: y), CGPoint(x: x + 2, y: y + 2)], seed: 51)
+        let sourceDrawing = PKDrawing(strokes: [sourceStroke])
+        XCTAssertTrue(oldStaff.contains(sourceStroke.renderBounds))
+        XCTAssertGreaterThan(sourceStroke.renderBounds.minX, newStaff.maxX)
+        let projected = LeadSheetPersistentInkCoordinateSpacePolicy.drawing(sourceDrawing,
+            sourceCoordinateSpace: source, targetCoordinateSpace: target)
+        let projectedStroke = try XCTUnwrap(projected.strokes.first)
+        XCTAssertTrue(newStaff.contains(projectedStroke.renderBounds),
+            "Staff ink must stay with its measure when a neighboring barline moves under a stationary chord")
+        let projectedPoint = try XCTUnwrap(projectedStroke.path.first).location.applying(projectedStroke.transform)
+        XCTAssertEqual((projectedPoint.x - newStaff.minX) / newStaff.width,
+            (x - oldStaff.minX) / oldStaff.width, accuracy: 0.002)
+    }
+
     private func coordinateSpace(for chart: Chart) throws -> PersistentInkCoordinateSpace {
         let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart,
             pageSize: CGSize(width: 900, height: 1_200))
