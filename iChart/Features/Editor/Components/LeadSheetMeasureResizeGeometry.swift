@@ -1075,190 +1075,91 @@ enum LeadSheetRhythmSectionRowEqualizationPolicy {
     }
 }
 
-enum LeadSheetJoinRowEqualizationPolicy {
-    static func manualLayoutWidths(
-        startingAt measureID: UUID,
-        in pageLayout: LeadSheetPageLayout,
-        chart: Chart
-    ) -> [UUID: CGFloat] {
-        guard chart.layoutStyle == .simpleChordSheet || chart.layoutStyle == .rhythmSectionSheet,
-              let selectedSystemIndex = pageLayout.systems.firstIndex(where: { system in
-                  system.measures.first?.sourceMeasureID == measureID
-              }),
-              selectedSystemIndex > 0 else {
-            return [:]
-        }
+enum LeadSheetRowMoveDirection {
+    case above
+    case below
+}
 
-        let destinationSystem = pageLayout.systems[selectedSystemIndex - 1]
-        let destinationMeasureIDs = destinationSystem.measures.compactMap(\.sourceMeasureID)
-        let joinedMeasureIDs = destinationMeasureIDs + [measureID]
-        guard !destinationMeasureIDs.isEmpty,
-              Set(joinedMeasureIDs).count == joinedMeasureIDs.count else {
-            return [:]
-        }
+struct LeadSheetAdjacentRowMovePlan {
+    let originalRows: [[UUID]]
+    let rows: [[UUID]]
+    let equalizedWidthPerMeasure: [CGFloat]
 
-        let paperFrame = pageLayout.paperFrame(for: destinationSystem)
-        let maxSystemWidth = max(1, paperFrame.width - 68)
-        let targetManualWidth: CGFloat
-        switch chart.layoutStyle {
-        case .simpleChordSheet:
-            let bodyWidth = LeadSheetPageLayoutEngine.simpleChordSheetMaximumRowBodyWidth(
-                chart: chart,
-                maxSystemWidth: maxSystemWidth
-            )
-            targetManualWidth = LeadSheetPageLayoutEngine.simpleChordSheetManualLayoutWidthForTargetRowWidth(
-                bodyWidth / CGFloat(joinedMeasureIDs.count),
-                chart: chart,
-                maxSystemWidth: maxSystemWidth
-            )
-        case .rhythmSectionSheet:
-            let leadingSignatureWidth = max(
-                0,
-                (destinationSystem.measures.first?.frame.width ?? 0)
-                    - (destinationSystem.measures.first?.staffFrame.width ?? 0)
-            )
-            let bodyWidth = max(1, maxSystemWidth - leadingSignatureWidth - 6)
-            let proposedWidth = bodyWidth / CGFloat(joinedMeasureIDs.count)
-            guard proposedWidth >= Measure.minimumManualLayoutWidth else {
-                return [:]
-            }
-            targetManualWidth = Measure.clampedManualLayoutWidth(proposedWidth)
-        case .leadSheet:
-            return [:]
-        }
-
-        return Dictionary(uniqueKeysWithValues: joinedMeasureIDs.map { ($0, targetManualWidth) })
+    func apply(to chart: inout Chart) -> Bool {
+        chart.reflowMeasureRows(originalRows, into: rows, equalizedWidthPerMeasure: equalizedWidthPerMeasure)
     }
 }
 
-struct LeadSheetMoveMeasureToRowBelowPlan {
-    var measureID: UUID
-    var nextRowFirstMeasureID: UUID
-    var sourceRowMeasureIDs: [UUID]
-    var destinationRowMeasureIDs: [UUID]
-    var equalizedManualWidths: [UUID: CGFloat]
-}
+enum LeadSheetAdjacentRowMovePolicy {
+    enum Failure: Error {
+        case noNeighbor
+        case pageBreak
+        case keyChange
+        case measureLimit
+    }
 
-enum LeadSheetMoveMeasureToRowBelowPolicy {
     static func plan(
         for measureID: UUID,
+        direction: LeadSheetRowMoveDirection,
         in pageLayout: LeadSheetPageLayout,
         chart: Chart
-    ) -> LeadSheetMoveMeasureToRowBelowPlan? {
+    ) -> Result<LeadSheetAdjacentRowMovePlan, Failure> {
         guard chart.layoutStyle == .simpleChordSheet || chart.layoutStyle == .rhythmSectionSheet,
-              let sourceSystemIndex = pageLayout.systems.firstIndex(where: { system in
+              let selectedSystemIndex = pageLayout.systems.firstIndex(where: { system in
                   system.measures.contains { $0.sourceMeasureID == measureID }
-              }),
-              pageLayout.systems.indices.contains(sourceSystemIndex + 1) else {
-            return nil
+              }) else {
+            return .failure(.noNeighbor)
         }
 
-        let sourceSystem = pageLayout.systems[sourceSystemIndex]
-        let destinationSystem = pageLayout.systems[sourceSystemIndex + 1]
-        let sourceMeasureIDs = sourceSystem.measures.compactMap(\.sourceMeasureID)
-        let existingDestinationMeasureIDs = destinationSystem.measures.compactMap(\.sourceMeasureID)
-        guard sourceMeasureIDs.count > 1,
-              sourceMeasureIDs.last == measureID,
-              let nextRowFirstMeasureID = existingDestinationMeasureIDs.first,
-              !existingDestinationMeasureIDs.contains(measureID),
-              let sourcePageIndex = pageIndex(containing: sourceSystem.id, in: pageLayout),
-              let destinationPageIndex = pageIndex(containing: destinationSystem.id, in: pageLayout),
-              sourcePageIndex == destinationPageIndex,
-              chart.canMoveMeasureToRowBelow(
-                measureID,
-                nextRowStartingAt: nextRowFirstMeasureID
-              ) else {
-            return nil
+        let upperIndex = direction == .above ? selectedSystemIndex - 1 : selectedSystemIndex
+        guard pageLayout.systems.indices.contains(upperIndex),
+              pageLayout.systems.indices.contains(upperIndex + 1) else {
+            return .failure(.noNeighbor)
         }
 
-        let remainingSourceMeasureIDs = Array(sourceMeasureIDs.dropLast())
-        let destinationMeasureIDs = [measureID] + existingDestinationMeasureIDs
-        if let measureCap = chart.layoutStyle.profile.measureDefaults.maximumMeasuresPerSystem,
-           destinationMeasureIDs.count > measureCap {
-            return nil
+        let systems = Array(pageLayout.systems[upperIndex...upperIndex + 1])
+        let originalRows = systems.map { $0.measures.compactMap(\.sourceMeasureID) }
+        let measureIDs = originalRows.flatMap { $0 }
+        guard let lowerFirstID = originalRows[1].first,
+              !originalRows[0].isEmpty,
+              let selectedIndex = measureIDs.firstIndex(of: measureID) else {
+            return .failure(.noNeighbor)
+        }
+        if chart.hasExplicitPageBreak(before: lowerFirstID) {
+            return .failure(.pageBreak)
+        }
+        if chart.keyChange(atStartOf: lowerFirstID) != nil {
+            return .failure(.keyChange)
         }
 
-        guard let sourceWidths = manualLayoutWidths(
-            for: remainingSourceMeasureIDs,
-            using: sourceSystem,
-            in: pageLayout,
-            chart: chart
-        ),
-        let destinationWidths = manualLayoutWidths(
-            for: destinationMeasureIDs,
-            using: destinationSystem,
-            in: pageLayout,
-            chart: chart
-        ) else {
-            return nil
+        // Move the boundary through the selected measure. An interior
+        // selection carries the intervening measures in musical order.
+        let newBreakIndex = direction == .above ? selectedIndex + 1 : selectedIndex
+        let rows = [Array(measureIDs.prefix(newBreakIndex)), Array(measureIDs.dropFirst(newBreakIndex))]
+            .filter { !$0.isEmpty }
+        if let cap = chart.layoutStyle.profile.measureDefaults.maximumMeasuresPerSystem,
+           rows.contains(where: { $0.count > cap }) {
+            return .failure(.measureLimit)
         }
 
-        var equalizedManualWidths = sourceWidths
-        for (destinationMeasureID, width) in destinationWidths {
-            equalizedManualWidths[destinationMeasureID] = width
-        }
-        let affectedMeasureIDs = Set(remainingSourceMeasureIDs + destinationMeasureIDs)
-        guard Set(equalizedManualWidths.keys) == affectedMeasureIDs else {
-            return nil
-        }
-
-        return LeadSheetMoveMeasureToRowBelowPlan(
-            measureID: measureID,
-            nextRowFirstMeasureID: nextRowFirstMeasureID,
-            sourceRowMeasureIDs: remainingSourceMeasureIDs,
-            destinationRowMeasureIDs: destinationMeasureIDs,
-            equalizedManualWidths: equalizedManualWidths
-        )
-    }
-
-    private static func pageIndex(
-        containing systemID: UUID,
-        in pageLayout: LeadSheetPageLayout
-    ) -> Int? {
-        pageLayout.pages.first { $0.systemIDs.contains(systemID) }?.index
-    }
-
-    private static func manualLayoutWidths(
-        for measureIDs: [UUID],
-        using system: LeadSheetSystemLayout,
-        in pageLayout: LeadSheetPageLayout,
-        chart: Chart
-    ) -> [UUID: CGFloat]? {
-        guard !measureIDs.isEmpty else {
-            return nil
-        }
-
-        let paperFrame = pageLayout.paperFrame(for: system)
-        let maxSystemWidth = max(1, paperFrame.width - 68)
-        let targetManualWidth: CGFloat
-        switch chart.layoutStyle {
-        case .simpleChordSheet:
-            let bodyWidth = LeadSheetPageLayoutEngine.simpleChordSheetMaximumRowBodyWidth(
-                chart: chart,
-                maxSystemWidth: maxSystemWidth
-            )
-            targetManualWidth = LeadSheetPageLayoutEngine.simpleChordSheetManualLayoutWidthForTargetRowWidth(
-                bodyWidth / CGFloat(measureIDs.count),
-                chart: chart,
-                maxSystemWidth: maxSystemWidth
-            )
-        case .rhythmSectionSheet:
-            let leadingSignatureWidth = max(
-                0,
-                (system.measures.first?.frame.width ?? 0)
-                    - (system.measures.first?.staffFrame.width ?? 0)
-            )
-            let bodyWidth = max(1, maxSystemWidth - leadingSignatureWidth - 6)
-            let proposedWidth = bodyWidth / CGFloat(measureIDs.count)
-            guard proposedWidth >= Measure.minimumManualLayoutWidth else {
-                return nil
+        let equalizedWidths = zip(rows, systems).map { row, system in
+            if chart.layoutStyle == .simpleChordSheet {
+                let maxSystemWidth = max(1, pageLayout.paperFrame(for: system).width - 68)
+                let bodyWidth = LeadSheetPageLayoutEngine.simpleChordSheetMaximumRowBodyWidth(
+                    chart: chart, maxSystemWidth: maxSystemWidth
+                )
+                return LeadSheetPageLayoutEngine.simpleChordSheetManualLayoutWidthForTargetRowWidth(
+                    bodyWidth / CGFloat(row.count), chart: chart, maxSystemWidth: maxSystemWidth
+                )
             }
-            targetManualWidth = Measure.clampedManualLayoutWidth(proposedWidth)
-        case .leadSheet:
-            return nil
-        }
 
-        return Dictionary(uniqueKeysWithValues: measureIDs.map { ($0, targetManualWidth) })
+            let bodyWidth = LeadSheetPageLayoutEngine.rhythmSectionAvailableRowWidth(for: system, in: pageLayout)
+            return bodyWidth / CGFloat(row.count)
+        }
+        return .success(LeadSheetAdjacentRowMovePlan(
+            originalRows: originalRows, rows: rows, equalizedWidthPerMeasure: equalizedWidths
+        ))
     }
 }
+
 #endif

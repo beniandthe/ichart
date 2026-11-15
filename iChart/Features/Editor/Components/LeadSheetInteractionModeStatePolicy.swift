@@ -301,11 +301,11 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
             return drawing
         }
 
-        // Rotation changes the viewport. Engraving and row reflow can change
-        // the staff itself, so use the authored staff geometry when supported.
+        // Compare authored measure and chord geometry for page ink. Rotation
+        // alone must keep the existing logical paper coordinates.
         if isPageCoordinateSpace(sourceCoordinateSpace)
             || isPageCoordinateSpace(targetCoordinateSpace) {
-            return staffRelativeDrawing(drawing, from: sourceCoordinateSpace, to: targetCoordinateSpace)
+            return pageRelativeDrawing(drawing, from: sourceCoordinateSpace, to: targetCoordinateSpace)
         }
 
         // Header, chord and rhythmic canvases retain their existing mapping.
@@ -360,9 +360,15 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
         return sourcePreset != targetPreset
     }
 
-    private struct StaffRow {
-        var anchors: [PersistentInkMeasureAnchor]
-        var staff: CGRect
+    private struct MeasureGeometry {
+        var id: UUID
+        var frame: CGRect
+        var writingTop: CGFloat
+    }
+
+    private struct MeasureRow {
+        var measures: [MeasureGeometry]
+        var frame: CGRect
         var top: CGFloat
     }
 
@@ -406,29 +412,39 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
         if let cached = tailPaperInkBoundsCache.object(forKey: key) {
             return cached.cgRectValue.isNull ? nil : cached.cgRectValue
         }
-        let anchors = (sourceCoordinateSpace.measureAnchors ?? []).filter { validStaffFrame($0.staffFrame) }
-        let rows = staffRows(from: anchors)
+        let rows = measureRows(from: measureGeometry(in: sourceCoordinateSpace, usesStaffFrames: true))
         guard let last = rows.last,
               let drawing = try? PKDrawing(data: data), !drawing.strokes.isEmpty else { return nil }
-        let padding = rows.map { $0.staff.height / 4 }.min()! * 0.25
+        let padding = rows.map { $0.frame.height }.min()! / 16
         let bounds = connectedStrokeGroups(drawing.strokes, padding: padding).reduce(CGRect.null) { result, indices in
             let group = indices.reduce(CGRect.null) { $0.union(drawing.strokes[$1].renderBounds) }
-            return isUnownedTailPaperInk(group, below: last.staff) ? result.union(group) : result
+            return isUnownedTailPaperInk(group, below: last.frame) ? result.union(group) : result
         }
         tailPaperInkBoundsCache.setObject(NSValue(cgRect: bounds), forKey: key, cost: data.count)
         return bounds.isNull ? nil : bounds
     }
 
-    private static func staffRows(from sourceAnchors: [PersistentInkMeasureAnchor]) -> [StaffRow] {
-        var rows: [StaffRow] = []
-        for anchor in sourceAnchors.sorted(by: { $0.staffFrame!.y < $1.staffFrame!.y }) {
-            let staff = anchor.staffFrame!.rect
-            if let index = rows.indices.last, abs(rows[index].staff.minY - staff.minY) < 0.01 {
-                rows[index].anchors.append(anchor)
-                rows[index].staff = rows[index].staff.union(staff)
-                rows[index].top = min(rows[index].top, anchor.frame.rect.minY)
+    private static func measureGeometry(
+        in space: PersistentInkCoordinateSpace,
+        usesStaffFrames: Bool
+    ) -> [MeasureGeometry] {
+        (space.measureAnchors ?? []).compactMap { anchor in
+            let frame = usesStaffFrames ? anchor.staffFrame : anchor.frame
+            guard let frame, validFrame(frame), validFrame(anchor.frame) else { return nil }
+            return MeasureGeometry(id: anchor.measureID, frame: frame.rect,
+                writingTop: anchor.frame.rect.minY)
+        }
+    }
+
+    private static func measureRows(from measures: [MeasureGeometry]) -> [MeasureRow] {
+        var rows: [MeasureRow] = []
+        for measure in measures.sorted(by: { $0.frame.minY < $1.frame.minY }) {
+            if let index = rows.indices.last, abs(rows[index].frame.minY - measure.frame.minY) < 0.01 {
+                rows[index].measures.append(measure)
+                rows[index].frame = rows[index].frame.union(measure.frame)
+                rows[index].top = min(rows[index].top, measure.writingTop)
             } else {
-                rows.append(StaffRow(anchors: [anchor], staff: staff, top: anchor.frame.rect.minY))
+                rows.append(MeasureRow(measures: [measure], frame: measure.frame, top: measure.writingTop))
             }
         }
         return rows
@@ -438,122 +454,125 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
         bounds.minY > lastStaff.maxY + max(80, lastStaff.height * 2)
     }
 
-    private static func joinsSingletonStaffRows(_ sourceRows: [StaffRow], into targetRows: [StaffRow]) -> Bool {
-        guard sourceRows.count > targetRows.count else { return false }
-        var remaining = sourceRows[...]
-        for targetRow in targetRows {
-            guard let sourceRow = remaining.popFirst() else { return false }
-            let sourceIDs = sourceRow.anchors.map(\.measureID)
-            let targetIDs = targetRow.anchors.map(\.measureID)
-            guard targetIDs.starts(with: sourceIDs) else { return false }
-            for measureID in targetIDs.dropFirst(sourceIDs.count) {
-                guard let singleton = remaining.popFirst(),
-                      singleton.anchors.count == 1,
-                      singleton.anchors.first?.measureID == measureID else { return false }
-            }
-        }
-        return remaining.isEmpty
-    }
-
-    private static func staffRelativeDrawing(
+    private static func pageRelativeDrawing(
         _ drawing: PKDrawing,
         from source: PersistentInkCoordinateSpace,
         to target: PersistentInkCoordinateSpace
     ) -> PKDrawing {
         let engravingChanged = changesStaffEngraving(from: source, to: target)
-        if !engravingChanged {
-            guard source.engravingPreset != nil, source.engravingPreset == target.engravingPreset,
-                  abs(source.width - target.width) < 0.01 else { return drawing }
-        }
-        let sourceAnchors = (source.measureAnchors ?? []).filter { validStaffFrame($0.staffFrame) }
-        let targetStaffAnchors = (target.measureAnchors ?? []).filter { validStaffFrame($0.staffFrame) }
-        guard !sourceAnchors.isEmpty, !targetStaffAnchors.isEmpty else { return drawing }
-        let rows = staffRows(from: sourceAnchors)
-        if !engravingChanged {
-            guard sourceAnchors.count == source.measureAnchors?.count,
-                  targetStaffAnchors.count == target.measureAnchors?.count,
-                  Set(sourceAnchors.map(\.measureID)).count == sourceAnchors.count else { return drawing }
-            let targetRows = staffRows(from: targetStaffAnchors)
-            // Ink can be saved after the join, then need to follow the lone
-            // measure back down when a later width edit separates the rows.
-            guard joinsSingletonStaffRows(rows, into: targetRows)
-                    || joinsSingletonStaffRows(targetRows, into: rows) else { return drawing }
-        }
-        let targetAnchors = Dictionary(targetStaffAnchors.map { ($0.measureID, $0) },
-            uniquingKeysWith: { first, _ in first })
+        guard engravingChanged || abs(source.width - target.width) < 0.01 else { return drawing }
+        let chordAttachments = LeadSheetFreeInkChordAttachmentPolicy(source: source, target: target)
+        let usesStaffFrames = (source.measureAnchors ?? []).contains { $0.staffFrame != nil }
+            || (target.measureAnchors ?? []).contains { $0.staffFrame != nil }
+        let canProjectMeasures = source.measureAnchors != target.measureAnchors
+        let sourceMeasures = canProjectMeasures ? measureGeometry(in: source, usesStaffFrames: usesStaffFrames) : []
+        let targetMeasures = canProjectMeasures ? measureGeometry(in: target, usesStaffFrames: usesStaffFrames) : []
+        let hasMeasureGeometry = !sourceMeasures.isEmpty && !targetMeasures.isEmpty
+            && sourceMeasures.count == source.measureAnchors?.count
+            && targetMeasures.count == target.measureAnchors?.count
+            && Set(sourceMeasures.map(\.id)).count == sourceMeasures.count
+            && Set(targetMeasures.map(\.id)).count == targetMeasures.count
+        guard chordAttachments.hasMovedChords || hasMeasureGeometry else { return drawing }
 
-        // Every stroke on a row uses one transform, including beams spanning
-        // barlines and notes made from separate notehead/stem/accidental strokes.
-        // Never assign these pieces to separate chord hit regions.
-        let transforms: [CGAffineTransform?] = rows.map { row in
-            let matches = row.anchors.compactMap { targetAnchors[$0.measureID]?.staffFrame?.rect }
-            guard matches.count == row.anchors.count, let first = matches.first,
-                  matches.allSatisfy({ abs($0.minY - first.minY) < 0.01
-                      && abs($0.height - first.height) < 0.01 }) else { return nil }
-            let destination = matches.reduce(CGRect.null) { $0.union($1) }
-            guard let transform = frameTransform(from: row.staff, to: destination),
-                  zip(row.anchors, matches).allSatisfy({ anchor, targetFrame in
-                      let projected = anchor.staffFrame!.rect.applying(transform)
-                      return abs(projected.minX - targetFrame.minX) < 0.01
-                          && abs(projected.maxX - targetFrame.maxX) < 0.01
-                          && abs(projected.minY - targetFrame.minY) < 0.01
-                          && abs(projected.maxY - targetFrame.maxY) < 0.01
-                  }) else {
-                // Manual widths stay fixed while default widths follow the
-                // preset. Matching row endpoints alone can move ink across an
-                // internal barline; use its owning measure in that case.
-                return nil
-            }
-            return transform
-        }
+        let rows = hasMeasureGeometry ? measureRows(from: sourceMeasures) : []
+        let targetFrames = Dictionary(targetMeasures.map { ($0.id, $0.frame) },
+            uniquingKeysWith: { first, _ in first })
+        let transforms = rows.map { rowTransform(for: $0, targetFrames: targetFrames) }
 
         var strokes = drawing.strokes
-        let padding = rows.map { $0.staff.height / 4 }.min()! * 0.25
+        var didTransform = false
+        let padding = (rows.map { $0.frame.height }.min() ?? 48) / 16
         for indices in connectedStrokeGroups(strokes, padding: padding) {
-            let bounds = indices.reduce(CGRect.null) { $0.union(strokes[$1].renderBounds) }
-            let index: Int
-            if engravingChanged {
-                guard bounds.maxY >= rows[0].top else { continue }
-                index = rows.indices.last(where: { bounds.midY >= rows[$0].top }) ?? 0
-                if index == rows.count - 1,
-                   isUnownedTailPaperInk(bounds, below: rows[index].staff) {
-                    continue
-                }
-            } else {
-                // A singleton row change moves only handwriting touching a single
-                // source staff. Paper annotations and ambiguous groups stay put.
-                let touchedRows = rows.indices.filter { index in
-                    let staff = rows[index].staff
-                    return bounds.intersects(staff)
-                        && indices.contains { strokes[$0].renderBounds.intersects(staff) }
-                }
-                guard touchedRows.count == 1, let touchedRow = touchedRows.first else { continue }
-                index = touchedRow
-            }
+            let strokeBounds = indices.map { strokes[$0].renderBounds }
+            let bounds = strokeBounds.reduce(CGRect.null) { $0.union($1) }
             let transform: CGAffineTransform?
-            if let rowTransform = transforms[index] {
-                transform = rowTransform
+            if let chordTransform = chordAttachments.transform(for: bounds) {
+                transform = chordTransform
+            } else if let index = owningRow(for: bounds, strokeBounds: strokeBounds,
+                in: rows, engravingChanged: engravingChanged && usesStaffFrames) {
+                transform = transforms[index] ?? measureTransform(for: bounds,
+                    in: rows[index], targetFrames: targetFrames)
             } else {
-                // Compact engraving can move measures onto different rows.
-                // Follow the annotation's measure ID, keeping its connected
-                // strokes together rather than leaving a whole row behind.
-                let owner = rows[index].anchors.min { first, second in
-                    horizontalDistance(bounds.midX, to: first.staffFrame!.rect)
-                        < horizontalDistance(bounds.midX, to: second.staffFrame!.rect)
-                }
-                transform = owner.flatMap { anchor in
-                    targetAnchors[anchor.measureID]?.staffFrame.flatMap {
-                        frameTransform(from: anchor.staffFrame!.rect, to: $0.rect)
-                    }
-                }
+                transform = nil
             }
-            guard let transform else { continue }
+            guard let transform, !transform.isIdentity else { continue }
+            didTransform = true
             let projected = PKDrawing(strokes: indices.map { strokes[$0] }).transformed(using: transform)
             for (offset, strokeIndex) in indices.enumerated() {
                 strokes[strokeIndex] = projected.strokes[offset]
             }
         }
-        return PKDrawing(strokes: strokes)
+        return didTransform ? PKDrawing(strokes: strokes) : drawing
+    }
+
+    private static func owningRow(
+        for bounds: CGRect,
+        strokeBounds: [CGRect],
+        in rows: [MeasureRow],
+        engravingChanged: Bool
+    ) -> Int? {
+        if engravingChanged {
+            guard let first = rows.first, bounds.maxY >= first.top else { return nil }
+            let index = rows.indices.last(where: { bounds.midY >= rows[$0].top }) ?? 0
+            if index == rows.count - 1, isUnownedTailPaperInk(bounds, below: rows[index].frame) {
+                return nil
+            }
+            return index
+        }
+
+        // Keep connected writing on one system. Between systems, attach only
+        // within a short band below a measure, where players write cues.
+        let touchedRows = rows.indices.filter { index in
+            let frame = rows[index].frame
+            return bounds.intersects(frame) && strokeBounds.contains { $0.intersects(frame) }
+        }
+        if !touchedRows.isEmpty {
+            return touchedRows.count == 1 ? touchedRows.first : nil
+        }
+        let rowsAbove = rows.indices.filter { index in
+            let measureSpan = rows[index].frame
+            let attachmentDepth = min(64, measureSpan.height)
+            return bounds.midX >= measureSpan.minX && bounds.midX <= measureSpan.maxX
+                && bounds.minY >= measureSpan.maxY
+                && bounds.maxY <= measureSpan.maxY + attachmentDepth
+        }
+        return rowsAbove.count == 1 ? rowsAbove.first : nil
+    }
+
+    private static func rowTransform(
+        for row: MeasureRow,
+        targetFrames: [UUID: CGRect]
+    ) -> CGAffineTransform? {
+        let matches = row.measures.compactMap { targetFrames[$0.id] }
+        guard matches.count == row.measures.count, let first = matches.first,
+              matches.allSatisfy({ abs($0.minY - first.minY) < 0.01
+                  && abs($0.height - first.height) < 0.01 }) else { return nil }
+        let destination = matches.reduce(CGRect.null) { $0.union($1) }
+        guard let transform = frameTransform(from: row.frame, to: destination),
+              zip(row.measures, matches).allSatisfy({ measure, targetFrame in
+                  let projected = measure.frame.applying(transform)
+                  return abs(projected.minX - targetFrame.minX) < 0.01
+                      && abs(projected.maxX - targetFrame.maxX) < 0.01
+                      && abs(projected.minY - targetFrame.minY) < 0.01
+                      && abs(projected.maxY - targetFrame.maxY) < 0.01
+              }) else {
+            // Row endpoints can agree even when an internal barline moved.
+            return nil
+        }
+        return transform
+    }
+
+    private static func measureTransform(
+        for bounds: CGRect,
+        in row: MeasureRow,
+        targetFrames: [UUID: CGRect]
+    ) -> CGAffineTransform? {
+        let owner = row.measures.min { first, second in
+            horizontalDistance(bounds.midX, to: first.frame)
+                < horizontalDistance(bounds.midX, to: second.frame)
+        }
+        guard let owner, let destination = targetFrames[owner.id] else { return nil }
+        return frameTransform(from: owner.frame, to: destination)
     }
 
     static func frameTransform(from source: CGRect, to target: CGRect) -> CGAffineTransform? {
@@ -595,8 +614,7 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
         return groups.values.sorted { $0[0] < $1[0] }
     }
 
-    private static func validStaffFrame(_ frame: PersistentInkFrame?) -> Bool {
-        guard let frame else { return false }
+    private static func validFrame(_ frame: PersistentInkFrame) -> Bool {
         return frame.x.isFinite && frame.y.isFinite && frame.width.isFinite
             && frame.height.isFinite && frame.width > 0 && frame.height > 0
     }

@@ -97,6 +97,8 @@ final class EditorToolGuidanceTests: XCTestCase {
                 XCTAssertTrue(guidance.referenceText.contains("Two fingers pan and zoom"))
                 XCTAssertTrue(guidance.referenceText.contains("other handwriting stays on the page"))
                 XCTAssertTrue(guidance.referenceText.contains("original strokes"))
+                XCTAssertTrue(guidance.referenceText.contains("Ink in or just below a measure follows it"))
+                XCTAssertTrue(guidance.referenceText.contains("Ink directly below a chord can follow that chord"))
                 XCTAssertTrue(guidance.referenceText.contains("Restore Ink to replace a converted mark"))
                 XCTAssertEqual(guidance.referenceText.contains("marcato"), style == .rhythmSectionSheet)
                 let withoutMarks = EditorCanvasMode.freeHand.toolGuidance(
@@ -122,10 +124,12 @@ final class EditorToolGuidanceTests: XCTestCase {
             XCTAssertTrue(guidance.referenceText.contains("Open Layout to compare each action"))
             XCTAssertTrue(guidance.referenceText.contains("read why an option is unavailable"))
             XCTAssertTrue(guidance.referenceText.contains("Tap an available action to apply it"))
+            XCTAssertTrue(guidance.referenceText.contains("Join Row Above moves from the start of the row through your selection"))
+            XCTAssertTrue(guidance.referenceText.contains("Move to Row Below moves from your selection through the end of the row"))
             let selectGuide = EditorCanvasMode.browse.toolGuidance(
                 layoutStyle: style, manualRenderWithPreview: false)
             if style == .rhythmSectionSheet {
-                XCTAssertTrue(guidance.accessibilitySummary.contains("right arrow left"))
+                XCTAssertTrue(guidance.accessibilitySummary.contains("Add One After fits the new measure in the row"))
                 XCTAssertTrue(guidance.referenceText.contains("When you release, a lone measure on the next row moves up if its full width fits."))
                 XCTAssertTrue(selectGuide.referenceText.contains("Manual row or page breaks and key changes keep their boundaries."))
             } else {

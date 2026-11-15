@@ -482,9 +482,11 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Measures stays one tap away; less-frequent structure and annotation commands live under Tools.",
             bullets: [
                 "Measures groups Add, Layout, and Delete actions for the selected measure.",
+                "On a Rhythm Section Sheet, choose Add > Add One After to insert a measure and give the row even widths, including when it’s already full.",
                 "On a Rhythm Section Sheet, select a measure to show its arrow handles. Use Apple Pencil to drag an inside handle to adjust the two neighboring widths, or drag the last measure’s right arrow left to shorten the row.",
                 "When you release, a lone measure on the next row moves up if its full width fits. Manual row or page breaks and key changes keep their boundaries.",
                 "Open Layout to compare Start New Row, Join Row Above, Move to Row Below, Even Row Widths, and Merge with Next Measure. The sheet explains each action and why an option is unavailable. Tap an available action to apply it.",
+                "Join Row Above moves from the start of the row through your selected measure. Move to Row Below moves from your selection through the end of the row. The rows adjust to fit.",
                 "Tools > Repeats groups Repeat Measures, Add Ending, and Manage. Add Ending offers 1st Ending…, 2nd Ending…, or Custom Ending… with a shared label and range editor.",
                 "Tools > Text uses the selected measure. Choose Above or Below. Tap the field to type, or tap its Pencil icon and write in the field. Tap Add or Apply.",
                 "Tools > Time Signature uses the selected measure. Tools > Form Markers opens a sheet: check the measure, choose a marker, then tap Add."
@@ -508,6 +510,7 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Use Free Ink to write or erase notes and marks, or draw a fermata (arch over a dot) or accent (>).",
             bullets: [
                 "Use it for handwritten rhythm notes and reminders.",
+                "Ink in or just below a measure follows it when the layout changes. Ink directly beneath a single chord can follow it when you move it. Notes in open page space stay where you drew them.",
                 "On a Simple Chord Sheet or Rhythm Section Sheet, draw a fermata or accent anywhere on the page. Lift the Pencil and pause. iChart converts clear marks into notation and leaves unclear marks as handwriting.",
                 "Leave clear space around each symbol. Rendering replaces only that symbol’s strokes; iChart keeps those strokes with the converted mark and leaves other handwriting on the page.",
                 "On a Simple Chord Sheet, a converted mark attaches above a nearby rendered chord. Other marks float where you drew them. Drag near a chord to attach; drag away to float. Deleting a chord keeps its mark floating.",

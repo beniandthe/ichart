@@ -2855,6 +2855,15 @@ extension Chart {
             return
         }
 
+        if let lastID = segmentMeasureIDs.last,
+           let lastMeasure = measure(id: lastID),
+           lastMeasure.authoringState == .open,
+           lastMeasure.rhythmFittedRowID != nil {
+            // Splitting already partitions this fitted row's relative width.
+            // A snapshot measured in points after rotation would mix scales.
+            return
+        }
+
         let sourceFrame = sourceGeometry.measureFrame
         let fractionFrame = sourceGeometry.fractionFrame
         let clampedBoundaryXs = boundaryFractions

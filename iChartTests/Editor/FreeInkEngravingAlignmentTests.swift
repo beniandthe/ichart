@@ -260,6 +260,72 @@ final class FreeInkEngravingAlignmentTests: XCTestCase {
         assertSamePoints(ink, project(ink, from: source.space, to: otherSpace))
     }
 
+    func testSavedFreeInkFollowsItsMeasureAfterInsertionAndResizeInBothEditorLayouts() throws {
+        for style in [ChartLayoutStyle.rhythmSectionSheet, .simpleChordSheet] {
+            var chart = Chart.draft(title: "Measure ink reflow", layoutStyle: style)
+            chart.completeInitialSetup(title: chart.title, key: .cMajor,
+                meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine, startingMeasureCount: 4)
+            let firstMeasureID = chart.measures[0].id
+            let inkMeasureID = chart.measures[1].id
+            let source = try geometry(chart)
+
+            func anchor(in space: PersistentInkCoordinateSpace) throws -> CGRect {
+                let measure = try XCTUnwrap(space.measureAnchors?.first { $0.measureID == inkMeasureID })
+                return measure.staffFrame?.rect ?? measure.frame.rect
+            }
+
+            let before = try anchor(in: source.space)
+            let attached = [
+                stroke([CGPoint(x: before.midX, y: before.midY),
+                    CGPoint(x: before.midX + 9, y: before.midY - 4)], seed: 700),
+                stroke([CGPoint(x: before.midX, y: before.maxY + 12),
+                    CGPoint(x: before.midX + 14, y: before.maxY + 12)], seed: 701),
+                stroke([CGPoint(x: before.midX + 9, y: before.maxY + 11),
+                    CGPoint(x: before.midX + 9, y: before.maxY + 18)], seed: 702)
+            ]
+            let paper = stroke([CGPoint(x: 24, y: 10), CGPoint(x: 37, y: 10)], seed: 703)
+            let original = PKDrawing(strokes: attached + [paper])
+            let bytes = original.dataRepresentation()
+            chart.pageHandwrittenNotationData = bytes
+            chart.pageHandwrittenNotationCoordinateSpace = source.space
+
+            let inserted = try XCTUnwrap(chart.insertMeasure(after: firstMeasureID))
+            XCTAssertNotNil(chart.setMeasureManualLayoutWidth(190, for: inserted))
+            let reopened = try JSONDecoder().decode(Chart.self, from: JSONEncoder().encode(chart))
+            let target = try geometry(reopened)
+            let after = try anchor(in: target.space)
+            XCTAssertNotEqual(before, after, "Fixture must change the owning measure's geometry in \(style)")
+            XCTAssertEqual(reopened.pageHandwrittenNotationData, bytes)
+            XCTAssertEqual(reopened.pageHandwrittenNotationCoordinateSpace, source.space)
+
+            let visible = try XCTUnwrap(LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
+                from: reopened.pageHandwrittenNotationData,
+                sourceCoordinateSpace: reopened.pageHandwrittenNotationCoordinateSpace,
+                targetCoordinateSpace: target.space))
+            XCTAssertEqual(visible.strokes.map(\.randomSeed), original.strokes.map(\.randomSeed))
+            for (sourceStroke, targetStroke) in zip(attached, visible.strokes) {
+                for (sourcePoint, targetPoint) in zip(sourceStroke.path, targetStroke.path) {
+                    let old = sourcePoint.location.applying(sourceStroke.transform)
+                    let new = targetPoint.location.applying(targetStroke.transform)
+                    XCTAssertEqual((old.x - before.minX) / before.width,
+                        (new.x - after.minX) / after.width, accuracy: 0.002, style.rawValue)
+                    XCTAssertEqual((old.y - before.minY) / before.height,
+                        (new.y - after.minY) / after.height, accuracy: 0.002, style.rawValue)
+                }
+            }
+            let visiblePaper = try XCTUnwrap(visible.strokes.last)
+            assertSamePoints(PKDrawing(strokes: [paper]), PKDrawing(strokes: [visiblePaper]))
+
+            let exported = try XCTUnwrap(LeadSheetSavedInkRenderer.renderedInkImage(bytes,
+                size: target.space.size, sourceCoordinateSpace: source.space,
+                targetCoordinateSpace: target.space, scale: 1))
+            let renderedVisible = try XCTUnwrap(LeadSheetSavedInkRenderer.renderedInkImage(
+                visible.dataRepresentation(), size: target.space.size,
+                sourceCoordinateSpace: target.space, targetCoordinateSpace: target.space, scale: 1))
+            XCTAssertEqual(exported.pngData(), renderedVisible.pngData(), style.rawValue)
+        }
+    }
+
     func testRhythmSingletonRowMergeMovesStaffInkAndKeepsPaperAnnotationsFixed() throws {
         var chart = Chart.draft(title: "Rhythm Row Merge", layoutStyle: .rhythmSectionSheet)
         chart.completeInitialSetup(title: chart.title, key: .cMajor,

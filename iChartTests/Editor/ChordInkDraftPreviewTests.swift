@@ -2722,6 +2722,41 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertNotNil(chart.pageHandwrittenChordData)
     }
 
+    func testRhythmDraftBarlinePartitionsFittedRowWithoutMovingOtherMeasures() throws {
+        for targetIndex in [3, 8] {
+            var chart = Chart.draft(title: "Fitted Rhythm Row", layoutStyle: .rhythmSectionSheet)
+            chart.completeInitialSetup(title: chart.title, key: .cMajor,
+                meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine, startingMeasureCount: 9)
+            XCTAssertTrue(chart.fitRhythmMeasureRows([chart.measures.map(\.id)], availableWidths: [790]))
+            let pageSize = CGSize(width: 1_166, height: 1_100)
+            let before = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize,
+                includesChordInkContinuationLanes: true)
+            let row = try XCTUnwrap(before.systems.first)
+            let target = row.measures[targetIndex]
+            let measureID = try XCTUnwrap(target.sourceMeasureID)
+            let lane = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingSystemLaneFrame(for: row,
+                paperFrame: before.paperFrame(for: row)))
+            let splitX = target.staffFrame.midX
+            let rendered = chart.commitChordInkDraftBarlines([
+                draftBarline(measureID: measureID, measureIndex: target.index, fraction: 0.5,
+                    laneLocation: ChordInkDraftLaneLocation(systemIndex: 0,
+                        fraction: Double((splitX - lane.minX) / lane.width)), layoutPageSize: pageSize)
+            ], layoutPageSize: pageSize, barlineSpacingMode: .drawn)
+
+            XCTAssertEqual(rendered.count, 1)
+            let after = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize,
+                includesChordInkContinuationLanes: true)
+            let rowAfter = try XCTUnwrap(after.systems.first)
+            XCTAssertEqual(rowAfter.measures.count, 10)
+            XCTAssertEqual(rowAfter.measures[targetIndex].trailingBarlineFrame.midX, splitX, accuracy: 1)
+            for original in row.measures where original.sourceMeasureID != measureID {
+                let retained = try XCTUnwrap(rowAfter.measures.first { $0.sourceMeasureID == original.sourceMeasureID })
+                XCTAssertEqual(retained.staffFrame.minX, original.staffFrame.minX, accuracy: 0.001)
+                XCTAssertEqual(retained.staffFrame.width, original.staffFrame.width, accuracy: 0.001)
+            }
+        }
+    }
+
     func testDraftBatchRenderCanEvenlySpaceDraftBarlineMeasures() throws {
         var chart = Chart.draft(title: "Even Spacing", layoutStyle: .simpleChordSheet)
         chart.completeInitialSetup(

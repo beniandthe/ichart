@@ -1,5 +1,30 @@
 # iChart Fix Docket
 
+## Measure rows and Free Ink — November 14, 2026
+
+**FIX-027: Fit measure inserts and adjacent-row moves.** Priority P1. In Rhythm
+Section Sheet, Add One After must fit a new measure in the selected row, including
+a ninth measure in a row of eight. Verify even widths and the same row membership
+after reopening. In both chart styles, Join Row Above and Move to Row Below must
+work from an interior measure and across automatically wrapped rows. Verify that
+the boundary shifts through the selected measure, the affected rows fit the page,
+and musical order, measure contents, and protected key and page boundaries are
+preserved.
+
+**FIX-028: Keep Free Ink with its music.** Priority P1. Existing handwriting
+within a measure or directly below it should follow the measure during insert,
+resize, or row movement. Writing directly below one identifiable chord should
+follow the chord when moved. Verify Simple and Rhythm with existing ink,
+connected writing, standalone page notes, a save and reopen, and PDF projection.
+
+Build 160 is a local iPad retest candidate based on 1.9.2 (159). The iPad
+Simulator walkthrough exercised Add One After on a full Rhythm row and both
+row moves in Simple and Rhythm. Native coverage checked reopening the resized
+row, preserved measure and chord identity, and shared editor/PDF ink
+projection. The paired iPad reported 1.9.1 (158). Its selected Rhythm chart
+had saved measure and chord anchors with its Free Ink. The chart still
+needs a physical retest.
+
 ## Pencil taps in text fields
 
 **FIX-026** addresses the period inserted when a Pencil tap is intended to focus
@@ -323,8 +348,15 @@ save and reopen. Preview, user edit, rendered result and saved data remain disti
 
 ## Remaining checks and parked work
 
-Retest FIX-026 first. In Header and Review Chords, use Apple Pencil to tap a
-field and check that the keyboard opens with the draft intact. Use the Pencil
+Retest FIX-027 and FIX-028 on Build 160. On the existing Rhythm chart, select
+a measure in the full row and use Add One After. Join the next measure to the
+singleton row above, then try Move to Row Below. Check the existing
+handwriting as the measures are moved or resized, and as the chord directly
+above it is moved. Reopen the chart and check the row and ink. Repeat the row
+move and ink check in Simple.
+
+For FIX-026, use Apple Pencil to tap a field in Header and Review Chords and
+check that the keyboard opens with the draft intact. Use the Pencil
 icon to start Scribble, write a word, pause, and write another word. Switch
 back to typing and check both words are present. Repeat in a multiline cue.
 
