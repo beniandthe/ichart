@@ -1223,6 +1223,27 @@ extension InkStroke {
             && !hasEarlyTopHorizontalRun
     }
 
+    /// A diagonal near the outside of a round mark does not form a slashed
+    /// circle. Test the stroke segments in the loop's normalized interior so
+    /// the check is independent of Pencil direction and glyph size.
+    func crossesDiminishedLoop(_ loop: InkBounds) -> Bool {
+        guard loop.width > 0, loop.height > 0 else { return false }
+        let radiusX = loop.width / 2
+        let radiusY = loop.height / 2
+        return zip(points, points.dropFirst()).contains { start, end in
+            let x = (start.x - loop.recognitionMidX) / radiusX
+            let y = (start.y - loop.recognitionMidY) / radiusY
+            let dx = (end.x - start.x) / radiusX
+            let dy = (end.y - start.y) / radiusY
+            let lengthSquared = dx * dx + dy * dy
+            guard lengthSquared > 0 else { return false }
+            let t = min(1, max(0, -(x * dx + y * dy) / lengthSquared))
+            let nearestX = x + dx * t
+            let nearestY = y + dy * t
+            return nearestX * nearestX + nearestY * nearestY <= 0.64
+        }
+    }
+
     var isHalfDiminishedSlashConstructionCandidate: Bool {
         bounds.width >= 4
             && bounds.height >= 4

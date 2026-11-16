@@ -105,6 +105,75 @@ final class MajorTriangleFallbackPolicyTests: XCTestCase {
         }
     }
 
+    func testNearbyDiagonalWithoutCrossingCannotOwnHalfDiminishedQuality() {
+        let circle = roundLoop()
+        let detachedDiagonal = [(11.0, 17.0), (14.0, 14.0), (17.0, 11.0)]
+        for circleFirst in [true, false] {
+            for reverse in [true, false] {
+                let loop = stroke(circle, reversed: reverse)
+                let line = stroke(detachedDiagonal, reversed: reverse)
+                let cluster = InkCluster(strokes: circleFirst ? [loop, line] : [line, loop])
+                let candidates = GestureTemplateRecognizer().rankedCandidates(for: cluster, templates: [])
+                XCTAssertFalse(candidates.contains { $0.text == "ø" && $0.source == .heuristic })
+            }
+        }
+
+        let letters = [glyph("B", confidence: 0.97), glyph("b", confidence: 0.92),
+            GlyphCandidate(text: "ø", confidence: 0.91, source: .composer), glyph("7", confidence: 0.93)]
+        var originalColumns = letters.map { [$0] }
+        originalColumns[2] = [glyph("D", confidence: 0.9), glyph("△", confidence: 0.50)]
+        let quality = InkCluster(strokes: [
+            stroke(circle.map { ($0.0 + 31, $0.1) }),
+            stroke(detachedDiagonal.map { ($0.0 + 31, $0.1) })
+        ])
+        let seven = [(56.0, 1.0), (67.0, 1.0), (60.0, 14.0)]
+        XCTAssertFalse(allows("Bbø7", glyphs: letters, clusters: flatRootClusters() + [
+            quality, InkCluster(strokes: [stroke(seven)])
+        ], columns: originalColumns))
+    }
+
+    func testHalfDiminishedSlashBassRequiresASeparateDiagonalAndBassLetter() {
+        let circle = stroke(roundLoop().map { ($0.0 + 29, $0.1) })
+        let cross = stroke([(28, 12), (35, 6), (43, 0)])
+        let quality = InkCluster(strokes: [circle, cross])
+        let slash = InkCluster(strokes: [stroke([(51, 23), (59, 7), (63, 0)])])
+        let horizontal = InkCluster(strokes: [stroke([(51, 8), (59, 8), (63, 8)])])
+        let bass = InkCluster(strokes: [stroke([(82, 8), (74, 6), (68, 13), (73, 21), (82, 23)])])
+        let terminalSeven = InkCluster(strokes: [
+            stroke([(68, 8), (72, 8), (76, 8), (81, 8), (79, 12), (77, 17), (74, 23)])
+        ])
+        let letters = [glyph("B", confidence: 0.97), glyph("b", confidence: 0.92),
+            glyph("ø", confidence: 0.94), glyph("/", confidence: 0.93), glyph("C", confidence: 0.88)]
+        let prefix = flatRootClusters() + [quality]
+        XCTAssertTrue(allows("Bbø/C", glyphs: letters, clusters: prefix + [slash, bass]))
+        XCTAssertFalse(allows("Bbø/C", glyphs: letters, clusters: prefix + [horizontal, bass]))
+        var competingColumns = letters.map { [$0] }
+        competingColumns[4].insert(glyph("7", confidence: 0.98), at: 0)
+        XCTAssertFalse(allows("Bbø/C", glyphs: letters, clusters: prefix + [slash, terminalSeven],
+            columns: competingColumns))
+    }
+
+    private func roundLoop() -> [(Double, Double)] {
+        (0...32).map { step in
+            let angle = Double(step) * 2 * .pi / 32
+            return (6 + 6 * cos(angle), 6 + 6 * sin(angle))
+        }
+    }
+
+    private func flatRootClusters() -> [InkCluster] {
+        [InkCluster(strokes: [stroke([(1, 0), (1, 27), (16, 20), (1, 13), (17, 8), (1, 0)])]),
+         InkCluster(strokes: [stroke([(21, -4), (21, 11), (27, 5), (21, 11)])])]
+    }
+
+    private func allows(_ text: String, glyphs: [GlyphCandidate], clusters: [InkCluster],
+        columns: [[GlyphCandidate]]? = nil) -> Bool {
+        let columnEvidence = columns ?? glyphs.map { [$0] }
+        return ChordInkCandidateEvidencePolicy().allows(
+            ChordInkCandidate(text: text, confidence: 5, glyphCandidates: glyphs),
+            candidateColumns: columnEvidence, clusters: clusters,
+            roleContext: ChordInkTheoryRoleContext(glyphCandidateGroups: columnEvidence, clusters: clusters))
+    }
+
     func testCapturedHalfDiminishedControlsRetainTheirExpectedChords() throws {
         let fixtures = try InkFixtureLoader.loadAll(file: #filePath)
             .filter { $0.expectedDisplayText.contains("ø") }

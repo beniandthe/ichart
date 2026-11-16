@@ -142,6 +142,38 @@ final class ChordInkAutomaticFallbackAdapterTests: XCTestCase {
         XCTAssertEqual(acceptedMapping.confidence, 0)
     }
 
+    func testFallbackRequiresSeparateInkForComplexSlashBassBeforeAutomaticPublication() throws {
+        let majorSeven = try InkFixtureLoader.load("BFlatMajor7SplitTriangleDevice02").strokes
+        let halfDiminished = try InkFixtureLoader.load("BFlatHalfDiminished7Captured01").strokes
+        let capturedInversion = try InkFixtureLoader.load("BFlatSlashDCaptured02").strokes
+        let slash = try XCTUnwrap(capturedInversion.dropFirst(3).first)
+        let c = try XCTUnwrap(InkFixtureLoader.load("CCaptured02").strokes.first)
+        let qualityBounds = InkBounds.enclosing(halfDiminished.map(\.bounds))
+        func placed(_ stroke: InkStroke, atX x: Double, centerY: Double) -> InkStroke {
+            InkStroke(points: stroke.points.map {
+                InkPoint(x: x + $0.x - stroke.bounds.minX,
+                    y: centerY + $0.y - (stroke.bounds.minY + stroke.bounds.maxY) / 2,
+                    timeOffset: $0.timeOffset)
+            })
+        }
+        let bassCenter = qualityBounds.recognitionMidY
+        let slashInk = placed(slash, atX: qualityBounds.maxX + 8, centerY: bassCenter)
+        let bassInk = placed(c, atX: slashInk.bounds.maxX + 10, centerY: bassCenter)
+        let output = RecognitionStudyVisionChordRecognizer.Result(decision: .review(.topCandidateOutsideGrammar),
+            candidates: [
+                .init(rawText: "Bbø7/C", rawConfidence: 0.96, normalizedChord: nil, passIndex: 0, rank: 0),
+                .init(rawText: "Bbmaj7", rawConfidence: 0.84, normalizedChord: nil, passIndex: 0, rank: 1)
+            ])
+        let result = try XCTUnwrap(ChordInkVisionAutomaticFallbackRecognizer.recognitionResult(
+            from: output, sourceStrokeCount: majorSeven.count))
+        XCTAssertEqual(ChordInkAutomaticFallbackCandidatePolicy.candidateScores(for: result,
+            originalSource: majorSeven).map(\.text), ["Bbmaj7"])
+        XCTAssertEqual(ChordInkAutomaticFallbackCandidatePolicy.candidateScores(for: result,
+            originalSource: halfDiminished + [slashInk]).map(\.text), ["Bbmaj7"])
+        XCTAssertEqual(ChordInkAutomaticFallbackCandidatePolicy.candidateScores(for: result,
+            originalSource: halfDiminished + [slashInk, bassInk]).map(\.text), ["Bbø7/C", "Bbmaj7"])
+    }
+
     func testVisionUnsupportedOutputAndObsoleteSourceProduceNoFabricatedCandidate() throws {
         let unsupported = RecognitionStudyVisionChordRecognizer.Result(decision: .noRead(.noGrammarCandidate),
             candidates: [.init(rawText: "hello", rawConfidence: 0.99, normalizedChord: nil, passIndex: 0, rank: 0)])

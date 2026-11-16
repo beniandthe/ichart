@@ -471,7 +471,7 @@ struct GestureTemplateRecognizer {
         // A retraced triangle base can look loop-like in isolation, with the
         // other leg satisfying the slash heuristic. Do not give that same pair
         // an equally strong half-diminished heuristic and break the tie by text.
-        if !isMajorTriangle, isHalfDiminishedLike(features) {
+        if !isMajorTriangle, isHalfDiminishedLike(features, sourceStrokes: sourceStrokes) {
             candidates.append(heuristicCandidate("ø", confidence: 0.999))
         }
 
@@ -723,17 +723,18 @@ struct GestureTemplateRecognizer {
             && !hasBroadTriangularOutline(stroke)
     }
 
-    private func isHalfDiminishedLike(_ features: RootGlyphFeatures) -> Bool {
-        guard features.strokeCount == 2 else {
+    private func isHalfDiminishedLike(
+        _ features: RootGlyphFeatures,
+        sourceStrokes: [InkStroke]
+    ) -> Bool {
+        guard features.strokeCount == 2,
+              let circleIndex = features.strokes.firstIndex(where: isDiminishedCircleStroke(_:)) else {
             return false
         }
 
-        let circleStroke = features.strokes.first(where: isDiminishedCircleStroke(_:))
-        let slashStroke = features.strokes.first { stroke in
-            isHalfDiminishedSlashStroke(stroke)
-        }
-
-        guard circleStroke != nil, slashStroke != nil else {
+        let slashIndex = 1 - circleIndex
+        guard isHalfDiminishedSlashStroke(features.strokes[slashIndex]),
+              sourceStrokes[slashIndex].crossesDiminishedLoop(features.strokes[circleIndex].bounds) else {
             return false
         }
 
