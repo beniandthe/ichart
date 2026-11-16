@@ -912,6 +912,88 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
         try await assertCommittedBarlineAndIndependentChordRender(manual: false)
     }
 
+    func testMixedChordAndBarlineRenderStaysInWritingInBothStyles() async throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            for manual in [false, true] {
+                try await assertMixedChordAndBarlineRender(style: style, manual: manual)
+            }
+        }
+    }
+
+    private func assertMixedChordAndBarlineRender(style: ChartLayoutStyle, manual: Bool) async throws {
+        var chart = Chart.draft(title: "Mixed barline workflow", layoutStyle: style)
+        chart.completeInitialSetup(title: chart.title, key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine, startingMeasureCount: 1)
+        let mounted = try await mount(manual: manual, initialChart: chart, freezesRecognition: false)
+        let canvas = mounted.canvas
+        let live = try XCTUnwrap(canvas.subviews.compactMap { $0 as? LeadSheetScopedInkCanvasView }.last)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart, pageSize: canvas.bounds.size, includesChordInkContinuationLanes: true)
+        let system = try XCTUnwrap(layout.systems.first)
+        let measure = try XCTUnwrap(system.measures.first { $0.sourceMeasureID == chart.measures.first?.id })
+        let sourceFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let lane = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
+            for: system, paperFrame: layout.paperFrame(for: system)))
+        let x = measure.staffFrame.midX - sourceFrame.minX
+        let y = lane.midY - sourceFrame.minY
+
+        func stroke(_ points: [CGPoint], seed: UInt32) -> PKStroke {
+            let path = PKStrokePath(controlPoints: points.enumerated().map { index, point in
+                PKStrokePoint(location: point, timeOffset: Double(index) * 0.05,
+                    size: CGSize(width: 3, height: 3), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+            }, creationDate: Date(timeIntervalSinceReferenceDate: Double(seed)))
+            return PKStroke(ink: PKInk(.pen, color: LeadSheetPersistentInkColorPolicy.inkColor),
+                path: path, transform: .identity, mask: nil, randomSeed: seed)
+        }
+        let captured = try XCTUnwrap(InkFixtureLoader.load("CCaptured02").strokes.first)
+        let bounds = captured.bounds
+        let scale = lane.height * 0.58 / CGFloat(bounds.height)
+        let gap: CGFloat = 5
+        func chord(leftEdge: CGFloat, seed: UInt32) -> PKStroke {
+            stroke(captured.points.map {
+                CGPoint(x: leftEdge + CGFloat($0.x - bounds.minX) * scale,
+                    y: y + CGFloat($0.y - (bounds.minY + bounds.maxY) / 2) * scale)
+            }, seed: seed)
+        }
+        let left = chord(leftEdge: x - gap - CGFloat(bounds.width) * scale, seed: 1)
+        let right = chord(leftEdge: x + gap, seed: 2)
+        let divider = stroke([
+            CGPoint(x: x, y: y - lane.height * 0.44),
+            CGPoint(x: x, y: y + lane.height * 0.44)
+        ], seed: 3)
+
+        canvas.canvasViewDidBeginUsingTool(live)
+        live.drawing = PKDrawing(strokes: [left, right, divider])
+        canvas.canvasViewDrawingDidChange(live)
+        canvas.canvasViewDidEndUsingTool(live)
+        if manual {
+            let render = try await waitForNode(in: mounted.window) {
+                $0.isButton && $0.isEnabled && $0.element.accessibilityLabel == "Render Chords"
+            }
+            try activate(render)
+        }
+
+        for _ in 0..<160 {
+            let updated = mounted.model.chart
+            if updated.measures.count == 2,
+               updated.measures.flatMap(\.chordEvents).count == 2,
+               updated.pageHandwrittenChordData == nil { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        let updated = mounted.model.chart
+        let route = "\(style.rawValue), \(manual ? "Manual" : "Automatic")"
+        XCTAssertEqual(updated.measures.count, 2, route)
+        XCTAssertEqual(updated.measures.map { $0.chordEvents.map(\.rawInput) }, [["C"], ["C"]], route)
+        XCTAssertNil(updated.pageHandwrittenChordData, route)
+        XCTAssertTrue(live.drawing.strokes.isEmpty, route)
+        XCTAssertNil(mounted.window.rootViewController?.presentedViewController, route)
+        for (event, original) in zip(updated.measures.flatMap(\.chordEvents), [left, right]) {
+            let archive = try PKDrawing(data: XCTUnwrap(event.sourceInkData))
+            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+                expected: PKDrawing(strokes: [original]), current: archive), route)
+        }
+    }
+
     private func assertCommittedBarlineAndIndependentChordRender(manual: Bool) async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

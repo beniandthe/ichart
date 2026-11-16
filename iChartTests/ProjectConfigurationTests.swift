@@ -1250,7 +1250,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("Use Apple Pencil to write in the highlighted lane above the staff."))
         XCTAssertTrue(libraryText.contains("On a Rhythm Section Sheet, the first chord in each measure renders on beat 1"))
         XCTAssertTrue(libraryText.contains("Choose Manual under Rendering in Write & Render or app Settings to check the previews"))
-        XCTAssertTrue(libraryText.contains("draw a tall, nearly vertical barline in the highlighted lane with space on either side."))
+        XCTAssertTrue(libraryText.contains("you can write chords and barlines in the same pass. Draw each barline tall and nearly vertical, with a gap on both sides."))
         XCTAssertTrue(libraryText.contains("When barlines form measures around rendered chords in either style, each resulting measure with just one chord moves that chord to beat 1."))
         XCTAssertTrue(libraryText.contains("Measures with multiple chords keep their relative placement."))
         XCTAssertTrue(libraryText.contains("a handwritten barline can split a measure at a rhythmic boundary in Automatic or Manual."))

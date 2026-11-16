@@ -267,6 +267,160 @@ final class ChordInkStructuralAutomaticRenderTests: XCTestCase {
         XCTAssertTrue(result.barlines.isEmpty)
     }
 
+    func testCloseHandwrittenChordsAndDividerKeepSeparateSourceInBothStylesAndModes() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            for dividerFirst in [true, false] {
+                var chart = makeChart(style)
+                let geometry = try fixture(chart)
+                let barX = try XCTUnwrap(geometry.system.measures.first).staffFrame.midX
+                let halfBarHeight = geometry.lane.height * 0.48
+                let chordHeight = 2 * halfBarHeight * 0.65
+                let gap = chordHeight * 0.25
+                let x = barX - geometry.chordFrame.minX
+                let y = geometry.lane.midY - geometry.chordFrame.minY
+                let b = try capturedB(rightEdge: x - gap, centerY: y, height: chordHeight,
+                    at: inputAt.addingTimeInterval(dividerFirst ? 0.2 : 0))
+                let c = stroke([
+                    CGPoint(x: x + gap + chordHeight * 0.45, y: y - chordHeight * 0.5),
+                    CGPoint(x: x + gap, y: y - chordHeight * 0.30),
+                    CGPoint(x: x + gap, y: y + chordHeight * 0.30),
+                    CGPoint(x: x + gap + chordHeight * 0.45, y: y + chordHeight * 0.5)
+                ], startedAt: inputAt.addingTimeInterval(dividerFirst ? 1.8 : 1.6))
+                let divider = stroke([
+                    CGPoint(x: x, y: y - halfBarHeight),
+                    CGPoint(x: x, y: y + halfBarHeight)
+                ], startedAt: inputAt.addingTimeInterval(dividerFirst ? 0 : 1.9))
+                let drawing = PKDrawing(strokes: dividerFirst ? [divider] + b + [c] : b + [c, divider])
+                let chords = [("B", PKDrawing(strokes: b)), ("C", PKDrawing(strokes: [c]))]
+                let source = try prepareMixed(drawing, chart: &chart, fixture: geometry, chords: chords)
+                XCTAssertEqual(source.state.draftBarlines.map(\.ownedSourceStrokeIndices),
+                    [dividerFirst ? Set([0]) : Set([3])], "\(style) dividerFirst=\(dividerFirst)")
+                let original = chart
+
+                let manual = ChordInkDraftRenderCoordinator.prepareManual(chart: chart, state: source.state,
+                    currentDrawing: source.drawing, coordinateSpace: .init(size: geometry.chordFrame.size),
+                    sourcePageLayout: geometry.layout, sourceChordFrame: geometry.chordFrame)
+                XCTAssertTrue(manual.canConsumeSource)
+                XCTAssertNil(manual.retainedDraft)
+                XCTAssertEqual(manual.result.renderedChordCount, 2)
+                XCTAssertEqual(manual.result.renderedBarlineCount, 1)
+                try assertRenderedSources(manual.chart, chords: chords, measureCount: 2)
+
+                let automatic = try XCTUnwrap(attempt(chart, source, elapsed: 4).outcome)
+                XCTAssertEqual(automatic.result.renderedBarlineCount, 1)
+                XCTAssertEqual(automatic.result.renderedChordCount, 2)
+                XCTAssertTrue(automatic.drawing.strokes.isEmpty)
+                try assertRenderedSources(automatic.chart, chords: chords, measureCount: 2)
+                XCTAssertEqual(chart, original)
+            }
+        }
+    }
+
+    func testTallHandwrittenBAndExistingDividerDoNotBecomeExtraNotationInEitherStyle() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            var chart = makeChart(style, startingMeasureCount: 2)
+            let geometry = try fixture(chart)
+            let first = try XCTUnwrap(geometry.system.measures.first)
+            let dividerX = first.trailingBarlineFrame.midX
+            let b = try capturedB(rightEdge: dividerX - geometry.chordFrame.minX - 26,
+                centerY: geometry.lane.midY - geometry.chordFrame.minY, height: geometry.lane.height * 0.84,
+                at: inputAt)
+            let expectedB = PKDrawing(strokes: b)
+            let bOnly = prepareDrawing(expectedB, chart: chart, fixture: geometry)
+            XCTAssertTrue(bOnly.barlines.isEmpty, "The captured B's tall stem belongs to its bowls")
+            guard case .ready(let targets, _) = bOnly.outcome else {
+                return XCTFail("The intact B must reach chord recognition")
+            }
+            XCTAssertEqual(targets.count, 1)
+            let target = try XCTUnwrap(targets.first)
+            XCTAssertEqual(target.strokes.count, b.count)
+            XCTAssertEqual(ChordInkRecognizer().recognize(strokes: target.strokes).match?.displayText, "B")
+
+            let divider = try XCTUnwrap(strokes(.single, x: dividerX, fixture: geometry,
+                startedAt: inputAt.addingTimeInterval(1.6)).first)
+            let originalIDs = chart.measures.map(\.id)
+            let chords = [("B", expectedB)]
+            let mixed = try prepareMixed(PKDrawing(strokes: b + [divider]), chart: &chart,
+                fixture: geometry, chords: chords)
+            XCTAssertEqual(mixed.state.draftBarlines.map(\.ownedSourceStrokeIndices), [Set([2])])
+
+            let manual = ChordInkDraftRenderCoordinator.prepareManual(chart: chart, state: mixed.state,
+                currentDrawing: mixed.drawing, coordinateSpace: .init(size: geometry.chordFrame.size),
+                sourcePageLayout: geometry.layout, sourceChordFrame: geometry.chordFrame)
+            XCTAssertTrue(manual.canConsumeSource)
+            XCTAssertEqual(manual.chart.measures.map(\.id), originalIDs)
+            try assertRenderedSources(manual.chart, chords: chords, measureCount: originalIDs.count)
+
+            let automatic = try XCTUnwrap(attempt(chart, mixed, elapsed: 4).outcome)
+            XCTAssertEqual(automatic.chart.measures.map(\.id), originalIDs)
+            try assertRenderedSources(automatic.chart, chords: chords, measureCount: originalIDs.count)
+        }
+    }
+
+    private func capturedB(rightEdge: CGFloat, centerY: CGFloat, height: CGFloat, at start: Date) throws -> [PKStroke] {
+        let captured = try InkFixtureLoader.load("BCaptured01").strokes
+        let points = captured.flatMap(\.points)
+        let minY = try XCTUnwrap(points.map(\.y).min())
+        let maxY = try XCTUnwrap(points.map(\.y).max())
+        let maxX = try XCTUnwrap(points.map(\.x).max())
+        let scale = height / CGFloat(maxY - minY)
+        return captured.enumerated().map { index, part in
+            stroke(part.points.map {
+                CGPoint(x: rightEdge + CGFloat($0.x - maxX) * scale,
+                    y: centerY + CGFloat($0.y - (minY + maxY) / 2) * scale)
+            }, startedAt: start.addingTimeInterval(Double(index) * 0.35))
+        }
+    }
+
+    private func prepareDrawing(_ drawing: PKDrawing, chart: Chart, fixture: Fixture) -> ChordInkRecognitionPreparationResult {
+        ChordInkRecognitionPreparation.prepare(.init(requestID: UUID(), scheduledAt: inputAt,
+            requestedDelay: 0, drawingData: drawing.dataRepresentation(), chordFrame: fixture.chordFrame,
+            pageLayout: fixture.layout, flow: .draftPreview, options: .live, layoutStyle: chart.layoutStyle))
+    }
+
+    private func prepareMixed(_ drawing: PKDrawing, chart: inout Chart, fixture: Fixture,
+        chords: [(String, PKDrawing)]) throws -> Input {
+        _ = chart.setPageHandwrittenChordDrawing(drawing.dataRepresentation(),
+            coordinateSpace: .init(size: fixture.chordFrame.size))
+        let stored = try PKDrawing(data: XCTUnwrap(chart.pageHandwrittenChordData))
+        let prepared = prepareDrawing(stored, chart: chart, fixture: fixture)
+        guard case .ready(let requests, _) = prepared.outcome else {
+            return try XCTUnwrap(nil as Input?, "Expected mixed-source chord targets, got \(prepared.outcome)")
+        }
+        XCTAssertEqual(requests.count, chords.count)
+        let inputs = try requests.map { request -> ChordInkDraftInput in
+            let read = try PKDrawing(data: request.drawingData)
+            let text = try XCTUnwrap(chords.first(where: {
+                ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: $0.1, current: read)
+            })?.0, "A chord target must own exactly its original ink")
+            let decision = ChordInkRecognitionDecision(action: .trusted, acceptedText: text,
+                reason: "Fixture chord", isCloseRace: false, competingCandidateText: nil, confidenceGap: nil)
+            return ChordInkDraftInput(measureID: request.target.measureID,
+                measureIndex: try XCTUnwrap(chart.measure(id: request.target.measureID)).index,
+                targetFraction: request.target.fraction, visualOrder: request.visualOrder,
+                laneLocation: request.laneLocation, layoutPageSize: pageSize, drawingData: request.drawingData,
+                candidateTexts: [text], bestCandidateText: text, confidence: 4.5, strokeCount: request.strokes.count,
+                recognitionDecision: decision, targetLifecycle: request.collectingTargetLifecycle.advanced(to: .stable),
+                requiresManualReviewOnly: request.requiresManualReviewOnly)
+        }
+        var state = ChordPreviewState(draftBarlines: prepared.barlines, layoutPageSize: pageSize)
+        state.replaceDraftChords(with: inputs)
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasCompleteCoverage(chart: chart, state: state))
+        return Input(drawing: stored, state: state, fixture: fixture)
+    }
+
+    private func assertRenderedSources(_ chart: Chart, chords: [(String, PKDrawing)], measureCount: Int) throws {
+        let reopened = try ChartPersistenceCoders.decoder.decode(Chart.self,
+            from: ChartPersistenceCoders.encoder.encode(chart))
+        XCTAssertEqual(reopened.measures.count, measureCount)
+        let events = reopened.measures.flatMap(\.chordEvents)
+        XCTAssertEqual(events.map(\.rawInput), chords.map { $0.0 })
+        for (event, expected) in zip(events, chords) {
+            let archived = try PKDrawing(data: XCTUnwrap(event.sourceInkData))
+            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(expected: expected.1, current: archived))
+        }
+    }
+
     private func prepareBarline(
         _ drawing: PKDrawing, chart: inout Chart, fixture: Fixture, expectedCount: Int = 1
     ) throws -> Input {
@@ -422,22 +576,22 @@ final class ChordInkStructuralAutomaticRenderTests: XCTestCase {
             sourcePageLayout: input.fixture.layout, sourceChordFrame: input.fixture.chordFrame)
     }
 
-    private func strokes(_ kind: DraftBarlineKind, x: CGFloat, fixture: Fixture) -> [PKStroke] {
+    private func strokes(_ kind: DraftBarlineKind, x: CGFloat, fixture: Fixture, startedAt: Date? = nil) -> [PKStroke] {
         let center = CGPoint(x: x - fixture.chordFrame.minX,
             y: fixture.lane.midY - fixture.chordFrame.minY)
         let height = fixture.lane.height * 0.84
         let result = [stroke([CGPoint(x: center.x, y: center.y - height / 2),
-            CGPoint(x: center.x, y: center.y + height / 2)])]
+            CGPoint(x: center.x, y: center.y + height / 2)], startedAt: startedAt)]
         return result
     }
 
-    private func stroke(_ points: [CGPoint], size: CGFloat = 3) -> PKStroke {
+    private func stroke(_ points: [CGPoint], size: CGFloat = 3, startedAt: Date? = nil) -> PKStroke {
         PKStroke(ink: .init(.pen, color: .black),
             path: PKStrokePath(controlPoints: points.enumerated().map { index, point in
                 PKStrokePoint(location: point, timeOffset: Double(index) * 0.05,
                     size: .init(width: size, height: size), opacity: 1, force: 1,
                     azimuth: 0, altitude: .pi / 2)
-            }, creationDate: inputAt))
+            }, creationDate: startedAt ?? inputAt))
     }
 }
 #endif

@@ -152,14 +152,15 @@ final class ChordInkDraftRenderCoordinator {
         }) else { return nil }
         var feedback = ChordInkAutomaticRenderFeedback.baseline(for: state)
         let sourceFrame = sourceChordFrame ?? LeadSheetActiveInkScope.chordWritingFrame(for: sourceLayout)
-        let partial = prepareIndependentStructuralOutcome(chart: chart, state: state, currentDrawing: currentDrawing,
+        var unplaceableBarlineIDs = Set<UUID>()
+        let structural = prepareIndependentStructuralOutcome(chart: chart, state: state, currentDrawing: currentDrawing,
             coordinateSpace: coordinateSpace, now: .now, usesAutomaticPositioning: usesAutomaticPositioning,
-            sourceLayout: sourceLayout, sourceFrame: sourceFrame)
-            ?? prepareIndependentOutcome(chart: chart, state: state, currentDrawing: currentDrawing,
-                coordinateSpace: coordinateSpace, now: .now, isIdle: true,
-                usesAutomaticPositioning: usesAutomaticPositioning,
-                sourceLayout: sourceLayout, sourceFrame: sourceFrame,
-                isEligible: { !excludingChordIDs.contains($0.id) && explicitlyRenderable($0) }, feedback: &feedback)
+            sourceLayout: sourceLayout, sourceFrame: sourceFrame, unplaceableBarlineIDs: &unplaceableBarlineIDs)
+        let partial = structural ?? prepareIndependentOutcome(chart: chart, state: state, currentDrawing: currentDrawing,
+            coordinateSpace: coordinateSpace, now: .now, isIdle: true,
+            usesAutomaticPositioning: usesAutomaticPositioning,
+            sourceLayout: sourceLayout, sourceFrame: sourceFrame, unplaceableBarlineIDs: unplaceableBarlineIDs,
+            isEligible: { !excludingChordIDs.contains($0.id) && explicitlyRenderable($0) }, feedback: &feedback)
         return partial.map(explicitOutcome)
     }
 
@@ -313,16 +314,17 @@ final class ChordInkDraftRenderCoordinator {
                 feedback.globalReason = .placementUnavailable
             }
         }
+        var unplaceableBarlineIDs = Set<UUID>()
         if (isIdle || !matureStructuralIDs.isEmpty), let structural = prepareIndependentStructuralOutcome(chart: chart, state: state,
             currentDrawing: currentDrawing, coordinateSpace: coordinateSpace, now: now,
             usesAutomaticPositioning: true, sourceLayout: sourceLayout, sourceFrame: sourceFrame,
-            eligibleStructuralIDs: isIdle ? nil : matureStructuralIDs,
+            unplaceableBarlineIDs: &unplaceableBarlineIDs, eligibleStructuralIDs: isIdle ? nil : matureStructuralIDs,
             includesCompletedPrecedingChords: true) {
             return structural
         }
         return prepareIndependentOutcome(chart: chart, state: state, currentDrawing: currentDrawing,
             coordinateSpace: coordinateSpace, now: now, isIdle: isIdle, usesAutomaticPositioning: true,
-            sourceLayout: sourceLayout, sourceFrame: sourceFrame,
+            sourceLayout: sourceLayout, sourceFrame: sourceFrame, unplaceableBarlineIDs: unplaceableBarlineIDs,
             isEligible: { ChordInkAutomaticRenderPolicy.automaticCandidateText(for: $0) != nil },
             feedback: &feedback)
     }
@@ -354,7 +356,7 @@ final class ChordInkDraftRenderCoordinator {
     private static func prepareIndependentStructuralOutcome(
         chart: Chart, state: ChordPreviewState, currentDrawing: PKDrawing,
         coordinateSpace: PersistentInkCoordinateSpace?, now: Date, usesAutomaticPositioning: Bool,
-        sourceLayout: LeadSheetPageLayout, sourceFrame: CGRect,
+        sourceLayout: LeadSheetPageLayout, sourceFrame: CGRect, unplaceableBarlineIDs: inout Set<UUID>,
         eligibleStructuralIDs: Set<UUID>? = nil, includesCompletedPrecedingChords: Bool = false
     ) -> AutomaticOutcome? {
         let selections = structuralSelections(in: state).filter { selection in
@@ -367,8 +369,11 @@ final class ChordInkDraftRenderCoordinator {
             coordinateSpace: coordinateSpace, assumesNormalizedPersistentInk: true)
         guard ChordInkDraftSourceCoveragePolicy.hasValidRepresentedCoverage(chart: liveChart, state: state) else { return nil }
         var rejectedStructuralIDs = Set<UUID>()
+        var rejectedPlainBarlineIDs = Set<UUID>()
+        defer { unplaceableBarlineIDs.formUnion(rejectedPlainBarlineIDs) }
         for selection in selections where selection.isDisjoint(with: rejectedStructuralIDs) {
             let barlines = state.draftBarlines.filter { selection.contains($0.id) }
+            let barlineIDs = Set(barlines.map(\.id))
             let endings = state.draftEndings.filter { selection.contains($0.id) }
             let indices = barlines.reduce(into: Set<Int>()) { $0.formUnion($1.ownedSourceStrokeIndices) }
                 .union(endings.reduce(into: Set<Int>()) { $0.formUnion($1.sourceStrokeIndices) })
@@ -413,6 +418,9 @@ final class ChordInkDraftRenderCoordinator {
                     selectedEndings: endings, sourceLayout: sourceLayout, sourceFrame: sourceFrame,
                     failureReason: &failure, onRejectedResult: { result in
                         rejectedStructuralIDs.formUnion(result.unresolvedDraftIDs)
+                        if selectedDrafts.isEmpty {
+                            rejectedPlainBarlineIDs.formUnion(barlineIDs.intersection(result.unresolvedDraftIDs))
+                        }
                     }) { return outcome }
             }
         }
@@ -423,6 +431,7 @@ final class ChordInkDraftRenderCoordinator {
         chart: Chart, state: ChordPreviewState, currentDrawing: PKDrawing,
         coordinateSpace: PersistentInkCoordinateSpace?, now: Date, isIdle: Bool,
         usesAutomaticPositioning: Bool, sourceLayout: LeadSheetPageLayout, sourceFrame: CGRect,
+        unplaceableBarlineIDs: Set<UUID>,
         isEligible: (ChordInkDraft) -> Bool, feedback: inout ChordInkAutomaticRenderFeedback
     ) -> AutomaticOutcome? {
         guard !currentDrawing.strokes.isEmpty, state.draftChords.contains(where: isEligible) else { return nil }
@@ -444,7 +453,8 @@ final class ChordInkDraftRenderCoordinator {
             return nil
         }
         guard let blockedMeasures = retainedStructureMeasureIDs(chart: chart, state: state,
-            drawing: currentDrawing, layout: sourceLayout, sourceFrame: sourceFrame) else { return nil }
+            drawing: currentDrawing, layout: sourceLayout, sourceFrame: sourceFrame,
+            unplaceableBarlineIDs: unplaceableBarlineIDs) else { return nil }
         var selectedDrafts: [ChordInkDraft] = []
         var selectedIndices = Set<Int>()
         var candidatePlans: [(ChordInkDraft, Set<Int>)] = []
@@ -523,13 +533,15 @@ final class ChordInkDraftRenderCoordinator {
         }) else { feedback.set(.placementUnavailable, for: ids); return .init(feedback: feedback) }
         let frame = sourceChordFrame ?? LeadSheetActiveInkScope.chordWritingFrame(for: sourceLayout)
         func independentAttempt() -> AutomaticAttempt {
-            let partial = prepareIndependentStructuralOutcome(chart: chart, state: state,
+            var unplaceableBarlineIDs = Set<UUID>()
+            let structural = prepareIndependentStructuralOutcome(chart: chart, state: state,
                 currentDrawing: currentDrawing, coordinateSpace: coordinateSpace, now: .now,
-                usesAutomaticPositioning: true, sourceLayout: sourceLayout, sourceFrame: frame)
-                ?? prepareIndependentOutcome(chart: chart, state: state, currentDrawing: currentDrawing,
-                    coordinateSpace: coordinateSpace, now: .now, isIdle: true, usesAutomaticPositioning: true,
-                    sourceLayout: sourceLayout, sourceFrame: frame,
-                    isEligible: explicitlyRenderable, feedback: &feedback)
+                usesAutomaticPositioning: true, sourceLayout: sourceLayout, sourceFrame: frame,
+                unplaceableBarlineIDs: &unplaceableBarlineIDs)
+            let partial = structural ?? prepareIndependentOutcome(chart: chart, state: state,
+                currentDrawing: currentDrawing, coordinateSpace: coordinateSpace, now: .now, isIdle: true,
+                usesAutomaticPositioning: true, sourceLayout: sourceLayout, sourceFrame: frame,
+                unplaceableBarlineIDs: unplaceableBarlineIDs, isEligible: explicitlyRenderable, feedback: &feedback)
             if let partial {
                 feedback = feedback.retainingDraftIDs(Set(partial.remainingState.draftChords.map(\.id)),
                     keepsGlobalReason: !partial.drawing.strokes.isEmpty)
@@ -696,15 +708,16 @@ final class ChordInkDraftRenderCoordinator {
     }
 
 
-    /// Structural changes stay pending. A chord outside those measures can
-    /// render only if its commit leaves every retained writing lane in place.
+    /// A pending split can change chord ownership. Once the structure-only
+    /// transaction rejects an ordinary divider, keep its source but let the
+    /// normal geometry and overlap checks decide whether a chord can render.
     private static func retainedStructureMeasureIDs(
         chart: Chart, state: ChordPreviewState, drawing: PKDrawing,
-        layout: LeadSheetPageLayout, sourceFrame: CGRect
+        layout: LeadSheetPageLayout, sourceFrame: CGRect, unplaceableBarlineIDs: Set<UUID>
     ) -> Set<UUID>? {
         let measureIDs = chart.measures.map(\.id)
         var blocked = Set<UUID>()
-        for barline in state.draftBarlines {
+        for barline in state.renderableBarlines where !unplaceableBarlineIDs.contains(barline.id) {
             let indices = barline.ownedSourceStrokeIndices
             guard let lane = barline.laneLocation,
                   let system = layout.systems.first(where: { $0.index == lane.systemIndex }),

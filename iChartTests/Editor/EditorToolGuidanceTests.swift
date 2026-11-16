@@ -68,9 +68,10 @@ final class EditorToolGuidanceTests: XCTestCase {
                 layoutStyle: .rhythmSectionSheet, manualRenderWithPreview: manual)
             let legacy = EditorCanvasMode.chordEntry.toolGuidance(
                 layoutStyle: .leadSheet, manualRenderWithPreview: manual)
-            XCTAssertTrue(simple.referenceText.contains("Draw tall barlines between chords"))
+            XCTAssertTrue(simple.referenceText.contains("Draw tall barlines between chords with a gap on both sides"))
             XCTAssertFalse(simple.referenceText.contains("rhythmic boundary"))
             XCTAssertTrue(rhythm.referenceText.contains("split at a rhythmic boundary"))
+            XCTAssertTrue(rhythm.referenceText.contains("Leave a gap on both sides"))
             XCTAssertTrue(rhythm.referenceText.contains("If a note crosses the cut, the line stays as ink."))
             XCTAssertTrue(rhythm.referenceText.contains("empty row end"))
             XCTAssertTrue(rhythm.referenceText.contains("Use Measures for other form edits."))
