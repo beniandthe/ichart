@@ -920,6 +920,118 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
         }
     }
 
+    func testOptionalExactBFlatTriangleArchivesRenderThroughWriteAndRender() async throws {
+        let archivedSamples = try PrivateBFlatTriangleReplay.load()
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            for manual in [false, true] {
+                try await assertExactBFlatTriangleWriteAndRender(archivedSamples, style: style, manual: manual)
+            }
+        }
+    }
+
+    private func assertExactBFlatTriangleWriteAndRender(
+        _ archivedSamples: [PKDrawing], style: ChartLayoutStyle, manual: Bool
+    ) async throws {
+        let route = "\(style.rawValue), \(manual ? "Manual" : "Automatic")"
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let repository = FileChartRepository(url: directory.appendingPathComponent("library-state.json"))
+        var chart = Chart.draft(title: "Private B-flat major seventh replay", layoutStyle: style)
+        chart.completeInitialSetup(title: chart.title, key: .gFlatMajor,
+            meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine,
+            startingMeasureCount: archivedSamples.count)
+        let measureIDs = chart.measures.map(\.id)
+        XCTAssertEqual(measureIDs.count, 3, route)
+        let mounted = try await mount(manual: manual, repository: repository, initialChart: chart,
+            freezesRecognition: false)
+        let canvas = mounted.canvas
+        let live = try XCTUnwrap(canvas.subviews.compactMap { $0 as? LeadSheetScopedInkCanvasView }.last)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(
+            for: chart, pageSize: canvas.bounds.size, includesChordInkContinuationLanes: true)
+        let sourceFrame = LeadSheetActiveInkScope.chordWritingFrame(for: layout)
+        let placedSamples = try zip(measureIDs, archivedSamples).map { measureID, sample in
+            let system = try XCTUnwrap(layout.systems.first { system in
+                system.measures.contains { $0.sourceMeasureID == measureID }
+            }, route)
+            let measure = try XCTUnwrap(system.measures.first { $0.sourceMeasureID == measureID }, route)
+            let lane = try XCTUnwrap(LeadSheetActiveInkScope.chordWritingSystemInputFrame(
+                for: system, paperFrame: layout.paperFrame(for: system)), route)
+            // Use an open writing position with the original geometry and
+            // chronology. Translation keeps the archived stroke shapes exact.
+            return sample.transformed(using: CGAffineTransform(
+                translationX: measure.staffFrame.midX - sourceFrame.minX - sample.bounds.midX,
+                y: lane.midY - sourceFrame.minY - sample.bounds.midY))
+        }
+
+        for sample in placedSamples {
+            for stroke in sample.strokes {
+                canvas.canvasViewDidBeginUsingTool(live)
+                live.drawing = PKDrawing(strokes: live.drawing.strokes + [stroke])
+                canvas.canvasViewDrawingDidChange(live)
+                canvas.canvasViewDidEndUsingTool(live)
+                try await Task.sleep(nanoseconds: 40_000_000)
+            }
+        }
+        if manual {
+            var render: NativeAccessibilityLookup.Node?
+            for _ in 0..<50 {
+                mounted.window.layoutIfNeeded()
+                render = try NativeAccessibilityLookup.nodes(in: mounted.window).first {
+                    $0.isButton && $0.isEnabled && $0.element.accessibilityLabel == "Render Chords"
+                }
+                if render != nil { break }
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            // The ordinary tap has a privacy-safe failure path. The shared
+            // control finder would attach a screenshot of this private ink.
+            try activate(XCTUnwrap(render, "Ordinary Render Chords must remain available. \(route)"))
+        }
+
+        var saved: Chart?
+        for _ in 0..<160 {
+            mounted.window.layoutIfNeeded()
+            let candidate = try repository.loadSnapshot()?.charts.first
+            if candidate?.measures.flatMap(\.chordEvents).count == placedSamples.count,
+               candidate?.pageHandwrittenChordData == nil {
+                saved = candidate
+                break
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertNil(mounted.window.rootViewController?.presentedViewController, route)
+        let reopened = try XCTUnwrap(saved, "All three chords must save through normal Write & Render. \(route)")
+        XCTAssertEqual(reopened.measures.map(\.id), measureIDs, route)
+        XCTAssertEqual(reopened.measures.map { $0.chordEvents.map { $0.symbol.displayText } },
+            Array(repeating: ["Bb△7"], count: placedSamples.count), route)
+        for (event, original) in zip(reopened.measures.flatMap(\.chordEvents), placedSamples) {
+            let archive = try PKDrawing(data: XCTUnwrap(event.sourceInkData, route))
+            // The Rhythm lane can change its local origin during rendering.
+            // Verify a single translation, then compare exact visible ink in
+            // stroke-local coordinates, including the path, mask and seed.
+            XCTAssertEqual(archive.strokes.count, original.strokes.count, route)
+            let originalOrigin = try XCTUnwrap(original.strokes.first?.transform, route)
+            let archivedOrigin = try XCTUnwrap(archive.strokes.first?.transform, route)
+            for (source, stored) in zip(original.strokes, archive.strokes) {
+                XCTAssertEqual(stored.transform.tx - archivedOrigin.tx,
+                    source.transform.tx - originalOrigin.tx, accuracy: 0.01, route)
+                XCTAssertEqual(stored.transform.ty - archivedOrigin.ty,
+                    source.transform.ty - originalOrigin.ty, accuracy: 0.01, route)
+            }
+            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+                expected: removingInkTranslation(original), current: removingInkTranslation(archive)), route)
+        }
+    }
+
+    private func removingInkTranslation(_ drawing: PKDrawing) -> PKDrawing {
+        PKDrawing(strokes: drawing.strokes.map { stroke in
+            var transform = stroke.transform
+            transform.tx = 0
+            transform.ty = 0
+            return PKStroke(ink: stroke.ink, path: stroke.path, transform: transform,
+                mask: stroke.mask, randomSeed: stroke.randomSeed)
+        })
+    }
+
     private func assertMixedChordAndBarlineRender(style: ChartLayoutStyle, manual: Bool) async throws {
         var chart = Chart.draft(title: "Mixed barline workflow", layoutStyle: style)
         chart.completeInitialSetup(title: chart.title, key: .cMajor,

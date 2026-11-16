@@ -74,8 +74,8 @@ enum InkSplitMajorTriangleGeometry {
     ) -> Geometry? {
         let aspectRatio = bounds.width / max(bounds.height, 1)
         let smallerHeight = max(min(first.bounds.height, second.bounds.height), 1)
-        guard (8...28).contains(bounds.width),
-              (8...28).contains(bounds.height),
+        guard (8...32).contains(bounds.width),
+              (8...32).contains(bounds.height),
               (0.55...1.75).contains(aspectRatio),
               first.bounds.horizontalGap(to: second.bounds) <= max(3, bounds.width * 0.20),
               first.bounds.verticalOverlap(with: second.bounds) >= smallerHeight * 0.35 else {
@@ -84,8 +84,20 @@ enum InkSplitMajorTriangleGeometry {
 
         // The base can extend just past the left leg. Assign roles by
         // shape, with either pen direction, instead of sorting by minX.
+        if max(bounds.width, bounds.height) > 28 {
+            // A larger triangle needs a physically joined base and nearby tips.
+            return matchesClosedPath(left: first, right: second, in: bounds, largerTriangle: true)
+                || matchesClosedPath(left: second, right: first, in: bounds, largerTriangle: true)
+                ? .matched(.standard) : nil
+        }
         if matchesRoles(left: first, right: second, in: bounds, apexLimit: 0.58, baseLimit: 0.26)
             || matchesRoles(left: second, right: first, in: bounds, apexLimit: 0.58, baseLimit: 0.26) {
+            return .matched(.standard)
+        }
+        // A stroke can begin just down the opposite leg, and its base can run
+        // past the foot. Confirm both actual joins before using endpoint guesses.
+        if matchesClosedPath(left: first, right: second, in: bounds, largerTriangle: false)
+            || matchesClosedPath(left: second, right: first, in: bounds, largerTriangle: false) {
             return .matched(.standard)
         }
         guard let firstEnds = endpointsFromTop(first),
@@ -116,6 +128,34 @@ enum InkSplitMajorTriangleGeometry {
             return .matched(.offsetJoin)
         }
         return nil
+    }
+
+    private static func matchesClosedPath(
+        left: InkStroke, right: InkStroke, in bounds: InkBounds, largerTriangle: Bool
+    ) -> Bool {
+        let smallerDimension = min(bounds.width, bounds.height)
+        let joinTolerance = min(2.25, smallerDimension * 0.10)
+        guard matchesRoles(left: left, right: right, in: bounds,
+                  apexLimit: largerTriangle ? 0.58 : 0.74, baseLimit: largerTriangle ? 0.26 : 0.20),
+              let leftEnds = endpointsFromTop(left), let rightEnds = endpointsFromTop(right),
+              comesWithin(joinTolerance, of: leftEnds.bottom, along: right) else {
+            return false
+        }
+        if largerTriangle {
+            return leftEnds.top.clusterDistance(to: rightEnds.top) <= smallerDimension * 0.20
+        }
+        return comesWithin(joinTolerance, of: rightEnds.top, along: left)
+    }
+
+    private static func comesWithin(_ tolerance: Double, of point: InkPoint, along stroke: InkStroke) -> Bool {
+        zip(stroke.points, stroke.points.dropFirst()).contains { start, end in
+            let dx = end.x - start.x
+            let dy = end.y - start.y
+            let lengthSquared = dx * dx + dy * dy
+            guard lengthSquared > 0 else { return false }
+            let fraction = min(1, max(0, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared))
+            return hypot(point.x - start.x - fraction * dx, point.y - start.y - fraction * dy) <= tolerance
+        }
     }
 
     private static func classifyCompactTriangle(

@@ -363,6 +363,29 @@ final class StrokeClustererTests: XCTestCase {
         XCTAssertFalse(InkSplitMajorTriangleGeometry.isAmbiguous(distantApex[0], distantApex[1]))
     }
 
+    func testSplitTriangleKeepsModeratelyTallAndPathJoinedShapesWhole() {
+        let tall = [
+            testStroke([(12, 1), (9, 8), (6, 17), (3, 24), (0, 31)]),
+            testStroke([(12, 0), (16, 7), (20, 15), (24, 22), (27, 27),
+                        (24, 29), (18, 30), (11, 30), (5, 30.3), (1, 30.5)])
+        ]
+        let staggered = [
+            testStroke([(18, 0), (15, 4), (11, 10), (8, 14), (4.5, 19)]),
+            testStroke([(14.2, 2.5), (18.5, 7), (23, 12), (26, 15),
+                        (23, 16.6), (17, 17.2), (12, 17.6), (6, 18), (0, 16.8)])
+        ]
+        for pair in [tall, staggered] {
+            let reversed = pair.reversed().map { InkStroke(points: Array($0.points.reversed())) }
+            for strokes in [pair, reversed] {
+                XCTAssertEqual(InkSplitMajorTriangleGeometry.match(strokes[0], strokes[1]), .standard)
+                XCTAssertEqual(clusterer.indexedClusters(strokes).map { $0.originalIndexes.sorted() }, [[0, 1]])
+            }
+
+            let missingBase = InkStroke(points: Array(pair[1].points.dropLast(3)))
+            XCTAssertNil(InkSplitMajorTriangleGeometry.match(pair[0], missingBase))
+        }
+    }
+
     func testOpenTriangleAndSevenRemainSeparateForReview() throws {
         let fixture = try InkFixtureLoader.load("BFlatHalfDiminished7Captured01", file: #filePath)
         let root = Array(fixture.strokes.prefix(2))
