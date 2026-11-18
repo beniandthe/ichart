@@ -1828,25 +1828,29 @@ struct LibraryView: View {
     private func libraryRetrievalControls(
         query: Binding<String>, order: Binding<LibrarySortOrder>, noun: String
     ) -> some View {
-        let layout = dynamicTypeSize.isAccessibilitySize || horizontalSizeClass == .compact
-            ? AnyLayout(VStackLayout(spacing: 10))
-            : AnyLayout(HStackLayout(spacing: 12))
-        return layout {
+        IChartSearchControlLayout(
+            stacksControls: dynamicTypeSize.isAccessibilitySize || horizontalSizeClass == .compact,
+            // Reserve room for Clear so the first character cannot move Sort below the field.
+            extraSearchWidth: query.wrappedValue.isEmpty ? 52 : 0
+        ) {
             librarySearchField(query: query, noun: noun)
             librarySortMenu(order: order)
         }
+        .frame(maxWidth: IChartSearchControlLayout.maximumWidth, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func librarySearchField(query: Binding<String>, noun: String) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass").foregroundStyle(homeTheme.panelSecondary)
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(homeTheme.panelSecondary)
+                .accessibilityHidden(true)
             IChartTypedTextField(placeholder: "Search \(noun.lowercased())", text: query,
                 borderStyle: .none, returnKeyType: .search,
                 textColor: UIColor(homeTheme.panelTitle), placeholderColor: UIColor(homeTheme.panelSecondary),
                 tintColor: UIColor(homeTheme.actionText),
                 accessibilityIdentifier: "library.search.\(noun.lowercased())",
-                accessibilityLabel: "Search \(noun)")
-                .frame(minHeight: 44)
+                accessibilityLabel: "Search \(noun)", compact: true)
             if !query.wrappedValue.isEmpty {
                 Button { query.wrappedValue = "" } label: { Image(systemName: "xmark.circle.fill") }
                     .accessibilityLabel("Clear \(noun.lowercased()) search")
@@ -3206,13 +3210,11 @@ struct IChartForumHomeView: View {
     }
 
     private var searchAndPublishRow: some View {
-        let layout = dynamicTypeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
-            : AnyLayout(HStackLayout(alignment: .center, spacing: 12))
-        return layout {
+        IChartSearchControlLayout(stacksControls: dynamicTypeSize.isAccessibilitySize) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(theme.panelSecondary)
+                    .accessibilityHidden(true)
                 IChartTypedTextField(
                     placeholder: "Search songs, artists, arrangers, or tags",
                     text: $searchText,
@@ -3226,9 +3228,9 @@ struct IChartForumHomeView: View {
                     accessibilityIdentifier: "forum.search",
                     accessibilityLabel: "Forum search",
                     accessibilityHint: "Search song titles, artists, arrangers, or tags, then tap Search.",
+                    compact: true,
                     onSubmit: submitSearch
                 )
-                    .frame(minHeight: 44)
                     .onChange(of: searchText) { _, newValue in
                         handleSearchTextChange(newValue)
                     }
@@ -3253,6 +3255,8 @@ struct IChartForumHomeView: View {
             .accessibilityIdentifier("forum.search.submit")
             .accessibilityHint("Show charts matching the search text.")
         }
+        .frame(maxWidth: IChartSearchControlLayout.maximumWidth, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -5733,11 +5737,10 @@ private struct IChartKeyboardFocusButton: View {
         Button(action: action) {
             Image(systemName: "keyboard")
                 .font(.subheadline.weight(.semibold))
-                .frame(width: 34, height: 34)
-                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
+        .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)
     }
 }
@@ -5750,12 +5753,12 @@ private enum IChartAccountInputField: Hashable {
     case newPassword
 }
 
-private enum IChartAccountEntryMode: String, CaseIterable {
+enum IChartAccountEntryMode: String, CaseIterable {
     case signIn
     case createAccount
 }
 
-private struct IChartAccountSettings: View {
+struct IChartAccountSettings: View {
     @ObservedObject var authStore: IChartAuthStore
     let theme: IChartHomeTheme
     var requiresNameForSignup: Bool
@@ -5855,6 +5858,7 @@ private struct IChartAccountSettings: View {
 
             statusFooter
         }
+        .frame(maxWidth: 560, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .alert("Delete Account?", isPresented: $isShowingDeleteAccountConfirmation) {
             Button("Delete Account", role: .destructive) {
@@ -7330,10 +7334,10 @@ private struct IChartAccountTextField: View {
                 placeholderColor: UIColor(theme.panelSecondary),
                 tintColor: UIColor(theme.actionText),
                 accessibilityLabel: title,
-                accessibilityHint: "Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing."
+                accessibilityHint: "Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing.",
+                compact: true
             )
             .padding(.horizontal, 11)
-            .frame(minHeight: 44)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(theme.emptyStateBackground)
@@ -7358,7 +7362,7 @@ private struct IChartAccountSecureField: View {
 
     var body: some View {
         IChartAccountFieldRow(title: title, systemImageName: systemImageName, theme: theme) {
-            HStack(spacing: 12) {
+            HStack(spacing: 4) {
                 SecureField(placeholder, text: $text)
                     .focused(focusedField, equals: field)
                     .textInputAutocapitalization(.never)
@@ -7366,23 +7370,26 @@ private struct IChartAccountSecureField: View {
                     .font(.subheadline)
                     .foregroundStyle(theme.panelTitle)
                     .accessibilityLabel(title)
-                    .padding(.horizontal, 11)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(minHeight: 44)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(theme.emptyStateBackground)
-                    )
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(theme.panelBorder, lineWidth: 1)
-                    }
 
                 IChartKeyboardFocusButton(
                     accessibilityLabel: "Open keyboard for \(title)"
                 ) {
                     focusedField.wrappedValue = field
                 }
+                .foregroundStyle(theme.actionText)
             }
+            .padding(.horizontal, 11)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(theme.emptyStateBackground)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(theme.panelBorder, lineWidth: 1)
+            }
+            .frame(maxWidth: .infinity)
         }
     }
 }

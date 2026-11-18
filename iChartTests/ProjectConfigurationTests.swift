@@ -869,7 +869,7 @@ final class ProjectConfigurationTests: XCTestCase {
 
         XCTAssertTrue(libraryText.contains("IChartFirstRunAccountLandingView"))
         XCTAssertTrue(libraryText.contains("requiresNameForSignup: Bool = true"))
-        XCTAssertTrue(libraryText.contains("private enum IChartAccountEntryMode"))
+        XCTAssertTrue(libraryText.contains("enum IChartAccountEntryMode"))
         XCTAssertTrue(libraryText.contains("initialEntryMode: IChartAccountEntryMode = .signIn"))
         XCTAssertTrue(libraryText.contains("_entryMode = State(initialValue: initialEntryMode)"))
         XCTAssertTrue(libraryText.contains("showsSignedInActions: false,\n                                    initialEntryMode: .createAccount"))

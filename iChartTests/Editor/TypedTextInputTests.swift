@@ -18,7 +18,8 @@ final class TypedTextInputTests: XCTestCase {
         let field = try XCTUnwrap(descendants(host.view).compactMap { $0 as? IChartTypedUITextField }.first)
         let scribble = try XCTUnwrap(field.interactions.compactMap { $0 as? UIScribbleInteraction }.first)
         XCTAssertFalse(field.isFirstResponder)
-        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: 10, y: 10)), false)
+        let writePoint = CGPoint(x: 10, y: 10)
+        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: writePoint), false)
         field.requestKeyboard()
         try await waitForFocus(field)
         XCTAssertTrue((field.text ?? "").isEmpty, "Focusing the search field must leave the query empty")
@@ -30,6 +31,74 @@ final class TypedTextInputTests: XCTestCase {
         XCTAssertEqual(field.delegate?.textFieldShouldReturn?(field), false)
         XCTAssertEqual(model.submitted, "Autumn.")
         XCTAssertTrue(field.isFirstResponder)
+
+        XCTAssertTrue(field.resignFirstResponder())
+        let originalSize = field.bounds.size
+        field.scribbleModeButton.sendActions(for: .touchUpInside)
+        try assertPencilTapIsEligible(in: field, at: writePoint)
+        XCTAssertFalse(field.isFirstResponder)
+        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: writePoint), false)
+        field.prepareScribble(at: writePoint)
+        try await waitForFocus(field)
+        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: writePoint), true)
+        XCTAssertNotNil(field.inputView, "Scribble must keep the software keyboard closed")
+        XCTAssertEqual(model.text, "Autumn.", "The first Pencil tap prepares the field without editing the query")
+        XCTAssertEqual(field.bounds.size, originalSize)
+
+        field.keyboardModeButton.sendActions(for: .touchUpInside)
+        try await waitForFocus(field)
+        XCTAssertTrue(field.isFirstResponder)
+        XCTAssertNil(field.inputView)
+        XCTAssertEqual(model.text, "Autumn.")
+    }
+
+    func testCompactSearchFitsOneLineInPortraitAndLandscapeAtDynamicTypeSizes() async throws {
+        let draft = String(repeating: "A very long search query ", count: 20)
+        let portrait = CGSize(width: 260, height: 450)
+        let landscape = CGSize(width: 450, height: 260)
+        for viewport in [portrait, landscape] {
+            let standard = try await compactFieldSize(viewport: viewport, textSize: .large, draft: draft)
+            let accessibility = try await compactFieldSize(viewport: viewport, textSize: .accessibility5, draft: draft)
+            XCTAssertEqual(standard.height, 44, accuracy: 1)
+            XCTAssertGreaterThan(accessibility.height, standard.height, "The field must grow for larger accessibility text")
+        }
+    }
+
+    private func compactFieldSize(viewport: CGSize, textSize: DynamicTypeSize, draft: String) async throws -> CGSize {
+        let model = TextFieldModel()
+        model.text = draft
+        let host = UIHostingController(rootView: SearchFieldHarness(model: model)
+            .dynamicTypeSize(textSize)
+            .frame(width: viewport.width, height: viewport.height, alignment: .top))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 820, height: 1_180))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        var compactField: IChartTypedUITextField?
+        for _ in 0..<20 {
+            window.layoutIfNeeded()
+            compactField = descendants(host.view).compactMap { $0 as? IChartTypedUITextField }.first
+            if compactField?.bounds.isEmpty == false { break }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+
+        let field = try XCTUnwrap(compactField)
+        field.layoutIfNeeded()
+        let frame = field.convert(field.bounds, to: host.view)
+        XCTAssertEqual(frame.width, viewport.width, accuracy: 1,
+            "A long query must use the parent's width instead of expanding the field")
+        XCTAssertEqual(field.text, draft)
+        let font = try XCTUnwrap(field.font)
+        XCTAssertLessThanOrEqual(frame.height, max(44, ceil(font.lineHeight) + 17),
+            "The field's height must fit one editable line, not the parent height or the length of the query")
+        assertModeButtons(keyboard: field.keyboardModeButton, scribble: field.scribbleModeButton,
+            in: field, scribbleSelected: false)
+        let editable = field.editingRect(forBounds: field.bounds)
+        let controls = field.inputModeControls.convert(field.inputModeControls.bounds, to: field)
+        XCTAssertGreaterThanOrEqual(editable.width, 70)
+        XCTAssertLessThanOrEqual(editable.maxX, controls.minX + 1)
+        XCTAssertTrue(field.bounds.insetBy(dx: -1, dy: -1).contains(controls))
+        return frame.size
     }
 
     func testPencilScrollingStartsOutsideOwnedTextControls() throws {
@@ -567,9 +636,8 @@ private struct SearchFieldHarness: View {
     var body: some View {
         VStack {
             IChartTypedTextField(placeholder: "Search charts", text: $model.text,
-                returnKeyType: .search, onSubmit: { model.submitted = model.text })
-                .frame(height: 52)
-            if !model.text.isEmpty { Text("Results for \(model.text)") }
+                returnKeyType: .search, compact: true, onSubmit: { model.submitted = model.text })
+            if !model.text.isEmpty { Text("Results for \(model.text)").lineLimit(1) }
         }
     }
 }

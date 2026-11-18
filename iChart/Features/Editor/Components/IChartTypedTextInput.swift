@@ -4,6 +4,7 @@ import UIKit
 /// A native text field with a stable pair of Keyboard and Scribble controls.
 struct IChartTypedTextField: UIViewRepresentable {
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let placeholder: String
     @Binding var text: String
     var isFocused: Binding<Bool>? = nil
@@ -20,6 +21,7 @@ struct IChartTypedTextField: UIViewRepresentable {
     var accessibilityIdentifier: String? = nil
     var accessibilityLabel: String? = nil
     var accessibilityHint: String? = nil
+    var compact = false
     var onKeyboardRequested: (() -> Void)?
     var onNext: (() -> Void)?
     var onSubmit: (() -> Void)?
@@ -49,7 +51,8 @@ struct IChartTypedTextField: UIViewRepresentable {
         }
         field.autocapitalizationType = autocapitalizationType
         field.autocorrectionType = autocorrectionType
-        field.font = font
+        field.adjustsFontForContentSizeCategory = !compact
+        field.font = inputFont
         field.textAlignment = textAlignment
         field.borderStyle = borderStyle
         if field.isEnabled != isEnabled { field.isEnabled = isEnabled }
@@ -83,6 +86,24 @@ struct IChartTypedTextField: UIViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: IChartTypedUITextField, context: Context) -> CGSize? {
+        guard compact else { return nil }
+        // Keep the height independent of the parent’s spare space and the
+        // ideal width independent of the current query or placeholder.
+        let idealWidth = uiView.inputModeControls.intrinsicContentSize.width + 84
+        let proposedWidth = proposal.width ?? idealWidth
+        return CGSize(width: proposedWidth.isFinite ? max(0, proposedWidth) : idealWidth,
+                      height: max(44, ceil(inputFont.lineHeight + 16)))
+    }
+
+    private var inputFont: UIFont {
+        guard compact,
+              let textStyle = font.fontDescriptor.object(forKey: .textStyle) as? String else { return font }
+        let traits = UITraitCollection(preferredContentSizeCategory: UIContentSizeCategory(dynamicTypeSize))
+        return UIFont.preferredFont(forTextStyle: UIFont.TextStyle(rawValue: textStyle), compatibleWith: traits)
+    }
+
     static func dismantleUIView(_ field: IChartTypedUITextField, coordinator: Coordinator) {
         field.requestsFocus = false
         field.exitScribble()

@@ -270,6 +270,16 @@ final class SetlistReaderTests: XCTestCase {
             }
             attachScreenshot(window, name: "Setlists content controls - \(expectedTitle)")
             XCTAssertNotNil(titleLabel, "The workspace must visibly render \(expectedTitle)")
+            if path.isEmpty {
+                let search = try XCTUnwrap(descendants(window).compactMap { $0 as? IChartTypedUITextField }
+                    .first { $0.accessibilityIdentifier == "setlists.search" && isVisible($0) })
+                XCTAssertEqual(search.bounds.height, 44, accuracy: 1)
+                for mode in [search.keyboardModeButton, search.scribbleModeButton] {
+                    XCTAssertTrue(isVisible(mode))
+                    XCTAssertGreaterThanOrEqual(mode.bounds.width, 44)
+                    XCTAssertTrue(search.bounds.contains(mode.convert(mode.bounds, to: search)))
+                }
+            }
             XCTAssertTrue(descendants(window).compactMap { $0 as? UINavigationBar }.filter(isVisible).isEmpty,
                 "Setlist headers must not expose an extra blank outer navigation bar")
             let expectedControlIDs = path.isEmpty ? ["setlists.create"] : ["setlists.back", "setlists.reorder", "setlists.songs.add"]

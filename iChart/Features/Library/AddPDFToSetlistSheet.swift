@@ -87,8 +87,9 @@ struct AddPDFToSetlistSheet: View {
                         }
                         IChartTypedTextField(placeholder: "Search setlists", text: $query,
                             returnKeyType: .search, accessibilityIdentifier: "setlists.destination.search",
-                            accessibilityHint: "Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing.")
-                            .frame(minHeight: 44)
+                            accessibilityHint: "Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing.",
+                            compact: true)
+                            .frame(maxWidth: IChartSearchControlLayout.maximumWidth, alignment: .leading)
                     }
                     .background(IChartTypedSheetScrollSupport())
                 }

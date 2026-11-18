@@ -656,18 +656,50 @@ struct IChartSetlistPerformanceReader: View {
     }
 }
 
+/// Base the row on the actual pane width. Keeping both views in one layout
+/// lets the search field retain focus when the pane changes size.
+struct IChartSearchControlLayout: Layout {
+    static let maximumWidth: CGFloat = 520
+
+    let stacksControls: Bool
+    var extraSearchWidth: CGFloat = 0
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let stack = stack(for: proposal.width, subviews: subviews)
+        var stackCache = stack.makeCache(subviews: subviews)
+        return stack.sizeThatFits(proposal: proposal, subviews: subviews, cache: &stackCache)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let stack = stack(for: proposal.width ?? bounds.width, subviews: subviews)
+        var stackCache = stack.makeCache(subviews: subviews)
+        stack.placeSubviews(in: bounds, proposal: proposal, subviews: subviews, cache: &stackCache)
+    }
+
+    private func stack(for width: CGFloat?, subviews: Subviews) -> AnyLayout {
+        let spacing: CGFloat = 12
+        let searchWidth = subviews.first?.sizeThatFits(.unspecified).width ?? 0
+        let actionWidth = subviews.dropFirst().first?.sizeThatFits(.unspecified).width ?? 0
+        if stacksControls || (width ?? .infinity) < searchWidth + extraSearchWidth + actionWidth + spacing {
+            return AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+        }
+        return AnyLayout(HStackLayout(spacing: spacing))
+    }
+}
+
 private struct IChartSetlistSearchControls: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Binding var query: String
     @Binding var order: IChartSetlistListOrder
     let placeholder: String
     let identifier: String
 
     var body: some View {
-        HStack(spacing: 10) {
+        IChartSearchControlLayout(stacksControls: dynamicTypeSize.isAccessibilitySize) {
             IChartTypedTextField(placeholder: placeholder, text: $query,
                 returnKeyType: .search, accessibilityIdentifier: identifier,
-                accessibilityHint: "Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing.")
-                .frame(minHeight: 44)
+                accessibilityHint: "Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing.",
+                compact: true)
             Menu {
                 Picker("Sort", selection: $order) {
                     ForEach(IChartSetlistListOrder.allCases) { value in Text(value.rawValue).tag(value) }
@@ -678,6 +710,8 @@ private struct IChartSetlistSearchControls: View {
             }
             .accessibilityIdentifier("\(identifier).sort")
         }
+        .frame(maxWidth: IChartSearchControlLayout.maximumWidth, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
