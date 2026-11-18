@@ -511,7 +511,7 @@ private struct IChartHelpArticleSection: Identifiable {
             bullets: [
                 "Use it for handwritten rhythm notes and reminders.",
                 "Ink in or just below a measure follows it when the layout changes. Ink directly beneath a single chord can follow it when you move it. Notes in open page space stay where you drew them.",
-                "On a Simple Chord Sheet or Rhythm Section Sheet, draw a fermata or accent anywhere on the page. Lift the Pencil and pause. iChart converts clear marks into notation and leaves unclear marks as handwriting.",
+                "On a Simple Chord Sheet or Rhythm Section Sheet, draw a fermata or accent anywhere on the page. An accent can be one or two strokes. Lift the Pencil and pause. iChart converts clear marks into notation and leaves unclear marks as handwriting.",
                 "Leave clear space around each symbol. Rendering replaces only that symbol’s strokes; iChart keeps those strokes with the converted mark and leaves other handwriting on the page.",
                 "On a Simple Chord Sheet, a converted mark attaches above a nearby rendered chord. Other marks float where you drew them. Drag near a chord to attach; drag away to float. Deleting a chord keeps its mark floating.",
                 "On a Rhythm Section Sheet, draw a marcato (^) near a chord, rhythm note, or staff ink, then lift the Pencil and pause. In open space, the caret stays handwritten.",

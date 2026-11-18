@@ -1302,7 +1302,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("Simple And Rhythm Section Sheets"))
         XCTAssertTrue(libraryText.contains("Rhythm Section Sheet adds space for handwritten rhythms, hits, slashes, groove cues, and bass clef parts."))
         XCTAssertTrue(libraryText.contains("Use Free Ink to write or erase notes and marks, or draw a fermata (arch over a dot) or accent (>)."))
-        XCTAssertTrue(libraryText.contains("On a Simple Chord Sheet or Rhythm Section Sheet, draw a fermata or accent anywhere on the page. Lift the Pencil and pause."))
+        XCTAssertTrue(libraryText.contains("On a Simple Chord Sheet or Rhythm Section Sheet, draw a fermata or accent anywhere on the page. An accent can be one or two strokes. Lift the Pencil and pause."))
         XCTAssertTrue(libraryText.contains("On a Simple Chord Sheet, a converted mark attaches above a nearby rendered chord."))
         XCTAssertTrue(libraryText.contains("iChart converts clear marks into notation and leaves unclear marks as handwriting."))
         XCTAssertTrue(libraryText.contains("On a Rhythm Section Sheet, draw a marcato (^) near a chord, rhythm note, or staff ink, then lift the Pencil and pause. In open space, the caret stays handwritten."))

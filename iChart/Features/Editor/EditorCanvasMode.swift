@@ -331,7 +331,7 @@ enum EditorCanvasMode: Hashable {
             if supportsSymbolRendering {
                 details.append(.init(
                     title: "Rendering symbols",
-                    text: "Leave clear space around each symbol. Rendering replaces only that symbol's strokes; other handwriting stays on the page. iChart keeps the original strokes with the converted mark."
+                    text: "Draw an accent (>) in one or two strokes. Leave clear space around each symbol. Other handwriting stays on the page, and iChart keeps the symbol's original strokes."
                 ))
             }
             if hasFreeInkArticulations && supportsSymbolRendering {
