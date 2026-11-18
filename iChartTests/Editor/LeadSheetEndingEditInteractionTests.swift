@@ -335,6 +335,84 @@ final class LeadSheetEndingEditInteractionTests: XCTestCase {
         XCTAssertTrue(canvas.subviews.contains { $0 is LeadSheetAnnotationPositionHandleView })
     }
 
+    func testMoveUpOrDownHandleFollowsHorizontalPreviewsAndRestoresOnCancel() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let fixture = try fixture()
+            var chart = fixture.chart
+            chart.layoutStyle = style
+            let cueID = try XCTUnwrap(chart.addCueText("On cue", anchorMeasureID: fixture.ids[1], position: .above))
+            let markerID = try XCTUnwrap(chart.addPointRoadmapMarker(.segno, anchorMeasureID: fixture.ids[1]))
+            XCTAssertTrue(chart.movePointRoadmapMarkerHorizontally(markerID, toNormalizedOffset: 0.35))
+            let frame = CGRect(x: 0, y: 0, width: 900, height: 1_400)
+            let canvas = LeadSheetCanvasUIKitView(frame: frame)
+            canvas.chart = chart
+            let controller = UIViewController()
+            controller.view = canvas
+            let window = UIWindow(frame: frame)
+            window.rootViewController = controller
+            window.makeKeyAndVisible()
+            defer { window.isHidden = true }
+            canvas.layoutIfNeeded()
+
+            let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: frame.size)
+            let system = try XCTUnwrap(layout.systems.first)
+            let paper = layout.paperFrame(for: system).insetBy(dx: 6, dy: 6)
+            let cue = try XCTUnwrap(system.measures.flatMap(\.cueTextLayouts).first { $0.id == cueID })
+            let marker = try XCTUnwrap(system.roadmapMarkerLayouts.first { $0.id == markerID })
+            let ending = try XCTUnwrap(system.endingLayouts.first { $0.roadmapObjectID == fixture.endingID })
+            let moveEnding = try XCTUnwrap(LeadSheetEndingEditOverlay.controlFrames(for: fixture.endingID, in: layout).first)
+            let measures = system.measures
+            let endingDragDistance = measures[2].staffFrame.midX - measures[1].staffFrame.midX
+            var movedEnding = chart
+            XCTAssertTrue(movedEnding.updateEndingSpan(fixture.endingID, startMeasureID: fixture.ids[2], endMeasureID: fixture.ids[3]))
+            let endingPreview = try XCTUnwrap(LeadSheetEndingEditOverlay.previewSegments(
+                for: fixture.endingID, previewChart: movedEnding, sourceLayout: layout).first)
+            let markerPreview = LeadSheetRoadmapMarkerEditOverlayGeometry.clampedFrame(
+                marker.frame.offsetBy(dx: 32, dy: 0), in: marker.movementFrame)
+            let interactions: [(RenderedEditObjectID, CGRect, CGFloat, CGFloat)] = [
+                (.cueText(cueID), cue.frame, 32, 32),
+                (.roadmapMarker(markerID), marker.frame, 32, markerPreview.minX - marker.frame.minX),
+                (.endingSpan(fixture.endingID), moveEnding.moveHandle, endingDragDistance,
+                    endingPreview.occupiedFrame.maxX - ending.occupiedFrame.maxX)
+            ]
+
+            for (index, interaction) in interactions.enumerated() {
+                let (objectID, grabFrame, penTravel, previewTravel) = interaction
+                canvas.applyParentSelectionState(selectedMeasureID: fixture.ids[1], selectedNoteSelection: nil,
+                    selectedChordID: nil, selectedCommittedBarlineMeasureID: nil,
+                    selectedCueTextID: index == 0 ? cueID : nil,
+                    selectedRoadmapMarkerID: index == 1 ? markerID : nil,
+                    selectedEndingSpanID: index == 2 ? fixture.endingID : nil)
+                let handle = try XCTUnwrap(canvas.subviews.compactMap { $0 as? LeadSheetAnnotationPositionHandleView }.first)
+                let restingFrame = handle.frame
+                let expectedX = min(max(restingFrame.minX + previewTravel, paper.minX), paper.maxX - restingFrame.width)
+                let start = CGPoint(x: grabFrame.midX, y: grabFrame.midY)
+                let context = "\(style) \(objectID)"
+                XCTAssertFalse(restingFrame.contains(start), "Grab point must be on the object in \(context)")
+                var published: [Chart] = []
+                canvas.onChartChanged = { published.append($0) }
+                XCTAssertTrue(canvas.beginRenderedObjectMoveTouch(at: start, touchType: .pencil))
+                let pan = AnnotationPositionPanFixture(point: start, state: .began)
+                canvas.handleRenderedObjectMovePan(pan)
+
+                pan.simulatedState = .changed
+                pan.point.x += penTravel
+                pan.simulatedTranslation.x = penTravel
+                canvas.handleRenderedObjectMovePan(pan)
+                XCTAssertNotEqual(restingFrame.minX, expectedX, context)
+                XCTAssertEqual(handle.frame.minX, expectedX, accuracy: 0.5, context)
+                XCTAssertEqual(canvas.chart, chart)
+                XCTAssertTrue(published.isEmpty)
+
+                pan.simulatedState = .cancelled
+                canvas.handleRenderedObjectMovePan(pan)
+                XCTAssertEqual(handle.frame, restingFrame, context)
+                XCTAssertEqual(canvas.chart, chart)
+                XCTAssertTrue(published.isEmpty)
+            }
+        }
+    }
+
     private struct Fixture {
         var chart: Chart
         var endingID: UUID
@@ -391,6 +469,7 @@ final class LeadSheetEndingEditInteractionTests: XCTestCase {
 private final class AnnotationPositionPanFixture: UIPanGestureRecognizer {
     var point: CGPoint
     var simulatedState: UIGestureRecognizer.State
+    var simulatedTranslation: CGPoint = .zero
 
     init(point: CGPoint, state: UIGestureRecognizer.State) {
         self.point = point
@@ -405,6 +484,7 @@ private final class AnnotationPositionPanFixture: UIPanGestureRecognizer {
 
     override var numberOfTouches: Int { 1 }
     override func location(in view: UIView?) -> CGPoint { point }
+    override func translation(in view: UIView?) -> CGPoint { simulatedTranslation }
 }
 
 @MainActor

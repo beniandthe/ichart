@@ -8,6 +8,19 @@ enum LeadSheetAnnotationPositionEditOverlay {
         let frame: CGRect
         let annotationFrame: CGRect
         let offsetFromDefault: CGFloat
+        let paperFrame: CGRect
+
+        func following(_ annotation: CGRect, in destinationPaper: CGRect? = nil, scale: CGFloat) -> Handle {
+            let paper = destinationPaper ?? paperFrame
+            let usable = paper.insetBy(dx: 6 / scale, dy: 6 / scale)
+            let proposed = frame.offsetBy(dx: annotation.maxX - annotationFrame.maxX,
+                dy: annotation.midY - annotationFrame.midY)
+            let x = min(max(proposed.minX, usable.minX), usable.maxX - frame.width)
+            let y = min(max(proposed.minY, usable.minY), usable.maxY - frame.height)
+            return Handle(frame: CGRect(origin: CGPoint(x: x, y: y), size: frame.size),
+                annotationFrame: annotation, offsetFromDefault: offsetFromDefault,
+                paperFrame: paper)
+        }
     }
 
     static func handles(for context: RenderedEditContext) -> [Handle] {
@@ -62,7 +75,8 @@ enum LeadSheetAnnotationPositionEditOverlay {
                 inside: paper, obstacles: obstacles, reserved: reserved, scale: scale
             ) else { return nil }
             reserved.append(frame)
-            return Handle(frame: frame, annotationFrame: annotationFrame, offsetFromDefault: offsetFromDefault)
+            return Handle(frame: frame, annotationFrame: annotationFrame, offsetFromDefault: offsetFromDefault,
+                paperFrame: paper)
         }
     }
 }

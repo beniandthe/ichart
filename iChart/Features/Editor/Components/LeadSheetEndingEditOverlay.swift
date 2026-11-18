@@ -96,7 +96,7 @@ enum LeadSheetEndingEditOverlay {
     static func presentation(
         for endingID: UUID, chart: Chart, pageLayout: LeadSheetPageLayout,
         previewChart: Chart? = nil, screenPointsPerDisplayedPoint: CGFloat = 1,
-        dragFeedback: LeadSheetEndingDragFeedback? = nil
+        dragFeedback: LeadSheetEndingDragFeedback? = nil, projectedSegments: [LeadSheetEndingLayout]? = nil
     ) -> Presentation {
         let scale = validScale(screenPointsPerDisplayedPoint)
         let isDragging = dragFeedback != nil || (previewChart != nil && previewChart != chart)
@@ -106,7 +106,9 @@ enum LeadSheetEndingEditOverlay {
                 activeMoveSystemIndex: nil, action: nil, rangeCaption: nil, isDragging: false)
         }
         let destination = previewChart ?? chart
-        let ghosts = previewSegments(for: endingID, previewChart: destination, sourceLayout: pageLayout)
+        let ghosts = projectedSegments ?? (destination == chart
+            ? orderedSegments(for: endingID, in: pageLayout).map { $0.1 }
+            : previewSegments(for: endingID, previewChart: destination, sourceLayout: pageLayout))
         var candidateLayout = pageLayout
         for index in candidateLayout.systems.indices {
             candidateLayout.systems[index].endingLayouts.removeAll { $0.roadmapObjectID == endingID }
@@ -158,11 +160,12 @@ enum LeadSheetEndingEditOverlay {
     static func draw(
         endingID: UUID, chart: Chart, pageLayout: LeadSheetPageLayout,
         previewChart: Chart? = nil, screenPointsPerDisplayedPoint: CGFloat = 1,
-        dragFeedback: LeadSheetEndingDragFeedback? = nil
+        dragFeedback: LeadSheetEndingDragFeedback? = nil, projectedSegments: [LeadSheetEndingLayout]? = nil
     ) {
         let scale = validScale(screenPointsPerDisplayedPoint)
         let display = presentation(for: endingID, chart: chart, pageLayout: pageLayout,
-            previewChart: previewChart, screenPointsPerDisplayedPoint: scale, dragFeedback: dragFeedback)
+            previewChart: previewChart, screenPointsPerDisplayedPoint: scale, dragFeedback: dragFeedback,
+            projectedSegments: projectedSegments)
         if display.isDragging {
             for (_, source) in orderedSegments(for: endingID, in: pageLayout) {
                 let baseline = UIBezierPath(roundedRect: source.frame.insetBy(dx: -3 / scale, dy: -2 / scale), cornerRadius: 4 / scale)

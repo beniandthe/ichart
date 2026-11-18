@@ -90,6 +90,109 @@ final class AnnotationPlacementRegressionTests: XCTestCase {
         }
     }
 
+    func testManualOffsetsUseExistingInterSystemSpaceInBothStyles() throws {
+        for style in Self.styles {
+            var chart = chartWithThreeSystems(style: style, density: .close)
+            let ids = chart.measures.map(\.id)
+            let cueID = try XCTUnwrap(chart.addCueText("Hold back", anchorMeasureID: ids[2], position: .below))
+            let markerID = try XCTUnwrap(chart.addPointRoadmapMarker(.fine, anchorMeasureID: ids[2]))
+            let endingID = try XCTUnwrap(chart.addEndingSpan(.ending1, startMeasureID: ids[4], endMeasureID: ids[5]))
+            let before = layout(chart)
+            let cue = try cueFrame(cueID, in: before)
+            let marker = try markerLayout(markerID, in: before).frame
+            let ending = try endingFrame(endingID, in: before)
+
+            XCTAssertTrue(chart.setCueTextVerticalOffset(cueID, to: 6))
+            let afterCueMove = layout(chart)
+            XCTAssertEqual(try cueFrame(cueID, in: afterCueMove), cue.offsetBy(dx: 0, dy: 6), "\(style) cue")
+            assertSameGeometry(afterCueMove, before, context: "\(style) cue")
+            XCTAssertTrue(chart.setCueTextVerticalOffset(cueID, to: 0))
+
+            XCTAssertTrue(chart.setRoadmapAnnotationVerticalOffset(markerID, to: -6))
+            let afterMarkerMove = layout(chart)
+            XCTAssertEqual(try markerLayout(markerID, in: afterMarkerMove).frame, marker.offsetBy(dx: 0, dy: -6), "\(style) form")
+            assertSameGeometry(afterMarkerMove, before, context: "\(style) form")
+            XCTAssertTrue(chart.setRoadmapAnnotationVerticalOffset(markerID, to: 0))
+
+            XCTAssertTrue(chart.setRoadmapAnnotationVerticalOffset(endingID, to: -6))
+            let afterEndingMove = layout(chart)
+            XCTAssertEqual(try endingFrame(endingID, in: afterEndingMove), ending.offsetBy(dx: 0, dy: -6), "\(style) ending")
+            assertSameGeometry(afterEndingMove, before, context: "\(style) ending")
+            XCTAssertTrue(chart.setRoadmapAnnotationVerticalOffset(endingID, to: 0))
+
+            let reset = layout(chart)
+            assertSameGeometry(reset, before, context: "\(style) Reset Position")
+            XCTAssertEqual(try cueFrame(cueID, in: reset), cue)
+            XCTAssertEqual(try markerLayout(markerID, in: reset).frame, marker)
+            XCTAssertEqual(try endingFrame(endingID, in: reset), ending)
+        }
+    }
+
+    func testManualOffsetAddsOnlyClearanceNeededToProtectAdjacentSystemInBothStyles() throws {
+        for style in Self.styles {
+            var chart = chartWithThreeSystems(style: style, density: .dense)
+            let markerID = try XCTUnwrap(chart.addPointRoadmapMarker(.fine, anchorMeasureID: chart.measures[2].id))
+            let before = layout(chart)
+            let previousContent = before.systems[0].spacingContentBounds(for: chart)
+            let marker = try markerLayout(markerID, in: before)
+            let markerLabel = LeadSheetRoadmapMarkerLabelGeometry.labelFrame(for: marker)
+            let originalGap = markerLabel.minY - previousContent.maxY
+            XCTAssertGreaterThan(originalGap, 0, "\(style) starts with room between systems")
+            let proposedOverlap: CGFloat = 12
+            let offset = -(originalGap + proposedOverlap)
+            XCTAssertTrue(chart.setRoadmapAnnotationVerticalOffset(markerID, to: Double(offset)))
+            let moved = layout(chart)
+            let label = LeadSheetRoadmapMarkerLabelGeometry.labelFrame(for: try markerLayout(markerID, in: moved))
+            let secondSystemShift = moved.systems[1].frame.minY - before.systems[1].frame.minY
+
+            XCTAssertEqual(moved.systems[0].frame, before.systems[0].frame, "\(style) preceding system")
+            XCTAssertEqual(pageMeasureIDs(moved), pageMeasureIDs(before), "\(style) page assignments")
+            XCTAssertGreaterThanOrEqual(label.minY + 0.001, previousContent.maxY, "\(style) adjacent content")
+            XCTAssertEqual(label.minY, markerLabel.minY + offset + secondSystemShift, accuracy: 0.001,
+                "\(style) requested offset stays relative to its system")
+            XCTAssertGreaterThanOrEqual(secondSystemShift + 0.001, proposedOverlap, "\(style) creates room")
+            XCTAssertLessThanOrEqual(secondSystemShift, proposedOverlap + 9, "\(style) uses existing space first")
+        }
+    }
+
+    private func chartWithThreeSystems(style: ChartLayoutStyle, density: StaffSystemDensity) -> Chart {
+        var chart = Chart.blank(title: "Annotations between systems", measureCount: 6, layoutStyle: style)
+        chart.staffSystemDensity = density
+        let ids = chart.measures.map(\.id)
+        XCTAssertTrue(chart.insertSystemBreak(before: ids[2]))
+        XCTAssertTrue(chart.insertSystemBreak(before: ids[4]))
+        XCTAssertEqual(layout(chart).systems.count, 3)
+        return chart
+    }
+
+    private func cueFrame(_ cueID: UUID, in layout: LeadSheetPageLayout) throws -> CGRect {
+        try XCTUnwrap(layout.systems.flatMap(\.measures).flatMap(\.cueTextLayouts).first { $0.id == cueID }).frame
+    }
+
+    private func endingFrame(_ endingID: UUID, in layout: LeadSheetPageLayout) throws -> CGRect {
+        try XCTUnwrap(layout.systems.flatMap(\.endingLayouts).first { $0.roadmapObjectID == endingID }).frame
+    }
+
+    private func markerLayout(_ markerID: UUID, in layout: LeadSheetPageLayout) throws -> LeadSheetRoadmapMarkerLayout {
+        try XCTUnwrap(layout.systems.flatMap(\.roadmapMarkerLayouts).first { $0.roadmapObjectID == markerID })
+    }
+
+    private func pageMeasureIDs(_ layout: LeadSheetPageLayout) -> [[UUID]] {
+        layout.pages.map { page in
+            layout.systems.filter { page.systemIDs.contains($0.id) }.flatMap(\.measures).compactMap(\.sourceMeasureID)
+        }
+    }
+
+    private func assertSameGeometry(_ actual: LeadSheetPageLayout, _ expected: LeadSheetPageLayout, context: String,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        XCTAssertEqual(pageMeasureIDs(actual), pageMeasureIDs(expected), context, file: file, line: line)
+        XCTAssertEqual(actual.pages.map(\.frame), expected.pages.map(\.frame), context, file: file, line: line)
+        XCTAssertEqual(actual.systems.map(\.frame), expected.systems.map(\.frame), context, file: file, line: line)
+        XCTAssertEqual(actual.systems.flatMap(\.measures).map(\.staffFrame),
+            expected.systems.flatMap(\.measures).map(\.staffFrame), context, file: file, line: line)
+    }
+
     private func annotationOffsets(in layout: LeadSheetPageLayout,
         ids: (cue: UUID, marker: UUID, ending: UUID), anchors: [UUID]
     ) throws -> (cue: CGFloat, marker: CGFloat, ending: CGFloat) {

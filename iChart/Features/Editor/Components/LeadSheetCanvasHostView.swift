@@ -2206,12 +2206,17 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
     private let chordMoveOverlayView = LeadSheetChordMoveOverlayView(frame: .zero)
     private var activeChordResizeDrag: ActiveChordResizeDrag?
-    private var activeRoadmapMarkerEditDrag: ActiveRoadmapMarkerEditDrag?
-    private var activeCueTextMoveDrag: ActiveCueTextMoveDrag?
+    private var activeRoadmapMarkerEditDrag: ActiveRoadmapMarkerEditDrag? {
+        didSet { updateAnnotationPositionHandleFrames() }
+    }
+    private var activeCueTextMoveDrag: ActiveCueTextMoveDrag? {
+        didSet { updateAnnotationPositionHandleFrames() }
+    }
     private var activeAnnotationPositionDrag: LeadSheetAnnotationPositionDrag?
     private var annotationPositionDragY: CGFloat = 0
     private var annotationPositionHandleID: RenderedEditObjectID?
     private var annotationPositionHandlePlacements: [LeadSheetAnnotationPositionEditOverlay.Handle] = []
+    private var displayedAnnotationPositionHandles: [LeadSheetAnnotationPositionEditOverlay.Handle] = []
     private var annotationPositionHandleViews: [LeadSheetAnnotationPositionHandleView] = []
     private var endingEditInteraction = LeadSheetEndingEditInteraction()
     private var parentScrollLockCoordinator = LeadSheetParentScrollLockCoordinator()
@@ -2491,7 +2496,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             LeadSheetEndingEditOverlay.draw(endingID: selectedEndingSpanID, chart: chart,
                 pageLayout: pageLayout, previewChart: endingEditInteraction.previewChart,
                 screenPointsPerDisplayedPoint: canvasScreenPointsPerDisplayedPoint(),
-                dragFeedback: endingEditInteraction.dragFeedback)
+                dragFeedback: endingEditInteraction.dragFeedback,
+                projectedSegments: endingEditInteraction.projectedSegments)
         }
         drawAnnotationPositionFeedback()
 
@@ -5883,7 +5889,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         if let committed = effect.committedChart {
             applyCommittedEndingEdit(committed, action: effect.action)
         }
-        if effect.needsDisplay { setNeedsDisplay() }
+        if effect.needsDisplay {
+            updateAnnotationPositionHandleFrames()
+            setNeedsDisplay()
+        }
     }
 
     private func beginsAsVerticalAnnotationDrag(_ admitted: RenderedEditDragState, at point: CGPoint) -> Bool {
@@ -5993,12 +6002,61 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 }
             }
         }
+        updateAnnotationPositionHandleFrames()
+    }
+
+    private func updateAnnotationPositionHandleFrames() {
+        let placements = annotationPositionHandlePlacements
+        let scale = max(canvasScreenPointsPerDisplayedPoint(), 0.1)
+        displayedAnnotationPositionHandles = annotationPositionHandlePreview(from: placements, scale: scale)
+        for (index, view) in annotationPositionHandleViews.enumerated() {
+            if index < displayedAnnotationPositionHandles.count {
+                view.frame = displayedAnnotationPositionHandles[index].frame
+                view.isHidden = false
+            } else {
+                view.isHidden = true
+            }
+        }
+    }
+
+    private func annotationPositionHandlePreview(
+        from placements: [LeadSheetAnnotationPositionEditOverlay.Handle], scale: CGFloat
+    ) -> [LeadSheetAnnotationPositionEditOverlay.Handle] {
+        let dx: CGFloat
+        let dy: CGFloat
+        switch annotationPositionHandleID {
+        case .cueText(let id) where activeCueTextMoveDrag?.cueTextID == id:
+            guard let drag = activeCueTextMoveDrag else { return placements }
+            dx = drag.currentFrame.minX - drag.initialFrame.minX
+            dy = drag.currentFrame.minY - drag.initialFrame.minY
+        case .roadmapMarker(let id) where activeRoadmapMarkerEditDrag?.markerID == id:
+            guard let drag = activeRoadmapMarkerEditDrag else { return placements }
+            dx = drag.currentFrame.minX - drag.initialFrame.minX
+            dy = 0
+        case .endingSpan:
+            guard let segments = endingEditInteraction.projectedSegments, let pageLayout else { return placements }
+            var pairs = Array(zip(placements, segments))
+            if !pairs.isEmpty, endingEditInteraction.dragFeedback?.action == .resizeTrailing,
+               let trailingPlacement = placements.last, let trailingSegment = segments.last {
+                pairs[pairs.count - 1] = (trailingPlacement, trailingSegment)
+            }
+            return pairs.map { placement, segment in
+                let paper = pageLayout.systems.first { $0.index == segment.systemIndex }
+                    .map { pageLayout.paperFrame(for: $0) }
+                return placement.following(segment.occupiedFrame, in: paper, scale: scale)
+            }
+        default:
+            return placements
+        }
+        return placements.map {
+            $0.following($0.annotationFrame.offsetBy(dx: dx, dy: dy), scale: scale)
+        }
     }
 
     private func annotationPositionTarget(at point: CGPoint, action: RenderedEditAction) -> RenderedEditHitTarget? {
         guard let objectID = annotationPositionHandleID,
               renderedEditSelectionState().contains(objectID),
-              let placement = annotationPositionHandlePlacements.first(where: { $0.frame.contains(point) })
+              let placement = displayedAnnotationPositionHandles.first(where: { $0.frame.contains(point) })
         else { return nil }
         return RenderedEditHitTarget(objectID: objectID, action: action, priority: .selectedObjectEditControl,
             frame: placement.frame, requiresSelection: true, mutationRisk: action.isMove ? .visual : .nonMutating)
@@ -6008,7 +6066,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         guard let objectID = annotationPositionHandleID else { return }
         let scale = max(canvasScreenPointsPerDisplayedPoint(), 0.1)
         let dy = annotationPositionPreviewTranslation(for: objectID)
-        for placement in annotationPositionHandlePlacements {
+        for placement in displayedAnnotationPositionHandles {
             let frame = placement.annotationFrame.offsetBy(dx: 0, dy: dy ?? 0)
             let path = UIBezierPath()
             let nearest = CGPoint(x: min(max(frame.midX, placement.frame.minX), placement.frame.maxX),
@@ -6216,6 +6274,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func cancelEndingEditDrag() {
         guard endingEditInteraction.cancel() else { return }
+        updateAnnotationPositionHandleFrames()
         unlockParentScrollForChordMove()
         setNeedsDisplay()
     }
@@ -6456,6 +6515,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             setNeedsDisplay()
 
             if recognizer.state == .ended {
+                self.activeCueTextMoveDrag = nil
                 if let target = LeadSheetCanvasInteractionTargeting.cueTextMoveTarget(
                     at: location,
                     in: pageLayout,
@@ -6474,7 +6534,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                         selectedCueTextID = activeCueTextMoveDrag.cueTextID
                     }
                 }
-                self.activeCueTextMoveDrag = nil
                 unlockParentScrollForChordMove()
                 setNeedsDisplay()
             }
@@ -6495,7 +6554,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func handleRoadmapMarkerEditPan(_ recognizer: UIPanGestureRecognizer) {
         switch recognizer.state {
         case .began:
-            let startLocation = renderedObjectMoveStartLocation(for: recognizer)
             guard let target = renderedObjectMoveAdmittedDrag?.target,
                   case .roadmapMarker(let markerID) = target.objectID,
                   let markerLayout = roadmapMarkerLayouts().first(where: { $0.id == markerID }) else {
@@ -6538,6 +6596,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             setNeedsDisplay()
 
             if recognizer.state == .ended {
+                self.activeRoadmapMarkerEditDrag = nil
                 let normalizedOffset = LeadSheetRoadmapMarkerEditOverlayGeometry.normalizedOffset(
                     for: clampedFrame,
                     in: activeRoadmapMarkerEditDrag.movementFrame
@@ -6549,7 +6608,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 ) {
                     applyUpdatedChart(updatedChart, reason: .moveRoadmapMarker)
                 }
-                self.activeRoadmapMarkerEditDrag = nil
                 unlockParentScrollForChordMove()
                 setNeedsDisplay()
             }
