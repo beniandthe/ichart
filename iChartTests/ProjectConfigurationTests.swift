@@ -1287,6 +1287,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(libraryText.contains("Use Discard to clear the current chord writing without changing the chart."))
         XCTAssertTrue(libraryText.contains("Changing Chords, Text, And Markers"))
         XCTAssertTrue(libraryText.contains("Double-tap a chord in Select to correct it. Tap once to show its controls."))
+        XCTAssertTrue(libraryText.contains("drag Move Up or Down to adjust its height. Reset Position restores automatic spacing."))
+        XCTAssertTrue(libraryText.contains("use Move to shift its measure range or Lengthen to change the last measure."))
         XCTAssertTrue(libraryText.contains("Drag a chord body to move it, then lift to place it. The width handle changes width; the red X deletes."))
         XCTAssertTrue(libraryText.contains("If a selected chord has a custom width, Reset Width returns it to 100% width without changing its placement."))
         XCTAssertTrue(libraryText.contains("Measures And Tools"))

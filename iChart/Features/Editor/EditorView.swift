@@ -2136,6 +2136,8 @@ struct EditorView: View {
     private var activeToolGuidance: EditorToolGuidance {
         var guidance = defaultToolGuidance
         switch canvasMode {
+        case .browse where selectedCueText != nil || selectedRoadmapMarker != nil || selectedEndingSpan != nil:
+            guidance = guidance.replacingNextAction("Drag Move Up or Down to change the selected item's height.")
         case .chordEntry:
             if let focus = draftEndingBlockerFocus, focus.matches(chart: chart, state: chordPreviewState) {
                 guidance = guidance.replacingNextAction("Use Erase on the highlighted barline. Switch to Write to redraw it, then review the ending again.")
@@ -2298,7 +2300,7 @@ struct EditorView: View {
                         isDisabled: !canDeleteSelectedCommittedChordBarline,
                         action: deleteSelectedCommittedChordBarline
                     )
-                } else if selectedCueText != nil {
+                } else if let cue = selectedCueText {
                     activeToolButton(
                         title: "Edit",
                         systemImage: "pencil",
@@ -2321,13 +2323,19 @@ struct EditorView: View {
                         resizeSelectedCueText(by: -CueText.scaleStep)
                     }
 
+                    if cue.verticalOffset != 0 {
+                        resetAnnotationPositionButton {
+                            _ = chart.setCueTextVerticalOffset(cue.id, to: 0)
+                        }
+                    }
+
                     activeToolButton(
                         title: "Delete",
                         systemImage: "trash",
                         isDestructive: true,
                         action: deleteSelectedCueText
                     )
-                } else if selectedRoadmapMarker != nil {
+                } else if let marker = selectedRoadmapMarker {
                     activeToolButton(
                         title: "Larger",
                         systemImage: "plus.magnifyingglass",
@@ -2344,6 +2352,12 @@ struct EditorView: View {
                         resizeSelectedRoadmapMarker(by: -RoadmapObject.scaleStep)
                     }
 
+                    if marker.resolvedVerticalOffset != 0 {
+                        resetAnnotationPositionButton {
+                            _ = chart.setRoadmapAnnotationVerticalOffset(marker.id, to: 0)
+                        }
+                    }
+
                     activeToolButton(
                         title: "Delete",
                         systemImage: "trash",
@@ -2356,6 +2370,11 @@ struct EditorView: View {
                         systemImage: "pencil",
                         action: { presentEndingEditor(endingID: ending.id) }
                     )
+                    if ending.resolvedVerticalOffset != 0 {
+                        resetAnnotationPositionButton {
+                            _ = chart.setRoadmapAnnotationVerticalOffset(ending.id, to: 0)
+                        }
+                    }
                 } else if selectedMeasureID != nil {
                     if let selectedMeasureID, adjacentRowMovePlan(for: selectedMeasureID, direction: .above) != nil {
                         activeToolButton(
@@ -2390,6 +2409,11 @@ struct EditorView: View {
             .frame(minWidth: minWidth, alignment: .center)
         }
         .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    private func resetAnnotationPositionButton(action: @escaping () -> Void) -> some View {
+        activeToolButton(title: "Reset Position", systemImage: "arrow.uturn.backward", action: action)
+            .accessibilityHint("Return to automatic vertical placement")
     }
 
     @ViewBuilder

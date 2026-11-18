@@ -250,6 +250,91 @@ final class LeadSheetEndingEditInteractionTests: XCTestCase {
         XCTAssertEqual(view.chart.pageHandwrittenChordData, fixture.chart.pageHandwrittenChordData)
     }
 
+    func testSelectedAnnotationsHaveVerticalHandlesThatCommitOnlyVisualPlacement() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let fixture = try fixture()
+            var chart = fixture.chart
+            chart.layoutStyle = style
+            let cueID = try XCTUnwrap(chart.addCueText("On cue", anchorMeasureID: fixture.ids[1], position: .above))
+            let markerID = try XCTUnwrap(chart.addPointRoadmapMarker(.segno, anchorMeasureID: fixture.ids[1]))
+            let frame = CGRect(x: 0, y: 0, width: 900, height: 1_400)
+            let canvas = LeadSheetCanvasUIKitView(frame: frame)
+            canvas.chart = chart
+            let controller = UIViewController()
+            controller.view = canvas
+            let window = UIWindow(frame: frame)
+            window.rootViewController = controller
+            window.makeKeyAndVisible()
+            defer { window.isHidden = true }
+            canvas.layoutIfNeeded()
+
+            let selections: [RenderedEditObjectID] = [.cueText(cueID), .roadmapMarker(markerID), .endingSpan(fixture.endingID)]
+            for (index, objectID) in selections.enumerated() {
+                canvas.applyParentSelectionState(selectedMeasureID: fixture.ids[1], selectedNoteSelection: nil,
+                    selectedChordID: nil, selectedCommittedBarlineMeasureID: nil,
+                    selectedCueTextID: index == 0 ? cueID : nil,
+                    selectedRoadmapMarkerID: index == 1 ? markerID : nil,
+                    selectedEndingSpanID: index == 2 ? fixture.endingID : nil)
+                let handle = try XCTUnwrap(canvas.subviews.compactMap { $0 as? LeadSheetAnnotationPositionHandleView }.first)
+                XCTAssertEqual(handle.accessibilityLabel, "Move Up or Down")
+                XCTAssertTrue(handle.accessibilityTraits.contains(.adjustable))
+                XCTAssertGreaterThanOrEqual(handle.bounds.height, 44)
+                let start = CGPoint(x: handle.frame.midX, y: handle.frame.midY)
+                let baseline = canvas.chart
+                var published: [Chart] = []
+                canvas.onChartChanged = { published.append($0) }
+
+                XCTAssertTrue(canvas.beginRenderedObjectMoveTouch(at: start, touchType: .pencil))
+                let pan = AnnotationPositionPanFixture(point: CGPoint(x: start.x, y: start.y - 12), state: .began)
+                canvas.handleRenderedObjectMovePan(pan)
+                pan.point = CGPoint(x: start.x + 128, y: start.y - 26)
+                pan.simulatedState = .changed
+                canvas.handleRenderedObjectMovePan(pan)
+                XCTAssertEqual(canvas.chart, baseline, "Preview preserves the saved chart in \(style)")
+                XCTAssertTrue(published.isEmpty)
+
+                pan.simulatedState = .ended
+                canvas.handleRenderedObjectMovePan(pan)
+                XCTAssertEqual(published.count, 1, "Lifting the Pencil saves one visual edit in \(style)")
+                let changedOffset = try XCTUnwrap(LeadSheetAnnotationPositionDrag.modelOffset(for: objectID, in: canvas.chart))
+                XCTAssertLessThan(changedOffset, 0)
+                var normalized = canvas.chart
+                XCTAssertTrue(LeadSheetAnnotationPositionDrag.setOffset(0, for: objectID, in: &normalized))
+                normalized.updatedAt = baseline.updatedAt
+                XCTAssertEqual(normalized, baseline, "Only placement changed. Ranges, anchors, and source ink match.")
+
+                canvas.handleRenderedObjectMovePan(pan)
+                XCTAssertEqual(published.count, 1, "Duplicate end cannot save a second edit")
+                canvas.chart = baseline
+                canvas.onChartChanged = nil
+            }
+            canvas.interactionMode = .chordEntry
+            XCTAssertFalse(canvas.subviews.contains { $0 is LeadSheetAnnotationPositionHandleView })
+        }
+    }
+
+    func testSelectingCueFromDividerShowsItsVerticalHandle() throws {
+        let fixture = try fixture()
+        var chart = fixture.chart
+        let cueID = try XCTUnwrap(chart.addCueText("On cue", anchorMeasureID: fixture.ids[1], position: .above))
+        let frame = CGRect(x: 0, y: 0, width: 900, height: 1_400)
+        let canvas = LeadSheetCanvasUIKitView(frame: frame)
+        canvas.chart = chart
+        canvas.layoutIfNeeded()
+        canvas.selectedCommittedBarlineMeasureID = fixture.ids[0]
+        XCTAssertFalse(canvas.subviews.contains { $0 is LeadSheetAnnotationPositionHandleView })
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: frame.size)
+        let cue = try XCTUnwrap(layout.systems.flatMap(\.measures).flatMap(\.cueTextLayouts).first { $0.id == cueID })
+        let point = CGPoint(x: cue.frame.midX, y: cue.frame.midY)
+
+        canvas.beginRenderedEditTap(at: point, touchType: .pencil)
+        canvas.handleRenderedEditTapGesture(AnnotationPositionTapFixture(point: point))
+
+        XCTAssertEqual(canvas.selectedCueTextID, cueID)
+        XCTAssertNil(canvas.selectedCommittedBarlineMeasureID)
+        XCTAssertTrue(canvas.subviews.contains { $0 is LeadSheetAnnotationPositionHandleView })
+    }
+
     private struct Fixture {
         var chart: Chart
         var endingID: UUID
@@ -300,5 +385,42 @@ final class LeadSheetEndingEditInteractionTests: XCTestCase {
             pageLayout: fixture.layout, selectedEndingID: fixture.endingID,
             target: state == .began ? dragTarget(fixture: fixture, action: action, at: start) : nil)
     }
+}
+
+@MainActor
+private final class AnnotationPositionPanFixture: UIPanGestureRecognizer {
+    var point: CGPoint
+    var simulatedState: UIGestureRecognizer.State
+
+    init(point: CGPoint, state: UIGestureRecognizer.State) {
+        self.point = point
+        simulatedState = state
+        super.init(target: nil, action: nil)
+    }
+
+    override var state: UIGestureRecognizer.State {
+        get { simulatedState }
+        set { simulatedState = newValue }
+    }
+
+    override var numberOfTouches: Int { 1 }
+    override func location(in view: UIView?) -> CGPoint { point }
+}
+
+@MainActor
+private final class AnnotationPositionTapFixture: UITapGestureRecognizer {
+    let point: CGPoint
+
+    init(point: CGPoint) {
+        self.point = point
+        super.init(target: nil, action: nil)
+    }
+
+    override var state: UIGestureRecognizer.State {
+        get { .ended }
+        set {}
+    }
+
+    override func location(in view: UIView?) -> CGPoint { point }
 }
 #endif

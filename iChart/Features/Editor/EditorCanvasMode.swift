@@ -217,6 +217,9 @@ enum EditorCanvasMode: Hashable {
             var details = [EditorToolGuidanceSection(
                 title: "Chords and cues",
                 text: "Drag a chord with Apple Pencil, then lift to place it. Beat guides show its destination. Tap a chord to show its controls: tap the red X to delete or drag the width handle to change width. Double-tap a chord to correct it. Tap a measure or cue to see its actions."
+            ), .init(
+                title: "Space cues, endings, and form marks",
+                text: "Tap the item, then drag Move Up or Down to adjust its height. Reset Position restores automatic spacing. For endings, Move and Lengthen adjust the measures."
             )]
             if layoutStyle == .simpleChordSheet || layoutStyle == .rhythmSectionSheet {
                 details.append(.init(
@@ -355,7 +358,7 @@ enum EditorCanvasMode: Hashable {
                 steps: ["Tap a measure, then choose Above or Below.",
                         "Choose Keyboard or Scribble. For Scribble, tap the field with Apple Pencil before writing. Tap Add or Apply."],
                 detailsTitle: "Text guide",
-                details: [.init(title: "Existing cues", text: "Tap an existing cue with Apple Pencil to edit it, change its size, or delete it.")]
+                details: [.init(title: "Existing cues", text: "Tap an existing cue with Apple Pencil to edit it, change its size, or delete it. In Select, use Move Up or Down to adjust its height.")]
             )
         }
     }

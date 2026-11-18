@@ -920,6 +920,40 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
         }
     }
 
+    func testSelectResetsAnnotationHeightWithoutChangingMusicalAnchors() async throws {
+        var chart = Chart.draft(title: "Annotation controls", layoutStyle: .rhythmSectionSheet)
+        chart.completeInitialSetup(title: chart.title, key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine, startingMeasureCount: 4)
+        let first = chart.measures[0].id
+        let last = chart.measures[1].id
+        let cue = try XCTUnwrap(chart.addCueText("On cue", anchorMeasureID: first, position: .above))
+        let marker = try XCTUnwrap(chart.addPointRoadmapMarker(.segno, anchorMeasureID: first))
+        let ending = try XCTUnwrap(chart.addEndingSpan(.ending1, startMeasureID: first, endMeasureID: last))
+        XCTAssertTrue(chart.setCueTextVerticalOffset(cue, to: -24))
+        XCTAssertTrue(chart.setRoadmapAnnotationVerticalOffset(marker, to: -48))
+        XCTAssertTrue(chart.setRoadmapAnnotationVerticalOffset(ending, to: -16))
+        let mounted = try await mount(manual: true, initialChart: chart, initialCanvasMode: .browse)
+
+        func reset(_ id: UUID, afterSelecting select: ((UUID) -> Void)?) async throws {
+            let selection = try XCTUnwrap(select)
+            selection(id)
+            try activate(await waitForNode(in: mounted.window) {
+                $0.isButton && $0.isEnabled && $0.element.accessibilityLabel == "Reset Position"
+            })
+        }
+
+        try await reset(cue, afterSelecting: mounted.canvas.onCueTextSelectedFromCanvas)
+        XCTAssertEqual(mounted.model.chart.cueText(id: cue)?.verticalOffset, 0)
+        XCTAssertEqual(mounted.model.chart.cueText(id: cue)?.anchorMeasureID, first)
+        try await reset(marker, afterSelecting: mounted.canvas.onRoadmapMarkerSelectedFromCanvas)
+        XCTAssertEqual(mounted.model.chart.roadmapObject(id: marker)?.resolvedVerticalOffset, 0)
+        XCTAssertEqual(mounted.model.chart.roadmapObject(id: marker)?.startMeasureID, first)
+        try await reset(ending, afterSelecting: mounted.canvas.onEndingSpanSelectedFromCanvas)
+        XCTAssertEqual(mounted.model.chart.roadmapObject(id: ending)?.resolvedVerticalOffset, 0)
+        XCTAssertEqual(mounted.model.chart.roadmapObject(id: ending)?.startMeasureID, first)
+        XCTAssertEqual(mounted.model.chart.roadmapObject(id: ending)?.endMeasureID, last)
+    }
+
     func testOptionalExactBFlatTriangleArchivesRenderThroughWriteAndRender() async throws {
         let archivedSamples = try PrivateBFlatTriangleReplay.load()
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
@@ -2182,6 +2216,7 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
 
     private func mount(manual: Bool, viewport: CGSize = CGSize(width: 820, height: 1_180),
         sourceDrawing: PKDrawing? = nil, repository: ChartRepository? = nil, initialChart: Chart? = nil,
+        initialCanvasMode: EditorCanvasMode = .chordEntry,
         freezesRecognition: Bool = true, dynamicTypeSize: DynamicTypeSize? = nil,
         coordinatorOverride: ((ChordInkDraftRenderCoordinator) -> Void)? = nil) async throws -> Mounted {
         let key = ChordInkWorkflowSettings.manualRenderWithPreviewKey
@@ -2210,7 +2245,7 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
         let root = NavigationStack {
             EditorView(chart: chartBinding,
                 chordInkUserCorrectionMemoryStore: .init(url: directory.appendingPathComponent("corrections.json")),
-                initialCanvasMode: .chordEntry,
+                initialCanvasMode: initialCanvasMode,
                 recognizesChordInk: !freezesRecognition)
         }
         .environmentObject(store)

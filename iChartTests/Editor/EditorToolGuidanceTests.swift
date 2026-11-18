@@ -142,6 +142,16 @@ final class EditorToolGuidanceTests: XCTestCase {
         }
     }
 
+    func testSelectGuideDistinguishesAnnotationHeightFromEndingRange() {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let guide = EditorCanvasMode.browse.toolGuidance(
+                layoutStyle: style, manualRenderWithPreview: false)
+            XCTAssertTrue(guide.referenceText.contains("Move Up or Down to adjust its height"))
+            XCTAssertTrue(guide.referenceText.contains("Reset Position restores automatic spacing"))
+            XCTAssertTrue(guide.referenceText.contains("Move and Lengthen adjust the measures"))
+        }
+    }
+
     func testSelectionGuideOnlyOffersConvertedMarkActionsWhenPresent() {
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
             let empty = EditorCanvasMode.browse.toolGuidance(

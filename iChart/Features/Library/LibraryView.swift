@@ -472,6 +472,8 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Drag a chord body to move it, then lift to place it. The width handle changes width; the red X deletes.",
                 "If a selected chord has a custom width, Reset Width returns it to 100% width without changing its placement.",
                 "Tap text or roadmap markers in Select to move, resize, edit, or delete them.",
+                "Cues, endings, and form marks make room for one another. In Select, tap an item and drag Move Up or Down to adjust its height. Reset Position restores automatic spacing.",
+                "For an ending, use Move to shift its measure range or Lengthen to change the last measure.",
                 "To remove an eligible chord-only divider, choose Select, tap the divider, then its red X or Delete. Protected Rhythm boundaries keep their content and remain in place."
             ]
         ),

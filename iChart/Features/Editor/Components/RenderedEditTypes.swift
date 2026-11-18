@@ -17,6 +17,7 @@ enum RenderedEditObjectID: Hashable {
 enum RenderedEditAction: Hashable {
     case select
     case move
+    case moveVertically
     case resizeLeading
     case resizeTrailing
     case resizeLeft
@@ -33,14 +34,14 @@ enum RenderedEditAction: Hashable {
     }
 
     var isMove: Bool {
-        self == .move
+        self == .move || self == .moveVertically
     }
 
     var isResize: Bool {
         switch self {
         case .resizeLeading, .resizeTrailing, .resizeLeft, .resizeRight:
             return true
-        case .select, .move, .grow, .shrink, .editText, .correctChord, .delete, .openInspector:
+        case .select, .move, .moveVertically, .grow, .shrink, .editText, .correctChord, .delete, .openInspector:
             return false
         }
     }

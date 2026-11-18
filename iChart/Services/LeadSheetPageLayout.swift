@@ -70,6 +70,7 @@ struct LeadSheetSystemLayout: Identifiable, Hashable {
     var roadmapMarkerLayouts: [LeadSheetRoadmapMarkerLayout]
     var endingLayouts: [LeadSheetEndingLayout]
     var measures: [LeadSheetMeasureLayout]
+    var reservesAnnotationSpace = false
 }
 
 struct LeadSheetKeySignatureLayout: Hashable {
@@ -429,6 +430,7 @@ struct LeadSheetEndingLayout: Identifiable, Hashable {
     var labelFontSize: CGFloat = 0
     var labelLineCount: Int = 1
     var laneIndex: Int = 0
+    var verticalOffsetFromDefault: CGFloat = 0
 
     var occupiedFrame: CGRect {
         labelFrame.isEmpty ? frame : frame.union(labelFrame)
@@ -447,6 +449,7 @@ struct LeadSheetRoadmapMarkerLayout: Identifiable, Hashable {
     var movementFrame: CGRect
     var anchorMeasureID: UUID
     var scale: CGFloat
+    var verticalOffsetFromDefault: CGFloat = 0
 
     var id: UUID {
         roadmapObjectID
@@ -478,6 +481,7 @@ struct LeadSheetCueTextLayout: Identifiable, Hashable {
     var scale: CGFloat
     var beatFraction: CGFloat?
     var verticalOffset: CGFloat
+    var verticalOffsetFromDefault: CGFloat = 0
 }
 
 enum LeadSheetCueTextTypography {
@@ -1185,7 +1189,11 @@ enum LeadSheetPageLayoutEngine {
         let flexibleEndings = endingSpanDescriptors(in: chart).contains {
             $0.laneIndex > 0 || $0.object.resolvedEndingDisplayText != $0.object.type.compactEndingDisplayText
         }
-        guard chart.staffSystemDensity != .standard || !chart.cueTexts.isEmpty || readabilityActive || flexibleEndings else {
+        let hasMovableRoadmapAnnotations = chart.roadmapObjects.contains {
+            $0.type.isPointMarker || ($0.type.isEnding && ($0.resolvedVerticalOffset != 0 || !chart.sectionLabels.isEmpty))
+        }
+        guard chart.staffSystemDensity != .standard || !chart.cueTexts.isEmpty || readabilityActive
+                || flexibleEndings || hasMovableRoadmapAnnotations else {
             return plans
         }
 
@@ -1208,7 +1216,8 @@ enum LeadSheetPageLayoutEngine {
                 meterContext: meterContext
             )
             let contentBounds: CGRect
-            if chart.staffSystemDensity == .standard && !readabilityActive && !flexibleEndings {
+            if chart.staffSystemDensity == .standard && !readabilityActive && !flexibleEndings
+                && !measuredSystem.reservesAnnotationSpace {
                 // Standard rows keep their original engraving. Only cue
                 // overhang needs additional space when its text wraps or moves.
                 let cueFrames = measuredSystem.measures.flatMap(\.cueTextLayouts).map(\.frame)
@@ -1486,7 +1495,7 @@ enum LeadSheetPageLayoutEngine {
         }
 
         var measureX = measureStartX
-        let measures = plan.measures.enumerated().map { offset, measurePlan in
+        var measures = plan.measures.enumerated().map { offset, measurePlan in
             let leadingSignatureExtension = isRhythmSectionSheet && offset == 0
                 ? plan.leadingSignatureWidth
                 : 0
@@ -1521,7 +1530,7 @@ enum LeadSheetPageLayoutEngine {
                 meterChange: meterContext.change(for: measurePlan.measure)
             )
         }
-        let roadmapMarkerLayouts = roadmapMarkerLayouts(
+        var roadmapMarkerLayouts = roadmapMarkerLayouts(
             for: chart,
             systemFrame: frame,
             measureLayouts: measures
@@ -1534,19 +1543,30 @@ enum LeadSheetPageLayoutEngine {
         if flexibleEndingOnSystem, let sectionTextFrame {
             endingTopOffset = max(endingTopOffset, sectionTextFrame.maxY - frame.minY + 2)
         }
-        let endingLayouts = endingLayouts(
+        var endingLayouts = endingLayouts(
             for: chart,
             systemIndex: index,
             systemFrame: frame,
             topOffset: endingTopOffset,
             measureLayouts: measures
         )
+        let reserveAnnotationSpace = resolveAnnotationPlacement(
+            chart: chart,
+            measures: &measures,
+            endings: &endingLayouts,
+            markers: &roadmapMarkerLayouts,
+            fixedLabels: [sectionTextFrame, roadmapTextFrame].compactMap { $0 }
+        )
+        let movedMarkerBottoms = roadmapMarkerLayouts
+            .filter { $0.verticalOffsetFromDefault > 0 }
+            .map { LeadSheetRoadmapMarkerLabelGeometry.labelFrame(for: $0).maxY }
+        let roadmapBottom = (endingLayouts.map(\.occupiedFrame.maxY) + movedMarkerBottoms).max()
         if endingReserveOverride == nil,
-           let endingBottom = endingLayouts.map(\.occupiedFrame.maxY).max(),
+           let roadmapBottom,
            let contentTop = measures.filter({ $0.sourceMeasureID != nil }).map({
                isSimpleChordSheet ? $0.staffFrame.minY : $0.chordBandFrame.minY
            }).min(),
-           endingBottom > contentTop + 0.001 {
+           roadmapBottom > contentTop + 0.001 {
             // A label-free continuation can also need room when a section
             // label moves its bracket down. Reserve from actual bounds while
             // leaving compact, unshifted legacy endings in their original band.
@@ -1557,7 +1577,7 @@ enum LeadSheetPageLayoutEngine {
                 frame: frame,
                 visualPolicy: visualPolicy,
                 meterContext: meterContext,
-                endingReserveOverride: endingBottom - frame.minY + 6
+                endingReserveOverride: roadmapBottom - frame.minY + 6
             )
         }
 
@@ -1578,7 +1598,8 @@ enum LeadSheetPageLayoutEngine {
             roadmapText: roadmapText,
             roadmapMarkerLayouts: roadmapMarkerLayouts,
             endingLayouts: endingLayouts,
-            measures: measures
+            measures: measures,
+            reservesAnnotationSpace: reserveAnnotationSpace
         )
     }
 
@@ -1606,6 +1627,143 @@ enum LeadSheetPageLayoutEngine {
 
             return measureIndex >= startIndex && measureIndex <= endIndex
         }
+    }
+
+    private struct SystemAnnotation {
+        enum Target {
+            case ending(Int)
+            case marker(Int)
+            case cue(measure: Int, index: Int)
+        }
+
+        var target: Target
+        var frame: CGRect
+        var preferredOffset: CGFloat
+        var stacksDown = false
+
+        var isCue: Bool {
+            if case .cue = target { return true }
+            return false
+        }
+    }
+
+    private static func resolveAnnotationPlacement(
+        chart: Chart,
+        measures: inout [LeadSheetMeasureLayout],
+        endings: inout [LeadSheetEndingLayout],
+        markers: inout [LeadSheetRoadmapMarkerLayout],
+        fixedLabels: [CGRect]
+    ) -> Bool {
+        guard !endings.isEmpty || !markers.isEmpty || measures.contains(where: { !$0.cueTextLayouts.isEmpty })
+        else { return false }
+        let roadmapOffsets = Dictionary(chart.roadmapObjects.map {
+            ($0.id, CGFloat($0.resolvedVerticalOffset))
+        }, uniquingKeysWith: { first, _ in first })
+        var annotations = endings.indices.map { index in
+            SystemAnnotation(target: .ending(index), frame: endings[index].occupiedFrame,
+                preferredOffset: roadmapOffsets[endings[index].roadmapObjectID] ?? 0)
+        }
+        annotations += markers.indices.map { index in
+            let marker = markers[index]
+            return SystemAnnotation(target: .marker(index),
+                frame: LeadSheetRoadmapMarkerLabelGeometry.labelFrame(for: marker),
+                preferredOffset: roadmapOffsets[marker.roadmapObjectID] ?? 0)
+        }
+        for measureIndex in measures.indices {
+            for cueIndex in measures[measureIndex].cueTextLayouts.indices {
+                let cue = measures[measureIndex].cueTextLayouts[cueIndex]
+                annotations.append(SystemAnnotation(target: .cue(measure: measureIndex, index: cueIndex),
+                    frame: cue.frame, preferredOffset: cue.verticalOffset, stacksDown: cue.position == .below))
+            }
+        }
+        let defaultOffsets = placeAnnotations(annotations, fixedLabels: fixedLabels)
+        let moved = annotations.indices.filter { annotations[$0].preferredOffset != 0 }
+        let resolvedOffsets: [CGFloat]
+        if moved.isEmpty {
+            resolvedOffsets = defaultOffsets
+        } else {
+            let notationFrames = measures.flatMap { measure in
+                measure.chordLayouts.map(\.naturalFrame) + measure.noteLayouts.map { $0.paintedBounds(for: chart) }
+            }
+            resolvedOffsets = placeAnnotations(annotations, fixedLabels: fixedLabels,
+                defaultOffsets: defaultOffsets, moved: moved, notationFrames: notationFrames)
+        }
+
+        var reservesSpace = false
+        for index in annotations.indices {
+            let annotation = annotations[index]
+            let offset = resolvedOffsets[index]
+            let offsetFromDefault = offset - defaultOffsets[index]
+            if abs(offset - annotation.preferredOffset) > 0.001
+                || (!annotation.isCue && annotation.preferredOffset != 0) {
+                reservesSpace = true
+            }
+            switch annotation.target {
+            case .ending(let index):
+                endings[index].frame = endings[index].frame.offsetBy(dx: 0, dy: offset)
+                if endings[index].showsText {
+                    endings[index].labelFrame = endings[index].labelFrame.offsetBy(dx: 0, dy: offset)
+                }
+                endings[index].verticalOffsetFromDefault = offsetFromDefault
+            case .marker(let index):
+                markers[index].frame = markers[index].frame.offsetBy(dx: 0, dy: offset)
+                markers[index].movementFrame = markers[index].movementFrame.offsetBy(dx: 0, dy: offset)
+                markers[index].verticalOffsetFromDefault = offsetFromDefault
+            case .cue(let measure, let index):
+                var cue = measures[measure].cueTextLayouts[index]
+                cue.frame = cue.frame.offsetBy(dx: 0, dy: offset)
+                cue.hitFrame = cue.hitFrame.offsetBy(dx: 0, dy: offset)
+                cue.verticalOffsetFromDefault = offsetFromDefault
+                measures[measure].cueTextLayouts[index] = cue
+            }
+        }
+        return reservesSpace
+    }
+
+    private static func placeAnnotations(
+        _ annotations: [SystemAnnotation],
+        fixedLabels: [CGRect],
+        defaultOffsets: [CGFloat]? = nil,
+        moved: [Int] = [],
+        notationFrames: [CGRect] = []
+    ) -> [CGFloat] {
+        let movedIndexes = Set(moved)
+        let order = moved + annotations.indices.filter { !movedIndexes.contains($0) }
+        var occupied = fixedLabels
+        var offsets = [CGFloat](repeating: 0, count: annotations.count)
+
+        for index in order {
+            let annotation = annotations[index]
+            let isMoved = movedIndexes.contains(index)
+            // Use the automatic placement as the starting point for a drag
+            // so a cue already displaced by a bracket doesn't jump on drop.
+            let preferredOffset = isMoved ? (defaultOffsets?[index] ?? 0) + annotation.preferredOffset : 0
+            let preferredFrame = annotation.frame.offsetBy(dx: 0, dy: preferredOffset)
+            let obstacles = isMoved && annotation.isCue ? occupied + notationFrames : occupied
+            let frame = clearAnnotationFrame(preferredFrame, obstacles: obstacles, stacksDown: annotation.stacksDown)
+            occupied.append(frame)
+            offsets[index] = frame.minY - annotation.frame.minY
+        }
+        return offsets
+    }
+
+    private static func clearAnnotationFrame(
+        _ preferred: CGRect, obstacles: [CGRect], stacksDown: Bool
+    ) -> CGRect {
+        let clearance: CGFloat = 6
+        let obstaclesInColumn = obstacles.filter { $0.minX < preferred.maxX && preferred.minX < $0.maxX }
+        guard obstaclesInColumn.contains(where: { $0.intersects(preferred) }) else { return preferred }
+        // Walk in the direction of travel so each adjustment clears this
+        // obstacle and cannot collide again with any earlier obstacle.
+        let ordered = obstaclesInColumn.sorted { first, second in
+            stacksDown ? first.maxY < second.maxY : first.minY > second.minY
+        }
+        var frame = preferred
+        for obstacle in ordered where frame.minY < obstacle.maxY + clearance
+            && obstacle.minY < frame.maxY + clearance {
+            frame.origin.y = stacksDown ? obstacle.maxY + clearance : obstacle.minY - clearance - frame.height
+        }
+        return frame
     }
 
     private struct EndingSpanDescriptor {
@@ -3830,7 +3988,7 @@ enum LeadSheetPageLayoutEngine {
             baseFrame = trailingFrame.offsetBy(dx: 0, dy: offset)
         }
 
-        return baseFrame.offsetBy(dx: 0, dy: CGFloat(cueText.verticalOffset))
+        return baseFrame
     }
 
     private static func clampedCueTextX(_ proposedX: CGFloat, width: CGFloat, staffFrame: CGRect) -> CGFloat {
