@@ -306,7 +306,7 @@ private struct IChartQuickStartStep: Identifiable {
         IChartQuickStartStep(
             id: "cue",
             title: "Add A Cue And Review",
-            detail: "Open Tools > Text, select a measure, then choose Above or Below. Tap the field to type or use its Pencil icon for Scribble. Tap Add, then tap Done for Select. Use Pencil to select items on the chart."
+            detail: "Open Tools > Text, select a measure, then choose Above or Below. Choose Keyboard to type, or choose Scribble and tap the field with Apple Pencil before writing. Tap Add, then tap Done for Select. Use Pencil to select items on the chart."
         ),
         IChartQuickStartStep(
             id: "export",
@@ -454,7 +454,7 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Tap Render Chords to render ready ink. Use Review & Render to check chord guesses or enter missing chords. You can keep writing while unplaced ink stays on the page.",
                 "Tap an ending preview to review its label and measures. When only an unreviewed ending remains, use Review & Render.",
                 "When adding △7 or −7 after a preview appears, write it close to its root and check the updated preview before rendering. Leave space between separate chords.",
-                "If a preview says Add chord, tap Review & Render and type the intended chord.",
+                "If a preview says Add chord, tap Review & Render. Choose Keyboard to type, or choose Scribble and tap the chord field with Apple Pencil before writing.",
                 "After Back to Writing, your corrections stay with the same handwriting. Check the updated rows if you return to review.",
                 "If new strokes make a chord unreadable, Add chord marks the combined writing. If you see Separate chords, go back to writing and rewrite those chords with more space between them.",
                 "In Review Chords, Recognition guess marks a prefilled read and Your edit marks text you typed or chose. Fill in any missing chords and check the guesses. Render All uses the text shown in every row. Ink that cannot be placed stays on the page.",
@@ -488,7 +488,7 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Open Layout to compare Start New Row, Join Row Above, Move to Row Below, Even Row Widths, and Merge with Next Measure. The sheet explains each action and why an option is unavailable. Tap an available action to apply it.",
                 "Join Row Above moves from the start of the row through your selected measure. Move to Row Below moves from your selection through the end of the row. The rows adjust to fit.",
                 "Tools > Repeats groups Repeat Measures, Add Ending, and Manage. Add Ending offers 1st Ending…, 2nd Ending…, or Custom Ending… with a shared label and range editor.",
-                "Tools > Text uses the selected measure. Choose Above or Below. Tap the field to type, or tap its Pencil icon and write in the field. Tap Add or Apply.",
+                "Tools > Text uses the selected measure. Choose Above or Below, then choose Keyboard or Scribble. Before writing, tap the cue field with Apple Pencil. Tap Add or Apply.",
                 "Tools > Time Signature uses the selected measure. Tools > Form Markers opens a sheet: check the measure, choose a marker, then tap Add."
             ]
         ),
@@ -4421,7 +4421,7 @@ struct IChartForumPublishSheet: View {
                 } header: {
                     Text("Metadata")
                 } footer: {
-                    Text("Tap a field to type. For Scribble, tap its Pencil icon, then write in the field.")
+                    Text("Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing.")
                 }
 
                 if !validationErrors.isEmpty {
@@ -4748,7 +4748,7 @@ private struct IChartForumPostDetailView: View {
                         placeholderColor: UIColor(theme.panelSecondary),
                         tintColor: UIColor(theme.actionText),
                         accessibilityLabel: "Add a comment",
-                        accessibilityHint: "Tap to type. Use Start Scribble to write with Apple Pencil."
+                        accessibilityHint: "Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing."
                     )
                     .frame(height: commentHeight)
                     .background(theme.emptyStateBackground, in: RoundedRectangle(cornerRadius: 8))
@@ -7330,7 +7330,7 @@ private struct IChartAccountTextField: View {
                 placeholderColor: UIColor(theme.panelSecondary),
                 tintColor: UIColor(theme.actionText),
                 accessibilityLabel: title,
-                accessibilityHint: "Tap to type. Use Start Scribble to write with Apple Pencil."
+                accessibilityHint: "Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing."
             )
             .padding(.horizontal, 11)
             .frame(minHeight: 44)

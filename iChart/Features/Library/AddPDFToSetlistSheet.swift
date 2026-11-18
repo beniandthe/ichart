@@ -70,7 +70,7 @@ struct AddPDFToSetlistSheet: View {
                             IChartTypedTextField(placeholder: "Setlist name", text: $newName, isFocused: $nameFocused,
                                 autocapitalizationType: .words, autocorrectionType: .yes,
                                 accessibilityIdentifier: "setlists.destination.name",
-                                accessibilityHint: "Tap to type. Use Start Scribble to write with Apple Pencil.")
+                                accessibilityHint: "Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing.")
                                 .frame(minHeight: 44)
                             Button("Create & Add PDFs") {
                                 perform {
@@ -87,7 +87,7 @@ struct AddPDFToSetlistSheet: View {
                         }
                         IChartTypedTextField(placeholder: "Search setlists", text: $query,
                             returnKeyType: .search, accessibilityIdentifier: "setlists.destination.search",
-                            accessibilityHint: "Tap to type. Use Start Scribble to write with Apple Pencil.")
+                            accessibilityHint: "Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing.")
                             .frame(minHeight: 44)
                     }
                     .background(IChartTypedSheetScrollSupport())

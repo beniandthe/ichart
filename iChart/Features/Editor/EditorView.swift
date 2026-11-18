@@ -328,7 +328,7 @@ enum IChartEditorGuidedTourStep: String, Identifiable {
         case .shapeForm:
             "Tap Measures. Select a measure, then use Add, Layout, or Delete. Try one change, or continue."
         case .addCue:
-            "Open Tools > Text, choose a measure, then Above or Below. Tap the field to type or use its Pencil icon for Scribble. Tap Add."
+            "Open Tools > Text, choose a measure, then Above or Below. Choose Keyboard to type, or choose Scribble and tap the field with Apple Pencil before writing. Tap Add."
         case .review:
             "Tap Done. In Select, use Apple Pencil to select, move, resize, or delete items on the chart."
         case .export:
@@ -7780,7 +7780,7 @@ private struct CueTextEntryPanelView: View {
                             placeholder: "Cue",
                             accessibilityIdentifier: "editor-cue-text-entry",
                             accessibilityLabel: "Cue text",
-                            accessibilityHint: "Tap to type. Use Start Scribble to write with Apple Pencil."
+                            accessibilityHint: "Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing."
                         )
                     }
                     .frame(height: CueTextEntryPanelGeometry.inputHeight)

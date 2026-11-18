@@ -91,7 +91,7 @@ struct IChartPDFImportConfirmationView: View {
                     IChartTypedTextField(placeholder: "Chart Title", text: $title, isFocused: $isTitleFocused,
                         autocapitalizationType: .words, autocorrectionType: .yes,
                         accessibilityIdentifier: "pdf.import.title",
-                        accessibilityHint: "Tap to type. Use Start Scribble to write with Apple Pencil.")
+                        accessibilityHint: "Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing.")
                         .frame(minHeight: 44)
                         .disabled(isImporting)
                         .background(IChartTypedSheetScrollSupport())

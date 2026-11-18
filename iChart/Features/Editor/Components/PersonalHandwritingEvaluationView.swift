@@ -251,7 +251,7 @@ struct PersonalHandwritingEvaluationView: View {
         case .labeling:
             Text("Tell us what each saved shape was intended to mean. Predictions stay hidden until the label is saved, so you are not copying the recognizer's answer.")
                 .font(.callout)
-            Text("Tap a field to type. For Scribble, tap its Pencil icon, then write in the field.")
+            Text("Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing.")
                 .font(.callout).foregroundStyle(.secondary)
             Text("If two chords merged, one split, or ink is incomplete, mark Incorrect grouping instead. If a chord is completely missing, the total written count below keeps that failure visible.")
                 .font(.callout).foregroundStyle(.secondary)

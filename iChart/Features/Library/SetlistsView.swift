@@ -373,7 +373,7 @@ struct IChartSetlistNameSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    Text("Tap Setlist Name to type or use its Pencil icon for Scribble. Tap \(saveTitle). Your PDFs stay in the PDF Library.")
+                    Text("Choose Keyboard to type, or choose Scribble and tap Setlist Name with Apple Pencil before writing. Tap \(saveTitle). Your PDFs stay in the PDF Library.")
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
@@ -666,7 +666,7 @@ private struct IChartSetlistSearchControls: View {
         HStack(spacing: 10) {
             IChartTypedTextField(placeholder: placeholder, text: $query,
                 returnKeyType: .search, accessibilityIdentifier: identifier,
-                accessibilityHint: "Tap to type. Use Start Scribble to write with Apple Pencil.")
+                accessibilityHint: "Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing.")
                 .frame(minHeight: 44)
             Menu {
                 Picker("Sort", selection: $order) {

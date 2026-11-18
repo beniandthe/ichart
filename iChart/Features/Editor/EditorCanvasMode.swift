@@ -353,7 +353,7 @@ enum EditorCanvasMode: Hashable {
             return .init(
                 title: "Add a typed cue beside a measure",
                 steps: ["Tap a measure, then choose Above or Below.",
-                        "Tap the field to type. For Scribble, tap its Pencil icon, then write. Tap Add or Apply."],
+                        "Choose Keyboard or Scribble. For Scribble, tap the field with Apple Pencil before writing. Tap Add or Apply."],
                 detailsTitle: "Text guide",
                 details: [.init(title: "Existing cues", text: "Tap an existing cue with Apple Pencil to edit it, change its size, or delete it.")]
             )
