@@ -369,8 +369,8 @@ final class SetlistAppearanceTests: XCTestCase {
 @MainActor
 private final class SetlistAppearanceFixture {
     let directory: URL
-    let defaultsSuite: String
     let defaults: UserDefaults
+    private let originalAppearanceValue: Any?
     let setlistStore: IChartPDFSetlistStore
     let pdfStore: IChartPDFLibraryStore
     let chartStore = ChartLibraryStore(charts: [])
@@ -381,18 +381,25 @@ private final class SetlistAppearanceFixture {
 
     init() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let suite = "SetlistAppearanceTests.\(UUID().uuidString)"
         let store = IChartPDFSetlistStore(baseDirectory: root.appendingPathComponent("Setlists"))
         directory = root
-        defaultsSuite = suite
-        defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        // The views explicitly select the active app namespace, which takes
+        // precedence over SwiftUI's defaultAppStorage environment override.
+        defaults = IChartStorageNamespace.defaults
+        let defaultsDomain = try XCTUnwrap(IChartStorageNamespace.isInternalStaging
+            ? IChartStorageNamespace.stagingDefaultsSuiteName : Bundle.main.bundleIdentifier)
+        originalAppearanceValue = defaults.persistentDomain(forName: defaultsDomain)?[IChartAppAppearance.preferenceKey]
         setlistStore = store
         pdfStore = IChartPDFLibraryStore(baseDirectory: root.appendingPathComponent("PDF Library"))
         setlist = try store.create(name: "Friday Gig")
     }
 
     func close() {
-        defaults.removePersistentDomain(forName: defaultsSuite)
+        if let originalAppearanceValue {
+            defaults.set(originalAppearanceValue, forKey: IChartAppAppearance.preferenceKey)
+        } else {
+            defaults.removeObject(forKey: IChartAppAppearance.preferenceKey)
+        }
         try? FileManager.default.removeItem(at: directory)
     }
 }
