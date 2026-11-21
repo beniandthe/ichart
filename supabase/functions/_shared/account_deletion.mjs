@@ -360,7 +360,7 @@ async function deleteForumPDFStoragePaths(configuration, paths, fetcher) {
     const results = await Promise.allSettled(paths.slice(start, start + cleanupDeleteConcurrency).map(async (path) => {
       const response = await fetcher(
         supabaseURL(configuration, `/storage/v1/object/${forumPDFBucketID}/${path.split("/").map(encodeURIComponent).join("/")}`),
-        { method: "DELETE", headers: supabaseJSONHeaders(configuration) }
+        { method: "DELETE", headers: supabaseAuthorityHeaders(configuration) }
       );
       if (!response.ok && response.status !== 404) throw new Error("Forum PDF storage deletion failed.");
     }));
@@ -376,7 +376,7 @@ async function deleteOwnerSnapshotArchiveStoragePaths(configuration, ownerID, pa
     const results = await Promise.allSettled(ownedPaths.slice(start, start + cleanupDeleteConcurrency).map(async (path) => {
       const response = await fetcher(
         supabaseURL(configuration, `/storage/v1/object/${ownerSnapshotArchiveBucketID}/${path.split("/").map(encodeURIComponent).join("/")}`),
-        { method: "DELETE", headers: supabaseJSONHeaders(configuration) }
+        { method: "DELETE", headers: supabaseAuthorityHeaders(configuration) }
       );
       if (!response.ok && response.status !== 404) throw new Error("Account archive storage deletion failed.");
     }));
@@ -390,7 +390,7 @@ async function deleteSetlistPDFStoragePaths(configuration, ownerID, paths, fetch
     const results = await Promise.allSettled(ownedPaths.slice(start, start + cleanupDeleteConcurrency).map(async (path) => {
       const response = await fetcher(
         supabaseURL(configuration, `/storage/v1/object/${setlistPDFBucketID}/${path.split("/").map(encodeURIComponent).join("/")}`),
-        { method: "DELETE", headers: supabaseJSONHeaders(configuration) }
+        { method: "DELETE", headers: supabaseAuthorityHeaders(configuration) }
       );
       if (!response.ok && response.status !== 404) throw new Error("Account setlist storage deletion failed.");
     }));
@@ -453,7 +453,7 @@ async function deleteAuthUser(configuration, ownerID, fetcher) {
     supabaseURL(configuration, `/auth/v1/admin/users/${encodeURIComponent(ownerID)}`),
     {
       method: "DELETE",
-      headers: supabaseJSONHeaders(configuration),
+      headers: supabaseAuthorityHeaders(configuration),
     }
   );
 
@@ -530,11 +530,17 @@ function supabaseURL(configuration, path) {
   return new URL(path, `${configuration.supabaseURL.replace(/\/+$/, "")}/`);
 }
 
-function supabaseJSONHeaders(configuration) {
+function supabaseAuthorityHeaders(configuration) {
   return {
     apikey: configuration.secretKey,
     authorization: `Bearer ${configuration.secretKey}`,
     accept: "application/json",
+  };
+}
+
+function supabaseJSONHeaders(configuration) {
+  return {
+    ...supabaseAuthorityHeaders(configuration),
     "content-type": "application/json",
   };
 }

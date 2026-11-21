@@ -18,6 +18,91 @@ const setlistBucketPath = `/storage/v1/bucket/${setlistBucket}`;
 const setlistScopePath = "/rest/v1/rpc/begin_pdf_setlist_account_deletion";
 const setlistListPath = `/storage/v1/object/list/${setlistBucket}`;
 
+test("bodyless Storage and Auth DELETE requests omit JSON content type and retain authority", async (t) => {
+  const archivePath = `${ownerID}/${postID}.jsonl.gz`;
+  const setlistPath = `${ownerID}/${"b".repeat(64)}.pdf`;
+  const cases = [
+    ["forum PDF", `/storage/v1/object/forum_chart_pdfs/${ownerID}/owned.pdf`,
+      (d) => d.deleteForumPDFStoragePaths([`${ownerID}/owned.pdf`])],
+    ["snapshot archive", `/storage/v1/object/${archiveBucket}/${archivePath}`,
+      (d) => d.deleteOwnerSnapshotArchiveStoragePaths(ownerID, [archivePath])],
+    ["setlist PDF", `/storage/v1/object/${setlistBucket}/${setlistPath}`,
+      (d) => d.deleteSetlistPDFStoragePaths(ownerID, [setlistPath])],
+    ["Auth user", `/auth/v1/admin/users/${ownerID}`, (d) => d.deleteAuthUser(ownerID)],
+  ];
+  for (const [name, path, invoke] of cases) {
+    await t.test(name, async () => {
+      const requests = [];
+      const dependencies = createAccountDeletionDependencies({
+        SUPABASE_URL: "https://project.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "service-role-test-key",
+      }, { fetch: async (url, init) => {
+        const headers = new Headers(init.headers);
+        requests.push({ method: init.method, path: url.pathname, headers, body: init.body });
+        // Match the actual Storage parser rejection rather than accepting a
+        // JSON-typed request with no JSON body as the earlier mocks did.
+        if (headers.get("content-type") === "application/json" && init.body == null) {
+          return jsonResponse(400, { code: "FST_ERR_CTP_EMPTY_JSON_BODY" });
+        }
+        return jsonResponse(200, {});
+      } });
+      await invoke(dependencies);
+      assert.equal(requests.length, 1);
+      assert.equal(requests[0].method, "DELETE");
+      assert.equal(requests[0].path, path);
+      assert.equal(requests[0].body, undefined, "DELETE must remain bodyless");
+      assert.equal(requests[0].headers.has("content-type"), false);
+      assert.equal(requests[0].headers.get("apikey"), "service-role-test-key");
+      assert.equal(requests[0].headers.get("authorization"), "Bearer service-role-test-key");
+      assert.equal(requests[0].headers.get("accept"), "application/json");
+    });
+  }
+});
+
+test("JSON inventory and preparation POST requests retain JSON body and authority headers", async () => {
+  const posts = [];
+  const dependencies = createAccountDeletionDependencies({
+    SUPABASE_URL: "https://project.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "service-role-test-key",
+  }, { fetch: async (url, init) => {
+    const path = url.pathname;
+    if (init.method === "POST") {
+      const headers = new Headers(init.headers);
+      assert.equal(headers.get("content-type"), "application/json");
+      assert.equal(headers.get("apikey"), "service-role-test-key");
+      assert.equal(headers.get("authorization"), "Bearer service-role-test-key");
+      assert.equal(typeof init.body, "string");
+      const body = JSON.parse(init.body);
+      posts.push(path);
+      if (path === archiveScopePath) {
+        assert.deepEqual(body, { p_owner_id: ownerID });
+        return jsonResponse(200, { applies: true, ready: true, owner_id: ownerID,
+          bucket: archiveBucket, prefix: `${ownerID}/` });
+      }
+      if (path === setlistScopePath) {
+        assert.deepEqual(body, { target_owner_id: ownerID });
+        return jsonResponse(200, { owner_id: ownerID, bucket: setlistBucket, prefix: `${ownerID}/` });
+      }
+      if (path === "/rest/v1/rpc/prepare_account_deletion") {
+        assert.deepEqual(body, { target_owner_id: ownerID });
+        return jsonResponse(200, {});
+      }
+      if (["/storage/v1/object/list/forum_chart_pdfs", archiveListPath, setlistListPath].includes(path)) {
+        assert.equal(body.prefix, `${ownerID}/`);
+        return jsonResponse(200, []);
+      }
+    }
+    if (init.method === "GET" && path === "/rest/v1/forum_chart_posts") return jsonResponse(200, []);
+    if (init.method === "GET" && path === archiveBucketPath) return jsonResponse(200, { id: archiveBucket, public: false });
+    if (init.method === "GET" && path === setlistBucketPath) return jsonResponse(200, { id: setlistBucket, public: false });
+    throw new Error(`Unexpected request: ${init.method} ${path}`);
+  } });
+  await dependencies.listForumPDFStoragePaths(ownerID);
+  await dependencies.listOwnerSnapshotArchiveStoragePaths(ownerID);
+  await dependencies.listSetlistPDFStoragePaths(ownerID);
+  await dependencies.prepareAccountDeletion(ownerID);
+  assert.deepEqual(posts, ["/storage/v1/object/list/forum_chart_pdfs", archiveScopePath,
+    archiveListPath, setlistScopePath, setlistListPath, "/rest/v1/rpc/prepare_account_deletion"]);
+});
+
 test("account deletion rejects non-POST requests", async () => {
   const response = await handleAccountDeletionRequest(new Request("https://example.test", { method: "GET" }));
   const body = await response.json();
