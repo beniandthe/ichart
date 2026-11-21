@@ -869,6 +869,8 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
 
         let render = try await waitForNode(in: mounted.window) {
             $0.isButton && $0.isEnabled && $0.element.accessibilityLabel == "Render Chords"
+                && canvas.chordPreviewState.draftBarlines.count == 1
+                && canvas.chordPreviewState.draftChords.isEmpty
         }
         XCTAssertEqual(canvas.chordPreviewState.draftBarlines.count, 1)
         XCTAssertTrue(canvas.chordPreviewState.draftChords.isEmpty)
