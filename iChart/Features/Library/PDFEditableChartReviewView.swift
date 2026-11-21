@@ -119,6 +119,9 @@ struct PDFEditableChartReviewView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
+            Text("Printed notes, drawn repeat signs, and ending brackets are not copied. Add needed notation in the new chart.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
             if let conversionUnavailableMessage {
                 Text(draft == nil ? conversionUnavailableMessage
                     : "\(conversionUnavailableMessage) Your review is kept here while this screen stays open.")

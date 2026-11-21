@@ -614,10 +614,10 @@ final class IChartAuthStore: ObservableObject {
             return email
         }
 
-        guard let legacyEmail = UserDefaults.standard.string(forKey: Self.legacyPendingVerificationEmailKey)?
+        guard let legacyEmail = IChartStorageNamespace.defaults.string(forKey: Self.legacyPendingVerificationEmailKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
               !legacyEmail.isEmpty else {
-            UserDefaults.standard.removeObject(forKey: Self.legacyPendingVerificationEmailKey)
+            IChartStorageNamespace.defaults.removeObject(forKey: Self.legacyPendingVerificationEmailKey)
             return nil
         }
 
@@ -625,7 +625,7 @@ final class IChartAuthStore: ObservableObject {
             key: Self.pendingVerificationEmailKey,
             value: Data(legacyEmail.utf8)
         )
-        UserDefaults.standard.removeObject(forKey: Self.legacyPendingVerificationEmailKey)
+        IChartStorageNamespace.defaults.removeObject(forKey: Self.legacyPendingVerificationEmailKey)
         return legacyEmail
     }
 
@@ -635,7 +635,7 @@ final class IChartAuthStore: ObservableObject {
                 key: Self.pendingVerificationEmailKey,
                 value: Data(email.utf8)
             )
-            UserDefaults.standard.removeObject(forKey: Self.legacyPendingVerificationEmailKey)
+            IChartStorageNamespace.defaults.removeObject(forKey: Self.legacyPendingVerificationEmailKey)
         } else {
             clearRememberedPendingVerificationEmail()
         }
@@ -673,13 +673,13 @@ final class IChartAuthStore: ObservableObject {
             key: Self.pendingVerificationEmailKey,
             value: Data(flowEmail.utf8)
         )
-        UserDefaults.standard.removeObject(forKey: Self.legacyPendingVerificationEmailKey)
+        IChartStorageNamespace.defaults.removeObject(forKey: Self.legacyPendingVerificationEmailKey)
         return flowEmail
     }
 
     private func clearRememberedPendingVerificationEmail() {
         try? pendingVerificationEmailStorage.remove(key: Self.pendingVerificationEmailKey)
-        UserDefaults.standard.removeObject(forKey: Self.legacyPendingVerificationEmailKey)
+        IChartStorageNamespace.defaults.removeObject(forKey: Self.legacyPendingVerificationEmailKey)
     }
 
     @discardableResult

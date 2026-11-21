@@ -551,8 +551,8 @@ struct EditorView: View {
     @State private var showingPersonalHandwriting = false
     @State private var personalHandwritingStartsWithEvaluation = false
     @State private var personalLearningSessionID = UUID()
-    @AppStorage("iChartOfferedPersonalHandwritingV1") private var offeredPersonalHandwriting = false
-    @AppStorage(IChartAppAppearance.preferenceKey) private var appAppearanceValue = IChartAppAppearance.light.rawValue
+    @AppStorage("iChartOfferedPersonalHandwritingV1", store: IChartStorageNamespace.defaults) private var offeredPersonalHandwriting = false
+    @AppStorage(IChartAppAppearance.preferenceKey, store: IChartStorageNamespace.defaults) private var appAppearanceValue = IChartAppAppearance.light.rawValue
     @State private var chordPreviewState = ChordPreviewState()
     @State private var chordDraftRenderCoordinator = ChordInkDraftRenderCoordinator()
     @State private var pendingAutomaticChordRenderWorkItem: DispatchWorkItem?
@@ -606,8 +606,8 @@ struct EditorView: View {
     @State private var pendingChordDiagnosticReconciliationWorkItem: DispatchWorkItem?
     @State private var latestRhythmPreview: LeadSheetRhythmicNotationPreviewState?
     @State private var rhythmPreviewConfirmationRequestID: UUID?
-    @AppStorage("iChartPendingSimpleChartTour") private var pendingSimpleChartTour = false
-    @AppStorage(ChordInkWorkflowSettings.manualRenderWithPreviewKey)
+    @AppStorage("iChartPendingSimpleChartTour", store: IChartStorageNamespace.defaults) private var pendingSimpleChartTour = false
+    @AppStorage(ChordInkWorkflowSettings.manualRenderWithPreviewKey, store: IChartStorageNamespace.defaults)
     private var manualRenderWithPreview = ChordInkWorkflowSettings.defaultManualRenderWithPreview
     private let exporter: any ChartExporting
     private let chordInkUserCorrectionMemoryStore: ChordInkUserCorrectionMemoryStore

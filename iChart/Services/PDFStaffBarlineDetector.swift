@@ -15,6 +15,8 @@ enum PDFStaffBarlineDetector {
         var lastRow: Int
         var startX: Int
         var endX: Int
+        var parallelRun: Range<Int>? = nil
+        var hasConflictingParallelRuns = false
 
         var centerY: CGFloat { CGFloat(firstRow + lastRow) / 2 }
         var width: Int { endX - startX }
@@ -37,15 +39,25 @@ enum PDFStaffBarlineDetector {
 
     enum DetectionError: LocalizedError {
         case unableToRender
+        case unsupportedLayout
 
         var errorDescription: String? {
-            "The staff lines could not be read from this PDF page."
+            switch self {
+            case .unableToRender:
+                "The staff lines could not be read from this PDF page."
+            case .unsupportedLayout:
+                "This PDF page has a short or side-by-side staff that cannot be converted completely."
+            }
         }
     }
 
     static func detect(in page: PDFPage) throws -> [PDFStaffSystemGeometry] {
         let raster = try render(page)
-        let lines = try staffLines(in: raster)
+        let candidates = try staffLines(in: raster)
+        // Keep the original admission threshold. Shorter rules are retained
+        // only to detect an unsupported staff instead of returning a partial draft.
+        let minimumLength = Int(CGFloat(raster.width) * 0.35)
+        let lines = candidates.filter { $0.width >= minimumLength }
         var systems: [PDFStaffSystemGeometry] = []
         var index = 0
         while index + 4 < lines.count {
@@ -86,6 +98,7 @@ enum PDFStaffBarlineDetector {
             }
             index += 5
         }
+        try rejectUnsupportedStaffGroups(candidates, coveredBy: systems, raster: raster)
         return systems
     }
 
@@ -119,32 +132,101 @@ enum PDFStaffBarlineDetector {
     }
 
     private static func staffLines(in raster: Raster) throws -> [StaffLine] {
-        let minimumLength = Int(CGFloat(raster.width) * 0.35)
+        let minimumLength = min(Int(CGFloat(raster.width) * 0.35), Int(64 * raster.scale))
         var lines: [StaffLine] = []
         for y in 0..<raster.height {
             if y.isMultiple(of: 128) { try Task.checkCancellation() }
             var start = 0
-            var longestStart = 0
-            var longestEnd = 0
-            for x in 0..<raster.width {
-                if !raster.isDark(x: x, y: y) {
-                    start = x + 1
-                } else if x + 1 - start > longestEnd - longestStart {
-                    longestStart = start
-                    longestEnd = x + 1
-                }
+            var runs: [Range<Int>] = []
+            for x in 0...raster.width {
+                if x < raster.width, raster.isDark(x: x, y: y) { continue }
+                if x - start >= minimumLength { runs.append(start..<x) }
+                start = x + 1
             }
-            guard longestEnd - longestStart >= minimumLength else { continue }
+            runs.sort {
+                $0.count == $1.count ? $0.lowerBound < $1.lowerBound : $0.count > $1.count
+            }
+            guard let longest = runs.first else { continue }
+            let parallel = runs.dropFirst().first
             if let last = lines.last, y == last.lastRow + 1,
-               abs(longestStart - last.startX) <= 2,
-               abs(longestEnd - last.endX) <= 2 {
+               abs(longest.lowerBound - last.startX) <= 2,
+               abs(longest.upperBound - last.endX) <= 2 {
                 lines[lines.count - 1].lastRow = y
+                if let parallel, !last.hasConflictingParallelRuns {
+                    if let previous = last.parallelRun {
+                        if abs(previous.lowerBound - parallel.lowerBound) <= 2,
+                           abs(previous.upperBound - parallel.upperBound) <= 2 {
+                            let lower = min(previous.lowerBound, parallel.lowerBound)
+                            let upper = max(previous.upperBound, parallel.upperBound)
+                            lines[lines.count - 1].parallelRun = lower..<upper
+                        } else {
+                            lines[lines.count - 1].parallelRun = nil
+                            lines[lines.count - 1].hasConflictingParallelRuns = true
+                        }
+                    } else {
+                        // The other column can use a thinner rule. Keep its
+                        // coherent extent even if it occupies fewer raster rows.
+                        lines[lines.count - 1].parallelRun = parallel
+                    }
+                }
             } else {
                 lines.append(StaffLine(firstRow: y, lastRow: y,
-                    startX: longestStart, endX: longestEnd))
+                    startX: longest.lowerBound, endX: longest.upperBound, parallelRun: parallel))
             }
         }
         return lines
+    }
+
+    private static func rejectUnsupportedStaffGroups(
+        _ lines: [StaffLine], coveredBy systems: [PDFStaffSystemGeometry], raster: Raster
+    ) throws {
+        // Guard-only evidence includes the other column's rules, even when it
+        // starts at a different height. It never adds a measure to the draft.
+        let evidence = lines.flatMap { line -> [StaffLine] in
+            guard let run = line.parallelRun else { return [line] }
+            return [line, StaffLine(firstRow: line.firstRow, lastRow: line.lastRow,
+                startX: run.lowerBound, endX: run.upperBound)]
+        }.sorted { $0.firstRow < $1.firstRow }
+        var columns: [[StaffLine]] = []
+        for line in evidence {
+            try Task.checkCancellation()
+            if let column = columns.firstIndex(where: { column in
+                let reference = column[0]
+                let shared = min(reference.endX, line.endX) - max(reference.startX, line.startX)
+                return CGFloat(shared) >= CGFloat(max(reference.width, line.width)) * 0.85
+            }) {
+                if let last = columns[column].last, line.firstRow <= last.lastRow + 1,
+                   abs(last.startX - line.startX) <= 2, abs(last.endX - line.endX) <= 2 {
+                    columns[column][columns[column].count - 1].lastRow = max(last.lastRow, line.lastRow)
+                } else {
+                    columns[column].append(line)
+                }
+            } else {
+                columns.append([line])
+            }
+        }
+        for column in columns {
+            var index = 0
+            while index + 4 < column.count {
+                try Task.checkCancellation()
+                let group = Array(column[index..<(index + 5)])
+                guard let spacing = staffSpacing(for: group, raster: raster) else {
+                    index += 1
+                    continue
+                }
+                let left = group.map(\.startX).max()!
+                let right = group.map(\.endX).min()!
+                let top = group.first!.centerY
+                let bottom = group.last!.centerY
+                let frame = CGRect(x: raster.pdfX(CGFloat(left)), y: raster.pdfY(bottom),
+                    width: CGFloat(right - left) / raster.scale, height: (bottom - top) / raster.scale)
+                let tolerance = max(1, spacing / raster.scale * 0.15)
+                guard systems.contains(where: {
+                    $0.staffFrame.insetBy(dx: -tolerance, dy: -tolerance).contains(frame)
+                }) else { throw DetectionError.unsupportedLayout }
+                index += 5
+            }
+        }
     }
 
     private static func staffSpacing(for lines: [StaffLine], raster: Raster) -> CGFloat? {

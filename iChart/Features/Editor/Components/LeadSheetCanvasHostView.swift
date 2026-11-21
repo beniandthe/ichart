@@ -165,7 +165,7 @@ enum ChordDraftBarlineDeletionPolicy {
 
 private enum ChordLaneLocalBreadcrumbs {
     #if DEBUG
-    private static let isEnabled = UserDefaults.standard.bool(forKey: "iChartChordLaneBreadcrumbsEnabled")
+    private static let isEnabled = IChartStorageNamespace.defaults.bool(forKey: "iChartChordLaneBreadcrumbsEnabled")
     #else
     private static let isEnabled = false
     #endif
@@ -240,10 +240,10 @@ private enum ChordLaneLocalBreadcrumbs {
     }
 
     private static var logURL: URL {
-        let baseDirectory = FileManager.default.urls(
+        let baseDirectory = IChartStorageNamespace.scopedDirectory(FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
-        ).first ?? FileManager.default.temporaryDirectory
+        ).first ?? FileManager.default.temporaryDirectory)
         return baseDirectory.appendingPathComponent("chord-lane-breadcrumbs.log")
     }
 

@@ -181,7 +181,7 @@ final class IChartPDFSetlistCloudSyncStore: ObservableObject {
             let neededIDs = Set(merged.flatMap(\.entries).map(\.pdfItemID))
             let remotePDFs = Dictionary(uniqueKeysWithValues: (pending.remote.manifest?.pdfs ?? []).map { ($0.item.id, $0) })
             var metadata: [IChartPDFSetlistCloudPDF] = []
-            let staging = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            let staging = IChartStorageNamespace.temporaryDirectory().appendingPathComponent(UUID().uuidString)
             try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: staging) }
             var filesByID: [UUID: URL] = [:]

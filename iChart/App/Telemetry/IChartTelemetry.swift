@@ -417,7 +417,8 @@ actor IChartTelemetryService {
                 .appendingPathComponent("app-telemetry-ingest"),
             publishableKey: configuration.publishableKey,
             sessionStore: clients?.sessionStore,
-            queueStore: .live()
+            queueStore: .live(),
+            urlSession: IChartSupabaseClientFactory.networkSession
         )
     }
 
@@ -1017,12 +1018,7 @@ final class IChartTelemetryQueueStore {
     }
 
     static func live(fileManager: FileManager = .default) -> IChartTelemetryQueueStore {
-        let applicationSupportURL = (try? fileManager.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )) ?? fileManager.temporaryDirectory
+        let applicationSupportURL = IChartStorageNamespace.applicationSupportDirectory(fileManager: fileManager)
 
         let baseDirectory = applicationSupportURL.appendingPathComponent("iChart", isDirectory: true)
         return IChartTelemetryQueueStore(

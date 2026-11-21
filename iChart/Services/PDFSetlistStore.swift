@@ -129,12 +129,7 @@ final class IChartPDFSetlistStore: ObservableObject {
     }
 
     static func live(fileManager: FileManager = .default) -> IChartPDFSetlistStore {
-        let applicationSupportURL = (try? fileManager.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )) ?? fileManager.temporaryDirectory
+        let applicationSupportURL = IChartStorageNamespace.applicationSupportDirectory(fileManager: fileManager)
         let baseDirectory = applicationSupportURL
             .appendingPathComponent("iChart", isDirectory: true)
             .appendingPathComponent("Setlists", isDirectory: true)

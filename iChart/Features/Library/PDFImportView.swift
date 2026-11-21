@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 /// entry points; importing here only preserves the original PDF pages.
 struct IChartPDFImportButton: View {
     @EnvironmentObject private var pdfStore: IChartPDFLibraryStore
-    @AppStorage("iChartHomeAppearanceMode") private var appearanceMode = "light"
+    @AppStorage("iChartHomeAppearanceMode", store: IChartStorageNamespace.defaults) private var appearanceMode = "light"
     let identifier: String
     let onImported: (IChartPDFLibraryItem) -> Void
     @State private var showingFilePicker = false

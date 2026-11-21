@@ -17,6 +17,7 @@ import {
   compactAppStoreJWSVerificationAllowed,
 } from "./app_store_verifier_config.mjs";
 import { verifyWithAppStoreEnvironmentFallback } from "./app_store_environment_fallback.mjs";
+import { appStorePayloadProductScopeAllowed } from "./app_store_product_catalog.mjs";
 
 export function createAppStoreSignedDataVerifiers(env = Deno.env) {
   const config = appStoreVerifierConfigurationFromEnv(env);
@@ -34,6 +35,7 @@ export function createAppStoreSignedDataVerifiers(env = Deno.env) {
       : createSignedDataVerifier(rootCertificateBuffers, sandboxFallbackConfig);
 
     return {
+      stagingStoreKitProducts: config.value.stagingStoreKitProducts,
       verifyAndDecodeNotification: (signedPayload) => verifySignedPayload(
         signedPayload,
         "notification",
@@ -111,7 +113,7 @@ async function verifySignedPayload(
   sandboxFallbackConfig,
   rootCertificateBuffers
 ) {
-  return verifyWithAppStoreEnvironmentFallback({
+  const payload = await verifyWithAppStoreEnvironmentFallback({
     primaryVerification: () => verifier[verifierMethod](signedPayload),
     compactFallbackVerification: () => verifyCompactAppStoreJWS(
       signedPayload,
@@ -131,6 +133,8 @@ async function verifySignedPayload(
         payloadKind
       ),
   });
+  verifyStagingProductScope(payload, config, payloadKind);
+  return payload;
 }
 
 export async function verifyCompactAppStoreJWS(signedPayload, rootCertificateBuffers, config, payloadKind) {
@@ -283,6 +287,7 @@ async function verifyJWSSignature(decoded, publicKey) {
 }
 
 function verifyDecodedPayloadScope(payload, config, payloadKind) {
+  verifyStagingProductScope(payload, config, payloadKind);
   if (payloadKind === "transaction") {
     if (payload?.bundleId !== config.bundleID) {
       throw new AppStoreJWSVerificationError(25);
@@ -314,6 +319,12 @@ function verifyDecodedPayloadScope(payload, config, payloadKind) {
 
   if (notificationScope.environment !== config.environment) {
     throw new AppStoreJWSVerificationError(26);
+  }
+}
+
+function verifyStagingProductScope(payload, config, payloadKind) {
+  if (!appStorePayloadProductScopeAllowed(payload, config, payloadKind)) {
+    throw new AppStoreJWSVerificationError(49);
   }
 }
 

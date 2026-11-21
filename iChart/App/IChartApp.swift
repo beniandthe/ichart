@@ -72,6 +72,22 @@ struct IChartApp: App {
                     AppRootView()
                 }
             }
+                #if ICHART_STAGING_STOREKIT_PRODUCTS
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Internal staging")
+                            .font(.caption.weight(.semibold))
+                        Text("Separate QA charts, PDFs and account. Your public app data stays separate.")
+                            .font(.caption2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+                    .padding(.vertical, 6)
+                    .background(.thinMaterial)
+                    .accessibilityElement(children: .combine)
+                }
+                #endif
                 .environmentObject(store)
                 .environmentObject(authStore)
                 .environmentObject(cloudSyncStore)

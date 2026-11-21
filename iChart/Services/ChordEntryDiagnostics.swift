@@ -225,12 +225,7 @@ private extension URL {
 #if DEBUG && targetEnvironment(simulator)
 extension ChordEntryDiagnosticsRecorder {
     static func live(fileManager: FileManager = .default) -> ChordEntryDiagnosticsRecorder {
-        let applicationSupportURL = (try? fileManager.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )) ?? fileManager.temporaryDirectory
+        let applicationSupportURL = IChartStorageNamespace.applicationSupportDirectory(fileManager: fileManager)
 
         let baseDirectory = applicationSupportURL.appendingPathComponent("iChart", isDirectory: true)
         return ChordEntryDiagnosticsRecorder(

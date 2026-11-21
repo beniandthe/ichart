@@ -368,12 +368,7 @@ struct ChordDraftPreviewDeviceDiagnosticRecorder {
 
 extension ChordDraftPreviewDeviceDiagnosticRecorder {
     static func live(fileManager: FileManager = .default) -> ChordDraftPreviewDeviceDiagnosticRecorder {
-        let applicationSupportURL = (try? fileManager.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )) ?? fileManager.temporaryDirectory
+        let applicationSupportURL = IChartStorageNamespace.applicationSupportDirectory(fileManager: fileManager)
 
         let baseDirectory = applicationSupportURL.appendingPathComponent("iChart", isDirectory: true)
         return ChordDraftPreviewDeviceDiagnosticRecorder(

@@ -171,12 +171,7 @@ final class IChartPDFLibraryStore: ObservableObject {
     }
 
     static func live(fileManager: FileManager = .default) -> IChartPDFLibraryStore {
-        let applicationSupportURL = (try? fileManager.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )) ?? fileManager.temporaryDirectory
+        let applicationSupportURL = IChartStorageNamespace.applicationSupportDirectory(fileManager: fileManager)
 
         let baseDirectory = applicationSupportURL
             .appendingPathComponent("iChart", isDirectory: true)

@@ -12,7 +12,7 @@ struct AppRootView: View {
 
     init() {
         _isLaunchAnimationVisible = State(
-            initialValue: UserDefaults.standard.bool(forKey: Self.hasSeenAccountLandingKey)
+            initialValue: IChartStorageNamespace.defaults.bool(forKey: Self.hasSeenAccountLandingKey)
         )
     }
 

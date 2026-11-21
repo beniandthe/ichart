@@ -6,7 +6,7 @@ import UIKit
 /// it at each presentation boundary so sheets and native controls agree with
 /// the setlist workspace, including when a view is presented on its own.
 private struct IChartSetlistAppearance: ViewModifier {
-    @AppStorage("iChartHomeAppearanceMode") private var appearanceMode = "light"
+    @AppStorage("iChartHomeAppearanceMode", store: IChartStorageNamespace.defaults) private var appearanceMode = "light"
 
     private var colorScheme: ColorScheme { appearanceMode == "dark" ? .dark : .light }
 
@@ -546,7 +546,7 @@ enum IChartSetlistReaderNavigation {
 
 struct IChartSetlistPerformanceReader: View {
     @Environment(\.dismiss) private var dismiss
-    @AppStorage(IChartAppAppearance.preferenceKey) private var appearanceValue = IChartAppAppearance.light.rawValue
+    @AppStorage(IChartAppAppearance.preferenceKey, store: IChartStorageNamespace.defaults) private var appearanceValue = IChartAppAppearance.light.rawValue
     @EnvironmentObject private var setlistStore: IChartPDFSetlistStore
     @EnvironmentObject private var pdfStore: IChartPDFLibraryStore
     let setlistID: UUID

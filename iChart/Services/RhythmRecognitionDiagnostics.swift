@@ -5,7 +5,7 @@ enum IChartRuntimeDiagnostics {
 
     static var isRhythmRecognitionDiagnosticsEnabled: Bool {
         #if DEBUG && targetEnvironment(simulator)
-        UserDefaults.standard.bool(forKey: rhythmRecognitionDiagnosticsKey)
+        IChartStorageNamespace.defaults.bool(forKey: rhythmRecognitionDiagnosticsKey)
             || ProcessInfo.processInfo.arguments.contains("-iChartRhythmDiagnostics")
             || ProcessInfo.processInfo.environment["ICHART_RHYTHM_DIAGNOSTICS"] == "1"
         #else
@@ -164,12 +164,7 @@ struct RhythmRecognitionDiagnosticsRecorder {
 #if DEBUG && targetEnvironment(simulator)
 extension RhythmRecognitionDiagnosticsRecorder {
     static func live(fileManager: FileManager = .default) -> RhythmRecognitionDiagnosticsRecorder {
-        let applicationSupportURL = (try? fileManager.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )) ?? fileManager.temporaryDirectory
+        let applicationSupportURL = IChartStorageNamespace.applicationSupportDirectory(fileManager: fileManager)
 
         let baseDirectory = applicationSupportURL.appendingPathComponent("iChart", isDirectory: true)
         return RhythmRecognitionDiagnosticsRecorder(

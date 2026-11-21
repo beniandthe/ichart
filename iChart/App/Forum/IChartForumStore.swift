@@ -144,7 +144,7 @@ final class IChartForumStore: ObservableObject {
     private var uploadOwnerID: UUID?
     private var uploadCharts: [Chart] = []
 
-    init(service: IChartForumServicing, defaults: UserDefaults = .standard) {
+    init(service: IChartForumServicing, defaults: UserDefaults = IChartStorageNamespace.defaults) {
         self.service = service
         self.defaults = defaults
         #if DEBUG
@@ -1291,7 +1291,7 @@ private actor IChartForumQASampleService: IChartForumServicing {
     }
 
     func downloadPDF(for post: ForumChartPost) async throws -> ExportedPDF {
-        let directory = FileManager.default.temporaryDirectory
+        let directory = IChartStorageNamespace.temporaryDirectory()
             .appendingPathComponent("iChartForumQASamplePDFs", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appendingPathComponent(
@@ -2257,9 +2257,8 @@ private actor IChartSupabaseForumService: IChartForumServicing {
         let data = try await client.storage
             .from(bucketID)
             .download(path: post.pdfStoragePath)
-        let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+        let directory = IChartStorageNamespace.cachesDirectory()
             .appendingPathComponent("iChartForumPDFs", isDirectory: true)
-            ?? FileManager.default.temporaryDirectory.appendingPathComponent("iChartForumPDFs", isDirectory: true)
         try Task.checkCancellation()
         return try IChartForumPDFMetadata.cacheDownloadedPDF(data: data, post: post, in: directory)
     }

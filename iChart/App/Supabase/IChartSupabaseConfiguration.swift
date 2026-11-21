@@ -30,6 +30,15 @@ struct IChartSupabaseConfiguration: Equatable {
             return nil
         }
 
+        #if ICHART_STAGING_STOREKIT_PRODUCTS
+        // An internal build must never attach its isolated QA data to the
+        // public backend, including through launch-time environment overrides.
+        guard url.absoluteString == "https://gfqpbikqvdgtjjgxrkgo.supabase.co",
+              key.range(of: #"^sb_publishable_[A-Za-z0-9_-]{16,}$"#, options: .regularExpression) != nil else {
+            return nil
+        }
+        #endif
+
         return IChartSupabaseConfiguration(url: url, publishableKey: key)
     }
 

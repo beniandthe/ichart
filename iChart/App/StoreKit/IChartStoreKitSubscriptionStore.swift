@@ -971,7 +971,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
     }
 
     private func pendingComplimentaryPurchase() -> IChartPendingComplimentaryPurchase? {
-        guard let data = UserDefaults.standard.data(
+        guard let data = IChartStorageNamespace.defaults.data(
             forKey: Self.pendingComplimentaryPurchaseKey
         ) else {
             return nil
@@ -985,7 +985,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
         guard let data = try? JSONEncoder().encode(pending) else {
             return false
         }
-        UserDefaults.standard.set(data, forKey: Self.pendingComplimentaryPurchaseKey)
+        IChartStorageNamespace.defaults.set(data, forKey: Self.pendingComplimentaryPurchaseKey)
         return true
     }
 
@@ -993,7 +993,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
         guard pendingComplimentaryPurchase()?.attemptID == attemptID else {
             return
         }
-        UserDefaults.standard.removeObject(forKey: Self.pendingComplimentaryPurchaseKey)
+        IChartStorageNamespace.defaults.removeObject(forKey: Self.pendingComplimentaryPurchaseKey)
     }
 
     private func removePendingComplimentaryPurchase(matching transaction: Transaction) {
@@ -1016,7 +1016,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
         ) else {
             return
         }
-        UserDefaults.standard.removeObject(forKey: Self.pendingComplimentaryPurchaseKey)
+        IChartStorageNamespace.defaults.removeObject(forKey: Self.pendingComplimentaryPurchaseKey)
     }
 
     private func loadProducts() async {
@@ -1155,7 +1155,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
                 appropriateFor: nil,
                 create: false
             )
-            let debugURL = supportURL
+            let debugURL = IChartStorageNamespace.scopedDirectory(supportURL)
                 .appendingPathComponent("iChart", isDirectory: true)
                 .appendingPathComponent("debug-last-storekit-transaction.jws")
             if FileManager.default.fileExists(atPath: debugURL.path) {
@@ -1321,7 +1321,7 @@ private struct IChartSupabaseStoreKitSubscriptionClaimService: IChartStoreKitSub
                 storage: IChartSubscriptionRequestLocalStorage(),
                 autoRefreshToken: false,
                 accessToken: { pinnedAccessToken }
-            ))
+            ), global: .init(session: IChartSupabaseClientFactory.networkSession))
         )
     }
 

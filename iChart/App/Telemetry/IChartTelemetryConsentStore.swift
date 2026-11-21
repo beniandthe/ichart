@@ -45,7 +45,7 @@ final class IChartTelemetryConsentStore: @unchecked Sendable {
     private let cleansLegacyLiveCheckpoint: Bool
 
     init(
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = IChartStorageNamespace.defaults,
         diagnosticFileURLs: [URL] = [],
         removeDiagnosticFile: @escaping (URL) throws -> Void = { url in
             do { try FileManager.default.removeItem(at: url) }

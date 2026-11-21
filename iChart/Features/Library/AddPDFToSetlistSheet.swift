@@ -7,7 +7,7 @@ struct AddPDFToSetlistSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var setlistStore: IChartPDFSetlistStore
     @EnvironmentObject private var pdfStore: IChartPDFLibraryStore
-    @AppStorage(IChartAppAppearance.preferenceKey) private var appearanceValue = IChartAppAppearance.light.rawValue
+    @AppStorage(IChartAppAppearance.preferenceKey, store: IChartStorageNamespace.defaults) private var appearanceValue = IChartAppAppearance.light.rawValue
     let pdfItemIDs: [UUID]
     @State private var query = ""
     @State private var creating = false

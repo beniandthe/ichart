@@ -543,6 +543,7 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Open PDFs, choose Import PDF, then choose a PDF in Files. iChart saves a local copy; the original file stays where it is.",
                 "Check the preview after import. Choose Share to send a copy, or Add to Setlist to arrange it with other songs.",
                 "PDF reading and sharing stay available on Basic. Pro includes Create Editable Chart for personal imports with selectable chords and clear barlines; it is also included in free Pro during Beta.",
+                "Staff conversion needs full-width staff rows in one column. Printed notes, drawn repeat signs, and ending brackets are not copied. Add needed notation in the new chart.",
                 "Choose Create Editable Chart, compare the draft with Original PDF, correct each measure, then choose Save as New Chart. Use View Original PDF in the new chart's Actions menu to revisit the saved original. If Pro access changes during review, the review stays open and saving waits until access returns.",
                 "Use Search PDFs to find a title or file name. Choose Sort: Recent or Name to change the displayed order.",
                 "Cancel an import while it is preparing if you chose the wrong file. If a PDF cannot be opened, check that the original is a readable PDF and import it again."
@@ -896,18 +897,18 @@ struct LibraryView: View {
     @EnvironmentObject private var pdfLibraryStore: IChartPDFLibraryStore
     @Environment(\.betaProStore) private var betaProStore
     let onOpenChart: (Chart.ID, EditorCanvasMode) -> Void
-    @AppStorage("iChartHomeAppearanceMode") private var homeAppearanceModeRawValue = IChartHomeAppearanceMode.light.rawValue
-    @AppStorage("iChartHomeSidebarCollapsed") private var isSidebarCollapsed = false
-    @AppStorage("iChartChartPreviewMode") private var chartPreviewModeRawValue = IChartChartPreviewMode.collapsed.rawValue
-    @AppStorage("iChartChartsWorkspaceMode") private var chartsWorkspaceModeRawValue = IChartChartsWorkspaceMode.charts.rawValue
-    @AppStorage("iChartHasSeenAccountLanding") private var hasSeenAccountLanding = false
-    @AppStorage("iChartHasSeenGuidedTourOffer") private var hasSeenGuidedTourOffer = false
-    @AppStorage(IChartTelemetryConsentStore.preferenceKey) private var telemetryConsentVersion = ""
-    @AppStorage("iChartPendingSimpleChartTour") private var pendingSimpleChartTour = false
-    @AppStorage(ChordInkWorkflowSettings.manualRenderWithPreviewKey)
+    @AppStorage("iChartHomeAppearanceMode", store: IChartStorageNamespace.defaults) private var homeAppearanceModeRawValue = IChartHomeAppearanceMode.light.rawValue
+    @AppStorage("iChartHomeSidebarCollapsed", store: IChartStorageNamespace.defaults) private var isSidebarCollapsed = false
+    @AppStorage("iChartChartPreviewMode", store: IChartStorageNamespace.defaults) private var chartPreviewModeRawValue = IChartChartPreviewMode.collapsed.rawValue
+    @AppStorage("iChartChartsWorkspaceMode", store: IChartStorageNamespace.defaults) private var chartsWorkspaceModeRawValue = IChartChartsWorkspaceMode.charts.rawValue
+    @AppStorage("iChartHasSeenAccountLanding", store: IChartStorageNamespace.defaults) private var hasSeenAccountLanding = false
+    @AppStorage("iChartHasSeenGuidedTourOffer", store: IChartStorageNamespace.defaults) private var hasSeenGuidedTourOffer = false
+    @AppStorage(IChartTelemetryConsentStore.preferenceKey, store: IChartStorageNamespace.defaults) private var telemetryConsentVersion = ""
+    @AppStorage("iChartPendingSimpleChartTour", store: IChartStorageNamespace.defaults) private var pendingSimpleChartTour = false
+    @AppStorage(ChordInkWorkflowSettings.manualRenderWithPreviewKey, store: IChartStorageNamespace.defaults)
     private var manualRenderWithPreview = ChordInkWorkflowSettings.defaultManualRenderWithPreview
     #if DEBUG && targetEnvironment(simulator)
-    @AppStorage(IChartRuntimeDiagnostics.rhythmRecognitionDiagnosticsKey)
+    @AppStorage(IChartRuntimeDiagnostics.rhythmRecognitionDiagnosticsKey, store: IChartStorageNamespace.defaults)
     private var rhythmDiagnosticsEnabled = false
     #endif
     @State private var logoVariant = IChartLogoVariant.homeScreenTrialDefault

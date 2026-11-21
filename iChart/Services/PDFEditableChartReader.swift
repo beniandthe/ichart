@@ -14,7 +14,7 @@ enum PDFEditableChartReadError: LocalizedError, Equatable {
         case .noSelectableText:
             "This PDF has no selectable text. Use a printed chord chart saved as a text PDF."
         case .unsupportedStaffPage(let page):
-            "iChart couldn't read the staff barlines on PDF page \(page). Use a single-staff chord chart with clear measure dividers."
+            "iChart couldn't read every staff and barline on PDF page \(page). Use full-width staff rows in a single column with clear measure dividers. Your original PDF is unchanged."
         case .noStaffChords:
             "iChart found the staff and barlines but couldn't find chords above them."
         }
@@ -62,6 +62,8 @@ enum PDFEditableChartReader {
                     systems = try PDFStaffBarlineDetector.detect(in: page)
                 } catch is CancellationError {
                     throw CancellationError()
+                } catch PDFStaffBarlineDetector.DetectionError.unsupportedLayout {
+                    throw PDFEditableChartReadError.unsupportedStaffPage(index + 1)
                 } catch {
                     throw textGridError ?? PDFEditableChartReadError.unsupportedStaffPage(index + 1)
                 }

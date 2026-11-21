@@ -4,7 +4,7 @@ import UIKit
 
 struct PDFExportPreviewView: View {
     @Environment(\.dismiss) private var dismiss
-    @AppStorage(IChartAppAppearance.preferenceKey) private var appAppearanceValue = IChartAppAppearance.light.rawValue
+    @AppStorage(IChartAppAppearance.preferenceKey, store: IChartStorageNamespace.defaults) private var appAppearanceValue = IChartAppAppearance.light.rawValue
     let exportedPDF: ExportedPDF
     var source: IChartPDFLibrarySource? = nil
     var pdfItemID: UUID? = nil
@@ -117,7 +117,7 @@ struct PDFExportPreviewView: View {
                     ?? "Review the chords and measures before saving a new Simple Chord Sheet.")
                 .accessibilityIdentifier("pdf.preview.create-editable-chart")
                 Text(editableChartConversionUnavailableMessage
-                    ?? "For selectable chord symbols above a staff or in a one-page chord grid.")
+                    ?? "For selectable chords above full-width staff rows in one column, or in a one-page chord grid. Drawn repeats and endings are not copied.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
