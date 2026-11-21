@@ -54,7 +54,7 @@ test("competing owner commits preserve exactly one CAS winner and reject a delet
       select pg_sleep(0.15); commit;`)));
     assert.equal(workers.filter((result) => result.status === 0).length, 1);
     const rejected = workers.find((result) => result.status !== 0);
-    assert.match(rejected.error, /40001/, "The stale writer must receive a conflict, not replace the winner");
+    assert.match(rejected.error, /PT409/, "The stale writer must receive a nonretryable conflict, not replace the winner");
     const current = JSON.parse(await success(`${session} select public.get_pdf_setlist_backup('${owner}');`));
     assert.equal(current.version, 2);
     assert.ok(["first", "second"].includes(current.manifest.writer));

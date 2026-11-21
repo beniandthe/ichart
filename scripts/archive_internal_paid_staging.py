@@ -19,6 +19,11 @@ BUNDLE_ID = "com.ichart.app"
 PAID_FLAG = "ICHART_PAID_SUBSCRIPTION"
 STAGING_FLAG = "ICHART_STAGING_STOREKIT_PRODUCTS"
 REQUIRED_FLAGS = {PAID_FLAG, STAGING_FLAG}
+# Xcode 27 logs the same driver argv for planning, requirements and actual
+# compilation. All wrappers require the literal separator before swiftc.
+XCODE_SWIFT_WRAPPERS = {
+    "builtin-SwiftDriver", "builtin-Swift-Compilation-Requirements", "builtin-Swift-Compilation"
+}
 FORBIDDEN_FLAGS = {"DEBUG", "ICHART_LOCAL_PLAN_QA", "ICHART_LOCAL_QA_PLAN_PREVIEW"}
 PUBLIC_KEY = re.compile(r"sb_publishable_[A-Za-z0-9_-]{16,}\Z")
 
@@ -139,7 +144,8 @@ def compilation_evidence(log, derived, source=None):
         index = tokens.index("-module-name")
         if index + 1 >= len(tokens) or tokens[index + 1] != "iChart":
             continue
-        start = 2 if tokens[:2] == ["builtin-SwiftDriver", "--"] else 0
+        wrapper = tokens[0] if len(tokens) >= 2 and tokens[0] in XCODE_SWIFT_WRAPPERS and tokens[1] == "--" else None
+        start = 2 if wrapper else 0
         require(len(tokens) > start and Path(tokens[start]).is_absolute()
                 and Path(tokens[start]).name == "swiftc"
                 and "/Contents/Developer/Toolchains/" in tokens[start],
@@ -185,8 +191,11 @@ def compilation_evidence(log, derived, source=None):
             i += 1
         require(REQUIRED_FLAGS <= conditions, "App Swift compiler did not select paid policy and isolated staging products.")
         require(not conditions.intersection(FORBIDDEN_FLAGS), "App Swift compiler contains a Debug or local plan-preview condition.")
-        commands.append({"conditions": sorted(conditions), "command_sha256": sha(line.encode()), "output_file_map": output_map_receipt})
+        commands.append({"wrapper": wrapper or "direct-swiftc", "conditions": sorted(conditions),
+                         "command_sha256": sha(line.encode()), "output_file_map": output_map_receipt})
     require(commands, "No actual iChart Swift compiler command found; build-setting text is insufficient.")
+    require(any(command["wrapper"] != "builtin-Swift-Compilation-Requirements" for command in commands),
+            "Swift compilation-requirements records alone do not establish an app driver/compilation invocation.")
     return commands
 
 

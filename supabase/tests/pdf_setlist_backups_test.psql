@@ -50,7 +50,7 @@ select pg_temp.assert_true(public.current_user_has_paid_setlist_cloud(), 'paid o
 select pg_temp.assert_true(public.get_pdf_setlist_backup(auth.uid())='{"version":0,"manifest":null}'::jsonb, 'new owner starts empty');
 select pg_temp.assert_true(public.commit_pdf_setlist_backup(auth.uid(), 0,'{"schema_version":1,"setlists":[],"pdfs":[]}')->>'version'='1', 'first commit');
 select pg_temp.assert_true(public.commit_pdf_setlist_backup(auth.uid(), 0,'{"schema_version":1,"setlists":[],"pdfs":[]}')->>'version'='1', 'retry preserves version');
-select pg_temp.expect_error('40001', $q$select public.commit_pdf_setlist_backup(auth.uid(), 0,
+select pg_temp.expect_error('PT409', $q$select public.commit_pdf_setlist_backup(auth.uid(), 0,
     '{"schema_version":1,"setlists":[],"pdfs":[],"note":"stale"}')$q$, 'stale CAS');
 select pg_temp.assert_true(public.get_pdf_setlist_backup(auth.uid())->>'version'='1', 'conflict leaves prior version');
 select pg_temp.expect_error('22023', $q$select public.commit_pdf_setlist_backup(auth.uid(), -1,

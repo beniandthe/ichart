@@ -113,8 +113,17 @@ actor IChartPDFSetlistCloudService: IChartPDFSetlistCloudServicing {
                 throw IChartPDFSetlistCloudError.invalidBackup
             }
             return result
-        } catch let error as PostgrestError where error.code == "40001" {
-            throw IChartPDFSetlistCloudError.cloudChanged
+        } catch {
+            throw Self.commitError(error)
         }
+    }
+
+    static func commitError(_ error: Error) -> Error {
+        // PT409 reports a stale application revision without asking PostgREST
+        // to retry its transaction. Keep compatibility with older deployments.
+        if let failure = error as? PostgrestError, failure.code == "PT409" || failure.code == "40001" {
+            return IChartPDFSetlistCloudError.cloudChanged
+        }
+        return error
     }
 }

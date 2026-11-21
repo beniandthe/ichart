@@ -8,12 +8,12 @@ this packaging command.
 
 The requested staging prices are **USD $6.99 monthly** and **exactly USD $60.00
 annually**. The machine-readable targets are in
-`internal-paid-staging-catalog.json`. The release operator's November 20 App Store Connect readback confirmed the
-annual product `6837601925` at exactly **USD $60.00**, in the separate
-**iChart FIX036 Staging** subscription group `22601761`, available in the USA
-only (1 of 175 territories), **Prepare for Submission**, and unsubmitted.
-The isolated monthly product is being created; its final catalog readback is
-pending. Actual StoreKit fetching, period, currency and displayed prices still
+`internal-paid-staging-catalog.json`. The release operator's November 20 App
+Store Connect readback confirmed monthly product `6837602589` at **USD $6.99**
+and annual product `6837601925` at exactly **USD $60.00**, in the separate
+**iChart FIX-036 Staging** subscription group `22601761`. Both products are
+available in the USA only (1 of 175 territories), **Prepare for Submission**,
+and unsubmitted. Actual StoreKit fetching, period, currency and displayed prices still
 require runtime acceptance. A target amount in this repository does not set or prove Apple's
 price. Release UI uses Apple's fetched product display prices.
 
@@ -63,6 +63,9 @@ requires a fresh output directory, generates the local Xcode project from
 unchanged `project.yml`, and runs native iOS **Release** archiving. It pins
 actual source inputs, checks the native package lock, passes the two staging
 compile conditions explicitly, and disables personal ML comparison resources.
+The lock includes `swift-issue-reporting` 2.1.2 at the exact revision used by
+native validation: Swift 6.4 selects the external dependency in the existing
+`xctest-dynamic-overlay` 1.13.1 manifest. All seven preceding pins are retained.
 Inherited backend variables, Swift flags, configuration injection and Simulator
 launch overrides are removed from the command environment. The temporary
 staging xcconfig is removed after the command; the resulting app necessarily
@@ -104,6 +107,13 @@ cache, cookie or credential stores. Runtime backend configuration fails closed
 unless it selects the exact staging HTTPS origin with a publishable client key.
 The readonly **Internal staging** banner explains the separate QA data/account.
 Normal builds retain their existing paths, keys, preferences and shared session.
+
+Hosted staging exposed an infinite PostgREST 14 retry when a stale setlist
+version deliberately raised SQLSTATE `40001`. The follow-up migration
+`20261121065253_pdf_setlist_nonretryable_conflict` preserves the applied 1720
+migration and returns `PT409` for that deterministic conflict. The client maps
+both the new code and the older `40001` response to the existing conflict
+recovery path. This does not alter genuine StoreKit serialization-race errors.
 
 Use a dedicated staging test account and only original synthetic QA content.
 The bundle remains `com.ichart.app`, so this is still an in-place app update:
