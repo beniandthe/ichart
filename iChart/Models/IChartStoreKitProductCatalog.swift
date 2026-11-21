@@ -1,5 +1,9 @@
 import Foundation
 
+#if ICHART_STAGING_STOREKIT_PRODUCTS && (!ICHART_PAID_SUBSCRIPTION || DEBUG || ICHART_LOCAL_PLAN_QA || ICHART_LOCAL_QA_PLAN_PREVIEW)
+#error("Staging StoreKit products require paid subscription access without Debug or local QA overrides.")
+#endif
+
 struct IChartStoreKitProductOption: Equatable, Identifiable {
     let id: String
     let displayName: String
@@ -22,10 +26,17 @@ struct IChartStoreKitRecurringPrice: Equatable {
 }
 
 enum IChartStoreKitProductCatalog {
+    #if ICHART_STAGING_STOREKIT_PRODUCTS
+    static let proMonthlyProductID = "com.ichart.app.staging.fix036.monthly"
+    static let proAnnualProductID = "com.ichart.app.staging.fix036.annual"
+    static let targetMonthlyPriceCents = 699
+    static let targetAnnualPriceCents = 6_000
+    #else
     static let proMonthlyProductID = "com.ichart.app.pro.monthly"
     static let proAnnualProductID = "com.ichart.app.pro.annual"
     static let targetMonthlyPriceCents = 799
     static let targetAnnualPriceCents = 6_499
+    #endif
 
     static let proProductIDs: [String] = [
         proMonthlyProductID,

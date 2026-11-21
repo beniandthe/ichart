@@ -9,6 +9,11 @@ struct ChordInkSemanticGlyphContextualizer {
     ) -> [[GlyphCandidate]] {
         var contextualGroups = contextualizingRootPositionEvidence(in: glyphCandidateGroups)
 
+        if hasWrittenFlatMajorSeventh(in: contextualGroups, clusters: clusters) {
+            contextualGroups[1] = promotingContextualCandidate("b", confidence: 0.98, in: contextualGroups[1])
+            contextualGroups[3] = promotingContextualCandidate("7", confidence: 0.999, in: contextualGroups[3])
+        }
+
         guard clusters.count == contextualGroups.count,
               clusters.count >= 4,
               clusters.count <= 6 else {
@@ -99,6 +104,51 @@ struct ChordInkSemanticGlyphContextualizer {
         }
 
         return contextualGroups
+    }
+
+    /// The flat, triangle and seven have their own ink. Let their written
+    /// positions resolve isolated glyph lookalikes within this complete chord.
+    private func hasWrittenFlatMajorSeventh(in groups: [[GlyphCandidate]], clusters: [InkCluster]) -> Bool {
+        guard groups.count == 4, clusters.count == 4,
+              ChordInkTheoryRoleContext.rootBaseCandidate(in: groups[0], bounds: clusters[0].bounds,
+                  allowsCloseSuffixLookalike: true) != nil,
+              candidateConfidence("b", in: groups[1]) >= 0.50,
+              candidateConfidence("△", in: groups[2]) >= 0.80,
+              candidateConfidence("7", in: groups[3]) >= 0.85,
+              clusters[2].strokes.count == 2,
+              InkSplitMajorTriangleGeometry.matches(clusters[2].strokes[0], clusters[2].strokes[1]),
+              clusters[3].strokes.count == 1, let seven = clusters[3].strokes.first,
+              seven.isSevenCandidate, seven.hasEarlyTopHorizontalRun else {
+            return false
+        }
+
+        let root = clusters[0].bounds
+        let flat = clusters[1]
+        guard flat.strokes.count == 1, let stroke = flat.strokes.first,
+              flat.bounds.recognitionMidX > root.maxX,
+              flat.bounds.horizontalGap(to: root) <= max(8, root.height * 0.45),
+              flat.bounds.width <= root.width * 0.75,
+              flat.bounds.maxY <= root.minY + root.height * 0.42 else {
+            return false
+        }
+        return hasFlatStemAndBowl(stroke)
+    }
+
+    private func hasFlatStemAndBowl(_ stroke: InkStroke) -> Bool {
+        let bounds = stroke.bounds
+        guard stroke.points.count >= 8, bounds.width > 0, bounds.height > 0,
+              let start = stroke.points.first, let end = stroke.points.last,
+              start.y <= bounds.minY + bounds.height * 0.15,
+              end.y >= bounds.minY + bounds.height * 0.60,
+              let stemEnd = stroke.points.firstIndex(where: { $0.y >= bounds.minY + bounds.height * 0.62 }) else {
+            return false
+        }
+
+        let stem = InkBounds.enclosing(Array(stroke.points[...stemEnd]))
+        let bowl = InkBounds.enclosing(Array(stroke.points[stemEnd...]))
+        return stem.width <= bounds.width * 0.28
+            && bowl.maxX >= stem.maxX + bounds.width * 0.25
+            && end.x <= stem.maxX + bounds.width * 0.12
     }
 
     private func contextualizingRootPositionEvidence(

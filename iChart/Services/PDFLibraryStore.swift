@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import PDFKit
 
 enum IChartPDFLibrarySource: String, Codable, CaseIterable, Identifiable {
     case chartExport
@@ -170,12 +171,7 @@ final class IChartPDFLibraryStore: ObservableObject {
     }
 
     static func live(fileManager: FileManager = .default) -> IChartPDFLibraryStore {
-        let applicationSupportURL = (try? fileManager.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )) ?? fileManager.temporaryDirectory
+        let applicationSupportURL = IChartStorageNamespace.applicationSupportDirectory(fileManager: fileManager)
 
         let baseDirectory = applicationSupportURL
             .appendingPathComponent("iChart", isDirectory: true)
@@ -186,17 +182,6 @@ final class IChartPDFLibraryStore: ObservableObject {
 
     func items(for source: IChartPDFLibrarySource) -> [IChartPDFLibraryItem] {
         items.filter { $0.source == source }
-    }
-
-    func visibleItems(
-        for subscription: IChartSubscriptionEntitlement,
-        accessPolicy: IChartProductAccessPolicy = .current
-    ) -> [IChartPDFLibraryItem] {
-        guard subscription.allowsForumDownloadAccess(accessPolicy: accessPolicy) else {
-            return items.filter { $0.source != .forumDownload }
-        }
-
-        return items
     }
 
     func exportedPDF(for item: IChartPDFLibraryItem) -> ExportedPDF? {
@@ -275,6 +260,91 @@ final class IChartPDFLibraryStore: ObservableObject {
         }
         items = updatedItems
         return item
+    }
+
+    /// Restore keeps the original IDs used by setlists. Local files and their
+    /// manifest entries are retained when a backup contains a conflicting ID.
+    @MainActor
+    func mergeCloudItems(_ incoming: [IChartPDFLibraryItem], files: [UUID: URL]) throws {
+        guard !incoming.isEmpty else { return }
+        if let recoveryErrorMessage {
+            throw IChartPDFLibraryDeletionError.recoveryUnavailable(recoveryErrorMessage)
+        }
+        guard fileManager.fileExists(atPath: manifestURL.path) || items.isEmpty else {
+            throw IChartPDFLibraryDeletionError.manifestUnavailable
+        }
+        let currentItems = try Self.loadItems(from: manifestURL, fileManager: fileManager)
+        let currentByID = Dictionary(currentItems.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        guard currentByID.count == currentItems.count,
+              Set(incoming.map(\.id)).count == incoming.count else {
+            throw IChartPDFLibraryRestoreError.duplicateID
+        }
+
+        var addedItems = [IChartPDFLibraryItem]()
+        var ownedCopies = [URL]()
+        do {
+            for item in incoming {
+                try Task.checkCancellation()
+                guard let source = files[item.id] else {
+                    throw IChartPDFLibraryRestoreError.invalidFile(item.displayTitle)
+                }
+                if let current = currentByID[item.id] {
+                    let localURL = try validatedLibraryURL(for: current)
+                    guard current.source == item.source,
+                          fileManager.contentsEqual(atPath: localURL.path, andPath: source.path) else {
+                        throw IChartPDFLibraryRestoreError.conflictingFile(item.displayTitle)
+                    }
+                    continue
+                }
+                let attributes = try fileManager.attributesOfItem(atPath: source.path)
+                guard attributes[.type] as? FileAttributeType == .typeRegular,
+                      (attributes[.size] as? NSNumber)?.intValue == item.fileSizeBytes,
+                      item.fileSizeBytes > 0,
+                      item.fileSizeBytes <= IChartPDFImportLimits.standard.maximumFileSizeBytes,
+                      let document = PDFDocument(url: source),
+                      !document.isLocked, !document.isEncrypted,
+                      document.pageCount > 0, document.pageCount == item.pageCount else {
+                    throw IChartPDFLibraryRestoreError.invalidFile(item.displayTitle)
+                }
+                let directoryName = item.source.directoryName
+                let directory = baseDirectory.appendingPathComponent(directoryName, isDirectory: true)
+                let fileName = try uniqueFileName(
+                    preferredFileName: item.fileName,
+                    fallbackTitle: item.displayTitle,
+                    in: directory
+                )
+                let restored = IChartPDFLibraryItem(
+                    id: item.id, source: item.source, fileName: fileName, displayTitle: item.displayTitle,
+                    layoutStyle: item.layoutStyle, transpositionView: item.transpositionView,
+                    chordTranspositionSemitones: item.chordTranspositionSemitones, pageCount: item.pageCount,
+                    fileSizeBytes: item.fileSizeBytes, createdAt: item.createdAt,
+                    relativePath: directoryName + "/" + fileName,
+                    forumInstrumentSnapshotVersion: item.forumInstrumentSnapshotVersion
+                )
+                let destinationURL = try validatedLibraryURL(for: restored)
+                try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+                try copyPDF(from: source, to: destinationURL)
+                ownedCopies.append(destinationURL)
+                addedItems.append(restored)
+            }
+            guard !addedItems.isEmpty else { return }
+            let updatedItems = (currentItems + addedItems).sorted(by: Self.itemSortOrder)
+            try persist(updatedItems)
+            items = updatedItems
+        } catch {
+            var cleanupFailures = [String]()
+            for url in ownedCopies {
+                do {
+                    try fileManager.removeItem(at: url)
+                } catch {
+                    cleanupFailures.append(error.localizedDescription)
+                }
+            }
+            guard cleanupFailures.isEmpty else {
+                throw IChartPDFImportError.rollbackFailed(cleanupFailures.joined(separator: " "))
+            }
+            throw error
+        }
     }
 
     @discardableResult
@@ -438,19 +508,6 @@ final class IChartPDFLibraryStore: ObservableObject {
             )
         }
         return removedItems.count
-    }
-
-    @discardableResult
-    func removeForumDownloadsIfInactive(
-        for subscription: IChartSubscriptionEntitlement,
-        accessPolicy: IChartProductAccessPolicy = .current
-    ) -> Int {
-        guard recoveryErrorMessage == nil,
-              subscription.shouldRemoveForumDownloads(accessPolicy: accessPolicy) else {
-            return 0
-        }
-
-        return removeItems(for: .forumDownload)
     }
 
     func reload() {
@@ -657,20 +714,6 @@ final class IChartPDFLibraryStore: ObservableObject {
         try? persist()
     }
 
-    private func removeItems(for source: IChartPDFLibrarySource) -> Int {
-        let removedItems = items.filter { $0.source == source }
-        guard !removedItems.isEmpty else {
-            return 0
-        }
-
-        for item in removedItems {
-            try? fileManager.removeItem(at: item.url(relativeTo: baseDirectory))
-        }
-        items.removeAll { $0.source == source }
-        try? persist()
-        return removedItems.count
-    }
-
     private func sortItems() {
         items.sort(by: Self.itemSortOrder)
     }
@@ -702,6 +745,23 @@ final class IChartPDFLibraryStore: ObservableObject {
 
         let data = try Data(contentsOf: url)
         return try ChartPersistenceCoders.decoder.decode([IChartPDFLibraryItem].self, from: data)
+    }
+}
+
+enum IChartPDFLibraryRestoreError: LocalizedError {
+    case duplicateID
+    case invalidFile(String)
+    case conflictingFile(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .duplicateID:
+            return "The backup or local library contains duplicate PDF references."
+        case .invalidFile(let title):
+            return "The backup copy of \(title) could not be verified."
+        case .conflictingFile(let title):
+            return "The backup and this device contain different copies of \(title). The local copy is still available."
+        }
     }
 }
 

@@ -142,13 +142,11 @@ final class ChartLibraryStoreTests: XCTestCase {
             XCTAssertEqual(store.projects, originalProjects)
             XCTAssertEqual(store.selectedChartID, charts[4].id)
             XCTAssertNil(store.localChartLimit)
-            XCTAssertTrue(store.canOpenChartsForEditing)
+            XCTAssertEqual(store.editorBinding(for: charts[4].id)?.wrappedValue, charts[4])
             XCTAssertTrue(store.canCreateChart)
             XCTAssertTrue(store.canUse(.projects))
             XCTAssertTrue(store.canUse(.cloudBackup))
             XCTAssertTrue(store.canUse(.forums))
-            XCTAssertFalse(store.requiresLocalChartPruningForCurrentPlan)
-            XCTAssertFalse(store.pruneLocalChartForCurrentPlan(id: charts[4].id))
             XCTAssertTrue(store.deletionTombstones.isEmpty)
         }
 
@@ -158,7 +156,7 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertEqual(reopened.charts, charts)
         XCTAssertEqual(reopened.projects.first?.id, projectID)
         XCTAssertEqual(reopened.selectedChartID, charts[4].id)
-        XCTAssertTrue(reopened.canOpenChartsForEditing)
+        XCTAssertEqual(reopened.editorBinding(for: charts[4].id)?.wrappedValue, charts[4])
         XCTAssertTrue(reopened.createBlankChart())
         XCTAssertNotNil(reopened.duplicateChart(id: charts[0].id))
         XCTAssertEqual(reopened.charts.count, 8)
@@ -249,7 +247,7 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertEqual(billingPublicationCount, 1)
     }
 
-    func testExpiredSubscriptionRequiresBasicChartPruningWithoutCloudAccess() {
+    func testExpiredSubscriptionKeepsOverCapChartsEditableWithoutCloudAccess() throws {
         let charts = (1...4).map {
             Chart.blank(title: "Chart \($0)")
         }
@@ -262,12 +260,17 @@ final class ChartLibraryStoreTests: XCTestCase {
 
         XCTAssertEqual(store.entitlements.activePlan, .free)
         XCTAssertEqual(store.localChartLimit, 3)
-        XCTAssertEqual(store.localChartOverflowCount, 1)
-        XCTAssertTrue(store.requiresLocalChartPruningForCurrentPlan)
-        XCTAssertTrue(store.isChartEditingLockedByCurrentPlan)
-        XCTAssertFalse(store.canOpenChartsForEditing)
+        XCTAssertFalse(store.canCreateChart)
+        XCTAssertEqual(store.charts, charts)
         XCTAssertFalse(store.canUse(.cloudBackup))
         XCTAssertFalse(store.canUse(.forums))
+
+        let binding = try XCTUnwrap(store.editorBinding(for: charts[3].id))
+        var edited = binding.wrappedValue
+        edited.title = "Edited after paid Pro expired"
+        binding.wrappedValue = edited
+        XCTAssertEqual(store.charts.first { $0.id == edited.id }, edited)
+        XCTAssertEqual(store.charts.map(\.id), charts.map(\.id))
     }
 
     func testBillingGraceKeepsOverCapLocalLibraryEditableWithoutCloudAccess() {
@@ -287,15 +290,12 @@ final class ChartLibraryStoreTests: XCTestCase {
         )
 
         XCTAssertNil(store.localChartLimit)
-        XCTAssertEqual(store.localChartOverflowCount, 0)
-        XCTAssertFalse(store.requiresLocalChartPruningForCurrentPlan)
-        XCTAssertFalse(store.isChartEditingLockedByCurrentPlan)
-        XCTAssertTrue(store.canOpenChartsForEditing)
+        XCTAssertEqual(store.editorBinding(for: charts[3].id)?.wrappedValue, charts[3])
         XCTAssertFalse(store.canUse(.cloudBackup))
         XCTAssertFalse(store.canUse(.forums))
     }
 
-    func testChartEditingUnlocksAfterExpiredOverCapLibraryIsPrunedToBasicLimit() {
+    func testChartCreationCapChangesAfterVoluntaryDeletionWithoutLockingEditing() {
         let charts = (1...4).map {
             Chart.blank(title: "Chart \($0)")
         }
@@ -304,15 +304,14 @@ final class ChartLibraryStoreTests: XCTestCase {
             entitlements: AppEntitlements(subscription: .proExpired(), accessPolicy: .paidSubscription)
         )
 
-        XCTAssertTrue(store.isChartEditingLockedByCurrentPlan)
-        XCTAssertFalse(store.canOpenChartsForEditing)
+        XCTAssertFalse(store.canCreateChart)
 
-        XCTAssertTrue(store.pruneLocalChartForCurrentPlan(id: charts[3].id))
+        XCTAssertTrue(store.deleteChart(id: charts[3].id))
 
-        XCTAssertFalse(store.requiresLocalChartPruningForCurrentPlan)
-        XCTAssertFalse(store.isChartEditingLockedByCurrentPlan)
-        XCTAssertTrue(store.canOpenChartsForEditing)
         XCTAssertEqual(store.charts.count, AppEntitlements.recommendedBasicChartLimit)
+        XCTAssertFalse(store.canCreateChart)
+        XCTAssertTrue(store.deleteChart(id: charts[2].id))
+        XCTAssertTrue(store.canCreateChart)
     }
 
     func testBasicLibraryAtChartLimitCanStillOpenChartsForEditing() {
@@ -321,9 +320,8 @@ final class ChartLibraryStoreTests: XCTestCase {
         }
         let store = ChartLibraryStore(charts: charts, entitlements: AppEntitlements(activePlan: .free, accessPolicy: .paidSubscription))
 
-        XCTAssertFalse(store.requiresLocalChartPruningForCurrentPlan)
-        XCTAssertFalse(store.isChartEditingLockedByCurrentPlan)
-        XCTAssertTrue(store.canOpenChartsForEditing)
+        XCTAssertTrue(store.renameChart(id: charts[0].id, to: "Edited at Basic capacity"))
+        XCTAssertEqual(store.editorBinding(for: charts[0].id)?.wrappedValue.title, "Edited at Basic capacity")
         XCTAssertFalse(store.canCreateChart)
     }
 
@@ -520,6 +518,28 @@ final class ChartLibraryStoreTests: XCTestCase {
             return XCTFail("Expected failed persistence status, got \(store.persistenceStatus)")
         }
         XCTAssertTrue(message.contains("Could not write saved library"))
+    }
+
+    @MainActor
+    func testConvertedPDFSaveFailureRestoresLibraryAndAllowsRetry() async {
+        let repository = RecordingChartRepository()
+        repository.saveError = RecordingRepositoryError.save
+        let existing = Chart.blank(title: "Existing chart", layoutStyle: .simpleChordSheet)
+        let store = ChartLibraryStore(charts: [existing], selectedChartID: existing.id, repository: repository)
+        var converted = Chart.blank(title: "Converted chart", layoutStyle: .simpleChordSheet)
+        converted.sourcePDFLibraryItemID = UUID()
+
+        let firstSave = await store.saveConvertedPDFChart(converted)
+        XCTAssertFalse(firstSave)
+        XCTAssertEqual(store.charts, [existing])
+        XCTAssertEqual(store.selectedChartID, existing.id)
+        XCTAssertTrue(repository.savedSnapshots.isEmpty)
+
+        repository.saveError = nil
+        let retry = await store.saveConvertedPDFChart(converted)
+        XCTAssertTrue(retry)
+        XCTAssertEqual(repository.savedSnapshots.last?.charts, [converted, existing])
+        XCTAssertEqual(store.selectedChartID, converted.id)
     }
 
     func testRetryAfterRepeatedEditorSaveFailureWritesLatestSnapshot() throws {
@@ -1212,48 +1232,6 @@ final class ChartLibraryStoreTests: XCTestCase {
         let savedTombstone = try XCTUnwrap(repository.savedSnapshots.last?.deletionTombstones.first)
         XCTAssertEqual(savedTombstone.chartID, chart.id)
         XCTAssertTrue(savedTombstone.shouldSyncToCloud)
-    }
-
-    func testDowngradePruneRemovesSelectedLocalChartWithoutCloudTombstoneOrUpload() throws {
-        let repository = RecordingChartRepository()
-        let charts = (1...4).map {
-            Chart.blank(title: "Chart \($0)")
-        }
-        let store = ChartLibraryStore(
-            charts: charts,
-            entitlements: AppEntitlements(activePlan: .free, accessPolicy: .paidSubscription),
-            selectedChartID: charts[3].id,
-            repository: repository
-        )
-        var scheduledUploadCount = 0
-        store.onSnapshotSaved = { (_: ChartLibrarySnapshot) in
-            scheduledUploadCount += 1
-        }
-
-        XCTAssertTrue(store.requiresLocalChartPruningForCurrentPlan)
-        XCTAssertEqual(store.localChartOverflowCount, 1)
-
-        let didPrune = store.pruneLocalChartForCurrentPlan(id: charts[3].id)
-
-        XCTAssertTrue(didPrune)
-        XCTAssertEqual(store.charts.map { $0.id }, [charts[0].id, charts[1].id, charts[2].id])
-        XCTAssertEqual(store.selectedChartID, charts[0].id)
-        XCTAssertFalse(store.requiresLocalChartPruningForCurrentPlan)
-        XCTAssertTrue(store.deletionTombstones.isEmpty)
-        XCTAssertEqual(repository.savedSnapshots.last?.charts.map { $0.id }, [charts[0].id, charts[1].id, charts[2].id])
-        XCTAssertTrue(repository.savedSnapshots.last?.deletionTombstones.isEmpty ?? false)
-        XCTAssertEqual(scheduledUploadCount, 0)
-    }
-
-    func testDowngradePruneIsUnavailableWhenLibraryIsAtBasicCap() {
-        let charts = (1...AppEntitlements.recommendedBasicChartLimit).map {
-            Chart.blank(title: "Chart \($0)")
-        }
-        let store = ChartLibraryStore(charts: charts, entitlements: AppEntitlements(activePlan: .free, accessPolicy: .paidSubscription))
-
-        XCTAssertFalse(store.pruneLocalChartForCurrentPlan(id: charts[0].id))
-        XCTAssertEqual(store.charts.map(\.id), charts.map(\.id))
-        XCTAssertTrue(store.deletionTombstones.isEmpty)
     }
 
     func testSyncedSnapshotAppliesQuietlyWithoutSchedulingUpload() {

@@ -37,6 +37,13 @@ enum NotationFontPreset: String, Codable, CaseIterable, Hashable, Identifiable {
 
     var id: String { rawValue }
 
+    var requiresPremiumFonts: Bool {
+        switch releaseSafePreset {
+        case .petaluma, .museJazz, .finaleJazz: return true
+        default: return false
+        }
+    }
+
     var releaseSafePreset: NotationFontPreset {
         switch self {
         case .bravura:
@@ -287,6 +294,10 @@ enum ChartFontFamilyPreset: String, Codable, CaseIterable, Hashable, Identifiabl
 
     var id: String { rawValue }
 
+    var requiresPremiumFonts: Bool {
+        releaseSafeTextFamily.notationFont.requiresPremiumFonts
+    }
+
     var releaseSafeTextFamily: ChartFontFamilyPreset {
         switch self {
         case .bravura:
@@ -446,6 +457,49 @@ struct ChartTypographySettings: Codable, Hashable {
 
     var resolvedTextFont: ChartFontFamilyPreset {
         textOverride ?? matchedSet
+    }
+}
+
+/// Font access applies only to an explicit edit. Saved fonts remain available
+/// to the resolver, page layout, and PDF renderer after access changes.
+enum ChartFontSelection: Hashable {
+    case matchedSet(ChartFontFamilyPreset)
+    case chordOverride(ChartFontFamilyPreset?)
+    case headerOverride(ChartFontFamilyPreset?)
+    case textOverride(ChartFontFamilyPreset?)
+    case notation(NotationFontPreset)
+
+    func requiresPremiumFonts(in chart: Chart) -> Bool {
+        switch self {
+        case .matchedSet(let preset):
+            return preset.requiresPremiumFonts
+        case .chordOverride(let preset), .headerOverride(let preset), .textOverride(let preset):
+            return (preset ?? chart.typography.matchedSet).requiresPremiumFonts
+        case .notation(let preset):
+            return preset.requiresPremiumFonts
+        }
+    }
+}
+
+enum ChartFontSelectionPolicy {
+    static func canApply(_ selection: ChartFontSelection, to chart: Chart, canUsePremiumFonts: Bool) -> Bool {
+        canUsePremiumFonts || !selection.requiresPremiumFonts(in: chart)
+    }
+
+    /// Returns false for an unavailable choice without changing any chart data.
+    @discardableResult
+    static func apply(_ selection: ChartFontSelection, to chart: inout Chart, canUsePremiumFonts: Bool) -> Bool {
+        guard canApply(selection, to: chart, canUsePremiumFonts: canUsePremiumFonts) else {
+            return false
+        }
+        switch selection {
+        case .matchedSet(let preset): chart.setMatchedFontFamily(preset)
+        case .chordOverride(let preset): chart.setChordFontOverride(preset)
+        case .headerOverride(let preset): chart.setHeaderFontOverride(preset)
+        case .textOverride(let preset): chart.setTextFontOverride(preset)
+        case .notation(let preset): chart.setNotationFont(preset)
+        }
+        return true
     }
 }
 

@@ -23,8 +23,8 @@ final class ChordRecognitionProviderBoundaryTests: XCTestCase {
                 // These two text-cue instructions describe native text entry.
                 // Leave every other occurrence subject to the provider guard.
                 source = source
-                    .replacingOccurrences(of: #""Open Tools > Text, choose a measure, then Above or Below. Tap the field to type or use its Pencil icon for Scribble. Tap Add.""#, with: "")
-                    .replacingOccurrences(of: #""Tap to type. Use Start Scribble to write with Apple Pencil.""#, with: "")
+                    .replacingOccurrences(of: #""Open Tools > Text, choose a measure, then Above or Below. Choose Keyboard to type, or choose Scribble and tap the field with Apple Pencil before writing. Tap Add.""#, with: "")
+                    .replacingOccurrences(of: #""Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing.""#, with: "")
             }
             for forbiddenToken in forbiddenTokens where source.contains(forbiddenToken) {
                 violations.append("\(sourceURL.path): \(forbiddenToken)")

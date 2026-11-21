@@ -471,7 +471,7 @@ struct GestureTemplateRecognizer {
         // A retraced triangle base can look loop-like in isolation, with the
         // other leg satisfying the slash heuristic. Do not give that same pair
         // an equally strong half-diminished heuristic and break the tie by text.
-        if !isMajorTriangle, isHalfDiminishedLike(features) {
+        if !isMajorTriangle, isHalfDiminishedLike(features, sourceStrokes: sourceStrokes) {
             candidates.append(heuristicCandidate("ø", confidence: 0.999))
         }
 
@@ -723,17 +723,18 @@ struct GestureTemplateRecognizer {
             && !hasBroadTriangularOutline(stroke)
     }
 
-    private func isHalfDiminishedLike(_ features: RootGlyphFeatures) -> Bool {
-        guard features.strokeCount == 2 else {
+    private func isHalfDiminishedLike(
+        _ features: RootGlyphFeatures,
+        sourceStrokes: [InkStroke]
+    ) -> Bool {
+        guard features.strokeCount == 2,
+              let circleIndex = features.strokes.firstIndex(where: isDiminishedCircleStroke(_:)) else {
             return false
         }
 
-        let circleStroke = features.strokes.first(where: isDiminishedCircleStroke(_:))
-        let slashStroke = features.strokes.first { stroke in
-            isHalfDiminishedSlashStroke(stroke)
-        }
-
-        guard circleStroke != nil, slashStroke != nil else {
+        let slashIndex = 1 - circleIndex
+        guard isHalfDiminishedSlashStroke(features.strokes[slashIndex]),
+              sourceStrokes[slashIndex].crossesDiminishedLoop(features.strokes[circleIndex].bounds) else {
             return false
         }
 
@@ -1686,7 +1687,8 @@ struct GestureTemplateRecognizer {
                 return [heuristicCandidate("B", confidence: 0.987)]
             }
 
-            if isCompactBLikeBody(bodyStroke, in: features) {
+            if isCompactBLikeBody(bodyStroke, in: features)
+                || hasDeepTwoLobeBBody(bodyStroke, in: features) {
                 return [heuristicCandidate("B", confidence: 0.987)]
             }
         }
@@ -1702,6 +1704,25 @@ struct GestureTemplateRecognizer {
             && features.aspectRatio >= 0.42
             && features.aspectRatio <= 0.80
             && hasTwoLobeBBodyEvidence(bodyStroke)
+    }
+
+    /// Use the full inward turn to recognize a distinct pair of bowls even
+    /// when densely sampled ink moves less than two points at a time.
+    private func hasDeepTwoLobeBBody(_ body: RootStrokeFeatures, in features: RootGlyphFeatures) -> Bool {
+        guard let stem = features.strokes.first(where: \.isVerticalStem),
+              stem.straightness >= 0.85,
+              stem.bounds.height >= features.bounds.height * 0.64,
+              stem.bounds.width <= features.bounds.width * 0.22,
+              body.bounds.height >= features.bounds.height * 0.80,
+              body.straightness < 0.55,
+              hasTwoLobeBBodyEvidence(body),
+              hasMiddleInwardBowlTurn(body, minimumDepth: 0.24) else {
+            return false
+        }
+
+        let bottomOfBody = body.startPoint.y > body.endPoint.y ? body.startPoint : body.endPoint
+        return bottomOfBody.y >= features.bounds.minY + features.bounds.height * 0.78
+            && abs(bottomOfBody.x - stem.bounds.recognitionMidX) <= features.bounds.width * 0.22
     }
 
     private func isDLikeBody(_ bodyStroke: RootStrokeFeatures, in features: RootGlyphFeatures) -> Bool {

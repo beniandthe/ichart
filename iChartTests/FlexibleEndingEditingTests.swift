@@ -26,6 +26,10 @@ final class FlexibleEndingEditingTests: XCTestCase {
         XCTAssertEqual(second.resolvedEndingDisplayText, "2.")
         XCTAssertEqual(first.resolvedEndingEndStyle, .closed)
         XCTAssertEqual(second.resolvedEndingEndStyle, .closed)
+        XCTAssertNil(first.verticalOffset)
+        XCTAssertNil(second.verticalOffset)
+        XCTAssertEqual(first.resolvedVerticalOffset, 0)
+        XCTAssertEqual(second.resolvedVerticalOffset, 0)
         XCTAssertEqual(reopened.systems, chart.systems)
     }
 
@@ -154,6 +158,69 @@ final class FlexibleEndingEditingTests: XCTestCase {
         XCTAssertNil(ending.displayText)
         XCTAssertEqual(ending.resolvedEndingDisplayText, "2.")
         XCTAssertEqual(ending.resolvedEndingEndStyle, .closed)
+    }
+
+    func testVerticalAnnotationEditsRoundTripWithoutChangingMusicalAnchorsOrInk() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            var chart = Chart.blank(title: "Annotation positions", measureCount: 4, layoutStyle: style)
+            let ids = chart.measures.map(\.id)
+            let cueID = try XCTUnwrap(chart.addCueText("Play 2x", anchorMeasureID: ids[0], position: .above))
+            XCTAssertTrue(chart.moveCueText(cueID, to: ids[0], atFraction: 0.25))
+            let endingID = try XCTUnwrap(chart.addEndingSpan(
+                .ending1, startMeasureID: ids[0], endMeasureID: ids[2],
+                displayText: "1–3,5.", endStyle: .open
+            ))
+            let endingIndex = try XCTUnwrap(chart.roadmapObjects.firstIndex { $0.id == endingID })
+            chart.roadmapObjects[endingIndex].sourceInkData = Data([1, 3, 5])
+            let markerID = try XCTUnwrap(chart.addPointRoadmapMarker(.fine, anchorMeasureID: ids[2]))
+            XCTAssertTrue(chart.movePointRoadmapMarkerHorizontally(markerID, toNormalizedOffset: 0.3))
+            let markerIndex = try XCTUnwrap(chart.roadmapObjects.firstIndex { $0.id == markerID })
+            let before = chart
+
+            XCTAssertTrue(chart.setCueTextVerticalOffset(cueID, to: 36))
+            XCTAssertTrue(chart.setRoadmapAnnotationVerticalOffset(endingID, to: -120))
+            XCTAssertTrue(chart.setRoadmapAnnotationVerticalOffset(markerID, to: 21.5))
+
+            var expected = before
+            expected.cueTexts[0].verticalOffset = 36
+            expected.roadmapObjects[endingIndex].verticalOffset = CueText.minimumVerticalOffset
+            expected.roadmapObjects[markerIndex].verticalOffset = 21.5
+            expected.updatedAt = chart.updatedAt
+            XCTAssertEqual(chart, expected)
+            chart = try roundTrip(chart)
+            XCTAssertEqual(chart, expected)
+
+            XCTAssertTrue(chart.setCueTextVerticalOffset(cueID, to: 0))
+            XCTAssertTrue(chart.setRoadmapAnnotationVerticalOffset(endingID, to: 0))
+            XCTAssertTrue(chart.setRoadmapAnnotationVerticalOffset(markerID, to: 0))
+
+            expected = before
+            expected.updatedAt = chart.updatedAt
+            XCTAssertEqual(chart, expected)
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(
+                with: ChartPersistenceCoders.encoder.encode(chart)
+            ) as? [String: Any])
+            let roadmaps = try XCTUnwrap(json["roadmapObjects"] as? [[String: Any]])
+            XCTAssertTrue(roadmaps.allSatisfy { $0["verticalOffset"] == nil })
+        }
+    }
+
+    func testInvalidOrUnchangedVerticalAnnotationEditsDoNotModifyChart() throws {
+        var chart = Chart.blank(title: "No-op annotation offsets", measureCount: 2)
+        let ids = chart.measures.map(\.id)
+        let cueID = try XCTUnwrap(chart.addCueText("On cue", anchorMeasureID: ids[0]))
+        let repeatID = try XCTUnwrap(chart.addRepeatSpan(startMeasureID: ids[0], endMeasureID: ids[1]))
+        let endingID = try XCTUnwrap(chart.addEndingSpan(.ending1, startMeasureID: ids[0], endMeasureID: ids[1]))
+        chart.updatedAt = Date(timeIntervalSince1970: 100)
+        let original = chart
+
+        XCTAssertFalse(chart.setCueTextVerticalOffset(UUID(), to: 20))
+        XCTAssertFalse(chart.setCueTextVerticalOffset(cueID, to: .nan))
+        XCTAssertFalse(chart.setCueTextVerticalOffset(cueID, to: 0))
+        XCTAssertFalse(chart.setRoadmapAnnotationVerticalOffset(repeatID, to: 20))
+        XCTAssertFalse(chart.setRoadmapAnnotationVerticalOffset(endingID, to: .infinity))
+        XCTAssertFalse(chart.setRoadmapAnnotationVerticalOffset(endingID, to: 0))
+        XCTAssertEqual(chart, original)
     }
 
     func testInvalidDetailsLeaveTheEntireChartUnchanged() throws {

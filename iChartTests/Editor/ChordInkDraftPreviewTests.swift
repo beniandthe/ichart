@@ -1690,9 +1690,11 @@ final class ChordInkDraftPreviewTests: XCTestCase {
 
     func testDraftBarlineNeighborGuardRequiresBothCloseFlanksAndComparableHeights() {
         let layout = Self.pageLayout(measureID: UUID())
+        // A shorter candidate still exercises the ordinary neighbor guard.
+        // Lane-height dividers with clear overhang are covered by the mixed editor fixture.
         let candidate = InkStroke(points: [
-            InkPoint(x: 200, y: 94, timeOffset: 0),
-            InkPoint(x: 200, y: 141, timeOffset: 0.2)
+            InkPoint(x: 200, y: 100, timeOffset: 0),
+            InkPoint(x: 200, y: 135, timeOffset: 0.2)
         ])
         let cases: [(leftGap: Double, rightGap: Double, heightRatio: Double, keepsInk: Bool)] = [
             (0.29, 0.29, 0.80, true), (0.31, 0.29, 0.80, false),
@@ -1716,7 +1718,7 @@ final class ChordInkDraftPreviewTests: XCTestCase {
                 strokes: [candidate, left, right], chordFrame: .zero, pageLayout: layout
             )
             XCTAssertEqual(recognition.strokeIndices, fixture.keepsInk ? Set<Int>() : [0],
-                           "Ownership requires both close flanks and comparable heights")
+                           "Unexpected ownership for flank layout \(fixture)")
         }
     }
 
@@ -1735,6 +1737,39 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertEqual(recognition.barlines.count, 1)
         XCTAssertGreaterThan(recognition.barlines[0].metrics.angleDegreesFromVertical, 10)
         XCTAssertLessThan(recognition.barlines[0].metrics.laneCoverage, 0.8)
+    }
+
+    func testDetachedBBowlsKeepTheirStemWhileRetracedDividerOwnsBothStrokes() throws {
+        let layout = Self.pageLayout(measureID: UUID())
+        let stem = InkStroke(points: [
+            InkPoint(x: 150, y: 98, timeOffset: 0),
+            InkPoint(x: 150, y: 138, timeOffset: 0.2)
+        ])
+        let bowls = InkStroke(points: [
+            InkPoint(x: 153.6, y: 98, timeOffset: 0),
+            InkPoint(x: 173, y: 105, timeOffset: 0.05),
+            InkPoint(x: 154, y: 116, timeOffset: 0.10),
+            InkPoint(x: 175, y: 127, timeOffset: 0.15),
+            InkPoint(x: 153.6, y: 138, timeOffset: 0.20)
+        ])
+        let divider = InkStroke(points: [
+            InkPoint(x: 226, y: 94, timeOffset: 0),
+            InkPoint(x: 226, y: 141, timeOffset: 0.2)
+        ])
+        let retrace = InkStroke(points: [
+            InkPoint(x: 228, y: 141, timeOffset: 0),
+            InkPoint(x: 228, y: 94, timeOffset: 0.2)
+        ])
+        let isolatedStem = ChordDraftBarlineRecognizer.recognize(strokes: [stem], chordFrame: .zero, pageLayout: layout)
+        XCTAssertEqual(isolatedStem.strokeIndices, [0], "The stem alone also has the shape of a divider")
+
+        for strokes in [[stem, bowls, divider, retrace], [retrace, divider, bowls, stem]] {
+            let recognition = ChordDraftBarlineRecognizer.recognize(strokes: strokes, chordFrame: .zero, pageLayout: layout)
+            XCTAssertEqual(recognition.barlines.count, 1)
+            let owned = try XCTUnwrap(recognition.barlines.first).ownedSourceStrokeIndices
+            XCTAssertEqual(owned, recognition.strokeIndices)
+            XCTAssertEqual(Set(owned.map { strokes[$0] }), Set([divider, retrace]))
+        }
     }
 
     func testDraftBarlineNeighborGuardDoesNotTreatOtherBarlineCandidatesAsText() {
@@ -3237,13 +3272,46 @@ final class ChordInkDraftPreviewTests: XCTestCase {
             chart: chart, state: state, currentDrawing: source, coordinateSpace: coordinateSpace,
             now: inputAt.addingTimeInterval(4), lastInputAt: inputAt, isUsingTool: false,
             sourcePageLayout: layout, sourceChordFrame: chordFrame)
-        XCTAssertNil(automatic.outcome)
+        let automaticOutcome = try XCTUnwrap(automatic.outcome)
+        XCTAssertEqual(automaticOutcome.result.renderedChordCount, 1)
+        XCTAssertEqual(automaticOutcome.result.renderedBarlineCount, 0)
+        XCTAssertEqual(automaticOutcome.remainingState.draftBarlines.first?.id, barline.id)
+        XCTAssertEqual(automaticOutcome.remainingState.draftBarlines.first?.ownedSourceStrokeIndices, [0])
         XCTAssertEqual(automatic.feedback.globalReason, .barlinePlacementUnavailable)
         let status = ChordInkAutomaticFeedbackPresentationPolicy.globalStatus(
             activity: nil, feedback: automatic.feedback, hasSourceInk: true,
             now: inputAt.addingTimeInterval(4))
         XCTAssertEqual(status?.title, "Barline needs attention")
         XCTAssertTrue(status?.canReview == true)
+
+        let manual = ChordInkDraftRenderCoordinator.prepareManual(chart: chart, state: state,
+            currentDrawing: source, coordinateSpace: coordinateSpace,
+            sourcePageLayout: layout, sourceChordFrame: chordFrame)
+        XCTAssertTrue(manual.canConsumeSource)
+        XCTAssertEqual(manual.result.renderedChordCount, 1)
+        XCTAssertEqual(manual.result.renderedBarlineCount, 0)
+        let retainedManual = try XCTUnwrap(manual.retainedDraft)
+        XCTAssertEqual(retainedManual.state.draftBarlines.first?.id, barline.id)
+        XCTAssertEqual(retainedManual.state.draftBarlines.first?.ownedSourceStrokeIndices, [0])
+
+        let expectedRemaining = PKDrawing(strokes: [source.strokes[1]])
+        let expectedChord = PKDrawing(strokes: [source.strokes[0]])
+        for (rendered, remaining) in [(automaticOutcome.chart, automaticOutcome.drawing),
+                                     (manual.chart, retainedManual.drawing)] {
+            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+                expected: expectedRemaining, current: remaining))
+            let reopened = try ChartPersistenceCoders.decoder.decode(Chart.self,
+                from: ChartPersistenceCoders.encoder.encode(rendered))
+            let storedDivider = try PKDrawing(data: XCTUnwrap(reopened.pageHandwrittenChordData))
+            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+                expected: expectedRemaining, current: storedDivider))
+            XCTAssertEqual(reopened.measures.map(\.id), originalChart.measures.map(\.id))
+            XCTAssertEqual(reopened.chordEvent(id: existingChordID), originalChart.chordEvent(id: existingChordID))
+            let newChord = try XCTUnwrap(reopened.measure(id: committedMeasureID)?.chordEvents.first { $0.rawInput == "C" })
+            let storedChord = try PKDrawing(data: XCTUnwrap(newChord.sourceInkData))
+            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+                expected: expectedChord, current: storedChord))
+        }
 
         let result = chart.commitChordInkDraftBatch(state)
 

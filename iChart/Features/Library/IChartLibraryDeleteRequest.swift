@@ -7,17 +7,20 @@ struct IChartLibraryDeleteRequest: Identifiable, Equatable {
     let kind: Kind
     let ids: Set<UUID>
     let titles: [String]
+    let linkedChartCount: Int
 
     init(charts: [Chart]) {
         kind = .charts
         ids = Set(charts.map(\.id))
         titles = charts.map(\.title)
+        linkedChartCount = 0
     }
 
-    init(pdfs: [IChartPDFLibraryItem]) {
+    init(pdfs: [IChartPDFLibraryItem], linkedChartCount: Int = 0) {
         kind = .pdfs
         ids = Set(pdfs.map(\.id))
         titles = pdfs.map(\.displayTitle)
+        self.linkedChartCount = linkedChartCount
     }
 
     var confirmationTitle: String {
@@ -35,6 +38,9 @@ struct IChartLibraryDeleteRequest: Identifiable, Equatable {
         let scope = kind == .charts
             ? "This deletes the selected charts from your library, including their cloud backups when sync is available. Exported PDFs stay in the PDF Library."
             : "This permanently deletes the selected PDF files from this device. Original editable charts stay unchanged. Setlists keep their song entries, marked unavailable."
-        return "\(names)\(remainder)\n\n\(scope)"
+        let sourceWarning = linkedChartCount > 0
+            ? "\n\nCharts created from these PDFs stay editable. Their original PDFs will be unavailable on this device."
+            : ""
+        return "\(names)\(remainder)\n\n\(scope)\(sourceWarning)"
     }
 }

@@ -3,6 +3,18 @@ import Supabase
 
 enum IChartSupabaseClientFactory {
     static let authCallbackURL = URL(string: "ichart://auth-callback")!
+    static let networkSession: URLSession = {
+        guard IChartStorageNamespace.isInternalStaging else {
+            return .shared
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.httpCookieStorage = nil
+        configuration.urlCredentialStorage = nil
+        configuration.httpShouldSetCookies = false
+        return URLSession(configuration: configuration)
+    }()
 
     static func authCallbackURL(flowNonce: UUID) -> URL {
         var components = URLComponents(url: authCallbackURL, resolvingAgainstBaseURL: false)
@@ -29,7 +41,8 @@ enum IChartSupabaseClientFactory {
                 auth: .init(
                     storage: IChartSupabaseAuthLocalStorage(),
                     redirectToURL: authCallbackURL
-                )
+                ),
+                global: .init(session: networkSession)
             )
         )
         let dataClient = SupabaseClient(
@@ -42,7 +55,8 @@ enum IChartSupabaseClientFactory {
                     accessToken: {
                         try await sessionStore.accessToken()
                     }
-                )
+                ),
+                global: .init(session: networkSession)
             )
         )
 

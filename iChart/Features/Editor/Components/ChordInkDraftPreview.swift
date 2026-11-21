@@ -1380,19 +1380,7 @@ enum ChordDraftBarlineRecognizer {
                 pageLayout: pageLayout
             )
         }
-        let deDuplicatedBarlines = removeVeryCloseBarlines(acceptedBarlines)
-
-        let barlines = deDuplicatedBarlines.map { pair in
-            var barline = pair.barline
-            barline.sourceStrokeIndex = pair.strokeIndex
-            let nextIndex = pair.strokeIndex + 1
-            if strokes.indices.contains(nextIndex),
-               isImmediateEndpointTap(strokes[nextIndex], after: strokes[pair.strokeIndex]) {
-                barline.sourceStrokeIndices = [pair.strokeIndex, nextIndex]
-                barline.sourceStrokeGeometry = [strokes[pair.strokeIndex], strokes[nextIndex]]
-            }
-            return barline
-        }
+        let barlines = combineRetracedBarlines(acceptedBarlines, strokes: strokes)
         return ChordDraftBarlineRecognition(
             barlines: barlines,
             strokeIndices: barlines.reduce(into: Set<Int>()) { $0.formUnion($1.ownedSourceStrokeIndices) }
@@ -1408,10 +1396,9 @@ enum ChordDraftBarlineRecognizer {
         return hypot(point.x - endpoint.x, point.y - endpoint.y) <= 1.5
     }
 
-    /// These relative ratios are conservative ambiguity gates, not calibrated
-    /// recognition confidence. A mark touching a local construction, or packed
-    /// between comparable ink on both sides, must remain available to chord
-    /// recognition. An isolated mark still uses the existing acceptance rules.
+    /// Contact with a local construction can make the line a chord stem. Close
+    /// flanks are ambiguous unless a lane-spanning divider extends beyond both
+    /// groups and there is visible paper between the line and each group.
     private static func isOwnedByNeighboringInk(
         _ candidate: (barline: DraftBarline, strokeIndex: Int),
         strokes: [InkStroke],
@@ -1429,13 +1416,19 @@ enum ChordDraftBarlineRecognizer {
             return false
         }
 
-        var leftNeighbors = [InkBounds](), rightNeighbors = [InkBounds]()
+        let isLaneSpanningDivider = candidate.barline.metrics.laneCoverage >= 0.80
+            && candidate.barline.metrics.straightness >= 0.90
+            && candidate.barline.metrics.angleDegreesFromVertical <= 14
+        var leftNeighbors: [(bounds: InkBounds, separated: Bool)] = []
+        var rightNeighbors: [(bounds: InkBounds, separated: Bool)] = []
         for (index, neighbor) in strokes.enumerated() {
             // Another possible barline is not evidence of text ownership.
             guard index != candidate.strokeIndex, !candidateIndices.contains(index) else { continue }
             let other = neighbor.bounds
             let otherCenterX = (other.minX + other.maxX) / 2
-            guard other.width >= height * 0.18, other.width <= height * 1.50,
+            let horizontalGap = max(bounds.minX - other.maxX, other.minX - bounds.maxX)
+            guard horizontalGap <= height * 0.30,
+                  other.width >= height * 0.18, other.width <= height * 1.50,
                   other.height <= height * 1.60,
                   draftBarlineTarget(
                     at: CGPoint(x: otherCenterX, y: (other.minY + other.maxY) / 2)
@@ -1446,7 +1439,16 @@ enum ChordDraftBarlineRecognizer {
             }
 
             let localBounds = bounds.union(other)
-            if other.width >= height * 0.20,
+            let separated = isLaneSpanningDivider && separatesNeighbor(other, divider: bounds)
+            if let bowlDistance = rightHandBowlDistance(neighbor, from: stroke),
+               !candidateIndices.contains(where: { index in
+                   index != candidate.strokeIndex
+                       && (rightHandBowlDistance(neighbor, from: strokes[index]) ?? .infinity) < bowlDistance
+               }) {
+                return true
+            }
+            if !separated,
+               other.width >= height * 0.20,
                localBounds.width <= height * 1.80, localBounds.height <= height * 1.80,
                zip(neighbor.points, neighbor.points.dropFirst()).contains(where: {
                    segmentsAreClose(first, last, $0.0, $0.1, tolerance: height * 0.08)
@@ -1460,17 +1462,48 @@ enum ChordDraftBarlineRecognizer {
                   verticalOverlap >= referenceHeight * 0.50 else { continue }
             if otherCenterX < centerX,
                max(0, bounds.minX - other.maxX) <= referenceHeight * 0.30 {
-                leftNeighbors.append(other)
+                leftNeighbors.append((other, separated))
             } else if otherCenterX > centerX,
                       max(0, other.minX - bounds.maxX) <= referenceHeight * 0.30 {
-                rightNeighbors.append(other)
+                rightNeighbors.append((other, separated))
             }
         }
         return leftNeighbors.contains { left in
             rightNeighbors.contains { right in
-                bounds.union(left).union(right).width <= height * 2.75
+                !(left.separated && right.separated)
+                    && bounds.union(left.bounds).union(right.bounds).width <= height * 2.75
             }
         }
+    }
+
+    private static func separatesNeighbor(_ neighbor: InkBounds, divider: InkBounds) -> Bool {
+        let horizontalGap = max(divider.minX - neighbor.maxX, neighbor.minX - divider.maxX)
+        let minimumOverhang = divider.height * 0.13
+        return horizontalGap >= max(1.5, divider.height * 0.03)
+            && neighbor.minY - divider.minY >= minimumOverhang
+            && divider.maxY - neighbor.maxY >= minimumOverhang
+    }
+
+    /// A detached B or D bowl can return to both parts of a stem without
+    /// touching it. Compare distances so a nearby divider cannot own the bowl.
+    private static func rightHandBowlDistance(_ stroke: InkStroke, from stem: InkStroke) -> Double? {
+        let height = stem.bounds.height
+        let bowl = stroke.bounds
+        guard let start = stem.points.first, let end = stem.points.last,
+              let first = stroke.points.first, let last = stroke.points.last,
+              bowl.width >= height * 0.26,
+              bowl.minX >= stem.bounds.minX - height * 0.04,
+              bowl.maxX - stem.bounds.maxX >= height * 0.20,
+              abs(first.y - last.y) >= height * 0.24,
+              max(first.x, last.x) <= bowl.minX + bowl.width * 0.20,
+              min(min(first.y, last.y) - stem.bounds.minY,
+                  stem.bounds.maxY - max(first.y, last.y)) <= height * 0.13 else {
+            return nil
+        }
+        let tolerance = height * 0.11
+        let distance = max(pointToSegmentDistanceSquared(first, start, end),
+            pointToSegmentDistanceSquared(last, start, end))
+        return distance <= tolerance * tolerance ? distance : nil
     }
 
     private static func segmentsAreClose(
@@ -1668,29 +1701,57 @@ enum ChordDraftBarlineRecognizer {
         return targets
     }
 
-    private static func removeVeryCloseBarlines(
-        _ barlines: [(barline: DraftBarline, strokeIndex: Int)]
-    ) -> [(barline: DraftBarline, strokeIndex: Int)] {
-        var retained = [(barline: DraftBarline, strokeIndex: Int)]()
-        for barlinePair in barlines.sorted(by: { lhs, rhs in
-            if lhs.barline.visualOrder == rhs.barline.visualOrder {
-                return lhs.barline.fraction < rhs.barline.fraction
-            }
-
-            return lhs.barline.visualOrder < rhs.barline.visualOrder
+    private static func combineRetracedBarlines(
+        _ candidates: [(barline: DraftBarline, strokeIndex: Int)],
+        strokes: [InkStroke]
+    ) -> [DraftBarline] {
+        var retained: [DraftBarline] = []
+        for pair in candidates.sorted(by: { lhs, rhs in
+            lhs.barline.visualOrder == rhs.barline.visualOrder
+                ? lhs.strokeIndex < rhs.strokeIndex
+                : lhs.barline.visualOrder < rhs.barline.visualOrder
         }) {
-            if retained.contains(where: { existing in
-                existing.barline.measureID == barlinePair.barline.measureID
-                    && existing.barline.laneLocation?.systemIndex == barlinePair.barline.laneLocation?.systemIndex
-                    && abs(existing.barline.laneFraction - barlinePair.barline.laneFraction) < 0.035
+            var barline = pair.barline
+            barline.sourceStrokeIndex = pair.strokeIndex
+            var owned: Set<Int> = [pair.strokeIndex]
+            let nextIndex = pair.strokeIndex + 1
+            if strokes.indices.contains(nextIndex),
+               isImmediateEndpointTap(strokes[nextIndex], after: strokes[pair.strokeIndex]) {
+                owned.insert(nextIndex)
+            }
+            if let index = retained.firstIndex(where: { existing in
+                existing.measureID == barline.measureID
+                    && existing.laneLocation?.systemIndex == barline.laneLocation?.systemIndex
+                    && abs(existing.laneFraction - barline.laneFraction) < 0.035
             }) {
+                // Preserve existing duplicate-divider spacing. Claim a
+                // secondary stroke only when it physically retraces the line.
+                guard let anchor = retained[index].sourceStrokeIndex,
+                      retracesDivider(strokes[pair.strokeIndex], strokes[anchor]) else { continue }
+                owned.formUnion(retained[index].ownedSourceStrokeIndices)
+                retained[index].sourceStrokeIndices = owned
+                retained[index].sourceStrokeGeometry = owned.sorted().map { strokes[$0] }
                 continue
             }
-
-            retained.append(barlinePair)
+            if owned.count > 1 {
+                barline.sourceStrokeIndices = owned
+                barline.sourceStrokeGeometry = owned.sorted().map { strokes[$0] }
+            }
+            retained.append(barline)
         }
-
         return retained
+    }
+
+    private static func retracesDivider(_ stroke: InkStroke, _ original: InkStroke) -> Bool {
+        guard let first = stroke.points.first, let last = stroke.points.last,
+              let start = original.points.first, let end = original.points.last else { return false }
+        let height = min(stroke.bounds.height, original.bounds.height)
+        let overlap = min(stroke.bounds.maxY, original.bounds.maxY)
+            - max(stroke.bounds.minY, original.bounds.minY)
+        guard overlap >= height * 0.85 else { return false }
+        let tolerance = min(3.0, height * 0.06)
+        return pointToSegmentDistanceSquared(first, start, end) <= tolerance * tolerance
+            && pointToSegmentDistanceSquared(last, start, end) <= tolerance * tolerance
     }
 }
 

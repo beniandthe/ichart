@@ -1105,17 +1105,33 @@ final class GestureTemplateRecognizerTests: XCTestCase {
             ])
         ])
 
-        let candidates = recognizer.rankedCandidates(
-            for: cluster,
-            templates: ChordGlyphTemplateLibrary.initialTemplates,
-            limit: 8
-        )
-        let summary = candidates.map {
-            "\($0.text):\(String(format: "%.3f", $0.confidence))"
-        }.joined(separator: ",")
+        let body = cluster.strokes[1].points
+        let denseBody = zip(body, body.dropFirst()).flatMap { start, end in
+            (0..<8).map { step in
+                let proportion = Double(step) / 8
+                return InkPoint(
+                    x: start.x + (end.x - start.x) * proportion,
+                    y: start.y + (end.y - start.y) * proportion,
+                    timeOffset: nil
+                )
+            }
+        } + body.suffix(1)
+        let denseCluster = InkCluster(strokes: [cluster.strokes[0], InkStroke(points: denseBody)])
 
-        XCTAssertEqual(candidates.first?.text, "B", summary)
-        XCTAssertLessThan(candidateRank(of: "B", in: candidates), candidateRank(of: "D", in: candidates), summary)
+        for input in [cluster, denseCluster] {
+            let candidates = recognizer.rankedCandidates(
+                for: input,
+                templates: ChordGlyphTemplateLibrary.initialTemplates,
+                limit: 8
+            )
+            let summary = candidates.map {
+                "\($0.text):\(String(format: "%.3f", $0.confidence))"
+            }.joined(separator: ",")
+
+            XCTAssertEqual(candidates.first?.text, "B", summary)
+            XCTAssertEqual(candidates.first?.source, .heuristic, summary)
+            XCTAssertLessThan(candidateRank(of: "B", in: candidates), candidateRank(of: "D", in: candidates), summary)
+        }
     }
 
     func testFlatLoopBoostDoesNotStealDegreeDotTriangleOrSixTemplates() throws {

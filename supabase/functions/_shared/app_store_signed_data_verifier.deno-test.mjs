@@ -60,6 +60,41 @@ Deno.test("public transaction entry composes the real pinned Apple SDK and patch
   await assert.rejects(() => verifier.verifyAndDecodeTransaction(signedTransaction({ bundleId: "wrong.bundle" })));
 });
 
+Deno.test("isolated staging verifies signed dedicated products and rejects public products", async () => {
+  const verifier = createAppStoreSignedDataVerifiers({
+    APP_STORE_BUNDLE_ID: config.bundleID,
+    APP_STORE_ENVIRONMENT: "Sandbox",
+    APP_STORE_ROOT_CERTIFICATES_PEM: fixture.rootPEM,
+    APP_STORE_ENABLE_ONLINE_CHECKS: "false",
+    ICHART_STAGING_STOREKIT_PRODUCTS: "true",
+    SUPABASE_URL: "https://gfqpbikqvdgtjjgxrkgo.supabase.co",
+  });
+  assert.equal(verifier.stagingStoreKitProducts, true);
+  for (const productId of ["com.ichart.app.staging.fix036.monthly", "com.ichart.app.staging.fix036.annual"]) {
+    const payload = await verifier.verifyAndDecodeTransaction(signedTransaction({ productId }));
+    assert.equal(payload.productId, productId);
+    const compact = await verifyCompactAppStoreJWS(signedTransaction({ productId }), roots,
+      { ...config, stagingStoreKitProducts: true }, "transaction");
+    assert.equal(compact.productId, productId);
+  }
+  for (const productId of ["com.ichart.app.pro.monthly", "com.ichart.app.pro.annual", "unknown"]) {
+    await assert.rejects(() => verifier.verifyAndDecodeTransaction(signedTransaction({ productId })), { status: 49 });
+    await assert.rejects(() => verifyCompactAppStoreJWS(signedTransaction({ productId }), roots,
+      { ...config, stagingStoreKitProducts: true }, "transaction"), { status: 49 });
+  }
+});
+
+Deno.test("invalid isolated staging configuration exposes no verification functions", () => {
+  assert.deepEqual(createAppStoreSignedDataVerifiers({
+    APP_STORE_BUNDLE_ID: config.bundleID,
+    APP_STORE_ENVIRONMENT: "Production",
+    APP_STORE_APP_APPLE_ID: "123456789",
+    APP_STORE_ROOT_CERTIFICATES_PEM: fixture.rootPEM,
+    ICHART_STAGING_STOREKIT_PRODUCTS: "true",
+    SUPABASE_URL: "https://gfqpbikqvdgtjjgxrkgo.supabase.co",
+  }), {});
+});
+
 Deno.test("patched X509 and KJUR fallback verifies chains when platform certificate key support throws", async () => {
   const descriptor = Object.getOwnPropertyDescriptor(X509Certificate.prototype, "publicKey");
   assert.equal(typeof descriptor?.get, "function");

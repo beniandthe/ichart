@@ -13,7 +13,7 @@ final class PersonalLearnedComparisonModel: ObservableObject {
     private let encoderFactory: () throws -> PersonalInkVisualEncoding
 
     init(profileStore: PersonalInkProfileStore = .shared,
-         reportDirectory: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+         reportDirectory: URL = IChartStorageNamespace.scopedDirectory(FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0])
              .appendingPathComponent("PersonalHandwriting/learned-comparisons-v1"),
          encoderFactory: @escaping () throws -> PersonalInkVisualEncoding = {
              guard let directory = PersonalInkVisualEncoder.bundledDirectory() else {

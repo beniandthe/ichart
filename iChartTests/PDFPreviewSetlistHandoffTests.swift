@@ -42,6 +42,11 @@ final class PDFPreviewSetlistHandoffTests: XCTestCase {
 
         let chooserTitle = try await node("Choose a setlist", in: window)
         assertVisible(chooserTitle, in: window)
+        let search = try XCTUnwrap(NativeAccessibilityLookup.nodes(in: window).first {
+            $0.identifier == "setlists.destination.search" && $0.element is IChartTypedUITextField
+        })
+        assertVisible(search, in: window)
+        XCTAssertEqual(search.frame(in: window).height, 44, accuracy: 1)
         let destination = try await node("Add to Tonight", in: window, buttonsOnly: true)
         assertVisible(destination, in: window)
         XCTAssertEqual(setlistStore.setlist(id: setlist.id)?.entries, [],

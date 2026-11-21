@@ -7,6 +7,7 @@ export const appStoreVerifierEnvironmentKeys = Object.freeze({
   appAppleID: "APP_STORE_APP_APPLE_ID",
   rootCertificatesPEM: "APP_STORE_ROOT_CERTIFICATES_PEM",
   enableOnlineChecks: "APP_STORE_ENABLE_ONLINE_CHECKS",
+  stagingStoreKitProducts: "ICHART_STAGING_STOREKIT_PRODUCTS",
 });
 
 export function appStoreVerifierConfigurationFromEnv(env) {
@@ -15,6 +16,7 @@ export function appStoreVerifierConfigurationFromEnv(env) {
   const rootCertificatesPEM = envString(env, appStoreVerifierEnvironmentKeys.rootCertificatesPEM);
   const appAppleIDValue = envString(env, appStoreVerifierEnvironmentKeys.appAppleID);
   const enableOnlineChecksValue = envString(env, appStoreVerifierEnvironmentKeys.enableOnlineChecks);
+  const stagingProductsValue = envString(env, appStoreVerifierEnvironmentKeys.stagingStoreKitProducts);
   const missing = [];
   const errors = [];
 
@@ -54,6 +56,19 @@ export function appStoreVerifierConfigurationFromEnv(env) {
     errors.push(`${appStoreVerifierEnvironmentKeys.enableOnlineChecks} must be true or false.`);
   }
 
+  const stagingStoreKitProducts = parseOptionalBoolean(stagingProductsValue);
+  if (stagingProductsValue.length > 0 && stagingStoreKitProducts === null) {
+    errors.push(`${appStoreVerifierEnvironmentKeys.stagingStoreKitProducts} must be true or false.`);
+  }
+  if (stagingStoreKitProducts === true) {
+    if (environment !== appStoreVerifierEnvironmentSandbox) {
+      errors.push(`${appStoreVerifierEnvironmentKeys.stagingStoreKitProducts} requires Sandbox.`);
+    }
+    if (envString(env, "SUPABASE_URL") !== "https://gfqpbikqvdgtjjgxrkgo.supabase.co") {
+      errors.push(`${appStoreVerifierEnvironmentKeys.stagingStoreKitProducts} requires the isolated FIX-036 Supabase project.`);
+    }
+  }
+
   if (missing.length > 0 || errors.length > 0) {
     return {
       ok: false,
@@ -70,6 +85,7 @@ export function appStoreVerifierConfigurationFromEnv(env) {
       appAppleID,
       rootCertificateBase64Bodies,
       enableOnlineChecks: enableOnlineChecks ?? defaultOnlineChecksForEnvironment(environment),
+      stagingStoreKitProducts: stagingStoreKitProducts === true,
     },
   };
 }

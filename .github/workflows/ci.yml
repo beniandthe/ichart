@@ -191,6 +191,10 @@ jobs:
         if: steps.app_changes.outputs.run_tests == 'true'
         run: python3 -m unittest discover -s scripts -p 'test_personal_comparison_packaging.py' -v
 
+      - name: Verify internal paid-staging package guards with synthetic inputs
+        if: steps.app_changes.outputs.run_tests == 'true'
+        run: python3 -m unittest discover -s scripts -p 'test_internal_paid_staging_packaging.py' -v
+
       - name: Verify simulator selection with mocked devices
         if: steps.app_changes.outputs.run_tests == 'true'
         run: python3 .github/scripts/test_simulator_selection.py -v

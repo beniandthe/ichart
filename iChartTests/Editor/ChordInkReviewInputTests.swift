@@ -217,10 +217,7 @@ final class ChordInkReviewInputTests: XCTestCase {
             let scribble = try XCTUnwrap(field.interactions.compactMap { $0 as? UIScribbleInteraction }.first)
             XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: 10, y: 10)), false,
                            "Review opens with the field ready for tap-to-type")
-            XCTAssertTrue(field.rightView === field.inputModeButton)
-            XCTAssertEqual(field.rightViewMode, .always)
-            XCTAssertGreaterThanOrEqual(field.inputModeButton.bounds.width, 44)
-            XCTAssertGreaterThanOrEqual(field.inputModeButton.bounds.height, 44)
+            assertKeyboardAndScribbleControls(in: field)
         }
         let reviewScroll = try XCTUnwrap(ancestorScrollView(of: first))
         let pencil = NSNumber(value: UITouch.TouchType.pencil.rawValue)
@@ -307,6 +304,112 @@ final class ChordInkReviewInputTests: XCTestCase {
             onAcceptCandidate: { _, _ in accepted = true }, onCancel: {})
         try await assertExplicitTyping(correctionView, initialText: "C", editedText: "G7")
         XCTAssertFalse(accepted)
+    }
+
+    func testReviewScribbleFirstTapKeepsTheFieldStableAndRetainsItsDraft() async throws {
+        let batch = stationaryReviewBatch()
+        let row = batch.confirmations[0]
+        var drafts: [UUID: String] = [:]
+        var acceptedTexts: [UUID: String]?
+        let sheet = ChordInkBatchConfirmationSheetView(batch: batch,
+            onAcceptAll: { acceptedTexts = $0 }, onClearAndRewrite: {},
+            onEditedTextsChanged: { drafts = $0 })
+        try await assertStableScribbleEntry(sheet, placeholder: "Chord", initialText: "C", editedText: "Cmaj7")
+        XCTAssertEqual(drafts, [row.id: "Cmaj7"], "Scribble should change only the focused row")
+        XCTAssertNil(acceptedTexts)
+    }
+
+    func testChordEditScribbleFirstTapKeepsTheFieldStableWithoutSaving() async throws {
+        let chord = PendingChordCorrection(chordEventID: UUID(), measureID: UUID(), measureIndex: 0,
+            currentText: "C", rawInput: nil, candidateTexts: [], enharmonicChoiceTexts: [])
+        var acceptedText: String?
+        let sheet = ChordCorrectionSheetView(correction: chord,
+            onAcceptCandidate: { text, _ in acceptedText = text }, onCancel: {})
+        try await assertStableScribbleEntry(sheet, placeholder: "Type chord", initialText: "C", editedText: "G7")
+        XCTAssertNil(acceptedText)
+    }
+
+    private func assertStableScribbleEntry<Content: View>(_ sheet: Content, placeholder: String,
+        initialText: String, editedText: String) async throws {
+        let host = UIHostingController(rootView: Color.clear.sheet(isPresented: .constant(true)) { sheet })
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 820, height: 1180))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.endEditing(true)
+            host.dismiss(animated: false)
+            window.isHidden = true
+        }
+
+        var targetField: IChartTypedUITextField?
+        for _ in 0..<100 {
+            window.layoutIfNeeded()
+            if let presented = host.presentedViewController,
+               !presented.isBeingPresented, presented.viewIfLoaded?.window === window {
+                targetField = descendants(presented.view).compactMap { $0 as? IChartTypedUITextField }
+                    .first { $0.placeholder == placeholder && $0.bounds.height > 0 }
+                if targetField != nil { break }
+            }
+            try await Task.sleep(nanoseconds: 30_000_000)
+        }
+        let field = try XCTUnwrap(targetField)
+        let scroll = try XCTUnwrap(ancestorScrollView(of: field))
+        let scribble = try XCTUnwrap(field.interactions.compactMap { $0 as? UIScribbleInteraction }.first)
+        let location = CGPoint(x: 12, y: field.bounds.midY)
+        assertKeyboardAndScribbleControls(in: field)
+        XCTAssertEqual(field.text, initialText)
+        let originalFrame = field.convert(field.bounds, to: window)
+        let originalViewport = scroll.convert(scroll.bounds, to: window)
+        XCTAssertTrue(originalViewport.insetBy(dx: -1, dy: -1).contains(originalFrame))
+
+        field.scribbleModeButton.sendActions(for: .touchUpInside)
+        XCTAssertTrue(field.scribbleModeButton.accessibilityTraits.contains(.selected))
+        XCTAssertFalse(field.keyboardModeButton.accessibilityTraits.contains(.selected))
+        XCTAssertTrue(field.isScribbleEnabled)
+        XCTAssertFalse(field.isScribblePrepared)
+        XCTAssertFalse(field.isFirstResponder, "Selecting Scribble waits for a tap in the field")
+        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: location), false)
+
+        let focusEvents = ReviewFocusEventRecorder(field: field)
+        // This enters the same preparation path as a Pencil tap. The
+        // Simulator has no native Apple Pencil handwriting to recognize.
+        field.prepareScribble(at: location)
+        XCTAssertTrue(field.isFirstResponder)
+        XCTAssertTrue(field.isScribblePrepared)
+        XCTAssertEqual(field.text, initialText, "The first tap must not insert a mark")
+        var fieldTravel: CGFloat = 0
+        var viewportTravel: CGFloat = 0
+        var largestKeyboardHeight: CGFloat = 0
+        for _ in 0..<24 {
+            window.layoutIfNeeded()
+            let frame = field.convert(field.bounds, to: window)
+            let viewport = scroll.convert(scroll.bounds, to: window)
+            fieldTravel = max(fieldTravel, abs(frame.minY - originalFrame.minY))
+            viewportTravel = max(viewportTravel, abs(viewport.height - originalViewport.height))
+            largestKeyboardHeight = max(largestKeyboardHeight, window.keyboardLayoutGuide.layoutFrame.height)
+            try await Task.sleep(nanoseconds: 16_000_000)
+        }
+        XCTAssertLessThanOrEqual(fieldTravel, 1.5, "Preparing Scribble must keep the text field in place")
+        XCTAssertLessThanOrEqual(viewportTravel, 1.5, "Preparing Scribble must keep the review viewport in place")
+        XCTAssertLessThanOrEqual(largestKeyboardHeight, 44, "Preparing Scribble must keep the software keyboard hidden")
+        XCTAssertNil(field.inputAccessoryView, "Scribble must not show the keyboard toolbar")
+        XCTAssertEqual(focusEvents.beginCount, 1)
+        XCTAssertEqual(focusEvents.endCount, 0)
+        XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: location), true,
+            "Writing can start after the field is prepared")
+        field.text = editedText
+        field.sendActions(for: .editingChanged)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertTrue(field.isFirstResponder)
+        XCTAssertTrue(field.isScribblePrepared)
+
+        field.keyboardModeButton.sendActions(for: .touchUpInside)
+        try await waitForFocus(field)
+        XCTAssertTrue(field.keyboardModeButton.accessibilityTraits.contains(.selected))
+        XCTAssertFalse(field.isScribbleEnabled)
+        XCTAssertEqual(field.text, editedText)
+        XCTAssertEqual(focusEvents.beginCount, 1, "Changing mode must keep the existing editing session")
+        XCTAssertEqual(focusEvents.endCount, 0)
     }
 
     func testVisibleBatchEntryKeepsItsViewportAcrossRepeatedTypingAndUnchangedKeyboardNotification() async throws {
@@ -474,8 +577,7 @@ final class ChordInkReviewInputTests: XCTestCase {
         XCTAssertEqual(field.text, initialText)
         let scribble = try XCTUnwrap(field.interactions.compactMap { $0 as? UIScribbleInteraction }.first)
         XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: 10, y: 10)), false)
-        XCTAssertTrue(field.rightView === field.inputModeButton)
-        XCTAssertEqual(field.rightViewMode, .always)
+        assertKeyboardAndScribbleControls(in: field)
         field.requestKeyboard()
         try await waitForFocus(field)
         XCTAssertTrue(field.isFirstResponder)
@@ -494,6 +596,23 @@ final class ChordInkReviewInputTests: XCTestCase {
         let done = try XCTUnwrap(toolbar.items?.first { $0.accessibilityLabel == "Done typing" })
         let action = try XCTUnwrap(done.action)
         XCTAssertTrue(UIApplication.shared.sendAction(action, to: done.target, from: done, for: nil))
+    }
+
+    private func assertKeyboardAndScribbleControls(in field: IChartTypedUITextField,
+        file: StaticString = #filePath, line: UInt = #line) {
+        let keyboard = field.keyboardModeButton
+        let scribble = field.scribbleModeButton
+        XCTAssertEqual(field.rightViewMode, .always, file: file, line: line)
+        XCTAssertEqual(keyboard.accessibilityLabel, "Keyboard", file: file, line: line)
+        XCTAssertEqual(scribble.accessibilityLabel, "Scribble", file: file, line: line)
+        XCTAssertTrue(keyboard.accessibilityTraits.contains(.selected), file: file, line: line)
+        XCTAssertFalse(scribble.accessibilityTraits.contains(.selected), file: file, line: line)
+        let keyboardFrame = keyboard.convert(keyboard.bounds, to: field)
+        let scribbleFrame = scribble.convert(scribble.bounds, to: field)
+        XCTAssertGreaterThanOrEqual(keyboardFrame.width, 44, file: file, line: line)
+        XCTAssertGreaterThanOrEqual(scribbleFrame.width, 44, file: file, line: line)
+        XCTAssertEqual(keyboardFrame.midY, scribbleFrame.midY, accuracy: 1, file: file, line: line)
+        XCTAssertFalse(keyboardFrame.intersects(scribbleFrame), file: file, line: line)
     }
 
     private func ancestorScrollView(of view: UIView) -> UIScrollView? {

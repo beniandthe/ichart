@@ -8,7 +8,8 @@ final class LibraryFlowConfigurationTests: XCTestCase {
     func testBothDeleteEntrypointsRequireTheSameImmutableConfirmation() throws {
         let source = try String(contentsOf: root.appendingPathComponent("iChart/Features/Library/LibraryView.swift"))
         XCTAssertTrue(source.contains("IChartLibraryDeleteRequest(charts: [chart])"))
-        XCTAssertTrue(source.contains("IChartLibraryDeleteRequest(pdfs: [item])"))
+        XCTAssertTrue(source.contains("requestPDFDeletion([item])"))
+        XCTAssertTrue(source.contains("IChartLibraryDeleteRequest(pdfs: items, linkedChartCount: linkedChartCount)"))
         XCTAssertTrue(source.contains(".alert(item: libraryAlertBinding)"))
         XCTAssertTrue(source.contains("title: Text(request.confirmationTitle)"))
         XCTAssertTrue(source.contains("primaryButton: .destructive(Text(request.deleteButtonTitle))"))
@@ -35,7 +36,8 @@ final class LibraryFlowConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains("case .setlists:\n            SetlistsView()"))
         XCTAssertTrue(app.contains("IChartPDFSetlistStore.live()"))
         XCTAssertTrue(app.contains(".environmentObject(setlistStore)"))
-        XCTAssertTrue(views.contains("visibleItems(for:"))
+        XCTAssertTrue(views.contains("pdfStore.items"))
+        XCTAssertFalse(views.contains("visibleItems(for:"))
         XCTAssertFalse(views.contains("canUse(.setlistsAndVersionHistory)"))
     }
 }

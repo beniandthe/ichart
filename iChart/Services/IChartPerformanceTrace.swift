@@ -438,8 +438,10 @@ private extension IChartPerformanceTraceRecorder {
         // Constructing the global recorder resolves a path only. Directory
         // creation and all file access belong to the utility worker or an
         // explicit user-requested export/clear operation.
-        let baseDirectory = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-            .appendingPathComponent("Library/Application Support/iChart", isDirectory: true)
+        let baseDirectory = IChartStorageNamespace.scopedDirectory(
+            URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        ).appendingPathComponent("iChart", isDirectory: true)
         return IChartPerformanceTraceRecorder(
             url: baseDirectory.appendingPathComponent("performance-trace.jsonl"),
             authorizationProvider: authorizationProvider

@@ -328,7 +328,7 @@ enum IChartEditorGuidedTourStep: String, Identifiable {
         case .shapeForm:
             "Tap Measures. Select a measure, then use Add, Layout, or Delete. Try one change, or continue."
         case .addCue:
-            "Open Tools > Text, choose a measure, then Above or Below. Tap the field to type or use its Pencil icon for Scribble. Tap Add."
+            "Open Tools > Text, choose a measure, then Above or Below. Choose Keyboard to type, or choose Scribble and tap the field with Apple Pencil before writing. Tap Add."
         case .review:
             "Tap Done. In Select, use Apple Pencil to select, move, resize, or delete items on the chart."
         case .export:
@@ -551,8 +551,8 @@ struct EditorView: View {
     @State private var showingPersonalHandwriting = false
     @State private var personalHandwritingStartsWithEvaluation = false
     @State private var personalLearningSessionID = UUID()
-    @AppStorage("iChartOfferedPersonalHandwritingV1") private var offeredPersonalHandwriting = false
-    @AppStorage(IChartAppAppearance.preferenceKey) private var appAppearanceValue = IChartAppAppearance.light.rawValue
+    @AppStorage("iChartOfferedPersonalHandwritingV1", store: IChartStorageNamespace.defaults) private var offeredPersonalHandwriting = false
+    @AppStorage(IChartAppAppearance.preferenceKey, store: IChartStorageNamespace.defaults) private var appAppearanceValue = IChartAppAppearance.light.rawValue
     @State private var chordPreviewState = ChordPreviewState()
     @State private var chordDraftRenderCoordinator = ChordInkDraftRenderCoordinator()
     @State private var pendingAutomaticChordRenderWorkItem: DispatchWorkItem?
@@ -606,8 +606,8 @@ struct EditorView: View {
     @State private var pendingChordDiagnosticReconciliationWorkItem: DispatchWorkItem?
     @State private var latestRhythmPreview: LeadSheetRhythmicNotationPreviewState?
     @State private var rhythmPreviewConfirmationRequestID: UUID?
-    @AppStorage("iChartPendingSimpleChartTour") private var pendingSimpleChartTour = false
-    @AppStorage(ChordInkWorkflowSettings.manualRenderWithPreviewKey)
+    @AppStorage("iChartPendingSimpleChartTour", store: IChartStorageNamespace.defaults) private var pendingSimpleChartTour = false
+    @AppStorage(ChordInkWorkflowSettings.manualRenderWithPreviewKey, store: IChartStorageNamespace.defaults)
     private var manualRenderWithPreview = ChordInkWorkflowSettings.defaultManualRenderWithPreview
     private let exporter: any ChartExporting
     private let chordInkUserCorrectionMemoryStore: ChordInkUserCorrectionMemoryStore
@@ -780,10 +780,12 @@ struct EditorView: View {
             ChartHeaderSheetView(chart: $chart)
         }
         .sheet(isPresented: $showingTypographySheet) {
-            ChartTypographySheetView(chart: $chart)
+            ChartTypographySheetView(chart: $chart,
+                premiumFontAccess: { store.entitlements.canUsePremiumFonts })
         }
         .sheet(isPresented: $showingNotationReadabilitySheet) {
-            ChartAppearanceSheetView(chart: $chart, panel: .engraving)
+            ChartAppearanceSheetView(chart: $chart, panel: .engraving,
+                premiumFontAccess: { store.entitlements.canUsePremiumFonts })
         }
         .sheet(item: $endingEditorRequest, onDismiss: handleEndingEditorDismissed) { request in
             EndingEditorSheet(
@@ -2136,6 +2138,8 @@ struct EditorView: View {
     private var activeToolGuidance: EditorToolGuidance {
         var guidance = defaultToolGuidance
         switch canvasMode {
+        case .browse where selectedCueText != nil || selectedRoadmapMarker != nil || selectedEndingSpan != nil:
+            guidance = guidance.replacingNextAction("Drag Move Up or Down to change the selected item's height.")
         case .chordEntry:
             if let focus = draftEndingBlockerFocus, focus.matches(chart: chart, state: chordPreviewState) {
                 guidance = guidance.replacingNextAction("Use Erase on the highlighted barline. Switch to Write to redraw it, then review the ending again.")
@@ -2298,7 +2302,7 @@ struct EditorView: View {
                         isDisabled: !canDeleteSelectedCommittedChordBarline,
                         action: deleteSelectedCommittedChordBarline
                     )
-                } else if selectedCueText != nil {
+                } else if let cue = selectedCueText {
                     activeToolButton(
                         title: "Edit",
                         systemImage: "pencil",
@@ -2321,13 +2325,19 @@ struct EditorView: View {
                         resizeSelectedCueText(by: -CueText.scaleStep)
                     }
 
+                    if cue.verticalOffset != 0 {
+                        resetAnnotationPositionButton {
+                            _ = chart.setCueTextVerticalOffset(cue.id, to: 0)
+                        }
+                    }
+
                     activeToolButton(
                         title: "Delete",
                         systemImage: "trash",
                         isDestructive: true,
                         action: deleteSelectedCueText
                     )
-                } else if selectedRoadmapMarker != nil {
+                } else if let marker = selectedRoadmapMarker {
                     activeToolButton(
                         title: "Larger",
                         systemImage: "plus.magnifyingglass",
@@ -2344,6 +2354,12 @@ struct EditorView: View {
                         resizeSelectedRoadmapMarker(by: -RoadmapObject.scaleStep)
                     }
 
+                    if marker.resolvedVerticalOffset != 0 {
+                        resetAnnotationPositionButton {
+                            _ = chart.setRoadmapAnnotationVerticalOffset(marker.id, to: 0)
+                        }
+                    }
+
                     activeToolButton(
                         title: "Delete",
                         systemImage: "trash",
@@ -2356,6 +2372,11 @@ struct EditorView: View {
                         systemImage: "pencil",
                         action: { presentEndingEditor(endingID: ending.id) }
                     )
+                    if ending.resolvedVerticalOffset != 0 {
+                        resetAnnotationPositionButton {
+                            _ = chart.setRoadmapAnnotationVerticalOffset(ending.id, to: 0)
+                        }
+                    }
                 } else if selectedMeasureID != nil {
                     if let selectedMeasureID, adjacentRowMovePlan(for: selectedMeasureID, direction: .above) != nil {
                         activeToolButton(
@@ -2390,6 +2411,11 @@ struct EditorView: View {
             .frame(minWidth: minWidth, alignment: .center)
         }
         .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    private func resetAnnotationPositionButton(action: @escaping () -> Void) -> some View {
+        activeToolButton(title: "Reset Position", systemImage: "arrow.uturn.backward", action: action)
+            .accessibilityHint("Return to automatic vertical placement")
     }
 
     @ViewBuilder
@@ -7780,7 +7806,7 @@ private struct CueTextEntryPanelView: View {
                             placeholder: "Cue",
                             accessibilityIdentifier: "editor-cue-text-entry",
                             accessibilityLabel: "Cue text",
-                            accessibilityHint: "Tap to type. Use Start Scribble to write with Apple Pencil."
+                            accessibilityHint: "Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing."
                         )
                     }
                     .frame(height: CueTextEntryPanelGeometry.inputHeight)

@@ -7,6 +7,100 @@ import XCTest
 @MainActor
 final class IChartForumParticipationTests: XCTestCase {
     private let chartStyles: [ChartLayoutStyle] = [.simpleChordSheet, .rhythmSectionSheet]
+
+    func testVerifiedBasicCanReadAndUseSafetyWithoutRequestingParticipationOrPDF() async throws {
+        for style in chartStyles {
+            let fixture = try makeFixture(commentCount: 177, layoutStyle: style)
+            defer { fixture.clean() }
+            let basic = AppEntitlements(subscription: .basic, accessPolicy: .paidSubscription)
+            await fixture.store.refresh(authState: .signedIn(.init(id: fixture.detail.post.ownerID,
+                email: nil, phone: nil, isEmailVerified: true)), entitlements: basic, query: "Test Song")
+            XCTAssertTrue(fixture.store.canBrowseForums)
+            XCTAssertFalse(fixture.store.canParticipateInForums)
+            XCTAssertEqual(fixture.store.state, .loaded([]))
+            XCTAssertEqual(fixture.store.currentUserBadges, [.communityExpert])
+            await fixture.store.openPost(fixture.detail.post, song: fixture.detail.song)
+            XCTAssertEqual(fixture.store.selectedDetail?.comments.count, 80)
+            await fixture.store.loadEarlierComments()
+            let detail = try XCTUnwrap(fixture.store.selectedDetail)
+            XCTAssertEqual(detail.comments.count, 160)
+
+            await fixture.store.vote(.up, on: detail)
+            let commented = await fixture.store.addComment("A new reply", to: detail)
+            let downloaded = await fixture.store.downloadPDF(for: detail)
+            XCTAssertFalse(commented)
+            XCTAssertNil(downloaded)
+            var draft = ForumPublishDraft()
+            let chart = Chart.blank(title: "Local chart", measureCount: 1, layoutStyle: style)
+            draft.selectedChartID = chart.id
+            fixture.store.enqueuePublish(chart: chart, draft: draft, ownerID: detail.post.ownerID)
+            XCTAssertTrue(fixture.store.uploadQueue.isEmpty)
+            let prohibited = await fixture.service.participationRequestCounts
+            XCTAssertEqual(prohibited, [0, 0, 0, 0], "Basic must not request publish, vote, comment, or PDF data")
+
+            await fixture.store.reportPost(ForumReportReason.allCases[0], detailText: nil, detail: detail)
+            await fixture.store.reportComment(detail.comments[0], reason: ForumReportReason.allCases[0], detailText: nil, detail: detail)
+            await fixture.store.blockUser(ownerID: UUID(), displayName: "Another contributor")
+            let safetyCounts = await fixture.service.safetyRequestCounts
+            XCTAssertEqual(safetyCounts, [1, 1, 1])
+            XCTAssertNil(fixture.store.errorMessage)
+            XCTAssertNil(fixture.store.selectedDetail)
+
+            let saved = sampleDownloadedPDF(for: detail.post)
+            fixture.store.presentDownloadedPDF(saved)
+            XCTAssertEqual(fixture.store.downloadedPDF?.url, saved.url,
+                "Opening an existing local copy does not require a new Pro download")
+        }
+    }
+
+    func testForumReadAccessRequiresVerifiedSignInAndRejectsDirectActionsWhenSignedOut() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.clean() }
+        for authState in [IChartAuthState.signedOut, .signedIn(.init(id: UUID(), email: nil,
+            phone: nil, isEmailVerified: false))] {
+            await fixture.store.refresh(authState: authState,
+                entitlements: AppEntitlements(subscription: .activePro(), accessPolicy: .paidSubscription))
+            XCTAssertEqual(fixture.store.state, .signedOut)
+            XCTAssertFalse(fixture.store.canBrowseForums)
+            XCTAssertFalse(fixture.store.canParticipateInForums)
+            await fixture.store.openPost(fixture.detail.post, song: fixture.detail.song)
+            await fixture.store.vote(.up, on: fixture.detail)
+            await fixture.store.reportPost(ForumReportReason.allCases[0], detailText: nil, detail: fixture.detail)
+            await fixture.store.blockUser(ownerID: UUID(), displayName: "Contributor")
+            XCTAssertNil(fixture.store.selectedDetail)
+        }
+        let participation = await fixture.service.participationRequestCounts
+        let safety = await fixture.service.safetyRequestCounts
+        let home = await fixture.service.homePageRequests
+        XCTAssertEqual(participation, [0, 0, 0, 0])
+        XCTAssertEqual(safety, [0, 0, 0])
+        XCTAssertTrue(home.isEmpty)
+    }
+
+    func testSavedForumPDFLookupUsesEmbeddedPostIdentityRatherThanTitle() throws {
+        for style in chartStyles {
+            let fixture = try makeFixture(layoutStyle: style)
+            defer { fixture.clean() }
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let original = fixture.detail.post
+            let other = otherPost(from: original)
+            let originalData = samplePDFData(label: "Saved original", post: original)
+            let otherData = samplePDFData(label: "Same title, another post", post: other)
+            let originalURL = directory.appendingPathComponent("original.pdf")
+            let otherURL = directory.appendingPathComponent("other.pdf")
+            try originalData.write(to: originalURL)
+            try otherData.write(to: otherURL)
+            let savedOriginal = IChartForumPDFMetadata.downloadedPDF(data: originalData, url: originalURL, post: original)
+            let savedOther = IChartForumPDFMetadata.downloadedPDF(data: otherData, url: otherURL, post: other)
+            XCTAssertEqual(savedOriginal.chartTitle, savedOther.chartTitle)
+            XCTAssertEqual(IChartForumPDFMetadata.savedPDF(for: original, among: [savedOther, savedOriginal])?.url, originalURL)
+            XCTAssertNil(IChartForumPDFMetadata.savedPDF(for: original, among: [savedOther]))
+            try FileManager.default.removeItem(at: originalURL)
+            XCTAssertNil(IChartForumPDFMetadata.savedPDF(for: original, among: [savedOriginal]))
+        }
+    }
     func testFailedCommentCanBeRetriedWithoutPostingTwice() async throws {
         for style in chartStyles {
             let fixture = try makeFixture(layoutStyle: style)
@@ -887,8 +981,11 @@ final class IChartForumParticipationTests: XCTestCase {
                 paginationTimestamp: timestamp)
         }
         let service = ForumParticipationService(detail: detail, comments: comments)
+        let store = IChartForumStore(service: service, defaults: defaults)
+        store.applyAccess(entitlements: AppEntitlements(subscription: .basic, accessPolicy: .freeAllFeatures),
+            charts: [], currentUserID: post.ownerID, isAccountVerified: true)
         return Fixture(
-            store: IChartForumStore(service: service, defaults: defaults),
+            store: store,
             service: service, detail: detail, defaults: defaults, suite: suite
         )
     }
@@ -926,6 +1023,15 @@ private actor ForumParticipationService: IChartForumServicing {
     private var homePageContinuations: [UUID: CheckedContinuation<IChartForumHomePage, Error>] = [:]
     private var heldFirstHomeQueries: Set<String> = []
     private var firstHomeContinuations: [String: CheckedContinuation<IChartForumHomePage, Error>] = [:]
+    private var publishRequestCount = 0
+    private var voteRequestCount = 0
+    private var commentRequestCount = 0
+    private var downloadRequestCount = 0
+    private var postReportRequestCount = 0
+    private var commentReportRequestCount = 0
+    private var blockRequestCount = 0
+    var participationRequestCounts: [Int] { [publishRequestCount, voteRequestCount, commentRequestCount, downloadRequestCount] }
+    var safetyRequestCounts: [Int] { [postReportRequestCount, commentReportRequestCount, blockRequestCount] }
 
     init(detail: IChartForumPostDetail, comments: [ForumComment] = []) {
         self.detail = detail
@@ -1019,6 +1125,7 @@ private actor ForumParticipationService: IChartForumServicing {
     }
 
     func addComment(postID: UUID, body: String) async throws {
+        commentRequestCount += 1
         if rejectsNextComment {
             rejectsNextComment = false
             throw Failure.send
@@ -1043,10 +1150,14 @@ private actor ForumParticipationService: IChartForumServicing {
         return try await withCheckedThrowingContinuation { homePageContinuations[cursor.songID] = $0 }
     }
     func publish(chart: Chart, draft: ForumPublishDraft, ownerID: UUID, postID: UUID, exportedAt: Date,
-                 progress: @escaping (ForumUploadStage) async -> Void) async throws { throw Failure.unused }
+                 progress: @escaping (ForumUploadStage) async -> Void) async throws {
+        publishRequestCount += 1
+        throw Failure.unused
+    }
     func withdrawPost(postID: UUID) async throws { throw Failure.unused }
     func removePost(postID: UUID) async throws { throw Failure.unused }
     func vote(postID: UUID, vote: ForumVoteValue) async throws {
+        voteRequestCount += 1
         guard postID == post.id else { throw Failure.unused }
         if currentUserVote == .up { post.voteUpCount -= 1 }
         if currentUserVote == .down { post.voteDownCount -= 1 }
@@ -1054,10 +1165,11 @@ private actor ForumParticipationService: IChartForumServicing {
         if vote == .up { post.voteUpCount += 1 }
         if vote == .down { post.voteDownCount += 1 }
     }
-    func reportPost(postID: UUID, reason: ForumReportReason, detail: String?) async throws { throw Failure.unused }
-    func reportComment(commentID: UUID, reason: ForumReportReason, detail: String?) async throws { throw Failure.unused }
-    func blockUser(ownerID: UUID) async throws { throw Failure.unused }
+    func reportPost(postID: UUID, reason: ForumReportReason, detail: String?) async throws { postReportRequestCount += 1 }
+    func reportComment(commentID: UUID, reason: ForumReportReason, detail: String?) async throws { commentReportRequestCount += 1 }
+    func blockUser(ownerID: UUID) async throws { blockRequestCount += 1 }
     func downloadPDF(for post: ForumChartPost) async throws -> ExportedPDF {
+        downloadRequestCount += 1
         // A provider can finish after cancellation. Hold it until the test
         // releases success/error so session guards, not cancellation alone,
         // must prevent stale presentation and automatic library saving.

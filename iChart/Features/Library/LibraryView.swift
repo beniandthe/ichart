@@ -306,7 +306,7 @@ private struct IChartQuickStartStep: Identifiable {
         IChartQuickStartStep(
             id: "cue",
             title: "Add A Cue And Review",
-            detail: "Open Tools > Text, select a measure, then choose Above or Below. Tap the field to type or use its Pencil icon for Scribble. Tap Add, then tap Done for Select. Use Pencil to select items on the chart."
+            detail: "Open Tools > Text, select a measure, then choose Above or Below. Choose Keyboard to type, or choose Scribble and tap the field with Apple Pencil before writing. Tap Add, then tap Done for Select. Use Pencil to select items on the chart."
         ),
         IChartQuickStartStep(
             id: "export",
@@ -406,7 +406,7 @@ private struct IChartHelpArticleSection: Identifiable {
                 "In Automatic, keep each chord together and leave clear gaps before the next. Complete chords render between strokes as you move on; pause to finish the last chord. Barlines and ending brackets wait briefly for their own writing to settle while ready chords can render elsewhere.",
                 "If a triangle is unclear, the ink stays on the chart. Tap Review Chord in Automatic, or Review & Render in Manual, to enter the intended chord.",
                 "Choose Manual under Rendering in Write & Render or app Settings to check the previews before tapping Render Chords or Review & Render.",
-                "On a Simple Chord Sheet or Rhythm Section Sheet, draw a tall, nearly vertical barline in the highlighted lane with space on either side.",
+                "On a Simple Chord Sheet or Rhythm Section Sheet, you can write chords and barlines in the same pass. Draw each barline tall and nearly vertical, with a gap on both sides.",
                 "When barlines form measures around rendered chords in either style, each resulting measure with just one chord moves that chord to beat 1. Measures with multiple chords keep their relative placement.",
                 "On a Rhythm Section Sheet, a handwritten barline can split a measure at a rhythmic boundary in Automatic or Manual. If a note crosses that boundary, the line stays as draft ink and the tool shows feedback above the controls. Use Measures for other form edits.",
                 "Draw the line near an existing note onset when splitting a measure that already has rhythms. Both new measures use the current meter. Written notes keep their lengths, and rests fill the unused beats.",
@@ -454,7 +454,7 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Tap Render Chords to render ready ink. Use Review & Render to check chord guesses or enter missing chords. You can keep writing while unplaced ink stays on the page.",
                 "Tap an ending preview to review its label and measures. When only an unreviewed ending remains, use Review & Render.",
                 "When adding △7 or −7 after a preview appears, write it close to its root and check the updated preview before rendering. Leave space between separate chords.",
-                "If a preview says Add chord, tap Review & Render and type the intended chord.",
+                "If a preview says Add chord, tap Review & Render. Choose Keyboard to type, or choose Scribble and tap the chord field with Apple Pencil before writing.",
                 "After Back to Writing, your corrections stay with the same handwriting. Check the updated rows if you return to review.",
                 "If new strokes make a chord unreadable, Add chord marks the combined writing. If you see Separate chords, go back to writing and rewrite those chords with more space between them.",
                 "In Review Chords, Recognition guess marks a prefilled read and Your edit marks text you typed or chose. Fill in any missing chords and check the guesses. Render All uses the text shown in every row. Ink that cannot be placed stays on the page.",
@@ -472,6 +472,8 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Drag a chord body to move it, then lift to place it. The width handle changes width; the red X deletes.",
                 "If a selected chord has a custom width, Reset Width returns it to 100% width without changing its placement.",
                 "Tap text or roadmap markers in Select to move, resize, edit, or delete them.",
+                "Cues, endings, and form marks make room for one another. In Select, tap an item and drag Move Up or Down to adjust its height. Reset Position restores automatic spacing.",
+                "For an ending, use Move to shift its measure range or Lengthen to change the last measure.",
                 "To remove an eligible chord-only divider, choose Select, tap the divider, then its red X or Delete. Protected Rhythm boundaries keep their content and remain in place."
             ]
         ),
@@ -488,7 +490,7 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Open Layout to compare Start New Row, Join Row Above, Move to Row Below, Even Row Widths, and Merge with Next Measure. The sheet explains each action and why an option is unavailable. Tap an available action to apply it.",
                 "Join Row Above moves from the start of the row through your selected measure. Move to Row Below moves from your selection through the end of the row. The rows adjust to fit.",
                 "Tools > Repeats groups Repeat Measures, Add Ending, and Manage. Add Ending offers 1st Ending…, 2nd Ending…, or Custom Ending… with a shared label and range editor.",
-                "Tools > Text uses the selected measure. Choose Above or Below. Tap the field to type, or tap its Pencil icon and write in the field. Tap Add or Apply.",
+                "Tools > Text uses the selected measure. Choose Above or Below, then choose Keyboard or Scribble. Before writing, tap the cue field with Apple Pencil. Tap Add or Apply.",
                 "Tools > Time Signature uses the selected measure. Tools > Form Markers opens a sheet: check the measure, choose a marker, then tap Add."
             ]
         ),
@@ -511,7 +513,7 @@ private struct IChartHelpArticleSection: Identifiable {
             bullets: [
                 "Use it for handwritten rhythm notes and reminders.",
                 "Ink in or just below a measure follows it when the layout changes. Ink directly beneath a single chord can follow it when you move it. Notes in open page space stay where you drew them.",
-                "On a Simple Chord Sheet or Rhythm Section Sheet, draw a fermata or accent anywhere on the page. Lift the Pencil and pause. iChart converts clear marks into notation and leaves unclear marks as handwriting.",
+                "On a Simple Chord Sheet or Rhythm Section Sheet, draw a fermata or accent anywhere on the page. An accent can be one or two strokes. Lift the Pencil and pause. iChart converts clear marks into notation and leaves unclear marks as handwriting.",
                 "Leave clear space around each symbol. Rendering replaces only that symbol’s strokes; iChart keeps those strokes with the converted mark and leaves other handwriting on the page.",
                 "On a Simple Chord Sheet, a converted mark attaches above a nearby rendered chord. Other marks float where you drew them. Drag near a chord to attach; drag away to float. Deleting a chord keeps its mark floating.",
                 "On a Rhythm Section Sheet, draw a marcato (^) near a chord, rhythm note, or staff ink, then lift the Pencil and pause. In open space, the caret stays handwritten.",
@@ -540,6 +542,9 @@ private struct IChartHelpArticleSection: Identifiable {
             bullets: [
                 "Open PDFs, choose Import PDF, then choose a PDF in Files. iChart saves a local copy; the original file stays where it is.",
                 "Check the preview after import. Choose Share to send a copy, or Add to Setlist to arrange it with other songs.",
+                "PDF reading and sharing stay available on Basic. Pro includes Create Editable Chart for personal imports with selectable chords and clear barlines; it is also included in free Pro during Beta.",
+                "Staff conversion needs full-width staff rows in one column. Printed notes, drawn repeat signs, and ending brackets are not copied. Add needed notation in the new chart.",
+                "Choose Create Editable Chart, compare the draft with Original PDF, correct each measure, then choose Save as New Chart. Use View Original PDF in the new chart's Actions menu to revisit the saved original. If Pro access changes during review, the review stays open and saving waits until access returns.",
                 "Use Search PDFs to find a title or file name. Choose Sort: Recent or Name to change the displayed order.",
                 "Cancel an import while it is preparing if you chose the wrong file. If a PDF cannot be opened, check that the original is a readable PDF and import it again."
             ]
@@ -551,7 +556,9 @@ private struct IChartHelpArticleSection: Identifiable {
                 "In PDFs, open a file's Actions menu and choose Add to Setlist. Tap an existing setlist, or open New Setlist and choose Create & Add PDFs.",
                 "You can also open Setlists, choose a setlist, then Add PDFs. Search for titles and select the songs to add.",
                 "Use Edit in the setlist to reorder songs or remove an entry. Removing an entry keeps the original PDF in your library."
-            ]
+            ] + (IChartProductAccessPolicy.current.offersPaidPurchases ? [
+                "Local setlists are unlimited on Basic. With paid Pro, choose Back Up Setlists to save them with their PDFs. Choose Restore Setlists on another device. Local setlists remain available if Pro ends."
+            ] : [])
         ),
         IChartHelpArticleSection(
             id: "pdf-offline", title: "Read Offline", systemImageName: "wifi.slash",
@@ -578,14 +585,15 @@ private struct IChartHelpArticleSection: Identifiable {
             id: "faq-forums",
             title: "What are Forums?",
             systemImageName: "bubble.left.and.bubble.right",
-            body: "Forums are an account-based space for sharing useful chart PDFs with other musicians, included in free Pro access.",
+            body: "Forums are an account-based space for sharing useful chart PDFs with other musicians. A verified account can browse songs and discussions; Pro adds publishing, new downloads, votes, and comments.",
             bullets: [
                 "A forum upload starts from a chart you made in iChart.",
                 "Use the search field at the top of Forums, then tap Search to find songs, artists, arrangers, or tags. Use Load More for additional matches. Your search text stays available while results load or if you need to retry.",
                 "Forum PDFs keep the publisher's instrument view and transposition at submission. Change the view in the chart before Submit To Forum if needed.",
                 "Older downloads without reliable view metadata show Instrument view unknown. Downloading never changes the notes printed in the PDF.",
                 "iChart checks that the PDF and chart details belong to that upload before it appears publicly.",
-                "Members can browse, download, vote, comment, report concerns, and block contributors they no longer want to see.",
+                "Basic members can search songs, open chart details, read comments, see badges, report concerns, and block contributors. Pro adds Submit To Forum, Save PDF & Open, voting, and posting comments.",
+                "PDFs already saved to this device remain available in PDFs and setlists if Pro ends. Open Saved PDF opens a saved copy without downloading it again.",
                 "Author badges appear beside chart contributors. Open a chart to read what its author’s badges mean."
             ]
         ),
@@ -602,24 +610,35 @@ private struct IChartHelpArticleSection: Identifiable {
         ),
         IChartHelpArticleSection(
             id: "faq-basic-pro",
-            title: "Is Pro free?",
+            title: IChartProductAccessPolicy.current.isFreeBeta ? "Is Pro free?" : "What does Pro include?",
             systemImageName: "star.circle",
-            body: IChartLegalLinks.freeProNotice,
-            bullets: [
+            body: IChartProductAccessPolicy.current.isFreeBeta
+                ? IChartLegalLinks.freeProNotice
+                : "Both chart styles, local setlists, and editing and exporting saved charts are included in Basic.",
+            bullets: IChartProductAccessPolicy.current.isFreeBeta ? [
                 "Your account includes unlimited local charts, Projects, cloud backup and restore, Forums, and PDF export without a purchase.",
                 "Online features still require a verified account and a connection; your local charts remain available offline.",
                 IChartLegalLinks.futurePricingNotice
+            ] : [
+                "Basic includes up to three local charts for creation and duplication. You can open, edit, and export every chart already saved.",
+                "Pro adds unlimited local charts, editable chart creation from PDFs, Project organization, premium fonts, cloud backup and setlist sync, and Forum downloads and participation.",
+                "When Pro ends, your saved charts keep their fonts, your Projects remain visible, and local PDFs and setlists remain available."
             ]
         ),
         IChartHelpArticleSection(
             id: "faq-subscription",
             title: "What if I already subscribed?",
             systemImageName: "creditcard",
-            body: IChartLegalLinks.existingBillingNotice,
-            bullets: [
+            body: IChartProductAccessPolicy.current.isFreeBeta
+                ? IChartLegalLinks.existingBillingNotice
+                : "Settings includes Manage My Subscription for your Apple billing.",
+            bullets: IChartProductAccessPolicy.current.isFreeBeta ? [
                 "Settings includes Manage My Subscription for existing Apple billing.",
                 "Apple controls cancellations, charges, and refund decisions. Free app access is separate from your existing Apple billing history.",
                 "Cancelling an old subscription does not remove free Pro access. You can separately choose Basic or rejoin Pro in Settings."
+            ] : [
+                "If you cancel, Pro stays active until the end of the paid period.",
+                "Use Restore Purchases in Settings to reconnect an existing subscription. Your saved local content remains available throughout."
             ]
         ),
         IChartHelpArticleSection(
@@ -653,7 +672,9 @@ private struct IChartHelpArticleSection: Identifiable {
             systemImageName: "music.note.list",
             body: "Use iChart to create, edit, save, and export charts you are allowed to use and share.",
             bullets: [
-                "Free Pro access includes unlimited local charts, all shipped local authoring tools, and PDF export.",
+                IChartProductAccessPolicy.current.isFreeBeta
+                    ? "Free Pro access includes unlimited local charts, all shipped local authoring tools, and PDF export."
+                    : "Both chart styles, editing saved charts, and PDF export are included in Basic.",
                 "Keep titles, notes, credits, and chart details clear for the musicians reading the chart.",
                 "Deleting a local chart removes it from your local library."
             ]
@@ -684,13 +705,19 @@ private struct IChartHelpArticleSection: Identifiable {
         ),
         IChartHelpArticleSection(
             id: "policy-plan",
-            title: "Free Pro Access",
+            title: IChartProductAccessPolicy.current.isFreeBeta ? "Free Pro Access" : "Basic and Pro",
             systemImageName: "star.circle",
-            body: IChartLegalLinks.freeProNotice,
-            bullets: [
+            body: IChartProductAccessPolicy.current.isFreeBeta
+                ? IChartLegalLinks.freeProNotice
+                : "Your saved charts, PDFs, and setlists remain available on the device after downgrade.",
+            bullets: IChartProductAccessPolicy.current.isFreeBeta ? [
                 "Pro currently has no chart cap or purchase requirement. If you choose Basic, you can create up to 3 local charts; your existing work stays editable.",
                 "A subscription expiry or refund does not remove free Pro access or trigger subscription-based backup removal during this free-access period.",
                 IChartLegalLinks.futurePricingNotice
+            ] : [
+                "Basic limits creation and duplication to three local charts. It includes unlimited local PDF setlists.",
+                "You can open and edit charts from any saved Project. Pro adds Project organization and variant duplication.",
+                "Use a verified account with active Pro for cloud setlist backup and sync or to download and participate in Forums."
             ]
         )
     ]
@@ -723,11 +750,16 @@ private struct IChartHelpArticleSection: Identifiable {
             id: "legal-subscriptions",
             title: "Subscriptions",
             systemImageName: "creditcard",
-            body: IChartLegalLinks.existingBillingNotice,
-            bullets: [
+            body: IChartProductAccessPolicy.current.isFreeBeta
+                ? IChartLegalLinks.existingBillingNotice
+                : IChartLegalLinks.subscriptionNotice,
+            bullets: IChartProductAccessPolicy.current.isFreeBeta ? [
                 "No new subscription purchase is required or offered for free Pro access in this version.",
                 "Manage My Subscription in Settings opens Apple's controls for an existing subscription. Changing app access does not cancel Apple billing.",
                 IChartLegalLinks.futurePricingNotice
+            ] : [
+                "Open Manage My Subscription in Settings for Apple billing controls.",
+                "Cancelling renewal keeps Pro active through the end of the paid period. Your saved local work remains available after it ends."
             ]
         ),
         IChartHelpArticleSection(
@@ -865,18 +897,18 @@ struct LibraryView: View {
     @EnvironmentObject private var pdfLibraryStore: IChartPDFLibraryStore
     @Environment(\.betaProStore) private var betaProStore
     let onOpenChart: (Chart.ID, EditorCanvasMode) -> Void
-    @AppStorage("iChartHomeAppearanceMode") private var homeAppearanceModeRawValue = IChartHomeAppearanceMode.light.rawValue
-    @AppStorage("iChartHomeSidebarCollapsed") private var isSidebarCollapsed = false
-    @AppStorage("iChartChartPreviewMode") private var chartPreviewModeRawValue = IChartChartPreviewMode.collapsed.rawValue
-    @AppStorage("iChartChartsWorkspaceMode") private var chartsWorkspaceModeRawValue = IChartChartsWorkspaceMode.charts.rawValue
-    @AppStorage("iChartHasSeenAccountLanding") private var hasSeenAccountLanding = false
-    @AppStorage("iChartHasSeenGuidedTourOffer") private var hasSeenGuidedTourOffer = false
-    @AppStorage(IChartTelemetryConsentStore.preferenceKey) private var telemetryConsentVersion = ""
-    @AppStorage("iChartPendingSimpleChartTour") private var pendingSimpleChartTour = false
-    @AppStorage(ChordInkWorkflowSettings.manualRenderWithPreviewKey)
+    @AppStorage("iChartHomeAppearanceMode", store: IChartStorageNamespace.defaults) private var homeAppearanceModeRawValue = IChartHomeAppearanceMode.light.rawValue
+    @AppStorage("iChartHomeSidebarCollapsed", store: IChartStorageNamespace.defaults) private var isSidebarCollapsed = false
+    @AppStorage("iChartChartPreviewMode", store: IChartStorageNamespace.defaults) private var chartPreviewModeRawValue = IChartChartPreviewMode.collapsed.rawValue
+    @AppStorage("iChartChartsWorkspaceMode", store: IChartStorageNamespace.defaults) private var chartsWorkspaceModeRawValue = IChartChartsWorkspaceMode.charts.rawValue
+    @AppStorage("iChartHasSeenAccountLanding", store: IChartStorageNamespace.defaults) private var hasSeenAccountLanding = false
+    @AppStorage("iChartHasSeenGuidedTourOffer", store: IChartStorageNamespace.defaults) private var hasSeenGuidedTourOffer = false
+    @AppStorage(IChartTelemetryConsentStore.preferenceKey, store: IChartStorageNamespace.defaults) private var telemetryConsentVersion = ""
+    @AppStorage("iChartPendingSimpleChartTour", store: IChartStorageNamespace.defaults) private var pendingSimpleChartTour = false
+    @AppStorage(ChordInkWorkflowSettings.manualRenderWithPreviewKey, store: IChartStorageNamespace.defaults)
     private var manualRenderWithPreview = ChordInkWorkflowSettings.defaultManualRenderWithPreview
     #if DEBUG && targetEnvironment(simulator)
-    @AppStorage(IChartRuntimeDiagnostics.rhythmRecognitionDiagnosticsKey)
+    @AppStorage(IChartRuntimeDiagnostics.rhythmRecognitionDiagnosticsKey, store: IChartStorageNamespace.defaults)
     private var rhythmDiagnosticsEnabled = false
     #endif
     @State private var logoVariant = IChartLogoVariant.homeScreenTrialDefault
@@ -902,6 +934,7 @@ struct LibraryView: View {
     @State private var forumSubmittedSearchText = ""
     @State private var forumPublishRequest: IChartForumPublishRequest?
     @State private var selectedPDFLibraryItem: IChartPDFLibraryItem?
+    @State private var convertedChartToOpen: Chart.ID?
     @State private var selectedAddToSetlistPDF: IChartPDFLibraryItem?
     @State private var chartSearchText = ""
     @State private var projectSearchText = ""
@@ -929,7 +962,7 @@ struct LibraryView: View {
 
     private var filteredPDFs: [IChartPDFLibraryItem] {
         LibraryRetrievalPolicy.items(
-            pdfLibraryStore.visibleItems(for: store.subscriptionState, accessPolicy: store.entitlements.accessPolicy),
+            pdfLibraryStore.items,
             query: pdfSearchText, order: pdfSortOrder,
             title: { $0.displayTitle + " " + $0.fileName }, date: { $0.createdAt })
     }
@@ -959,7 +992,7 @@ struct LibraryView: View {
     }
 
     private var activeChartPreviewMode: IChartChartPreviewMode {
-        store.isChartEditingLockedByCurrentPlan ? .collapsed : chartPreviewMode
+        chartPreviewMode
     }
 
     private var chartPreviewModeBinding: Binding<IChartChartPreviewMode> {
@@ -990,14 +1023,6 @@ struct LibraryView: View {
         }
 
         return "\(min(store.charts.count, limit)) of \(limit) Basic charts used"
-    }
-
-    private var chartEditingLockMessage: String {
-        if store.localChartOverflowCount == 1 {
-            return "Delete 1 local chart to edit in Basic."
-        }
-
-        return "Delete \(store.localChartOverflowCount) local charts to edit in Basic."
     }
 
     var body: some View {
@@ -1035,7 +1060,8 @@ struct LibraryView: View {
             forumStore.applyAccess(
                 entitlements: store.entitlements,
                 charts: store.charts,
-                currentUserID: authStore.state.signedInSession?.id
+                currentUserID: authStore.state.signedInSession?.id,
+                isAccountVerified: authStore.state.signedInSession?.isEmailVerified == true
             )
             refreshForumHomeIfVisible()
             updateAccountLandingPresentation()
@@ -1046,7 +1072,8 @@ struct LibraryView: View {
             forumStore.applyAccess(
                 entitlements: store.entitlements,
                 charts: store.charts,
-                currentUserID: state.signedInSession?.id
+                currentUserID: state.signedInSession?.id,
+                isAccountVerified: state.signedInSession?.isEmailVerified == true
             )
             refreshForumHomeIfVisible(authState: state)
             updateAccountLandingPresentation()
@@ -1054,18 +1081,19 @@ struct LibraryView: View {
         .onChange(of: store.entitlements) { _, _ in
             cloudSyncStore.authStateChanged(authStore.state)
             forumStore.applyAccess(entitlements: store.entitlements, charts: store.charts,
-                currentUserID: authStore.state.signedInSession?.id)
-            applyForumDownloadAccess(store.subscriptionState)
-            selectedPDFIDs.formIntersection(Set(pdfLibraryStore.visibleItems(for: store.subscriptionState, accessPolicy: store.entitlements.accessPolicy).map(\.id)))
+                currentUserID: authStore.state.signedInSession?.id,
+                isAccountVerified: authStore.state.signedInSession?.isEmailVerified == true)
+            selectedPDFIDs.formIntersection(Set(pdfLibraryStore.items.map(\.id)))
             refreshForumHomeIfVisible()
         }
         .onChange(of: store.charts.map(\.id)) { _, ids in
             selectedChartIDs.formIntersection(Set(ids))
             forumStore.applyAccess(entitlements: store.entitlements, charts: store.charts,
-                currentUserID: authStore.state.signedInSession?.id)
+                currentUserID: authStore.state.signedInSession?.id,
+                isAccountVerified: authStore.state.signedInSession?.isEmailVerified == true)
         }
         .onChange(of: pdfLibraryStore.items.map(\.id)) { _, _ in
-            selectedPDFIDs.formIntersection(Set(pdfLibraryStore.visibleItems(for: store.subscriptionState, accessPolicy: store.entitlements.accessPolicy).map(\.id)))
+            selectedPDFIDs.formIntersection(Set(pdfLibraryStore.items.map(\.id)))
         }
         .onChange(of: chartsWorkspaceModeRawValue) { _, _ in
             isSelectingCharts = false
@@ -1112,19 +1140,20 @@ struct LibraryView: View {
                 title: "New Project",
                 initialTitle: "",
                 saveTitle: "Create",
-                theme: homeTheme
+                theme: homeTheme,
+                canOrganizeProjects: store.canUse(.projects)
             ) { title in
                 let projectCountBefore = store.projects.count
-                if store.createProject(title: title) != nil {
-                    IChartTelemetry.record(
-                        "library.project_created",
-                        properties: [
-                            "project_count": .int(projectCountBefore + 1),
-                            "chart_count": .int(store.charts.count),
-                            "result": .string("created")
-                        ]
-                    )
-                }
+                guard store.createProject(title: title) != nil else { return false }
+                IChartTelemetry.record(
+                    "library.project_created",
+                    properties: [
+                        "project_count": .int(projectCountBefore + 1),
+                        "chart_count": .int(store.charts.count),
+                        "result": .string("created")
+                    ]
+                )
+                return true
             }
         }
         .sheet(item: $renameRequest) { request in
@@ -1137,7 +1166,8 @@ struct LibraryView: View {
                 title: "Rename Project",
                 initialTitle: request.currentTitle,
                 saveTitle: "Save",
-                theme: homeTheme
+                theme: homeTheme,
+                canOrganizeProjects: store.canUse(.projects)
             ) { title in
                 store.renameProject(id: request.projectID, to: title)
             }
@@ -1146,7 +1176,8 @@ struct LibraryView: View {
             IChartProjectAddChartsSheet(
                 request: request,
                 charts: store.charts,
-                theme: homeTheme
+                theme: homeTheme,
+                canOrganizeProjects: store.canUse(.projects)
             ) { chartID, projectID in
                 store.addChartToProject(chartID: chartID, projectID: projectID)
             }
@@ -1210,6 +1241,7 @@ struct LibraryView: View {
                     },
                     isWorking: forumStore.isWorking || forumStore.isLoadingEarlierComments,
                     isLoadingEarlierComments: forumStore.isLoadingEarlierComments,
+                    canParticipate: forumStore.canParticipateInForums,
                     errorMessage: forumStore.errorMessage,
                     theme: homeTheme,
                     onVote: { vote in
@@ -1261,6 +1293,10 @@ struct LibraryView: View {
                     onClearDownloadedPDF: {
                         forumStore.clearDownloadedPDF()
                     },
+                    onOpenProOptions: {
+                        forumStore.clearSelectedDetail()
+                        selectedHomeTab = .settings
+                    },
                     onWithdrawPost: {
                         Task {
                             await forumStore.withdrawPost(detail)
@@ -1277,9 +1313,15 @@ struct LibraryView: View {
         .sheet(item: $selectedAddToSetlistPDF) { item in
             AddPDFToSetlistSheet(pdfItemIDs: [item.id])
         }
-        .sheet(item: $selectedPDFLibraryItem) { item in
+        .sheet(item: $selectedPDFLibraryItem, onDismiss: openConvertedPDFChart) { item in
             if let exportedPDF = pdfLibraryStore.exportedPDF(for: item) {
-                PDFExportPreviewView(exportedPDF: exportedPDF, source: item.source, pdfItemID: item.id)
+                PDFExportPreviewView(
+                    exportedPDF: exportedPDF,
+                    source: item.source,
+                    pdfItemID: item.id,
+                    editableChartConversionUnavailableMessage: store.editablePDFConversionUnavailableMessage,
+                    onSaveEditableChart: saveConvertedPDFChart
+                )
             } else {
                 NavigationStack {
                     ContentUnavailableView(
@@ -1395,27 +1437,30 @@ struct LibraryView: View {
                 }
             )
 
-            if store.requiresLocalChartPruningForCurrentPlan {
-                IChartChartConsolidationNotice(
-                    overflowCount: store.localChartOverflowCount,
-                    theme: homeTheme
-                )
-            }
-
             chartListSection
         }
     }
 
     private var chartProjectsHomeContent: some View {
         VStack(alignment: .leading, spacing: 16) {
-            if store.canUse(.projects) {
-                IChartProjectCreateControl(
-                    projectCount: store.projects.count,
-                    theme: homeTheme,
-                    onCreateProject: {
-                        showingCreateProject = true
-                    }
-                )
+            if store.canUse(.projects) || !store.projects.isEmpty {
+                if store.canUse(.projects) {
+                    IChartProjectCreateControl(
+                        projectCount: store.projects.count,
+                        theme: homeTheme,
+                        onCreateProject: {
+                            showingCreateProject = true
+                        }
+                    )
+                } else {
+                    Text(store.entitlements.accessPolicy.isFreeBeta
+                        ? "Your Projects are read-only on Basic. Open any chart to edit or export it. Rejoin free Pro in Settings to manage Projects and variants."
+                        : "Your Projects are read-only on Basic. Open any chart to edit or export it. Pro lets you manage Projects and variants.")
+                        .font(.subheadline)
+                        .foregroundStyle(homeTheme.workspaceTitle)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("library.projects.read-only-guidance")
+                }
 
                 libraryRetrievalControls(query: $projectSearchText, order: $projectSortOrder, noun: "Projects")
 
@@ -1440,12 +1485,11 @@ struct LibraryView: View {
                                 project: project,
                                 charts: store.charts(in: project),
                                 canCreateChart: store.canCreateChart,
-                                canOpenCharts: store.canOpenChartsForEditing,
+                                canManageProject: store.canUse(.projects),
                                 availableCharts: store.charts,
-                                chartEditingLockMessage: chartEditingLockMessage,
                                 theme: homeTheme,
                                 onOpenChart: { chartID in
-                                    openChartIfAllowed(chartID, initialCanvasMode: .browse)
+                                    onOpenChart(chartID, .browse)
                                 },
                                 onNewChart: { projectID in
                                     requestNewChart(projectID: projectID)
@@ -1490,9 +1534,9 @@ struct LibraryView: View {
                 ) {
                     IChartLockedFeatureView(
                         title: "Projects require Pro",
-                        message: IChartProductAccessPolicy.current.isFreeBeta
+                        message: store.entitlements.accessPolicy.isFreeBeta
                             ? "Rejoin free Pro in Settings to use Projects. Your existing projects and charts are kept."
-                            : "Upgrade to Pro to group every chart for the same song, duplicate section variants, and keep alternate parts together.",
+                            : "Pro lets you group charts for the same song and manage variants. Every saved chart stays editable on Basic.",
                         systemImageName: "lock.folder",
                         theme: homeTheme,
                         onOpenSettings: { selectedHomeTab = .settings }
@@ -1531,7 +1575,7 @@ struct LibraryView: View {
                     noun: "PDFs"
                 ) { shownSelectedIDs in
                     let items = filteredPDFs.filter { shownSelectedIDs.contains($0.id) }
-                    libraryAlert.requestDeletion(IChartLibraryDeleteRequest(pdfs: items))
+                    requestPDFDeletion(items)
                 }
                 IChartPDFLibraryHomeView(
                     items: filteredPDFs,
@@ -1554,7 +1598,7 @@ struct LibraryView: View {
                         selectedPDFLibraryItem = item
                     },
                     onDelete: { item in
-                        libraryAlert.requestDeletion(IChartLibraryDeleteRequest(pdfs: [item]))
+                        requestPDFDeletion([item])
                     },
                     onAddToSetlist: { item in selectedAddToSetlistPDF = item },
                     isFiltering: !pdfSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -1573,72 +1617,80 @@ struct LibraryView: View {
                 systemImageName: "bubble.left.and.bubble.right",
                 theme: homeTheme
             ) {
-                if store.canUse(.forums) {
-                    IChartForumHomeView(
-                        state: forumStore.state,
-                        searchText: $forumSearchText,
-                        submittedSearchText: $forumSubmittedSearchText,
-                        charts: store.charts,
-                        currentUserID: authStore.state.signedInSession?.id,
-                        currentUserBadges: forumStore.currentUserBadges,
-                        uploadQueue: forumStore.uploadQueue.filter { item in
-                            guard let currentUserID = authStore.state.signedInSession?.id,
-                                  let ownerID = item.ownerID else {
-                                return false
-                            }
+                IChartForumHomeView(
+                    state: forumStore.state,
+                    searchText: $forumSearchText,
+                    submittedSearchText: $forumSubmittedSearchText,
+                    charts: store.charts,
+                    currentUserID: authStore.state.signedInSession?.id,
+                    currentUserBadges: forumStore.currentUserBadges,
+                    uploadQueue: forumStore.uploadQueue.filter { item in
+                        guard let currentUserID = authStore.state.signedInSession?.id,
+                              let ownerID = item.ownerID else {
+                            return false
+                        }
 
-                            return ownerID == currentUserID
-                        },
-                        statusMessage: forumStore.statusMessage,
-                        errorMessage: forumStore.errorMessage,
-                        theme: homeTheme,
-                        onSearch: { query in
-                            refreshForumHome(query: query)
-                        },
-                        onRefresh: {
-                            refreshForumHome(query: forumSubmittedSearchText)
-                        },
-                        onPublishChart: { chart in
-                            forumPublishRequest = IChartForumPublishRequest(chart: chart)
-                        },
-                        onRetryUpload: { item in
-                            forumStore.retryUpload(
-                                item,
-                                charts: store.charts,
-                                currentUserID: authStore.state.signedInSession?.id
-                            )
-                        },
-                        onWithdrawUpload: { item in
-                            Task {
-                                await forumStore.withdrawUpload(item)
+                        return ownerID == currentUserID
+                    },
+                    statusMessage: forumStore.statusMessage,
+                    errorMessage: forumStore.errorMessage,
+                    theme: homeTheme,
+                    onSearch: { query in
+                        refreshForumHome(query: query)
+                    },
+                    onRefresh: {
+                        refreshForumHome(query: forumSubmittedSearchText)
+                    },
+                    onPublishChart: { chart in
+                        forumPublishRequest = IChartForumPublishRequest(chart: chart)
+                    },
+                    onRetryUpload: { item in
+                        forumStore.retryUpload(
+                            item,
+                            charts: store.charts,
+                            currentUserID: authStore.state.signedInSession?.id
+                        )
+                    },
+                    onWithdrawUpload: { item in
+                        Task {
+                            await forumStore.withdrawUpload(item)
+                        }
+                    },
+                    onDismissUpload: { item in
+                        forumStore.clearUploadQueueItem(item)
+                    },
+                    onOpenPost: { song, post in
+                        Task {
+                            async let savedPDF = lookupSavedForumPDF(for: post)
+                            await forumStore.openPost(post, song: song)
+                            if let pdf = await savedPDF,
+                               pdfLibraryStore.itemID(forExportedURL: pdf.url) != nil {
+                                savedForumPDFs[post.id] = pdf
+                            } else {
+                                savedForumPDFs.removeValue(forKey: post.id)
                             }
-                        },
-                        onDismissUpload: { item in
-                            forumStore.clearUploadQueueItem(item)
-                        },
-                        onOpenPost: { song, post in
-                            Task {
-                                await forumStore.openPost(post, song: song)
-                            }
-                        },
-                        onOpenAccount: { selectedHomeTab = .settings },
-                        hasMoreSearchResults: forumStore.homeNextCursor != nil,
-                        isLoadingMoreSearchResults: forumStore.isLoadingMoreHome,
-                        onLoadMoreSearchResults: { Task { await forumStore.loadMoreHome() } }
-                    )
-                } else {
-                    IChartLockedFeatureView(
-                        title: "Forums require Pro",
-                        message: IChartProductAccessPolicy.current.isFreeBeta
-                            ? "Rejoin free Pro in Settings to use Forums. Your downloaded PDFs and queued charts are kept."
-                            : "Upgrade to Pro to join iChart Forums.",
-                        systemImageName: "lock.icloud",
-                        theme: homeTheme,
-                        onOpenSettings: { selectedHomeTab = .settings }
-                    )
-                }
+                        }
+                    },
+                    onOpenAccount: { selectedHomeTab = .settings },
+                    hasMoreSearchResults: forumStore.homeNextCursor != nil,
+                    isLoadingMoreSearchResults: forumStore.isLoadingMoreHome,
+                    onLoadMoreSearchResults: { Task { await forumStore.loadMoreHome() } },
+                    canParticipate: forumStore.canParticipateInForums
+                )
             }
         }
+    }
+
+    private func lookupSavedForumPDF(for post: ForumChartPost) async -> ExportedPDF? {
+        if let savedPDF = savedForumPDFs[post.id],
+           pdfLibraryStore.itemID(forExportedURL: savedPDF.url) != nil {
+            return savedPDF
+        }
+        let savedPDFs = pdfLibraryStore.items(for: .forumDownload)
+            .compactMap { pdfLibraryStore.exportedPDF(for: $0) }
+        return await Task.detached(priority: .utility) {
+            IChartForumPDFMetadata.savedPDF(for: post, among: savedPDFs)
+        }.value
     }
 
     private var settingsHomeContent: some View {
@@ -1828,25 +1880,29 @@ struct LibraryView: View {
     private func libraryRetrievalControls(
         query: Binding<String>, order: Binding<LibrarySortOrder>, noun: String
     ) -> some View {
-        let layout = dynamicTypeSize.isAccessibilitySize || horizontalSizeClass == .compact
-            ? AnyLayout(VStackLayout(spacing: 10))
-            : AnyLayout(HStackLayout(spacing: 12))
-        return layout {
+        IChartSearchControlLayout(
+            stacksControls: dynamicTypeSize.isAccessibilitySize || horizontalSizeClass == .compact,
+            // Reserve room for Clear so the first character cannot move Sort below the field.
+            extraSearchWidth: query.wrappedValue.isEmpty ? 52 : 0
+        ) {
             librarySearchField(query: query, noun: noun)
             librarySortMenu(order: order)
         }
+        .frame(maxWidth: IChartSearchControlLayout.maximumWidth, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func librarySearchField(query: Binding<String>, noun: String) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass").foregroundStyle(homeTheme.panelSecondary)
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(homeTheme.panelSecondary)
+                .accessibilityHidden(true)
             IChartTypedTextField(placeholder: "Search \(noun.lowercased())", text: query,
                 borderStyle: .none, returnKeyType: .search,
                 textColor: UIColor(homeTheme.panelTitle), placeholderColor: UIColor(homeTheme.panelSecondary),
                 tintColor: UIColor(homeTheme.actionText),
                 accessibilityIdentifier: "library.search.\(noun.lowercased())",
-                accessibilityLabel: "Search \(noun)")
-                .frame(minHeight: 44)
+                accessibilityLabel: "Search \(noun)", compact: true)
             if !query.wrappedValue.isEmpty {
                 Button { query.wrappedValue = "" } label: { Image(systemName: "xmark.circle.fill") }
                     .accessibilityLabel("Clear \(noun.lowercased()) search")
@@ -1892,7 +1948,7 @@ struct LibraryView: View {
                 ) { shownSelectedIDs in
                     libraryAlert.requestDeletion(IChartLibraryDeleteRequest(charts: filteredCharts.filter { shownSelectedIDs.contains($0.id) }))
                 }
-                if store.canOpenChartsForEditing && !isSelectingCharts {
+                if !isSelectingCharts {
                     IChartPreviewModePicker(selection: chartPreviewModeBinding, theme: homeTheme)
                 }
             }
@@ -1928,10 +1984,8 @@ struct LibraryView: View {
                             isSelected: store.selectedChartID == chart.id,
                             canDuplicate: store.canCreateChart,
                             canShareToForum: store.canUse(.forums),
-                            canOpenForEditing: store.canOpenChartsForEditing,
-                            lockMessage: chartEditingLockMessage,
                             onOpen: {
-                                openChartIfAllowed(chart.id, initialCanvasMode: .browse)
+                                onOpenChart(chart.id, .browse)
                             },
                             onRename: {
                                 renameRequest = ChartRenameRequest(chart: chart)
@@ -1954,10 +2008,8 @@ struct LibraryView: View {
                             onShareToForum: {
                                 forumPublishRequest = IChartForumPublishRequest(chart: chart)
                             },
-                            onRemoveLocal: {
-                                runLibraryOperation(.removingLocalChart(chart.title)) {
-                                    store.pruneLocalChartForCurrentPlan(id: chart.id)
-                                }
+                            onOpenOriginalPDF: chart.sourcePDFLibraryItemID.map { itemID in
+                                { openOriginalPDF(itemID) }
                             },
                             onDelete: {
                                 libraryAlert.requestDeletion(IChartLibraryDeleteRequest(charts: [chart]))
@@ -2086,7 +2138,7 @@ struct LibraryView: View {
                 selectedPDFIDs.subtract(request.ids)
                 isSelectingPDFs = !selectedPDFIDs.isEmpty
             } catch {
-                selectedPDFIDs.formIntersection(Set(pdfLibraryStore.visibleItems(for: store.subscriptionState, accessPolicy: store.entitlements.accessPolicy).map(\.id)))
+                selectedPDFIDs.formIntersection(Set(pdfLibraryStore.items.map(\.id)))
                 isSelectingPDFs = !selectedPDFIDs.isEmpty
                 presentLibraryError(error.localizedDescription)
             }
@@ -2111,17 +2163,44 @@ struct LibraryView: View {
         showingLayoutPicker = true
     }
 
-    private func openChartIfAllowed(_ chartID: Chart.ID, initialCanvasMode: EditorCanvasMode) {
-        guard store.canOpenChartsForEditing else {
-            store.selectedChartID = nil
-            withAnimation(.easeInOut(duration: 0.18)) {
-                selectedHomeTab = .charts
-                chartsWorkspaceModeRawValue = IChartChartsWorkspaceMode.charts.rawValue
-            }
+    private func saveConvertedPDFChart(_ chart: Chart) async -> Bool {
+        guard store.entitlements.canConvertPDFToEditableChart,
+              convertedChartToOpen == nil,
+              let source = selectedPDFLibraryItem,
+              source.source == .personalImport,
+              chart.sourcePDFLibraryItemID == source.id,
+              pdfLibraryStore.items.contains(where: { $0.id == source.id }),
+              pdfLibraryStore.exportedPDF(for: source) != nil,
+              await store.saveConvertedPDFChart(chart) else { return false }
+
+        convertedChartToOpen = chart.id
+        selectedPDFLibraryItem = nil
+        return true
+    }
+
+    private func openConvertedPDFChart() {
+        guard let chartID = convertedChartToOpen else { return }
+        convertedChartToOpen = nil
+        selectedHomeTab = .charts
+        chartsWorkspaceModeRawValue = IChartChartsWorkspaceMode.charts.rawValue
+        onOpenChart(chartID, .browse)
+    }
+
+    private func openOriginalPDF(_ itemID: UUID) {
+        guard let item = pdfLibraryStore.items.first(where: { $0.id == itemID }),
+              pdfLibraryStore.exportedPDF(for: item) != nil else {
+            presentLibraryError("The original PDF is unavailable on this device. You can still edit the chart.")
             return
         }
+        selectedPDFLibraryItem = item
+    }
 
-        onOpenChart(chartID, initialCanvasMode)
+    private func requestPDFDeletion(_ items: [IChartPDFLibraryItem]) {
+        let ids = Set(items.map(\.id))
+        let linkedChartCount = store.charts.count { chart in
+            chart.sourcePDFLibraryItemID.map { ids.contains($0) } ?? false
+        }
+        libraryAlert.requestDeletion(IChartLibraryDeleteRequest(pdfs: items, linkedChartCount: linkedChartCount))
     }
 
     private func refreshForumHomeIfVisible(
@@ -2262,19 +2341,7 @@ struct LibraryView: View {
         withAnimation(.easeInOut(duration: 0.18)) {
             store.applySubscriptionState(subscriptionPreview)
         }
-        applyForumDownloadAccess(subscriptionPreview)
         cloudSyncStore.authStateChanged(authStore.state)
-    }
-
-    private func applyForumDownloadAccess(_ subscription: IChartSubscriptionEntitlement) {
-        pdfLibraryStore.removeForumDownloadsIfInactive(
-            for: subscription,
-            accessPolicy: store.entitlements.accessPolicy
-        )
-        if selectedPDFLibraryItem?.source == .forumDownload,
-           !subscription.allowsForumDownloadAccess(accessPolicy: store.entitlements.accessPolicy) {
-            selectedPDFLibraryItem = nil
-        }
     }
 
     private func beginGuidedTour() {
@@ -2633,21 +2700,25 @@ private struct IChartProjectFormSheet: View {
     let initialTitle: String
     let saveTitle: String
     let theme: IChartHomeTheme
-    let onSave: (String) -> Void
+    let canOrganizeProjects: Bool
+    let onSave: (String) -> Bool
     @State private var projectTitle: String
     @State private var isProjectTitleFocused = false
+    @State private var saveFailed = false
 
     init(
         title: String,
         initialTitle: String,
         saveTitle: String,
         theme: IChartHomeTheme,
-        onSave: @escaping (String) -> Void
+        canOrganizeProjects: Bool,
+        onSave: @escaping (String) -> Bool
     ) {
         self.title = title
         self.initialTitle = initialTitle
         self.saveTitle = saveTitle
         self.theme = theme
+        self.canOrganizeProjects = canOrganizeProjects
         self.onSave = onSave
         _projectTitle = State(initialValue: initialTitle)
     }
@@ -2655,6 +2726,20 @@ private struct IChartProjectFormSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    Text(canOrganizeProjects
+                        ? "Enter the project title, then choose \(saveTitle)."
+                        : "Project organization requires Pro. Your title stays here. Saved Project charts remain editable in Projects and Charts.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if saveFailed && canOrganizeProjects {
+                        Text("The project could not be saved. Your title stays here. Check that the project is available, then try again.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
                 Section {
                     IChartTypedTextField(placeholder: "Song or project title", text: $projectTitle,
                         isFocused: $isProjectTitleFocused, autocapitalizationType: .words, autocorrectionType: .yes)
@@ -2675,7 +2760,7 @@ private struct IChartProjectFormSheet: View {
                     Button(saveTitle) {
                         save()
                     }
-                    .disabled(sanitizedTitle.isEmpty)
+                    .disabled(sanitizedTitle.isEmpty || !canOrganizeProjects)
                 }
             }
         }
@@ -2690,7 +2775,10 @@ private struct IChartProjectFormSheet: View {
             return
         }
 
-        onSave(sanitizedTitle)
+        guard onSave(sanitizedTitle) else {
+            saveFailed = true
+            return
+        }
         dismiss()
     }
 }
@@ -2700,7 +2788,10 @@ private struct IChartProjectAddChartsSheet: View {
     let request: ChartProjectAddChartsRequest
     let charts: [Chart]
     let theme: IChartHomeTheme
-    let onAddChart: (Chart.ID, ChartProject.ID) -> Void
+    let canOrganizeProjects: Bool
+    let onAddChart: (Chart.ID, ChartProject.ID) -> Bool
+    @State private var selectedChartID: Chart.ID?
+    @State private var addFailed = false
 
     private var availableCharts: [Chart] {
         charts.filter { !request.project.chartIDs.contains($0.id) }
@@ -2709,6 +2800,20 @@ private struct IChartProjectAddChartsSheet: View {
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    Text(canOrganizeProjects
+                        ? "Choose a chart to add to this Project."
+                        : "Project organization requires Pro. Your selection stays here. Saved Project charts remain editable in Projects and Charts.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if addFailed && canOrganizeProjects {
+                        Text("The chart could not be added. Your selection stays here. Check that the chart and project are available, then try again.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
                 if availableCharts.isEmpty {
                     ContentUnavailableView(
                         "No Charts To Add",
@@ -2719,8 +2824,12 @@ private struct IChartProjectAddChartsSheet: View {
                 } else {
                     ForEach(availableCharts) { chart in
                         Button {
-                            onAddChart(chart.id, request.project.id)
-                            dismiss()
+                            selectedChartID = chart.id
+                            if onAddChart(chart.id, request.project.id) {
+                                dismiss()
+                            } else {
+                                addFailed = true
+                            }
                         } label: {
                             HStack(spacing: 12) {
                                 Image(systemName: chart.layoutStyle.systemImageName)
@@ -2739,10 +2848,11 @@ private struct IChartProjectAddChartsSheet: View {
 
                                 Spacer(minLength: 12)
 
-                                Image(systemName: "plus.circle")
+                                Image(systemName: selectedChartID == chart.id ? "checkmark.circle" : "plus.circle")
                                     .foregroundStyle(theme.actionText)
                             }
                         }
+                        .disabled(!canOrganizeProjects)
                     }
                 }
             }
@@ -2855,24 +2965,6 @@ private struct IChartProjectDuplicateVariantSheet: View {
                     .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
-        }
-    }
-}
-
-private struct IChartChartConsolidationNotice: View {
-    let overflowCount: Int
-    let theme: IChartHomeTheme
-
-    var body: some View {
-        IChartHomePanel(
-            title: "Consolidate Charts",
-            systemImageName: "trash",
-            theme: theme
-        ) {
-            Text("Choose \(overflowCount) local chart\(overflowCount == 1 ? "" : "s") to remove from this device to continue in Basic. Editing unlocks when 3 charts remain. Cloud backup is removed after Pro access ends.")
-                .font(.subheadline)
-                .foregroundStyle(theme.panelSecondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -3131,12 +3223,15 @@ struct IChartForumHomeView: View {
     var hasMoreSearchResults = false
     var isLoadingMoreSearchResults = false
     var onLoadMoreSearchResults: () -> Void = {}
+    var canParticipate = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             if showsSearchControls {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Search songs, artists, arrangers, or tags, then tap Search. Use Load More for more matches. Open a chart to save its PDF or discuss it.")
+                    Text(canParticipate
+                        ? "Search songs, artists, arrangers, or tags, then tap Search. Use Load More for more matches. Open a chart to save its PDF or discuss it."
+                        : "Search songs, artists, arrangers, or tags, then tap Search. Open a chart to read its discussion and author badges. Pro adds new PDF downloads, publishing, votes, and comments.")
                         .font(.subheadline)
                         .foregroundStyle(theme.panelSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -3170,7 +3265,8 @@ struct IChartForumHomeView: View {
                     theme: theme,
                     onRetry: onRetryUpload,
                     onWithdraw: onWithdrawUpload,
-                    onDismiss: onDismissUpload
+                    onDismiss: onDismissUpload,
+                    allowsRetry: canParticipate
                 )
             }
 
@@ -3206,13 +3302,11 @@ struct IChartForumHomeView: View {
     }
 
     private var searchAndPublishRow: some View {
-        let layout = dynamicTypeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
-            : AnyLayout(HStackLayout(alignment: .center, spacing: 12))
-        return layout {
+        IChartSearchControlLayout(stacksControls: dynamicTypeSize.isAccessibilitySize) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(theme.panelSecondary)
+                    .accessibilityHidden(true)
                 IChartTypedTextField(
                     placeholder: "Search songs, artists, arrangers, or tags",
                     text: $searchText,
@@ -3226,9 +3320,9 @@ struct IChartForumHomeView: View {
                     accessibilityIdentifier: "forum.search",
                     accessibilityLabel: "Forum search",
                     accessibilityHint: "Search song titles, artists, arrangers, or tags, then tap Search.",
+                    compact: true,
                     onSubmit: submitSearch
                 )
-                    .frame(minHeight: 44)
                     .onChange(of: searchText) { _, newValue in
                         handleSearchTextChange(newValue)
                     }
@@ -3253,6 +3347,8 @@ struct IChartForumHomeView: View {
             .accessibilityIdentifier("forum.search.submit")
             .accessibilityHint("Show charts matching the search text.")
         }
+        .frame(maxWidth: IChartSearchControlLayout.maximumWidth, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -3319,18 +3415,24 @@ struct IChartForumHomeView: View {
                     onOpenPost: onOpenPost
                 )
 
-                IChartForumEmptyPublishBar(
-                    localCharts: charts,
-                    isSearching: isShowingSearchResults,
-                    theme: theme,
-                    onPublishChart: onPublishChart
-                )
+                if canParticipate {
+                    IChartForumEmptyPublishBar(
+                        localCharts: charts,
+                        isSearching: isShowingSearchResults,
+                        theme: theme,
+                        onPublishChart: onPublishChart
+                    )
+                } else if let onOpenAccount {
+                    Button("View Pro Options", action: onOpenAccount)
+                        .buttonStyle(.bordered)
+                        .accessibilityHint("Open Plan Settings for forum downloads, publishing, voting, and commenting. Browsing remains available in Basic.")
+                }
 
                 if isShowingSearchResults {
                     if summaries.isEmpty {
                         IChartForumInlineEmptyRow(
                             title: "No Chart On This Tune Yet",
-                            message: "A matching local chart can become the first reviewed PDF for this search.",
+                            message: canParticipate ? "A matching local chart can become the first reviewed PDF for this search." : "Try another song, artist, arranger, or tag.",
                             systemImageName: "magnifyingglass",
                             theme: theme
                         )
@@ -4230,6 +4332,7 @@ private struct IChartForumUploadQueueView: View {
     let onRetry: (ForumUploadQueueItem) -> Void
     let onWithdraw: (ForumUploadQueueItem) -> Void
     let onDismiss: (ForumUploadQueueItem) -> Void
+    var allowsRetry = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -4253,7 +4356,8 @@ private struct IChartForumUploadQueueView: View {
                     theme: theme,
                     onRetry: { onRetry(item) },
                     onWithdraw: { onWithdraw(item) },
-                    onDismiss: { onDismiss(item) }
+                    onDismiss: { onDismiss(item) },
+                    allowsRetry: allowsRetry
                 )
             }
         }
@@ -4274,6 +4378,7 @@ private struct IChartForumUploadQueueRow: View {
     let onRetry: () -> Void
     let onWithdraw: () -> Void
     let onDismiss: () -> Void
+    var allowsRetry = true
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -4299,7 +4404,7 @@ private struct IChartForumUploadQueueRow: View {
 
             Spacer(minLength: 8)
 
-            if item.canRetry {
+            if item.canRetry && allowsRetry {
                 Button(action: onRetry) {
                     Label("Retry", systemImage: "arrow.clockwise")
                 }
@@ -4421,7 +4526,7 @@ struct IChartForumPublishSheet: View {
                 } header: {
                     Text("Metadata")
                 } footer: {
-                    Text("Tap a field to type. For Scribble, tap its Pencil icon, then write in the field.")
+                    Text("Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing.")
                 }
 
                 if !validationErrors.isEmpty {
@@ -4505,6 +4610,7 @@ private struct IChartForumPostDetailView: View {
     let savedPDFItemID: UUID?
     let isWorking: Bool
     let isLoadingEarlierComments: Bool
+    let canParticipate: Bool
     let errorMessage: String?
     let theme: IChartHomeTheme
     let onVote: (ForumVoteValue) -> Void
@@ -4515,6 +4621,7 @@ private struct IChartForumPostDetailView: View {
     let onBlockUser: (UUID, String) -> Void
     let onDownloadPDF: () -> Void
     let onClearDownloadedPDF: () -> Void
+    let onOpenProOptions: () -> Void
     let onWithdrawPost: () -> Void
     let onRemovePost: () -> Void
 
@@ -4652,54 +4759,70 @@ private struct IChartForumPostDetailView: View {
 
     private var actionRow: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Button(action: onDownloadPDF) {
-                Label(isPDFSaved ? "Open Saved PDF" : "Save PDF & Open", systemImage: isPDFSaved ? "checkmark.circle" : "arrow.down.doc")
+            if isPDFSaved || canParticipate {
+                Button(action: onDownloadPDF) {
+                    Label(isPDFSaved ? "Open Saved PDF" : "Save PDF & Open", systemImage: isPDFSaved ? "checkmark.circle" : "arrow.down.doc")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(IChartHomeBrand.blue)
+                .disabled(isWorking || (!isPDFSaved && !detail.post.acceptsCommunityActions))
+                .accessibilityHint(isPDFSaved ? "Opens the saved offline PDF." : "Downloads this PDF to your local PDF library, then opens it.")
+                Text(isPDFSaved ? "Saved for offline reading in PDFs." : "Saves a local copy in PDFs for offline reading.")
+                    .font(.caption)
+                    .foregroundStyle(theme.panelSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(IChartHomeBrand.blue)
-            .accessibilityHint(isPDFSaved ? "Opens the saved offline PDF." : "Downloads this PDF to your local PDF library, then opens it.")
-            Text(isPDFSaved ? "Saved for offline reading in PDFs." : "Saves a local copy in PDFs for offline reading.")
-                .font(.caption)
-                .foregroundStyle(theme.panelSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+            if !canParticipate {
+                Text("You can read discussions, view badges, report concerns, and block contributors in Basic. Pro adds new PDF downloads, publishing, votes, and comments.")
+                    .font(.subheadline)
+                    .foregroundStyle(theme.panelSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("View Pro Options", action: onOpenProOptions)
+                    .buttonStyle(.bordered)
+                    .disabled(isWorking)
+            }
             FlowLayout(spacing: 10, rowSpacing: 10) {
-            Button {
-                onVote(.up)
-            } label: {
-                Label("Upvote", systemImage: detail.currentUserVote == .up ? "hand.thumbsup.fill" : "hand.thumbsup")
-            }
-            .buttonStyle(.bordered)
-            .tint(theme.actionText)
-
-            Button {
-                onVote(.down)
-            } label: {
-                Label("Downvote", systemImage: detail.currentUserVote == .down ? "hand.thumbsdown.fill" : "hand.thumbsdown")
-            }
-            .buttonStyle(.bordered)
-
-            Menu {
-                ForEach(ForumReportReason.allCases) { reason in
-                    Button(reason.displayText) {
-                        onReportPost(reason)
-                    }
-                }
-
-                if currentUserID != detail.post.ownerID {
-                    Divider()
-                    Button(role: .destructive) {
-                        requestBlockUser(ownerID: detail.post.ownerID, displayName: detail.post.creatorDisplayName)
+                if canParticipate {
+                    Button {
+                        onVote(.up)
                     } label: {
-                        Label("Block Contributor", systemImage: "person.crop.circle.badge.xmark")
+                        Label("Upvote", systemImage: detail.currentUserVote == .up ? "hand.thumbsup.fill" : "hand.thumbsup")
                     }
+                    .buttonStyle(.bordered)
+                    .tint(theme.actionText)
+                    .disabled(isWorking || !detail.post.acceptsCommunityActions)
+
+                    Button {
+                        onVote(.down)
+                    } label: {
+                        Label("Downvote", systemImage: detail.currentUserVote == .down ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isWorking || !detail.post.acceptsCommunityActions)
                 }
-            } label: {
-                Label("Safety", systemImage: "flag")
-            }
-            .buttonStyle(.bordered)
+
+                Menu {
+                    ForEach(ForumReportReason.allCases) { reason in
+                        Button(reason.displayText) {
+                            onReportPost(reason)
+                        }
+                    }
+
+                    if currentUserID != detail.post.ownerID {
+                        Divider()
+                        Button(role: .destructive) {
+                            requestBlockUser(ownerID: detail.post.ownerID, displayName: detail.post.creatorDisplayName)
+                        } label: {
+                            Label("Block Contributor", systemImage: "person.crop.circle.badge.xmark")
+                        }
+                    }
+                } label: {
+                    Label("Safety", systemImage: "flag")
+                }
+                .buttonStyle(.bordered)
+                .disabled(isWorking)
             }
         }
-        .disabled(isWorking || !detail.post.acceptsCommunityActions)
     }
 
     @ViewBuilder
@@ -4739,7 +4862,7 @@ private struct IChartForumPostDetailView: View {
                     .foregroundStyle(theme.panelSecondary)
             }
 
-            if detail.post.acceptsCommunityActions {
+            if detail.post.acceptsCommunityActions && canParticipate {
                 HStack(alignment: .top, spacing: 8) {
                     IChartTypedTextView(
                         text: $commentText,
@@ -4748,7 +4871,7 @@ private struct IChartForumPostDetailView: View {
                         placeholderColor: UIColor(theme.panelSecondary),
                         tintColor: UIColor(theme.actionText),
                         accessibilityLabel: "Add a comment",
-                        accessibilityHint: "Tap to type. Use Start Scribble to write with Apple Pencil."
+                        accessibilityHint: "Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing."
                     )
                     .frame(height: commentHeight)
                     .background(theme.emptyStateBackground, in: RoundedRectangle(cornerRadius: 8))
@@ -4777,8 +4900,13 @@ private struct IChartForumPostDetailView: View {
                     .disabled(isWorking || isSubmittingComment)
                     .accessibilityLabel("Post comment")
                 }
-            } else {
+            } else if !detail.post.acceptsCommunityActions {
                 Text("Discussion is closed for this chart.")
+                    .font(.subheadline)
+                    .foregroundStyle(theme.panelSecondary)
+                    .padding(.vertical, 8)
+            } else {
+                Text("Comments are available to read. Pro adds posting to the discussion.")
                     .font(.subheadline)
                     .foregroundStyle(theme.panelSecondary)
                     .padding(.vertical, 8)
@@ -5733,11 +5861,10 @@ private struct IChartKeyboardFocusButton: View {
         Button(action: action) {
             Image(systemName: "keyboard")
                 .font(.subheadline.weight(.semibold))
-                .frame(width: 34, height: 34)
-                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
+        .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)
     }
 }
@@ -5750,12 +5877,12 @@ private enum IChartAccountInputField: Hashable {
     case newPassword
 }
 
-private enum IChartAccountEntryMode: String, CaseIterable {
+enum IChartAccountEntryMode: String, CaseIterable {
     case signIn
     case createAccount
 }
 
-private struct IChartAccountSettings: View {
+struct IChartAccountSettings: View {
     @ObservedObject var authStore: IChartAuthStore
     let theme: IChartHomeTheme
     var requiresNameForSignup: Bool
@@ -5855,6 +5982,7 @@ private struct IChartAccountSettings: View {
 
             statusFooter
         }
+        .frame(maxWidth: 560, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .alert("Delete Account?", isPresented: $isShowingDeleteAccountConfirmation) {
             Button("Delete Account", role: .destructive) {
@@ -6663,7 +6791,7 @@ private struct IChartPlanSettings: View {
 
                 IChartSettingsRow(
                     title: "Forums",
-                    value: isFreeBeta ? (isFreeAccess ? "Included" : "Not included in Basic") : store.subscriptionState.forumsAccessText,
+                    value: store.entitlements.includes(.forums) ? "Read, download, and participate" : "Browse and read",
                     systemImageName: "bubble.left.and.bubble.right",
                     theme: theme
                 )
@@ -6680,8 +6808,8 @@ private struct IChartPlanSettings: View {
                 }
             }
 
-            if store.requiresLocalChartPruningForCurrentPlan {
-                Text("Choose \(store.localChartOverflowCount) local chart\(store.localChartOverflowCount == 1 ? "" : "s") to remove from the Charts tab before Basic can open charts for editing or create new charts.")
+            if store.localChartLimit != nil {
+                Text("Basic limits new charts and duplicates to three local charts. All saved charts stay open for editing and PDF export, even if the library is above that limit.")
                     .font(.caption)
                     .foregroundStyle(theme.panelSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -7330,10 +7458,10 @@ private struct IChartAccountTextField: View {
                 placeholderColor: UIColor(theme.panelSecondary),
                 tintColor: UIColor(theme.actionText),
                 accessibilityLabel: title,
-                accessibilityHint: "Tap to type. Use Start Scribble to write with Apple Pencil."
+                accessibilityHint: "Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing.",
+                compact: true
             )
             .padding(.horizontal, 11)
-            .frame(minHeight: 44)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(theme.emptyStateBackground)
@@ -7358,7 +7486,7 @@ private struct IChartAccountSecureField: View {
 
     var body: some View {
         IChartAccountFieldRow(title: title, systemImageName: systemImageName, theme: theme) {
-            HStack(spacing: 12) {
+            HStack(spacing: 4) {
                 SecureField(placeholder, text: $text)
                     .focused(focusedField, equals: field)
                     .textInputAutocapitalization(.never)
@@ -7366,23 +7494,26 @@ private struct IChartAccountSecureField: View {
                     .font(.subheadline)
                     .foregroundStyle(theme.panelTitle)
                     .accessibilityLabel(title)
-                    .padding(.horizontal, 11)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(minHeight: 44)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(theme.emptyStateBackground)
-                    )
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(theme.panelBorder, lineWidth: 1)
-                    }
 
                 IChartKeyboardFocusButton(
                     accessibilityLabel: "Open keyboard for \(title)"
                 ) {
                     focusedField.wrappedValue = field
                 }
+                .foregroundStyle(theme.actionText)
             }
+            .padding(.horizontal, 11)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(theme.emptyStateBackground)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(theme.panelBorder, lineWidth: 1)
+            }
+            .frame(maxWidth: .infinity)
         }
     }
 }
@@ -7546,9 +7677,8 @@ private struct IChartProjectCard: View {
     let project: ChartProject
     let charts: [Chart]
     let canCreateChart: Bool
-    let canOpenCharts: Bool
+    let canManageProject: Bool
     let availableCharts: [Chart]
-    let chartEditingLockMessage: String
     let theme: IChartHomeTheme
     let onOpenChart: (Chart.ID) -> Void
     let onNewChart: (ChartProject.ID) -> Void
@@ -7572,11 +7702,13 @@ private struct IChartProjectCard: View {
 
                     Spacer(minLength: 12)
 
-                    projectMenu
+                    if canManageProject { projectMenu }
                 }
 
                 if charts.isEmpty {
-                    Text("Add an existing chart or create the first chart for this song.")
+                    Text(canManageProject
+                        ? "Add an existing chart or create the first chart for this song."
+                        : "There are no charts in this saved Project.")
                         .font(.subheadline)
                         .foregroundStyle(theme.panelSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -7586,9 +7718,8 @@ private struct IChartProjectCard: View {
                             IChartProjectChartRow(
                                 chart: chart,
                                 theme: theme,
-                                canDuplicate: canCreateChart,
-                                canOpenForEditing: canOpenCharts,
-                                lockMessage: chartEditingLockMessage,
+                                canDuplicate: canCreateChart && canManageProject,
+                                canManageProject: canManageProject,
                                 onOpen: {
                                     onOpenChart(chart.id)
                                 },
@@ -7603,23 +7734,25 @@ private struct IChartProjectCard: View {
                     }
                 }
 
-                HStack(spacing: 10) {
-                    Button {
-                        onAddExisting(project)
-                    } label: {
-                        Label("Add Existing", systemImage: "plus")
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(availableCharts.isEmpty)
+                if canManageProject {
+                    HStack(spacing: 10) {
+                        Button {
+                            onAddExisting(project)
+                        } label: {
+                            Label("Add Existing", systemImage: "plus")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(availableCharts.isEmpty)
 
-                    Button {
-                        onNewChart(project.id)
-                    } label: {
-                        Label("New Chart", systemImage: "square.and.pencil")
+                        Button {
+                            onNewChart(project.id)
+                        } label: {
+                            Label("New Chart", systemImage: "square.and.pencil")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(IChartHomeBrand.blue)
+                        .disabled(!canCreateChart)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(IChartHomeBrand.blue)
-                    .disabled(!canCreateChart)
                 }
             }
         }
@@ -7652,8 +7785,7 @@ private struct IChartProjectChartRow: View {
     let chart: Chart
     let theme: IChartHomeTheme
     let canDuplicate: Bool
-    let canOpenForEditing: Bool
-    let lockMessage: String
+    let canManageProject: Bool
     let onOpen: () -> Void
     let onDuplicateVariant: () -> Void
     let onRemove: () -> Void
@@ -7666,42 +7798,36 @@ private struct IChartProjectChartRow: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(theme.panelTitle)
                         .lineLimit(1)
-
                     Text(chart.librarySummaryText)
                         .font(.caption)
                         .foregroundStyle(theme.panelSecondary)
                         .lineLimit(1)
 
-                    if !canOpenForEditing {
-                        Label(lockMessage, systemImage: "lock.fill")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(theme.actionText)
-                            .lineLimit(1)
-                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(!canOpenForEditing)
-            .accessibilityHint(canOpenForEditing ? "" : lockMessage)
+            .accessibilityHint("Open this saved chart to edit or export it.")
 
-            Menu {
-                Button(action: onDuplicateVariant) {
-                    Label("Duplicate Variant", systemImage: "plus.square.on.square")
-                }
-                .disabled(!canDuplicate)
+            if canManageProject {
+                Menu {
+                    Button(action: onDuplicateVariant) {
+                        Label("Duplicate Variant", systemImage: "plus.square.on.square")
+                    }
+                    .disabled(!canDuplicate)
 
-                Button(role: .destructive, action: onRemove) {
-                    Label("Remove From Project", systemImage: "minus.circle")
+                    Button(role: .destructive, action: onRemove) {
+                        Label("Remove From Project", systemImage: "minus.circle")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(theme.panelSecondary)
+                        .frame(width: 34, height: 34)
                 }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(theme.panelSecondary)
-                    .frame(width: 34, height: 34)
+                .accessibilityLabel("Project chart actions")
             }
-            .accessibilityLabel("Project chart actions")
         }
         .padding(12)
         .overlay(alignment: .bottom) {
@@ -7861,13 +7987,11 @@ private struct ProjectRowView: View {
     let isSelected: Bool
     let canDuplicate: Bool
     let canShareToForum: Bool
-    let canOpenForEditing: Bool
-    let lockMessage: String
     let onOpen: () -> Void
     let onRename: () -> Void
     let onDuplicate: () -> Void
     let onShareToForum: () -> Void
-    let onRemoveLocal: () -> Void
+    let onOpenOriginalPDF: (() -> Void)?
     let onDelete: () -> Void
 
     var body: some View {
@@ -7884,8 +8008,7 @@ private struct ProjectRowView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.plain)
-            .disabled(!canOpenForEditing)
-            .accessibilityHint(canOpenForEditing ? "" : lockMessage)
+            .accessibilityHint("Open this saved chart to edit or export it.")
 
             rowActionControl
         }
@@ -7903,7 +8026,7 @@ private struct ProjectRowView: View {
             }
         }
         .contextMenu {
-            if canOpenForEditing {
+            originalPDFAction
                 Button(action: onRename) {
                     Label("Rename", systemImage: "pencil")
                 }
@@ -7921,18 +8044,12 @@ private struct ProjectRowView: View {
                 Button(role: .destructive, action: onDelete) {
                     Label("Delete", systemImage: "trash")
                 }
-            } else {
-                Button(role: .destructive, action: onRemoveLocal) {
-                    Label("Delete Local", systemImage: "trash")
-                }
-            }
         }
     }
 
-    @ViewBuilder
     private var rowActionControl: some View {
-        if canOpenForEditing {
             Menu {
+                originalPDFAction
                 Button(action: onRename) {
                     Label("Rename", systemImage: "pencil")
                 }
@@ -7959,16 +8076,14 @@ private struct ProjectRowView: View {
                     .frame(width: 36, height: 36)
             }
             .accessibilityLabel("Chart actions")
-        } else {
-            Button(role: .destructive, action: onRemoveLocal) {
-                Label("Delete Local", systemImage: "trash")
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
+    }
+
+    @ViewBuilder
+    private var originalPDFAction: some View {
+        if let onOpenOriginalPDF {
+            Button(action: onOpenOriginalPDF) {
+                Label("View Original PDF", systemImage: "doc.text")
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .accessibilityLabel("Delete local chart")
-            .accessibilityHint(lockMessage)
         }
     }
 
@@ -7984,12 +8099,6 @@ private struct ProjectRowView: View {
                 .foregroundStyle(theme.panelSecondary)
                 .lineLimit(1)
 
-            if !canOpenForEditing {
-                Label(lockMessage, systemImage: "lock.fill")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(theme.actionText)
-                    .lineLimit(1)
-            }
         }
     }
 

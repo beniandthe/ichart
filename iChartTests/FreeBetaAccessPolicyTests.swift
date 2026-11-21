@@ -71,14 +71,12 @@ final class FreeBetaAccessPolicyTests: XCTestCase {
         XCTAssertEqual(store.entitlements.subscription, billing)
         XCTAssertEqual(store.entitlements.activePlan, .studioSubscription)
         XCTAssertEqual(store.localChartLimit, 3)
-        XCTAssertEqual(store.localChartOverflowCount, 3)
         XCTAssertFalse(store.canCreateChart)
         XCTAssertFalse(store.createBlankChart())
         XCTAssertNil(store.duplicateChart(id: charts[0].id))
-        XCTAssertFalse(store.requiresLocalChartPruningForCurrentPlan)
-        XCTAssertFalse(store.isChartEditingLockedByCurrentPlan)
-        XCTAssertTrue(store.canOpenChartsForEditing)
-        XCTAssertFalse(store.pruneLocalChartForCurrentPlan(id: charts[4].id))
+        for chart in charts {
+            XCTAssertNotNil(store.editorBinding(for: chart.id))
+        }
         XCTAssertEqual(store.charts, charts)
         XCTAssertEqual(store.charts(in: project), charts)
         XCTAssertEqual(store.projects, [project])
@@ -108,7 +106,7 @@ final class FreeBetaAccessPolicyTests: XCTestCase {
         XCTAssertEqual(store.charts.count, 7)
     }
 
-    func testVoluntaryBasicAllowsCreationUpToThreeWithoutPruning() {
+    func testVoluntaryBasicAllowsCreationUpToThreeAndKeepsExistingChartsEditable() {
         let charts = (1...2).map { Chart.blank(title: "Chart \($0)") }
         let store = ChartLibraryStore(charts: charts, entitlements: AppEntitlements(subscription: .basic))
         store.applyAccessPolicy(.betaBasic)
@@ -116,8 +114,7 @@ final class FreeBetaAccessPolicyTests: XCTestCase {
         XCTAssertTrue(store.createBlankChart())
         XCTAssertEqual(store.charts.count, 3)
         XCTAssertFalse(store.createBlankChart())
-        XCTAssertFalse(store.requiresLocalChartPruningForCurrentPlan)
-        XCTAssertTrue(store.canOpenChartsForEditing)
+        XCTAssertNotNil(store.editorBinding(for: charts[0].id))
         XCTAssertEqual(store.entitlements.subscription, .basic)
     }
 
@@ -133,7 +130,7 @@ final class FreeBetaAccessPolicyTests: XCTestCase {
         XCTAssertNil(store.duplicateChart(id: chart.id, projectID: project.id))
         XCTAssertEqual(store.snapshot, before)
         XCTAssertEqual(store.charts(in: project), [chart])
-        XCTAssertTrue(store.canOpenChartsForEditing)
+        XCTAssertNotNil(store.editorBinding(for: chart.id))
         XCTAssertTrue(store.createBlankChart(), "Plain Basic chart creation remains available under the cap")
         XCTAssertNotNil(store.duplicateChart(id: chart.id), "Plain duplication remains available under the cap")
         XCTAssertEqual(store.charts.count, 3)
@@ -176,10 +173,10 @@ final class FreeBetaAccessPolicyTests: XCTestCase {
         XCTAssertEqual(store.selectedChartID, chart.id)
         XCTAssertEqual(store.localChartLimit, 3)
         XCTAssertFalse(store.canUse(.forums))
-        XCTAssertTrue(store.canOpenChartsForEditing)
+        XCTAssertNotNil(store.editorBinding(for: chart.id))
     }
 
-    func testBothBetaModesPreserveDownloadedPDFBytesAndSetlistLinksAcrossAllBillingStates() throws {
+    func testProductAndBillingTransitionsPreserveSavedPDFsAndSetlistLinks() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -207,17 +204,17 @@ final class FreeBetaAccessPolicyTests: XCTestCase {
         let entry = try setlistStore.add(pdfItem: forumItem, to: setlist.id)
         let originalItems = pdfStore.items
         let originalSetlists = setlistStore.setlists
+        let chartStore = ChartLibraryStore(charts: [], entitlements: AppEntitlements(subscription: .basic))
 
-        for policy in [IChartProductAccessPolicy.freeAllFeatures, .betaBasic] {
+        for policy in [IChartProductAccessPolicy.freeAllFeatures, .betaBasic, .paidSubscription] {
+            chartStore.applyAccessPolicy(policy)
             for status in IChartSubscriptionStatus.allCases {
                 let billing = billingEvidence(status)
-                XCTAssertTrue(billing.allowsForumDownloadAccess(accessPolicy: policy))
-                XCTAssertFalse(billing.shouldRemoveForumDownloads(accessPolicy: policy))
-                XCTAssertEqual(pdfStore.removeForumDownloadsIfInactive(for: billing, accessPolicy: policy), 0)
-                XCTAssertEqual(pdfStore.visibleItems(for: billing, accessPolicy: policy), originalItems)
+                chartStore.applySubscriptionState(billing)
+                pdfStore.reload()
                 XCTAssertEqual(pdfStore.items, originalItems)
                 let retainedSetlist = try XCTUnwrap(setlistStore.setlist(id: setlist.id))
-                let resolvedEntries = retainedSetlist.resolvedEntries(in: pdfStore.visibleItems(for: billing, accessPolicy: policy))
+                let resolvedEntries = retainedSetlist.resolvedEntries(in: pdfStore.items)
                 XCTAssertEqual(resolvedEntries.map(\.id), [entry.id])
                 XCTAssertEqual(resolvedEntries.first?.pdfItem?.id, forumItem.id)
                 XCTAssertEqual(try Data(contentsOf: forumPDF.url), bytes)
@@ -226,26 +223,28 @@ final class FreeBetaAccessPolicyTests: XCTestCase {
         }
 
         let reopenedPDFs = IChartPDFLibraryStore(baseDirectory: libraryDirectory)
-        XCTAssertEqual(reopenedPDFs.visibleItems(for: .basic, accessPolicy: .betaBasic), originalItems)
-        XCTAssertEqual(reopenedPDFs.removeForumDownloadsIfInactive(for: .basic, accessPolicy: .betaBasic), 0)
+        XCTAssertEqual(reopenedPDFs.items, originalItems)
         XCTAssertEqual(IChartPDFSetlistStore(baseDirectory: setlistDirectory).setlists, originalSetlists)
     }
 
-    func testParkedPaidPolicyKeepsExistingBillingAndPruningContracts() {
+    func testPaidPolicyDowngradePreservesEditingWhileLimitingNewCreation() {
         let charts = (1...4).map { Chart.blank(title: "Chart \($0)") }
         let store = ChartLibraryStore(
             charts: charts,
             entitlements: AppEntitlements(subscription: .proExpired(), accessPolicy: .paidSubscription)
         )
-        XCTAssertTrue(store.requiresLocalChartPruningForCurrentPlan)
-        XCTAssertTrue(store.isChartEditingLockedByCurrentPlan)
+        for chart in charts {
+            XCTAssertNotNil(store.editorBinding(for: chart.id))
+        }
+        XCTAssertFalse(store.canCreateChart)
+        XCTAssertEqual(store.charts, charts)
         XCTAssertEqual(store.localChartLimit, 3)
-        XCTAssertFalse(IChartSubscriptionEntitlement.basic.allowsForumDownloadAccess(accessPolicy: .paidSubscription))
-        XCTAssertTrue(IChartSubscriptionEntitlement.basic.shouldRemoveForumDownloads(accessPolicy: .paidSubscription))
+        XCTAssertFalse(store.entitlements.canConvertPDFToEditableChart)
+        XCTAssertFalse(store.entitlements.canUsePremiumFonts)
 
         store.applySubscriptionState(.activePro())
         XCTAssertNil(store.localChartLimit)
-        XCTAssertFalse(store.requiresLocalChartPruningForCurrentPlan)
+        XCTAssertTrue(store.canCreateChart)
         XCTAssertTrue(store.canUse(.cloudBackup))
 
         let previousPaidSnapshotContract = ChartLibrarySnapshot(

@@ -63,6 +63,29 @@ test("allows sandbox configuration without an App Apple ID", () => {
   assert.equal(result.value.appAppleID, null);
   assert.deepEqual(result.value.rootCertificateBase64Bodies, [fakeCertificateOne, fakeCertificateTwo]);
   assert.equal(result.value.enableOnlineChecks, false);
+  assert.equal(result.value.stagingStoreKitProducts, false);
+});
+
+test("isolated product mode requires explicit true, Sandbox, and the fixed staging project", () => {
+  const base = {
+    APP_STORE_BUNDLE_ID: "com.ichart.app",
+    APP_STORE_ENVIRONMENT: "Sandbox",
+    APP_STORE_ROOT_CERTIFICATES_PEM: fakePEMBundle,
+    SUPABASE_URL: "https://gfqpbikqvdgtjjgxrkgo.supabase.co",
+  };
+  const enabled = appStoreVerifierConfigurationFromEnv({ ...base, ICHART_STAGING_STOREKIT_PRODUCTS: "true" });
+  assert.equal(enabled.ok, true);
+  assert.equal(enabled.value.stagingStoreKitProducts, true);
+  for (const override of [
+    { ICHART_STAGING_STOREKIT_PRODUCTS: "sometimes" },
+    { ICHART_STAGING_STOREKIT_PRODUCTS: "true", APP_STORE_ENVIRONMENT: "Production", APP_STORE_APP_APPLE_ID: "123" },
+    { ICHART_STAGING_STOREKIT_PRODUCTS: "true", SUPABASE_URL: "https://production.example.test" },
+    { ICHART_STAGING_STOREKIT_PRODUCTS: "true", SUPABASE_URL: "https://gfqpbikqvdgtjjgxrkgo.supabase.co.attacker.test" },
+    { ICHART_STAGING_STOREKIT_PRODUCTS: "true", SUPABASE_URL: "" },
+  ]) {
+    assert.equal(appStoreVerifierConfigurationFromEnv({ ...base, ...override }).ok, false);
+  }
+  assert.equal(appStoreVerifierConfigurationFromEnv({ ...base, ICHART_STAGING_STOREKIT_PRODUCTS: "false" }).value.stagingStoreKitProducts, false);
 });
 
 test("requires App Apple ID for production verification", () => {

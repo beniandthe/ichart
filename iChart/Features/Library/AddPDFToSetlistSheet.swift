@@ -2,13 +2,12 @@
 import SwiftUI
 
 /// Adds references to existing local PDFs. It never copies, edits or deletes
-/// their files, and rechecks access at the moment the user chooses a setlist.
+/// their files, and checks that the PDFs still exist when the user chooses a setlist.
 struct AddPDFToSetlistSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var setlistStore: IChartPDFSetlistStore
     @EnvironmentObject private var pdfStore: IChartPDFLibraryStore
-    @EnvironmentObject private var chartStore: ChartLibraryStore
-    @AppStorage(IChartAppAppearance.preferenceKey) private var appearanceValue = IChartAppAppearance.light.rawValue
+    @AppStorage(IChartAppAppearance.preferenceKey, store: IChartStorageNamespace.defaults) private var appearanceValue = IChartAppAppearance.light.rawValue
     let pdfItemIDs: [UUID]
     @State private var query = ""
     @State private var creating = false
@@ -18,9 +17,7 @@ struct AddPDFToSetlistSheet: View {
 
     private var appearance: IChartAppAppearance { IChartAppAppearance(persistedValue: appearanceValue) }
     private var availableItems: [IChartPDFLibraryItem] {
-        let visible = pdfStore.visibleItems(for: chartStore.subscriptionState,
-            accessPolicy: chartStore.entitlements.accessPolicy)
-        let byID = Dictionary(uniqueKeysWithValues: visible.map { ($0.id, $0) })
+        let byID = Dictionary(uniqueKeysWithValues: pdfStore.items.map { ($0.id, $0) })
         return pdfItemIDs.compactMap { byID[$0] }.filter { pdfStore.exportedPDF(for: $0) != nil }
     }
     private var canAdd: Bool { !pdfItemIDs.isEmpty && availableItems.count == pdfItemIDs.count && setlistStore.loadError == nil }
@@ -70,7 +67,7 @@ struct AddPDFToSetlistSheet: View {
                             IChartTypedTextField(placeholder: "Setlist name", text: $newName, isFocused: $nameFocused,
                                 autocapitalizationType: .words, autocorrectionType: .yes,
                                 accessibilityIdentifier: "setlists.destination.name",
-                                accessibilityHint: "Tap to type. Use Start Scribble to write with Apple Pencil.")
+                                accessibilityHint: "Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing.")
                                 .frame(minHeight: 44)
                             Button("Create & Add PDFs") {
                                 perform {
@@ -87,8 +84,9 @@ struct AddPDFToSetlistSheet: View {
                         }
                         IChartTypedTextField(placeholder: "Search setlists", text: $query,
                             returnKeyType: .search, accessibilityIdentifier: "setlists.destination.search",
-                            accessibilityHint: "Tap to type. Use Start Scribble to write with Apple Pencil.")
-                            .frame(minHeight: 44)
+                            accessibilityHint: "Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing.",
+                            compact: true)
+                            .frame(maxWidth: IChartSearchControlLayout.maximumWidth, alignment: .leading)
                     }
                     .background(IChartTypedSheetScrollSupport())
                 }

@@ -26,7 +26,7 @@ extension View {
 }
 
 private struct IChartSelectedDocumentAppearance: ViewModifier {
-    @AppStorage(IChartAppAppearance.preferenceKey) private var appearanceValue = IChartAppAppearance.light.rawValue
+    @AppStorage(IChartAppAppearance.preferenceKey, store: IChartStorageNamespace.defaults) private var appearanceValue = IChartAppAppearance.light.rawValue
 
     func body(content: Content) -> some View {
         content.ichartDocumentDisplayAppearance(isDark: IChartAppAppearance(persistedValue: appearanceValue).isDark)

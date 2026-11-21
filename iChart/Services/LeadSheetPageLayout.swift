@@ -70,6 +70,7 @@ struct LeadSheetSystemLayout: Identifiable, Hashable {
     var roadmapMarkerLayouts: [LeadSheetRoadmapMarkerLayout]
     var endingLayouts: [LeadSheetEndingLayout]
     var measures: [LeadSheetMeasureLayout]
+    var reservesAnnotationSpace = false
 }
 
 struct LeadSheetKeySignatureLayout: Hashable {
@@ -429,6 +430,7 @@ struct LeadSheetEndingLayout: Identifiable, Hashable {
     var labelFontSize: CGFloat = 0
     var labelLineCount: Int = 1
     var laneIndex: Int = 0
+    var verticalOffsetFromDefault: CGFloat = 0
 
     var occupiedFrame: CGRect {
         labelFrame.isEmpty ? frame : frame.union(labelFrame)
@@ -447,6 +449,7 @@ struct LeadSheetRoadmapMarkerLayout: Identifiable, Hashable {
     var movementFrame: CGRect
     var anchorMeasureID: UUID
     var scale: CGFloat
+    var verticalOffsetFromDefault: CGFloat = 0
 
     var id: UUID {
         roadmapObjectID
@@ -478,6 +481,7 @@ struct LeadSheetCueTextLayout: Identifiable, Hashable {
     var scale: CGFloat
     var beatFraction: CGFloat?
     var verticalOffset: CGFloat
+    var verticalOffsetFromDefault: CGFloat = 0
 }
 
 enum LeadSheetCueTextTypography {
@@ -549,7 +553,12 @@ enum LeadSheetPageLayoutEngine {
     private static let paperTopMargin: CGFloat = 30
     private static let paperBottomMargin: CGFloat = 30
     private static let paperPageGap: CGFloat = 28
+    private static let headerToFirstSystemSpacing: CGFloat = 24
+    private static let headerInkOutset: CGFloat = 4
     private static let continuationPageFirstSystemTopInset: CGFloat = 44
+    private static let systemBottomInset: CGFloat = 54
+    private static let annotationTopEdgeClearance: CGFloat = 4
+    private static let interSystemAnnotationClearance: CGFloat = 8
     private static let mediumOpenMeasureWidth: CGFloat = 252
     private static let preferredCommittedMeasureWidth: CGFloat = 140
     private static let systemTrailingPadding: CGFloat = 6
@@ -823,11 +832,11 @@ enum LeadSheetPageLayoutEngine {
             height: minimumPaperHeight
         )
         let prototypeHeaderFrame = headerFrame(in: prototypePaperFrame)
-        let firstPageSystemTopOffset = prototypeHeaderFrame.maxY + 24 - prototypePaperFrame.minY
+        let firstPageSystemTopOffset = prototypeHeaderFrame.maxY + headerToFirstSystemSpacing - prototypePaperFrame.minY
         let plans = systemPlans(
             for: chart,
             paperFrame: prototypePaperFrame,
-            firstSystemTop: prototypeHeaderFrame.maxY + 24,
+            firstSystemTop: prototypeHeaderFrame.maxY + headerToFirstSystemSpacing,
             includesChordInkContinuationLanes: includesChordInkContinuationLanes,
             visualPolicy: visualPolicy,
             meterContext: meterContext
@@ -863,7 +872,7 @@ enum LeadSheetPageLayoutEngine {
             if pageIndex == 0 {
                 let resolvedHeaderFrame = headerFrame(in: paperFrame)
                 header = headerLayout(for: chart, in: resolvedHeaderFrame, visualPolicy: visualPolicy)
-                firstSystemTop = resolvedHeaderFrame.maxY + 24
+                firstSystemTop = resolvedHeaderFrame.maxY + headerToFirstSystemSpacing
             } else {
                 firstSystemTop = paperFrame.minY + continuationPageFirstSystemTopInset
             }
@@ -936,7 +945,7 @@ enum LeadSheetPageLayoutEngine {
         let plans = systemPlans(
             for: chart,
             paperFrame: paperFrame,
-            firstSystemTop: resolvedHeaderFrame.maxY + 24,
+            firstSystemTop: resolvedHeaderFrame.maxY + headerToFirstSystemSpacing,
             includesChordInkContinuationLanes: false,
             visualPolicy: visualPolicy,
             meterContext: meterContext
@@ -947,7 +956,7 @@ enum LeadSheetPageLayoutEngine {
             plans,
             chart: chart,
             paperHeight: minimumPaperHeight,
-            firstPageSystemTopOffset: resolvedHeaderFrame.maxY + 24 - paperFrame.minY,
+            firstPageSystemTopOffset: resolvedHeaderFrame.maxY + headerToFirstSystemSpacing - paperFrame.minY,
             metrics: metrics
         )
         let paperCount = max(planPages.count, retainedInkPaperCount(for: chart,
@@ -1142,7 +1151,7 @@ enum LeadSheetPageLayoutEngine {
                 partialFrame.union(contentFrame)
             }
             .union(frame)
-            .insetBy(dx: 0, dy: -4)
+            .insetBy(dx: 0, dy: -headerInkOutset)
 
         return LeadSheetHeaderLayout(
             frame: frame,
@@ -1185,13 +1194,21 @@ enum LeadSheetPageLayoutEngine {
         let flexibleEndings = endingSpanDescriptors(in: chart).contains {
             $0.laneIndex > 0 || $0.object.resolvedEndingDisplayText != $0.object.type.compactEndingDisplayText
         }
-        guard chart.staffSystemDensity != .standard || !chart.cueTexts.isEmpty || readabilityActive || flexibleEndings else {
+        let hasMovableRoadmapAnnotations = chart.roadmapObjects.contains {
+            $0.type.isPointMarker || ($0.type.isEnding && ($0.resolvedVerticalOffset != 0 || !chart.sectionLabels.isEmpty))
+        }
+        guard chart.staffSystemDensity != .standard || !chart.cueTexts.isEmpty || readabilityActive
+                || flexibleEndings || hasMovableRoadmapAnnotations else {
             return plans
         }
 
-        // Measure content without the short-row cue clamp. This reserves space
-        // for actual notation, moved cues, and roadmap overhangs before paging.
-        // Staff, chord lanes, and glyph sizes still use the original engraving.
+        let movedRoadmapIDs = Set(chart.roadmapObjects.filter {
+            ($0.type.isPointMarker || $0.type.isEnding) && $0.resolvedVerticalOffset != 0
+        }.map(\.id))
+        let hasManualAnnotations = !movedRoadmapIDs.isEmpty || chart.cueTexts.contains { $0.verticalOffset != 0 }
+
+        // Measure the automatic placement first so a manual adjustment can
+        // reuse the row's existing reserve and the space between systems.
         return plans.enumerated().map { index, plan in
             let measuringFrame = CGRect(
                 x: paperFrame.minX + 34,
@@ -1199,27 +1216,53 @@ enum LeadSheetPageLayoutEngine {
                 width: min(paperFrame.width - 68, plan.frameWidth),
                 height: 10_000
             )
-            let measuredSystem = systemLayout(
+            let automatic = systemLayout(
                 for: plan,
                 chart: chart,
                 index: index,
                 frame: measuringFrame,
                 visualPolicy: visualPolicy,
-                meterContext: meterContext
+                meterContext: meterContext,
+                appliesManualAnnotationOffsets: false
             )
             let contentBounds: CGRect
-            if chart.staffSystemDensity == .standard && !readabilityActive && !flexibleEndings {
-                // Standard rows keep their original engraving. Only cue
-                // overhang needs additional space when its text wraps or moves.
-                let cueFrames = measuredSystem.measures.flatMap(\.cueTextLayouts).map(\.frame)
-                guard let firstCueFrame = cueFrames.first else { return plan }
-                contentBounds = cueFrames.dropFirst().reduce(firstCueFrame) { $0.union($1) }
+            if chart.staffSystemDensity == .standard && !readabilityActive && !flexibleEndings
+                && !automatic.layout.reservesAnnotationSpace {
+                // Standard rows only reserve extra room for their default cues.
+                let cueFrames = automatic.layout.measures.flatMap(\.cueTextLayouts).map(\.frame)
+                contentBounds = cueFrames.reduce(CGRect.null) { $0.union($1) }
             } else {
-                contentBounds = measuredSystem.spacingContentBounds(for: chart)
+                contentBounds = automatic.layout.spacingContentBounds(for: chart)
             }
             var resolvedPlan = plan
-            resolvedPlan.systemHeight = max(metrics.systemHeight, ceil(contentBounds.maxY + 4))
-            resolvedPlan.topClearance = max(0, ceil(-contentBounds.minY))
+            if !contentBounds.isNull {
+                resolvedPlan.systemHeight = max(metrics.systemHeight, ceil(contentBounds.maxY + 4))
+                resolvedPlan.topClearance = max(0, ceil(-contentBounds.minY))
+            }
+            guard hasManualAnnotations else { return resolvedPlan }
+
+            let automaticBounds = automatic.layout.spacingContentBounds(for: chart)
+            let hasMovedAnnotation = automatic.layout.endingLayouts.contains { movedRoadmapIDs.contains($0.roadmapObjectID) }
+                || automatic.layout.roadmapMarkerLayouts.contains { movedRoadmapIDs.contains($0.roadmapObjectID) }
+                || automatic.layout.measures.contains { $0.cueTextLayouts.contains { $0.verticalOffset != 0 } }
+            resolvedPlan.defaultEndingReserve = automatic.endingReserve
+            let placedBounds: CGRect
+            if hasMovedAnnotation {
+                placedBounds = systemLayout(
+                    for: resolvedPlan,
+                    chart: chart,
+                    index: index,
+                    frame: measuringFrame,
+                    visualPolicy: visualPolicy,
+                    meterContext: meterContext
+                ).layout.spacingContentBounds(for: chart)
+            } else {
+                placedBounds = automaticBounds
+            }
+            resolvedPlan.annotationSpacing = ManualAnnotationSpacing(
+                automaticBounds: automaticBounds,
+                placedBounds: placedBounds
+            )
             return resolvedPlan
         }
     }
@@ -1249,20 +1292,35 @@ enum LeadSheetPageLayoutEngine {
                 currentPageHeight = 0
             }
 
-            let topOffset = pages.isEmpty
-                ? firstPageSystemTopOffset
-                : continuationPageFirstSystemTopInset
-            let usableHeight = max(0, paperHeight - topOffset - 54)
-            let planHeight = plan.topClearance + (plan.systemHeight ?? metrics.systemHeight)
+            let isFirstPage = pages.isEmpty
+            let topOffset = isFirstPage ? firstPageSystemTopOffset : continuationPageFirstSystemTopInset
+            let usableHeight = max(0, paperHeight - topOffset - systemBottomInset)
+            let topMargin = isFirstPage ? headerToFirstSystemSpacing - headerInkOutset : topOffset
+            var positionedPlan = planWithAnnotationClearance(
+                plan,
+                following: currentPage.last,
+                availableTopMargin: topMargin - annotationTopEdgeClearance,
+                metrics: metrics
+            )
             let precedingGap = currentPage.isEmpty ? 0 : metrics.systemSpacing
+            let rowStart = currentPageHeight + precedingGap + positionedPlan.topClearance
+            let rowHeight = plan.systemHeight ?? metrics.systemHeight
+            let visibleBottom = positionedPlan.annotationSpacing?.requiredBottom ?? 0
             if !currentPage.isEmpty,
-               currentPageHeight + precedingGap + planHeight > usableHeight {
+               rowStart + max(rowHeight, visibleBottom) > usableHeight {
                 pages.append(currentPage)
                 currentPage = []
                 currentPageHeight = 0
+                positionedPlan = planWithAnnotationClearance(
+                    plan,
+                    following: nil,
+                    availableTopMargin: continuationPageFirstSystemTopInset - annotationTopEdgeClearance,
+                    metrics: metrics
+                )
             }
-            currentPageHeight += (currentPage.isEmpty ? 0 : metrics.systemSpacing) + planHeight
-            currentPage.append(plan)
+            currentPageHeight += (currentPage.isEmpty ? 0 : metrics.systemSpacing)
+                + positionedPlan.topClearance + rowHeight
+            currentPage.append(positionedPlan)
         }
 
         if !currentPage.isEmpty {
@@ -1270,6 +1328,32 @@ enum LeadSheetPageLayoutEngine {
         }
 
         return pages.isEmpty ? [[]] : pages
+    }
+
+    private static func planWithAnnotationClearance(
+        _ plan: PackedLeadSheetSystemPlan,
+        following previous: PackedLeadSheetSystemPlan?,
+        availableTopMargin: CGFloat,
+        metrics: LeadSheetEngravingMetrics
+    ) -> PackedLeadSheetSystemPlan {
+        guard let spacing = plan.annotationSpacing else { return plan }
+
+        let needed: CGFloat
+        if let previous, let previousSpacing = previous.annotationSpacing {
+            let stride = (previous.systemHeight ?? metrics.systemHeight)
+                + metrics.systemSpacing + plan.topClearance
+            let automaticGap = stride + spacing.automaticBounds.minY - previousSpacing.automaticBounds.maxY
+            let placedGap = stride + spacing.placedBounds.minY - previousSpacing.placedBounds.maxY
+            // Keep the current density's clearance when it's already tighter.
+            needed = min(interSystemAnnotationClearance, automaticGap) - placedGap
+        } else {
+            let earliestTop = min(spacing.automaticBounds.minY, -availableTopMargin - plan.topClearance)
+            needed = earliestTop - spacing.placedBounds.minY
+        }
+
+        var positionedPlan = plan
+        positionedPlan.topClearance += max(0, ceil(needed))
+        return positionedPlan
     }
 
     private static func pageBreakStartMeasureIDs(for chart: Chart) -> Set<UUID> {
@@ -1309,7 +1393,7 @@ enum LeadSheetPageLayoutEngine {
                 frame: systemFrame,
                 visualPolicy: visualPolicy,
                 meterContext: meterContext
-            )
+            ).layout
         }
     }
 
@@ -1333,7 +1417,7 @@ enum LeadSheetPageLayoutEngine {
         )
         let bodyWidth = max(1, paperFrame.width - 68 - leadingSignatureWidth - systemTrailingPadding)
         let rowStride = metrics.systemHeight + metrics.systemSpacing
-        let usableBottom = paperFrame.maxY - 54
+        let usableBottom = paperFrame.maxY - systemBottomInset
         let availableHeight = max(0, usableBottom - firstSystemTop + metrics.systemSpacing)
         let visibleSystemCapacity = max(
             plans.count,
@@ -1370,8 +1454,10 @@ enum LeadSheetPageLayoutEngine {
         frame: CGRect,
         visualPolicy: VisualPolicy,
         meterContext: MeterChangeContext,
+        appliesManualAnnotationOffsets: Bool = true,
         endingReserveOverride: CGFloat? = nil
-    ) -> LeadSheetSystemLayout {
+    ) -> (layout: LeadSheetSystemLayout, endingReserve: CGFloat?) {
+        let endingReserve = endingReserveOverride ?? plan.defaultEndingReserve
         let metrics = visualPolicy.metrics
         let lineSpacing = metrics.staffLineSpacing
         let isSimpleChordSheet = chart.layoutStyle == .simpleChordSheet
@@ -1399,7 +1485,7 @@ enum LeadSheetPageLayoutEngine {
             readabilityActive ? annotationSpacing.contentTop : structuredRoadmapReserveHeight,
             rhythmSectionLabelReserveHeight
         )
-        let additionalEndingReserve = isSimpleChordSheet ? 0 : max(0, (endingReserveOverride ?? 0) - baseRoadmapReserveHeight)
+        let additionalEndingReserve = isSimpleChordSheet ? 0 : max(0, (endingReserve ?? 0) - baseRoadmapReserveHeight)
         let roadmapTopReserveHeight = baseRoadmapReserveHeight + additionalEndingReserve
         let chordBandHeight = metrics.chordBandHeight + additionalEndingReserve
         let staffTop: CGFloat
@@ -1407,7 +1493,7 @@ enum LeadSheetPageLayoutEngine {
             let annotationInset = readabilityActive
                 ? max(24, annotationSpacing.contentTop + annotationSpacing.wingClearance + 2)
                 : 24
-            let flexibleInset = endingReserveOverride.map { $0 + annotationSpacing.wingClearance + 2 } ?? 0
+            let flexibleInset = endingReserve.map { $0 + annotationSpacing.wingClearance + 2 } ?? 0
             staffTop = frame.minY + max(annotationInset, flexibleInset)
         } else if isRhythmSectionSheet {
             staffTop = frame.minY + chordBandHeight + 6 + (readabilityActive ? annotationSpacing.wingClearance : 0)
@@ -1486,7 +1572,7 @@ enum LeadSheetPageLayoutEngine {
         }
 
         var measureX = measureStartX
-        let measures = plan.measures.enumerated().map { offset, measurePlan in
+        var measures = plan.measures.enumerated().map { offset, measurePlan in
             let leadingSignatureExtension = isRhythmSectionSheet && offset == 0
                 ? plan.leadingSignatureWidth
                 : 0
@@ -1521,7 +1607,7 @@ enum LeadSheetPageLayoutEngine {
                 meterChange: meterContext.change(for: measurePlan.measure)
             )
         }
-        let roadmapMarkerLayouts = roadmapMarkerLayouts(
+        var roadmapMarkerLayouts = roadmapMarkerLayouts(
             for: chart,
             systemFrame: frame,
             measureLayouts: measures
@@ -1534,22 +1620,49 @@ enum LeadSheetPageLayoutEngine {
         if flexibleEndingOnSystem, let sectionTextFrame {
             endingTopOffset = max(endingTopOffset, sectionTextFrame.maxY - frame.minY + 2)
         }
-        let endingLayouts = endingLayouts(
+        var endingLayouts = endingLayouts(
             for: chart,
             systemIndex: index,
             systemFrame: frame,
             topOffset: endingTopOffset,
             measureLayouts: measures
         )
-        if endingReserveOverride == nil,
-           let endingBottom = endingLayouts.map(\.occupiedFrame.maxY).max(),
-           let contentTop = measures.filter({ $0.sourceMeasureID != nil }).map({
-               isSimpleChordSheet ? $0.staffFrame.minY : $0.chordBandFrame.minY
-           }).min(),
-           endingBottom > contentTop + 0.001 {
-            // A label-free continuation can also need room when a section
-            // label moves its bracket down. Reserve from actual bounds while
-            // leaving compact, unshifted legacy endings in their original band.
+        let annotationPlacement = resolveAnnotationPlacement(
+            chart: chart,
+            measures: &measures,
+            endings: &endingLayouts,
+            markers: &roadmapMarkerLayouts,
+            fixedLabels: [sectionTextFrame, roadmapTextFrame].compactMap { $0 },
+            appliesManualOffsets: appliesManualAnnotationOffsets
+        )
+
+        let proposedReserve: CGFloat?
+        if annotationPlacement.hasManualOffsets {
+            // Existing automatic room stays in place. A manual move into the
+            // blank chord band only needs more room if it reaches a glyph or staff.
+            let roadmapFrames = endingLayouts.map(\.occupiedFrame) + roadmapMarkerLayouts
+                .filter { $0.verticalOffsetFromDefault > 0 }
+                .map(LeadSheetRoadmapMarkerLabelGeometry.labelFrame)
+            let notationFrames = measures.flatMap { measure in
+                [measure.staffFrame] + measure.chordLayouts.map(\.naturalFrame)
+                    + measure.noteLayouts.map { $0.paintedBounds(for: chart) }
+                    + measure.repeatMarkerLayouts.map(\.occupiedFrame)
+            }
+            proposedReserve = roadmapFrames.filter { roadmapFrame in
+                notationFrames.contains { $0.intersects(roadmapFrame) }
+            }.map { $0.maxY - frame.minY + 6 }.max()
+        } else {
+            let roadmapBottom = endingLayouts.map(\.occupiedFrame.maxY).max()
+            let contentTop = measures.filter { $0.sourceMeasureID != nil }.map {
+                isSimpleChordSheet ? $0.staffFrame.minY : $0.chordBandFrame.minY
+            }.min()
+            if let roadmapBottom, let contentTop, roadmapBottom > contentTop + 0.001 {
+                proposedReserve = roadmapBottom - frame.minY + 6
+            } else {
+                proposedReserve = nil
+            }
+        }
+        if endingReserveOverride == nil, let proposedReserve, proposedReserve > (endingReserve ?? 0) {
             return systemLayout(
                 for: plan,
                 chart: chart,
@@ -1557,11 +1670,12 @@ enum LeadSheetPageLayoutEngine {
                 frame: frame,
                 visualPolicy: visualPolicy,
                 meterContext: meterContext,
-                endingReserveOverride: endingBottom - frame.minY + 6
+                appliesManualAnnotationOffsets: appliesManualAnnotationOffsets,
+                endingReserveOverride: proposedReserve
             )
         }
 
-        return LeadSheetSystemLayout(
+        let layout = LeadSheetSystemLayout(
             id: plan.id,
             index: index,
             layoutStyle: chart.layoutStyle,
@@ -1578,8 +1692,10 @@ enum LeadSheetPageLayoutEngine {
             roadmapText: roadmapText,
             roadmapMarkerLayouts: roadmapMarkerLayouts,
             endingLayouts: endingLayouts,
-            measures: measures
+            measures: measures,
+            reservesAnnotationSpace: annotationPlacement.reservesSpace
         )
+        return (layout, endingReserve)
     }
 
     private static func roadmapObject(
@@ -1606,6 +1722,146 @@ enum LeadSheetPageLayoutEngine {
 
             return measureIndex >= startIndex && measureIndex <= endIndex
         }
+    }
+
+    private struct SystemAnnotation {
+        enum Target {
+            case ending(Int)
+            case marker(Int)
+            case cue(measure: Int, index: Int)
+        }
+
+        var target: Target
+        var frame: CGRect
+        var preferredOffset: CGFloat
+        var stacksDown = false
+
+        var isCue: Bool {
+            if case .cue = target { return true }
+            return false
+        }
+    }
+
+    private static func resolveAnnotationPlacement(
+        chart: Chart,
+        measures: inout [LeadSheetMeasureLayout],
+        endings: inout [LeadSheetEndingLayout],
+        markers: inout [LeadSheetRoadmapMarkerLayout],
+        fixedLabels: [CGRect],
+        appliesManualOffsets: Bool
+    ) -> (reservesSpace: Bool, hasManualOffsets: Bool) {
+        guard !endings.isEmpty || !markers.isEmpty || measures.contains(where: { !$0.cueTextLayouts.isEmpty })
+        else { return (false, false) }
+        let roadmapOffsets = appliesManualOffsets ? Dictionary(chart.roadmapObjects.map {
+            ($0.id, CGFloat($0.resolvedVerticalOffset))
+        }, uniquingKeysWith: { first, _ in first }) : [:]
+        var annotations = endings.indices.map { index in
+            SystemAnnotation(target: .ending(index), frame: endings[index].occupiedFrame,
+                preferredOffset: roadmapOffsets[endings[index].roadmapObjectID] ?? 0)
+        }
+        annotations += markers.indices.map { index in
+            let marker = markers[index]
+            return SystemAnnotation(target: .marker(index),
+                frame: LeadSheetRoadmapMarkerLabelGeometry.labelFrame(for: marker),
+                preferredOffset: roadmapOffsets[marker.roadmapObjectID] ?? 0)
+        }
+        for measureIndex in measures.indices {
+            for cueIndex in measures[measureIndex].cueTextLayouts.indices {
+                let cue = measures[measureIndex].cueTextLayouts[cueIndex]
+                annotations.append(SystemAnnotation(target: .cue(measure: measureIndex, index: cueIndex),
+                    frame: cue.frame,
+                    preferredOffset: appliesManualOffsets ? cue.verticalOffset : 0,
+                    stacksDown: cue.position == .below))
+            }
+        }
+        let defaultOffsets = placeAnnotations(annotations, fixedLabels: fixedLabels)
+        let moved = annotations.indices.filter { annotations[$0].preferredOffset != 0 }
+        let resolvedOffsets: [CGFloat]
+        if moved.isEmpty {
+            resolvedOffsets = defaultOffsets
+        } else {
+            let notationFrames = measures.flatMap { measure in
+                measure.chordLayouts.map(\.naturalFrame) + measure.noteLayouts.map { $0.paintedBounds(for: chart) }
+            }
+            resolvedOffsets = placeAnnotations(annotations, fixedLabels: fixedLabels,
+                defaultOffsets: defaultOffsets, moved: moved, notationFrames: notationFrames)
+        }
+
+        var reservesSpace = false
+        for index in annotations.indices {
+            let annotation = annotations[index]
+            let offset = resolvedOffsets[index]
+            let offsetFromDefault = offset - defaultOffsets[index]
+            if abs(offset - annotation.preferredOffset) > 0.001
+                || (!annotation.isCue && annotation.preferredOffset != 0) {
+                reservesSpace = true
+            }
+            switch annotation.target {
+            case .ending(let index):
+                endings[index].frame = endings[index].frame.offsetBy(dx: 0, dy: offset)
+                if endings[index].showsText {
+                    endings[index].labelFrame = endings[index].labelFrame.offsetBy(dx: 0, dy: offset)
+                }
+                endings[index].verticalOffsetFromDefault = offsetFromDefault
+            case .marker(let index):
+                markers[index].frame = markers[index].frame.offsetBy(dx: 0, dy: offset)
+                markers[index].movementFrame = markers[index].movementFrame.offsetBy(dx: 0, dy: offset)
+                markers[index].verticalOffsetFromDefault = offsetFromDefault
+            case .cue(let measure, let index):
+                var cue = measures[measure].cueTextLayouts[index]
+                cue.frame = cue.frame.offsetBy(dx: 0, dy: offset)
+                cue.hitFrame = cue.hitFrame.offsetBy(dx: 0, dy: offset)
+                cue.verticalOffsetFromDefault = offsetFromDefault
+                measures[measure].cueTextLayouts[index] = cue
+            }
+        }
+        return (reservesSpace, !moved.isEmpty)
+    }
+
+    private static func placeAnnotations(
+        _ annotations: [SystemAnnotation],
+        fixedLabels: [CGRect],
+        defaultOffsets: [CGFloat]? = nil,
+        moved: [Int] = [],
+        notationFrames: [CGRect] = []
+    ) -> [CGFloat] {
+        let movedIndexes = Set(moved)
+        let order = moved + annotations.indices.filter { !movedIndexes.contains($0) }
+        var occupied = fixedLabels
+        var offsets = [CGFloat](repeating: 0, count: annotations.count)
+
+        for index in order {
+            let annotation = annotations[index]
+            let isMoved = movedIndexes.contains(index)
+            // Use the automatic placement as the starting point for a drag
+            // so a cue already displaced by a bracket doesn't jump on drop.
+            let preferredOffset = isMoved ? (defaultOffsets?[index] ?? 0) + annotation.preferredOffset : 0
+            let preferredFrame = annotation.frame.offsetBy(dx: 0, dy: preferredOffset)
+            let obstacles = isMoved && annotation.isCue ? occupied + notationFrames : occupied
+            let frame = clearAnnotationFrame(preferredFrame, obstacles: obstacles, stacksDown: annotation.stacksDown)
+            occupied.append(frame)
+            offsets[index] = frame.minY - annotation.frame.minY
+        }
+        return offsets
+    }
+
+    private static func clearAnnotationFrame(
+        _ preferred: CGRect, obstacles: [CGRect], stacksDown: Bool
+    ) -> CGRect {
+        let clearance: CGFloat = 6
+        let obstaclesInColumn = obstacles.filter { $0.minX < preferred.maxX && preferred.minX < $0.maxX }
+        guard obstaclesInColumn.contains(where: { $0.intersects(preferred) }) else { return preferred }
+        // Walk in the direction of travel so each adjustment clears this
+        // obstacle and cannot collide again with any earlier obstacle.
+        let ordered = obstaclesInColumn.sorted { first, second in
+            stacksDown ? first.maxY < second.maxY : first.minY > second.minY
+        }
+        var frame = preferred
+        for obstacle in ordered where frame.minY < obstacle.maxY + clearance
+            && obstacle.minY < frame.maxY + clearance {
+            frame.origin.y = stacksDown ? obstacle.maxY + clearance : obstacle.minY - clearance - frame.height
+        }
+        return frame
     }
 
     private struct EndingSpanDescriptor {
@@ -3830,7 +4086,7 @@ enum LeadSheetPageLayoutEngine {
             baseFrame = trailingFrame.offsetBy(dx: 0, dy: offset)
         }
 
-        return baseFrame.offsetBy(dx: 0, dy: CGFloat(cueText.verticalOffset))
+        return baseFrame
     }
 
     private static func clampedCueTextX(_ proposedX: CGFloat, width: CGFloat, staffFrame: CGRect) -> CGFloat {
@@ -4857,6 +5113,15 @@ extension LeadSheetNoteLayout {
     }
 }
 
+private struct ManualAnnotationSpacing: Hashable {
+    var automaticBounds: CGRect
+    var placedBounds: CGRect
+
+    var requiredBottom: CGFloat {
+        placedBounds.maxY > automaticBounds.maxY ? placedBounds.maxY : 0
+    }
+}
+
 private struct PackedLeadSheetSystemPlan: Hashable {
     var id: UUID
     var leadingSignatureWidth: CGFloat
@@ -4864,6 +5129,8 @@ private struct PackedLeadSheetSystemPlan: Hashable {
     var measures: [PackedLeadSheetMeasurePlan]
     var systemHeight: CGFloat? = nil
     var topClearance: CGFloat = 0
+    var defaultEndingReserve: CGFloat? = nil
+    var annotationSpacing: ManualAnnotationSpacing? = nil
 
     var firstSourceMeasureID: UUID? {
         measures.compactMap(\.measure?.id).first

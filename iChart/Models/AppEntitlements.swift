@@ -71,7 +71,7 @@ enum EntitledFeature: String, Codable, CaseIterable, Hashable {
         case .documentTransposition:
             return "Instrument transposition is included in Basic because readable gig charts are core to iChart."
         case .fontPresets:
-            return "Font presets are included in Basic because local chart appearance is part of the writing tool."
+            return "Pro adds Petaluma, MuseJazz, and Finale Jazz. You can keep using any font already saved in a chart."
         case .roadmapNotationTools:
             return "Repeats and Coda are included in Basic because chart navigation is essential chart work."
         case .advancedRhythmEditing:
@@ -79,10 +79,11 @@ enum EntitledFeature: String, Codable, CaseIterable, Hashable {
         case .unlimitedLocalCharts:
             return "Unlimited local chart capacity is part of the Pro account experience."
         case .projects:
-            return "Projects are reserved for active Pro so one song can hold multiple section charts and variants together."
+            return "Pro lets you organize Projects and duplicate variants. You can still open, edit, and export charts in your saved Projects."
+        case .forums:
+            return "A verified account can browse and read Forums. Pro adds new PDF downloads, posts, votes, and comments."
         case .syncedChartOrganization,
              .cloudBackup,
-             .forums,
              .sharedBandLibraries,
              .setlistsAndVersionHistory,
              .aiRecognitionCleanup:
@@ -153,6 +154,20 @@ struct AppEntitlements: Codable, Hashable {
         case .proLifetime, .studioSubscription:
             return nil
         }
+    }
+
+    var canConvertPDFToEditableChart: Bool { includesPremiumLocalTools }
+
+    var canUsePremiumFonts: Bool { includesPremiumLocalTools }
+
+    var canSyncPDFSetlists: Bool {
+        accessPolicy == .paidSubscription && subscription.status == .proActive
+    }
+
+    private var includesPremiumLocalTools: Bool {
+        accessPolicy.includesAllFeatures
+            || (accessPolicy == .paidSubscription
+                && (subscription.status == .proActive || subscription.status == .proGrace))
     }
 
     func includes(_ feature: EntitledFeature) -> Bool {
@@ -251,7 +266,7 @@ struct AppEntitlements: Codable, Hashable {
                 if accessPolicy == .betaBasic {
                     return "Basic creation limit reached. Existing charts stay editable; rejoin free Pro in Settings to add more."
                 }
-                return "Basic limit reached: \(localChartLimit) local charts. Pro removes the cap."
+                return "Basic creation limit reached. Keep editing your saved charts, or upgrade to Pro to create more."
             }
 
             return "\(remainingSlots) of \(localChartLimit) Basic chart slots left."

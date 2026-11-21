@@ -136,7 +136,10 @@ final class EndingEditorSheetTests: XCTestCase {
         XCTAssertFalse(field.isFirstResponder, "Opening the ending editor must leave keyboard entry optional.")
         let scribble = try XCTUnwrap(field.interactions.compactMap { $0 as? UIScribbleInteraction }.first)
         XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: 10, y: 10)), false)
-        XCTAssertEqual(field.inputModeButton.accessibilityLabel, "Start Scribble for Ending label")
+        XCTAssertEqual(field.keyboardModeButton.accessibilityLabel, "Keyboard")
+        XCTAssertTrue(field.keyboardModeButton.accessibilityTraits.contains(.selected))
+        XCTAssertEqual(field.scribbleModeButton.accessibilityLabel, "Scribble")
+        XCTAssertFalse(field.scribbleModeButton.accessibilityTraits.contains(.selected))
         let apply = try await button("Apply", in: mounted)
         XCTAssertFalse(apply.isEnabled)
 

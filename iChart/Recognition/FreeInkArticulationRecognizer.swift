@@ -198,11 +198,37 @@ enum FreeInkArticulationRecognizer {
         let straightFirst = straightLeg(first)
         let straightSecond = straightLeg(second)
         guard straightFirst != nil || straightSecond != nil,
-              let firstLeg = straightFirst ?? straightLeg(first, maximumDeviation: 0.11),
-              let secondLeg = straightSecond ?? straightLeg(second, maximumDeviation: 0.11) else { return false }
-        return hasAccentOutline(firstLeg, secondLeg,
-            bounds: InkBounds.enclosing(Array(first) + Array(second)),
-            tipHeightRange: 0.23...0.77)
+              let firstLeg = straightFirst ?? straightLeg(first, maximumDeviation: 0.125),
+              let secondLeg = straightSecond ?? straightLeg(second, maximumDeviation: 0.125) else { return false }
+        let points = Array(first) + Array(second)
+        let bothStraight = straightFirst != nil && straightSecond != nil
+        let tipHeightRange = 0.23...0.77
+        if hasAccentOutline(firstLeg, secondLeg, bounds: InkBounds.enclosing(points),
+            tipHeightRange: tipHeightRange, allowsProjectedTip: bothStraight) {
+            return true
+        }
+        guard bothStraight else { return false }
+
+        // Ignore a mild writing slant when the two open ends provide a
+        // reliable vertical axis. Keep larger tilts out of the accent path.
+        let (top, bottom) = firstLeg.left.y <= secondLeg.left.y
+            ? (firstLeg.left, secondLeg.left) : (secondLeg.left, firstLeg.left)
+        let rise = bottom.y - top.y
+        let run = bottom.x - top.x
+        let opening = hypot(rise, run)
+        guard opening > 0, abs(run / opening) <= 0.26, run != 0 else { return false }
+        let sine = run / opening
+        let cosine = rise / opening
+        func align(_ point: InkPoint) -> InkPoint {
+            let x = point.x - top.x
+            let y = point.y - top.y
+            return InkPoint(x: cosine * x - sine * y, y: sine * x + cosine * y, timeOffset: point.timeOffset)
+        }
+        return hasAccentOutline(
+            (align(firstLeg.left), align(firstLeg.right)),
+            (align(secondLeg.left), align(secondLeg.right)),
+            bounds: InkBounds.enclosing(points.map(align)),
+            tipHeightRange: tipHeightRange, allowsProjectedTip: true)
     }
 
     private static func hasAccentWithRetracedLeadIn(
@@ -226,7 +252,7 @@ enum FreeInkArticulationRecognizer {
 
     private static func hasAccentOutline(
         _ firstLeg: AccentLeg, _ secondLeg: AccentLeg, bounds: InkBounds,
-        tipHeightRange: ClosedRange<Double>
+        tipHeightRange: ClosedRange<Double>, allowsProjectedTip: Bool = false
     ) -> Bool {
         let width = bounds.width
         let height = bounds.height
@@ -239,13 +265,37 @@ enum FreeInkArticulationRecognizer {
         let bottom = max(firstLeg.left.y, secondLeg.left.y)
         let tipTop = min(firstLeg.right.y, secondLeg.right.y)
         let tipBottom = max(firstLeg.right.y, secondLeg.right.y)
-        return max(firstLeg.left.x, secondLeg.left.x) <= bounds.minX + 0.24 * width
-            && min(firstLeg.right.x, secondLeg.right.x) >= bounds.maxX - 0.16 * width
-            && top <= bounds.minY + 0.15 * height
-            && bottom >= bounds.maxY - 0.15 * height
-            && tipHeightRange.contains((tipTop - bounds.minY) / height)
-            && tipHeightRange.contains((tipBottom - bounds.minY) / height)
-            && hypot(firstLeg.right.x - secondLeg.right.x, tipBottom - tipTop) <= 0.16 * width
+        let openingStagger = max(firstLeg.left.x, secondLeg.left.x) - bounds.minX
+        let shorterTipX = min(firstLeg.right.x, secondLeg.right.x)
+        let tipGap = hypot(firstLeg.right.x - secondLeg.right.x, tipBottom - tipTop)
+        guard top <= bounds.minY + 0.15 * height, bottom >= bounds.maxY - 0.15 * height,
+              tipHeightRange.contains((tipTop - bounds.minY) / height),
+              tipHeightRange.contains((tipBottom - bounds.minY) / height) else { return false }
+        if openingStagger <= 0.24 * width,
+           shorterTipX >= bounds.maxX - 0.16 * width, tipGap <= 0.16 * width {
+            return true
+        }
+
+        // A shorter straight arm may stop just before the other arm reaches
+        // the tip. Check the paths actually converge near the longer arm.
+        return allowsProjectedTip && openingStagger <= 0.29 * width
+            && tipGap <= 0.25 * width && tipBottom - tipTop <= 0.20 * height
+            && projectsToSharedTip(firstLeg, secondLeg, bounds: bounds)
+    }
+
+    private static func projectsToSharedTip(
+        _ firstLeg: AccentLeg, _ secondLeg: AccentLeg, bounds: InkBounds
+    ) -> Bool {
+        let (upper, lower) = firstLeg.left.y <= secondLeg.left.y
+            ? (firstLeg, secondLeg) : (secondLeg, firstLeg)
+        let maxTipX = max(upper.right.x, lower.right.x)
+        let upperSlope = (upper.right.y - upper.left.y) / (upper.right.x - upper.left.x)
+        let lowerSlope = (lower.right.y - lower.left.y) / (lower.right.x - lower.left.x)
+        guard upperSlope > 0, lowerSlope < 0 else { return false }
+        let upperAtTip = upper.right.y + upperSlope * (maxTipX - upper.right.x)
+        let lowerAtTip = lower.right.y + lowerSlope * (maxTipX - lower.right.x)
+        let projectedTravel = (lowerAtTip - upperAtTip) / (upperSlope - lowerSlope)
+        return abs(projectedTravel) <= 0.10 * bounds.width
     }
 
     private static func straightLeg(_ points: ArraySlice<InkPoint>, maximumDeviation: Double = 0.09) -> AccentLeg? {

@@ -151,6 +151,8 @@ struct RoadmapObject: Identifiable, Codable, Hashable {
     /// Original repeat-sign ink retained for correction/replay after rendering.
     /// Older charts omit this field and preserve their existing representation.
     var sourceInkData: Data? = nil
+    /// Vertical displacement in layout points. An omitted value uses automatic placement.
+    var verticalOffset: Double? = nil
 
     var resolvedEndingEndStyle: EndingEndStyle {
         endingEndStyle ?? .closed
@@ -174,6 +176,10 @@ struct RoadmapObject: Identifiable, Codable, Hashable {
 
     var resolvedHorizontalOffsetWithinMeasure: Double {
         Self.clampedHorizontalOffset(horizontalOffsetWithinMeasure ?? 0)
+    }
+
+    var resolvedVerticalOffset: Double {
+        CueText.clampedVerticalOffset(verticalOffset ?? 0)
     }
 
     var resolvedScale: Double {

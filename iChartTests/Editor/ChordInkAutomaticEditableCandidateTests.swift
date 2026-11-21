@@ -4,6 +4,45 @@ import UIKit
 import XCTest
 @testable import iChart
 
+/// The three retried Pencil samples stay in a local device snapshot.
+enum PrivateBFlatTriangleReplay {
+    private struct Snapshot: Decodable {
+        struct SavedChart: Decodable {
+            struct System: Decodable {
+                struct Measure: Decodable {
+                    struct Event: Decodable {
+                        var sourceInkData: Data?
+                    }
+                    var index: Int
+                    var chordEvents: [Event]
+                }
+                var measures: [Measure]
+            }
+            var id: UUID
+            var systems: [System]
+        }
+        var selectedChartID: UUID?
+        var charts: [SavedChart]
+    }
+
+    static func load() throws -> [PKDrawing] {
+        let environment = ProcessInfo.processInfo.environment
+        guard let path = environment["ICHART_BFLAT_TRIANGLE_REPLAY_LIBRARY"]
+            ?? environment["TEST_RUNNER_ICHART_BFLAT_TRIANGLE_REPLAY_LIBRARY"] else {
+            throw XCTSkip("The optional B-flat triangle retest snapshot was not supplied")
+        }
+        let snapshot = try JSONDecoder().decode(Snapshot.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
+        let chart = try XCTUnwrap(snapshot.charts.first { $0.id == snapshot.selectedChartID })
+        let measure = try XCTUnwrap(chart.systems.flatMap(\.measures).first { $0.index == 13 })
+        XCTAssertEqual(measure.chordEvents.count, 3, "The supplied snapshot must contain the original retest")
+        return try measure.chordEvents.map { event in
+            let drawing = try PKDrawing(data: XCTUnwrap(event.sourceInkData))
+            XCTAssertEqual(drawing.strokes.count, 6, "Each retest event must own all six Pencil strokes")
+            return drawing
+        }
+    }
+}
+
 /// Automatic entry may choose a wrong supported chord. That workflow choice
 /// must retain the reader's uncertainty and the exact source for later editing.
 @MainActor
@@ -70,6 +109,153 @@ final class ChordInkAutomaticEditableCandidateTests: XCTestCase {
         let event = try XCTUnwrap(rendered.chart.measures.flatMap(\.chordEvents).first)
         XCTAssertEqual(event.symbol.displayText, "Bbø7")
         assertSameInk(source, try PKDrawing(data: XCTUnwrap(event.sourceInkData)))
+    }
+
+    func testCapturedBFlatMajorSeventhAndSlashControlsSaveInBothStylesAndRenderModes() throws {
+        let major = try InkFixtureLoader.load("BFlatMajor7SplitTriangleDevice02", file: #filePath)
+        let halfDiminished = try InkFixtureLoader.load("BFlatHalfDiminished7Captured02", file: #filePath)
+        let slashD = try InkFixtureLoader.load("BFlatSlashDCaptured02", file: #filePath)
+        let bassC = try InkFixtureLoader.load("CCaptured02", file: #filePath)
+        let slashStroke = try XCTUnwrap(slashD.strokes.dropFirst(3).first)
+        let bassStroke = try XCTUnwrap(bassC.strokes.first)
+        func place(_ stroke: InkStroke, x: Double, y: Double) -> InkStroke {
+            InkStroke(points: stroke.points.map {
+                InkPoint(x: $0.x - stroke.bounds.minX + x,
+                    y: $0.y - stroke.bounds.minY + y, timeOffset: $0.timeOffset)
+            })
+        }
+        let explicitInversion = major.strokes
+            + [place(slashStroke, x: 132, y: 42), place(bassStroke, x: 153, y: 55)]
+        let inputs = [
+            (major.expectedDisplayText, major.strokes),
+            (halfDiminished.expectedDisplayText, halfDiminished.strokes),
+            (slashD.expectedDisplayText, slashD.strokes),
+            ("Bb△7/C", explicitInversion)
+        ]
+
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            for (expected, strokes) in inputs {
+                try assertRecognitionSaves(expected, strokes: strokes, style: style)
+            }
+        }
+    }
+
+    func testOptionalExactBFlatTriangleRetestArchivesRenderInBothStylesAndModes() throws {
+        let captures = try PrivateBFlatTriangleReplay.load()
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let chart = makeChart(style: style)
+            let region = LeadSheetActiveInkScope.chordWritingRegion(for: layout(chart))
+            let lane = try XCTUnwrap(region.inputFrames.first)
+            for (index, capture) in captures.enumerated() {
+                // Retarget only the page position. Keep the Pencil path,
+                // written size, timing, transform orientation, and mask.
+                let drawing = capture.transformed(using: CGAffineTransform(
+                    translationX: lane.midX - region.frame.minX - capture.bounds.midX,
+                    y: lane.midY - region.frame.minY - capture.bounds.midY))
+                try assertRecognitionSaves("Bb△7", drawing: drawing, in: chart,
+                    sample: "Pencil sample \(index + 1)", expectsDirectManual: true)
+            }
+        }
+    }
+
+    private func assertRecognitionSaves(_ expected: String, strokes: [InkStroke],
+        style: ChartLayoutStyle) throws {
+        let chart = makeChart(style: style)
+        let region = LeadSheetActiveInkScope.chordWritingRegion(for: layout(chart))
+        let lane = try XCTUnwrap(region.inputFrames.first)
+        let bounds = InkBounds.enclosing(strokes.map(\.bounds))
+        // Translate without shrinking accepted captures that already fit the lane.
+        let scale = min(1, Double(lane.height - 3) / bounds.height)
+        let drawing = PKDrawing(strokes: strokes.enumerated().map { index, stroke in
+            let points = stroke.points.enumerated().map { pointIndex, point in
+                PKStrokePoint(location: CGPoint(
+                    x: lane.minX + 18 - region.frame.minX + CGFloat((point.x - bounds.minX) * scale),
+                    y: lane.midY - region.frame.minY + CGFloat((point.y - (bounds.minY + bounds.maxY) / 2) * scale)),
+                    timeOffset: Double(pointIndex) * 0.01, size: CGSize(width: 3, height: 3),
+                    opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+            }
+            return PKStroke(ink: PKInk(.pen, color: LeadSheetPersistentInkColorPolicy.inkColor),
+                path: PKStrokePath(controlPoints: points,
+                    creationDate: inputAt.addingTimeInterval(Double(index) * 0.4)),
+                transform: .identity, mask: nil, randomSeed: UInt32(index))
+        })
+        try assertRecognitionSaves(expected, drawing: drawing, in: chart, sample: "scale \(scale)")
+    }
+
+    private func assertRecognitionSaves(_ expected: String, drawing: PKDrawing, in emptyChart: Chart,
+        sample: String, expectsDirectManual: Bool = false) throws {
+        var chart = emptyChart
+        let page = layout(chart)
+        let region = LeadSheetActiveInkScope.chordWritingRegion(for: page)
+        let coordinateSpace = PersistentInkCoordinateSpace(size: region.frame.size)
+        _ = chart.setPageHandwrittenChordDrawing(drawing.dataRepresentation(), coordinateSpace: coordinateSpace)
+        let source = try PKDrawing(data: XCTUnwrap(chart.pageHandwrittenChordData))
+        if expectsDirectManual { assertSameInk(drawing, source) }
+        let prepared = ChordInkRecognitionPreparation.prepare(.init(requestID: UUID(), scheduledAt: inputAt,
+            requestedDelay: 0, drawingData: source.dataRepresentation(), chordFrame: region.frame,
+            pageLayout: page, flow: .draftPreview, options: .live, layoutStyle: chart.layoutStyle))
+        let context = "\(chart.layoutStyle.rawValue) \(expected), \(sample)"
+        guard case .ready(let requests, _) = prepared.outcome else {
+            return XCTFail("Expected a target for \(context): \(prepared.outcome)")
+        }
+        XCTAssertEqual(requests.count, 1, context)
+        XCTAssertTrue(prepared.barlines.isEmpty, context)
+        XCTAssertTrue(prepared.endings.isEmpty, context)
+        let request = try XCTUnwrap(requests.first, context)
+        assertSameInk(source, try PKDrawing(data: request.drawingData))
+        let result = ChordInkMaximumTrustRecognizer().recognize(strokes: request.strokes, options: request.options)
+        let candidates = ChordInkRenderResolutionPolicy.candidateTexts(for: result)
+        let decision = ChordInkRecognitionPolicy.decision(for: result)
+        let details = "\(context), quality review: \(result.requiresTriangleQualityReview), "
+            + "decision: \(decision.action), reason: \(decision.reason), "
+            + "trust evidence: \(String(describing: result.trustEvidence?.outcome)), "
+            + "glyphs: \(result.glyphCandidates.map { $0.prefix(4).map(\.text) }), candidates: \(candidates.prefix(8))"
+        guard let match = result.match else { return XCTFail(details) }
+        XCTAssertEqual(match.displayText, expected, details)
+        XCTAssertFalse(result.requiresTriangleQualityReview, context)
+        if expected == "Bb△7" {
+            XCTAssertFalse(candidates.contains { $0 == "Bbø7/C" }, context)
+        }
+        let input = ChordInkDraftInput(measureID: request.target.measureID,
+            measureIndex: try XCTUnwrap(chart.measure(id: request.target.measureID)).index,
+            targetFraction: request.target.fraction, visualOrder: request.visualOrder,
+            laneLocation: request.laneLocation, layoutPageSize: request.layoutPageSize,
+            drawingData: request.drawingData, candidateTexts: candidates,
+            bestCandidateText: match.displayText, confidence: result.confidence,
+            strokeCount: request.strokes.count, recognitionResult: result, primaryDecision: decision,
+            recognitionDecision: decision,
+            targetLifecycle: request.collectingTargetLifecycle.advanced(to: .stable),
+            requiresManualReviewOnly: request.requiresManualReviewOnly)
+        let draft = ChordInkDraft(input: input)
+        var manual = ChordPreviewState(draftChords: [draft], layoutPageSize: pageSize)
+        if expectsDirectManual {
+            XCTAssertTrue(manual.canRenderAllDraftChords, details)
+            XCTAssertFalse(manual.requiresChordConfirmation, details)
+        } else if draft.requiresConfirmation {
+            manual.draftChords[0].selectedText = match.displayText
+        }
+        let rendered = [
+            ChordInkDraftRenderCoordinator.prepareManual(chart: chart, state: manual,
+                currentDrawing: source, coordinateSpace: coordinateSpace,
+                sourcePageLayout: page, sourceChordFrame: region.frame),
+            ChordInkDraftRenderCoordinator.explicitOutcome(try XCTUnwrap(
+                attempt(chart, drafts: [draft], source: source,
+                    elapsed: ChordInkAutomaticRenderPolicy.idleDelay + 0.01).outcome,
+                "Automatic rendering should complete at normal chord cadence for \(context)"))
+        ]
+        for outcome in rendered {
+            XCTAssertTrue(outcome.canConsumeSource, context)
+            XCTAssertEqual(outcome.result.renderedChordCount, 1, context)
+            let reopened = try ChartPersistenceCoders.decoder.decode(Chart.self,
+                from: ChartPersistenceCoders.encoder.encode(outcome.chart))
+            XCTAssertNil(reopened.pageHandwrittenChordData, context)
+            let event = try XCTUnwrap(reopened.measures.flatMap(\.chordEvents).first, context)
+            XCTAssertEqual(event.symbol.displayText, expected, context)
+            if expectsDirectManual {
+                XCTAssertEqual(event.sourceCandidateSignature.first, expected, context)
+            }
+            assertSameInk(source, try PKDrawing(data: XCTUnwrap(event.sourceInkData)))
+        }
     }
 
     func testSettledSupportedGuessRendersWithoutPromotingConfidenceOrConfirmationToTrust() throws {
@@ -263,8 +449,8 @@ final class ChordInkAutomaticEditableCandidateTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: fixture), bytes, "The private capture remains read-only")
     }
 
-    private func makeChart() -> Chart {
-        var chart = Chart.draft(title: "Editable automatic read", layoutStyle: .simpleChordSheet)
+    private func makeChart(style: ChartLayoutStyle = .simpleChordSheet) -> Chart {
+        var chart = Chart.draft(title: "Editable automatic read", layoutStyle: style)
         chart.completeInitialSetup(title: chart.title, key: .cMajor,
             meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine, startingMeasureCount: 1)
         return chart

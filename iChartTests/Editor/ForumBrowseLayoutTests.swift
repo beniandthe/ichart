@@ -10,6 +10,38 @@ import XCTest
 final class ForumBrowseLayoutTests: XCTestCase {
     private let helperText = "Search songs, artists, arrangers, or tags, then tap Search. Use Load More for more matches. Open a chart to save its PDF or discuss it."
 
+    func testBasicForumHasReadableSearchAndChartEntryWithProParticipationClearlyExplained() async throws {
+        let basicHelper = "Search songs, artists, arrangers, or tags, then tap Search. Open a chart to read its discussion and author badges. Pro adds new PDF downloads, publishing, votes, and comments."
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let fixture = Fixture(style: style)
+            fixture.canParticipate = false
+            let mounted = try await mount(fixture, width: 360, category: .large)
+            let search = try await searchField(in: mounted)
+            let helper = try await node(basicHelper, in: mounted)
+            assertContained(search.convert(search.bounds, to: mounted.window), in: mounted.viewport)
+            assertContained(helper.frame(in: mounted.window), in: mounted.viewport)
+            var foundProOptions = false
+            var foundChart = false
+            try await inspectEveryScrollPosition(mounted) { nodes in
+                for item in nodes {
+                    let label = item.element.accessibilityLabel ?? ""
+                    XCTAssertFalse(item.isButton && label == "Submit To Forum")
+                    if item.isButton && label == "View Pro Options" {
+                        foundProOptions = true
+                        assertHorizontallyContained(item.frame(in: mounted.window), in: mounted.viewport)
+                    }
+                    if item.isButton && label.hasPrefix("Open ") { foundChart = true }
+                }
+            }
+            XCTAssertTrue(foundProOptions)
+            XCTAssertTrue(foundChart)
+            XCTAssertTrue(fixture.searchRequests.isEmpty)
+            XCTAssertEqual(fixture.publishCount, 0)
+            XCTAssertTrue(fixture.openedPosts.isEmpty)
+            await mounted.close()
+        }
+    }
+
     func testTopChartsCardsAndSearchFitNarrowAndAvailableWidthsForBothStyles() async throws {
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
             for requestedWidth in [CGFloat(360), 568, 900] {
@@ -19,6 +51,15 @@ final class ForumBrowseLayoutTests: XCTestCase {
                 let search = try await searchField(in: mounted)
                 let helper = try await node(helperText, in: mounted)
                 assertContained(search.convert(search.bounds, to: mounted.window), in: mounted.viewport)
+                XCTAssertEqual(search.bounds.height, 44, accuracy: 1,
+                    "Forum search stays a single line at standard text size")
+                XCTAssertLessThanOrEqual(search.bounds.width, 520)
+                XCTAssertGreaterThanOrEqual(search.editingRect(forBounds: search.bounds).width, 64)
+                for mode in [search.keyboardModeButton, search.scribbleModeButton] {
+                    XCTAssertGreaterThanOrEqual(mode.bounds.width, 44)
+                    XCTAssertGreaterThanOrEqual(mode.bounds.height, 44)
+                    assertContained(mode.convert(mode.bounds, to: mounted.window), in: mounted.viewport)
+                }
                 assertContained(helper.frame(in: mounted.window), in: mounted.viewport)
                 let helperHeight = helper.frame(in: mounted.window).height
                 if mounted.viewport.width <= 568 {
@@ -380,13 +421,13 @@ final class ForumBrowseLayoutTests: XCTestCase {
         return mounted
     }
 
-    private func searchField(in mounted: Mounted) async throws -> UITextField {
+    private func searchField(in mounted: Mounted) async throws -> IChartTypedUITextField {
         try await wait(mounted.window) { self.findSearchField(in: mounted.host.view) != nil }
         return try XCTUnwrap(findSearchField(in: mounted.host.view))
     }
 
-    private func findSearchField(in root: UIView) -> UITextField? {
-        descendants(root).compactMap { $0 as? UITextField }.first {
+    private func findSearchField(in root: UIView) -> IChartTypedUITextField? {
+        descendants(root).compactMap { $0 as? IChartTypedUITextField }.first {
             $0.accessibilityIdentifier == "forum.search" || $0.placeholder?.contains("Search songs") == true
         }
     }
@@ -492,6 +533,7 @@ final class ForumBrowseLayoutTests: XCTestCase {
         @Published var forumGeneration = 0
         @Published var hasMoreSearchResults = false
         @Published var isLoadingMoreSearchResults = false
+        var canParticipate = true
         let summaries: [IChartForumSongSummary]
         var searchRequests: [String] = []
         var refreshQueries: [String] = []
@@ -538,7 +580,7 @@ final class ForumBrowseLayoutTests: XCTestCase {
                 onOpenAccount: { fixture.accountOpenCount += 1 },
                 hasMoreSearchResults: fixture.hasMoreSearchResults,
                 isLoadingMoreSearchResults: fixture.isLoadingMoreSearchResults,
-                onLoadMoreSearchResults: fixture.loadMore)
+                onLoadMoreSearchResults: fixture.loadMore, canParticipate: fixture.canParticipate)
                 .id(fixture.forumGeneration)
         }
     }

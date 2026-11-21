@@ -27,12 +27,17 @@ final class EditorPanelInputIsolationTests: XCTestCase {
             let scribble = try XCTUnwrap(field.interactions.compactMap { $0 as? UIScribbleInteraction }.first)
             XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: 20, y: 20)), false,
                            "The review field begins in typing mode")
-            field.inputModeButton.sendActions(for: .touchUpInside)
+            field.scribbleModeButton.sendActions(for: .touchUpInside)
+            XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: 20, y: 20)), false,
+                           "The initial Pencil contact prepares the review field")
+            field.prepareScribble(at: CGPoint(x: 20, y: 20))
+            XCTAssertTrue(field.isFirstResponder)
+            XCTAssertNotNil(field.inputView, "Preparing review Scribble must leave the keyboard closed")
             XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: 20, y: 20)), true,
-                           "The armed field must accept Scribble without reactivating chart drawing")
+                           "The prepared field must accept Scribble without reactivating chart drawing")
             XCTAssertEqual(scribble.delegate?.scribbleInteraction?(scribble, shouldBeginAt: CGPoint(x: -20, y: 20)), false,
                            "Writing outside the review field must not be captured as text input")
-            field.inputModeButton.sendActions(for: .touchUpInside)
+            field.keyboardModeButton.sendActions(for: .touchUpInside)
             XCTAssertTrue(field.isFirstResponder)
             var chart = host.view.chart
             chart.title = "Review is typing"

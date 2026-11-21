@@ -41,7 +41,7 @@ extension ChordInkAutomaticFallbackRecognizing {
 }
 
 enum ChordInkAutomaticFallbackProviders {
-    static let pipelineVersion = "automatic-source-fallback-v2-native-32-39.5-48-vision-7-10-bounded-technical-retry"
+    static let pipelineVersion = "automatic-source-fallback-v3-independent-complex-slash-bass"
 
     /// The session tries this bounded chain in order and stops at its first
     /// actual parseable output. It runs independently of the primary queue.
@@ -94,6 +94,37 @@ enum ChordInkAutomaticFallbackCandidatePolicy {
                   score.displayText.map({ ChordRecognitionCompendium.match($0)?.displayText == match.displayText }) ?? true,
                   seen.insert(match.displayText).inserted else { return nil }
             return .init(text: score.text, displayText: match.displayText, confidence: score.confidence)
+        }
+    }
+
+    /// A text-only provider can return a parseable inversion without a separator
+    /// or bass letter in the source. Use original stroke clusters for that check.
+    static func candidateScores(
+        for result: ChordInkRecognitionResult, originalSource: [InkStroke]
+    ) -> [ChordInkCandidateScore] {
+        let scores = candidateScores(for: result)
+        let supportedScores = scores.map { score in
+            let symbol = ChordRecognitionCompendium.match(score.text)?.symbol
+            let requiredBass = symbol.flatMap {
+                ChordInkSlashBassEvidence.requiresIndependentInk(for: $0) ? $0.slashBass : nil
+            }
+            return (score: score, bass: requiredBass.flatMap(ChordPitch.parse))
+        }
+        guard supportedScores.contains(where: { $0.bass != nil }) else { return scores }
+
+        let clusters = StrokeClusterer(wrapperPolicy: .preserveOriginalInk).cluster(originalSource)
+        let glyphRecognizer = GestureTemplateRecognizer()
+        let bassRoots = zip(clusters.dropFirst(), clusters.dropFirst(2)).reduce(into: Set<String>()) {
+            roots, pair in
+            let (separator, bass) = pair
+            guard ChordInkSlashBassEvidence.hasIndependentInk(separator: separator, bass: bass) else { return }
+            let ranked = glyphRecognizer.rankedCandidates(for: bass,
+                templates: ChordGlyphTemplateLibrary.initialTemplates, limit: 8)
+            roots.formUnion(ranked.filter { $0.confidence >= 0.55 }.map(\.text))
+        }
+        return supportedScores.compactMap { candidate in
+            guard let bass = candidate.bass else { return candidate.score }
+            return bassRoots.contains(bass.root.rawValue) ? candidate.score : nil
         }
     }
 

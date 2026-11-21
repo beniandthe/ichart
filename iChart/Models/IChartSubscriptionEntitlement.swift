@@ -104,21 +104,21 @@ struct IChartSubscriptionEntitlement: Codable, Hashable {
     var detailText: String {
         switch status {
         case .basic:
-            return "Local authoring, export, account recovery, and up to 3 local charts."
+            return "Create up to 3 local charts. Keep editing and exporting all your saved charts."
         case .proActive:
             if willAutoRenew == false, let accessEndsAt {
-                return "Pro remains active until \(accessEndsAt.formatted(date: .abbreviated, time: .omitted)). Cloud backup, restore, and Forums stay available until then."
+                return "Pro remains active until \(accessEndsAt.formatted(date: .abbreviated, time: .omitted)). Cloud backup, restore, and Forum participation stay available until then."
             }
 
-            return "Unlimited local charts, cloud backup and restore, and Forums access."
+            return "Unlimited local charts, cloud backup and restore, and Forum participation."
         case .proGrace:
             if let graceEndsAt {
-                return "Billing grace keeps local chart access active through \(graceEndsAt.formatted(date: .abbreviated, time: .omitted)). Cloud backup and Forums are paused until Pro renews."
+                return "Local Pro tools remain available through \(graceEndsAt.formatted(date: .abbreviated, time: .omitted)). Cloud backup, new Forum downloads, and Forum participation are paused during grace."
             }
 
-            return "Billing grace keeps local chart access active temporarily. Cloud backup and Forums are paused until Pro renews."
+            return "Local Pro tools remain available during billing grace. Cloud backup, new Forum downloads, and Forum participation are paused during grace."
         case .proExpired:
-            return "Pro is inactive. Cloud backup and Forums are locked until Pro is restored."
+            return "Pro is inactive. Your saved charts, PDFs, and setlists remain available on this device."
         case .unavailable:
             return "Subscription status could not be verified, so the app is using Basic limits locally."
         case .legacyLocalPro:
@@ -144,52 +144,7 @@ struct IChartSubscriptionEntitlement: Codable, Hashable {
     }
 
     var forumsAccessText: String {
-        switch status {
-        case .proActive:
-            return "Available"
-        case .proGrace:
-            return "Requires active Pro"
-        case .basic:
-            return "Requires Pro"
-        case .proExpired:
-            return "Restore Pro"
-        case .unavailable:
-            return "Unavailable"
-        case .legacyLocalPro:
-            return "Requires active Pro"
-        }
-    }
-
-    var allowsForumDownloadAccess: Bool {
-        allowsForumDownloadAccess(accessPolicy: .current)
-    }
-
-    func allowsForumDownloadAccess(accessPolicy: IChartProductAccessPolicy) -> Bool {
-        // Downloaded customer documents remain usable in either Beta mode.
-        // This is distinct from permission to obtain new Forum documents.
-        guard !accessPolicy.isFreeBeta else { return true }
-
-        switch status {
-        case .proActive:
-            return true
-        case .basic, .proGrace, .proExpired, .unavailable, .legacyLocalPro:
-            return false
-        }
-    }
-
-    var shouldRemoveForumDownloads: Bool {
-        shouldRemoveForumDownloads(accessPolicy: .current)
-    }
-
-    func shouldRemoveForumDownloads(accessPolicy: IChartProductAccessPolicy) -> Bool {
-        guard !accessPolicy.isFreeBeta else { return false }
-
-        switch status {
-        case .basic, .proExpired, .legacyLocalPro:
-            return true
-        case .proActive, .proGrace, .unavailable:
-            return false
-        }
+        status == .proActive ? "Read, download, and participate" : "Browse and read"
     }
 
     var badgeText: String {

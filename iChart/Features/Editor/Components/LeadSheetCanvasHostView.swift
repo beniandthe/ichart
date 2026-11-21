@@ -165,7 +165,7 @@ enum ChordDraftBarlineDeletionPolicy {
 
 private enum ChordLaneLocalBreadcrumbs {
     #if DEBUG
-    private static let isEnabled = UserDefaults.standard.bool(forKey: "iChartChordLaneBreadcrumbsEnabled")
+    private static let isEnabled = IChartStorageNamespace.defaults.bool(forKey: "iChartChordLaneBreadcrumbsEnabled")
     #else
     private static let isEnabled = false
     #endif
@@ -240,10 +240,10 @@ private enum ChordLaneLocalBreadcrumbs {
     }
 
     private static var logURL: URL {
-        let baseDirectory = FileManager.default.urls(
+        let baseDirectory = IChartStorageNamespace.scopedDirectory(FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
-        ).first ?? FileManager.default.temporaryDirectory
+        ).first ?? FileManager.default.temporaryDirectory)
         return baseDirectory.appendingPathComponent("chord-lane-breadcrumbs.log")
     }
 
@@ -728,6 +728,7 @@ enum LeadSheetCanvasChartUpdateReason {
     case moveRoadmapMarker
     case moveEndingSpan
     case resizeEndingSpan
+    case adjustAnnotationPosition
     case persistActiveInk
     case convertFreeInkArticulation
     case moveFreeInkArticulation
@@ -756,6 +757,7 @@ enum LeadSheetCanvasChartUpdateReason {
              .moveRoadmapMarker,
              .moveEndingSpan,
              .resizeEndingSpan,
+             .adjustAnnotationPosition,
              .convertFreeInkArticulation,
              .moveFreeInkArticulation,
              .deleteFreeInkArticulation,
@@ -1558,8 +1560,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         selectedRoadmapMarkerID: UUID?,
         selectedEndingSpanID: UUID? = nil
     ) {
+        let previousSelection = renderedEditSelectionState()
         isSyncingSelectionFromSwiftUI = true
-        defer { isSyncingSelectionFromSwiftUI = false }
+        defer {
+            isSyncingSelectionFromSwiftUI = false
+            if previousSelection != renderedEditSelectionState() {
+                updateAnnotationPositionSelection()
+            }
+        }
 
         self.selectedMeasureID = selectedMeasureID
         self.selectedNoteSelection = selectedNoteSelection
@@ -1793,6 +1801,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             if selectedCueTextID != nil, !isSyncingSelectionFromSwiftUI { selectedEndingSpanID = nil }
             if !isSyncingSelectionFromSwiftUI {
                 onCueTextSelectionChanged?(selectedCueTextID)
+                updateAnnotationPositionSelection()
             }
             setNeedsDisplay()
         }
@@ -1803,6 +1812,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 return
             }
             if selectedRoadmapMarkerID != nil, !isSyncingSelectionFromSwiftUI { selectedEndingSpanID = nil }
+            if !isSyncingSelectionFromSwiftUI { updateAnnotationPositionSelection() }
             setNeedsDisplay()
         }
     }
@@ -1817,7 +1827,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 updateSelectedRoadmapMarkerID(nil)
                 selectedNoteSelection = nil
             }
-            if !isSyncingSelectionFromSwiftUI { onEndingSpanSelectionChanged?(selectedEndingSpanID) }
+            if !isSyncingSelectionFromSwiftUI {
+                onEndingSpanSelectionChanged?(selectedEndingSpanID)
+                updateAnnotationPositionSelection()
+            }
             setNeedsDisplay()
         }
     }
@@ -1846,6 +1859,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 requestActiveInkFocusIfNeeded()
             }
             refreshFreeInkArticulationDeleteButton()
+            refreshAnnotationPositionHandles()
         }
     }
 
@@ -2192,8 +2206,18 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
     private let chordMoveOverlayView = LeadSheetChordMoveOverlayView(frame: .zero)
     private var activeChordResizeDrag: ActiveChordResizeDrag?
-    private var activeRoadmapMarkerEditDrag: ActiveRoadmapMarkerEditDrag?
-    private var activeCueTextMoveDrag: ActiveCueTextMoveDrag?
+    private var activeRoadmapMarkerEditDrag: ActiveRoadmapMarkerEditDrag? {
+        didSet { updateAnnotationPositionHandleFrames() }
+    }
+    private var activeCueTextMoveDrag: ActiveCueTextMoveDrag? {
+        didSet { updateAnnotationPositionHandleFrames() }
+    }
+    private var activeAnnotationPositionDrag: LeadSheetAnnotationPositionDrag?
+    private var annotationPositionDragY: CGFloat = 0
+    private var annotationPositionHandleID: RenderedEditObjectID?
+    private var annotationPositionHandlePlacements: [LeadSheetAnnotationPositionEditOverlay.Handle] = []
+    private var displayedAnnotationPositionHandles: [LeadSheetAnnotationPositionEditOverlay.Handle] = []
+    private var annotationPositionHandleViews: [LeadSheetAnnotationPositionHandleView] = []
     private var endingEditInteraction = LeadSheetEndingEditInteraction()
     private var parentScrollLockCoordinator = LeadSheetParentScrollLockCoordinator()
     private var isSyncingSelectionFromSwiftUI = false
@@ -2226,6 +2250,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
             if !isSyncingSelectionFromSwiftUI {
                 onCommittedChordBarlineSelectionChanged?(selectedCommittedBarlineMeasureID)
+                updateAnnotationPositionSelection()
             }
             setNeedsDisplay()
         }
@@ -2342,6 +2367,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         if let drag = freeInkArticulationDrag {
             prepareFreeInkArticulationDragOverlay(for: drag)
         }
+        refreshAnnotationPositionHandles()
     }
 
     static func boundedDocumentRasterScale(
@@ -2466,12 +2492,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             outline.stroke()
         }
 
-        if interactionMode == .browse, let selectedEndingSpanID {
+        if interactionMode == .browse, activeAnnotationPositionDrag == nil, let selectedEndingSpanID {
             LeadSheetEndingEditOverlay.draw(endingID: selectedEndingSpanID, chart: chart,
                 pageLayout: pageLayout, previewChart: endingEditInteraction.previewChart,
                 screenPointsPerDisplayedPoint: canvasScreenPointsPerDisplayedPoint(),
-                dragFeedback: endingEditInteraction.dragFeedback)
+                dragFeedback: endingEditInteraction.dragFeedback,
+                projectedSegments: endingEditInteraction.projectedSegments)
         }
+        drawAnnotationPositionFeedback()
 
         if interactionMode.allowsChordInkEditing {
             drawChordDraftPreview(pageLayout)
@@ -2859,12 +2887,14 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func invalidateLayout() {
         cancelEndingEditDrag()
         cancelFreeInkArticulationDrag()
+        cancelAnnotationPositionDrag()
         chordInkEditedTargetState.reset()
         editorPerformanceMetrics.recordLayoutInvalidation()
         guard bounds.width > 0, bounds.height > 0 else {
             pageLayout = nil
             syncPageInkCanvas()
             refreshFreeInkArticulationDeleteButton()
+            refreshAnnotationPositionHandles()
             setNeedsDisplay()
             return
         }
@@ -2891,6 +2921,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
         syncPageInkCanvas()
         refreshFreeInkArticulationDeleteButton()
+        refreshAnnotationPositionHandles()
         setNeedsDisplay()
     }
 
@@ -2971,7 +3002,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 renderer.drawEnding(endingLayout)
                 context.restoreGState()
             } else {
-                renderer.drawEnding(endingLayout)
+                renderer.drawEnding(displayEndingLayout(for: endingLayout))
             }
         }
 
@@ -3807,6 +3838,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func displayCueTextLayout(for cueTextLayout: LeadSheetCueTextLayout) -> LeadSheetCueTextLayout {
+        if let dy = annotationPositionPreviewTranslation(for: .cueText(cueTextLayout.id)) {
+            var preview = cueTextLayout
+            preview.frame = preview.frame.offsetBy(dx: 0, dy: dy)
+            preview.hitFrame = preview.hitFrame.offsetBy(dx: 0, dy: dy)
+            return preview
+        }
         guard let activeCueTextMoveDrag,
               activeCueTextMoveDrag.cueTextID == cueTextLayout.id else {
             return cueTextLayout
@@ -3823,6 +3860,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func displayRoadmapMarkerLayout(
         for markerLayout: LeadSheetRoadmapMarkerLayout
     ) -> LeadSheetRoadmapMarkerLayout {
+        if let dy = annotationPositionPreviewTranslation(for: .roadmapMarker(markerLayout.id)) {
+            var preview = markerLayout
+            preview.frame = preview.frame.offsetBy(dx: 0, dy: dy)
+            return preview
+        }
         guard let activeRoadmapMarkerEditDrag,
               activeRoadmapMarkerEditDrag.markerID == markerLayout.id else {
             return markerLayout
@@ -3831,6 +3873,17 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         var previewLayout = markerLayout
         previewLayout.frame = activeRoadmapMarkerEditDrag.currentFrame
         return previewLayout
+    }
+
+    private func displayEndingLayout(for ending: LeadSheetEndingLayout) -> LeadSheetEndingLayout {
+        guard let dy = annotationPositionPreviewTranslation(for: .endingSpan(ending.roadmapObjectID))
+        else { return ending }
+        var preview = ending
+        preview.frame = preview.frame.offsetBy(dx: 0, dy: dy)
+        if !preview.labelFrame.isEmpty {
+            preview.labelFrame = preview.labelFrame.offsetBy(dx: 0, dy: dy)
+        }
+        return preview
     }
 
     private func drawChordEditOverlay(
@@ -4344,6 +4397,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func renderedEditTapTarget(at location: CGPoint) -> RenderedEditHitTarget? {
+        if let placement = annotationPositionTarget(at: location, action: .select) { return placement }
         guard let context = renderedEditContext() else {
             return nil
         }
@@ -4353,6 +4407,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func renderedEditDragTarget(at location: CGPoint) -> RenderedEditHitTarget? {
+        if let placement = annotationPositionTarget(at: location, action: .moveVertically) { return placement }
         guard let context = renderedEditContext() else {
             return nil
         }
@@ -4571,8 +4626,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     @discardableResult
     func beginRenderedObjectMoveTouch(at location: CGPoint, touchType: UITouch.TouchType) -> Bool {
         guard !isInteractionSuspended, allowsRenderedEditTouch(touchType) else { return false }
-        let articulation = freeInkArticulationHit(at: location) != nil
         let drag = renderedEditDragState(at: location)
+        let articulation = drag?.target.action != .moveVertically && freeInkArticulationHit(at: location) != nil
         guard LeadSheetObjectMoveTouchPolicy.allowsMovePan(touchType: touchType,
             startsOnMoveTarget: articulation || drag != nil, environment: inputEnvironment) else {
             clearRenderedObjectMoveTouch()
@@ -4597,6 +4652,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         activeChordResizeDrag = nil
         activeCueTextMoveDrag = nil
         activeRoadmapMarkerEditDrag = nil
+        cancelAnnotationPositionDrag()
         cancelEndingEditDrag()
         cancelFreeInkArticulationDrag()
         unlockParentScrollForChordMove()
@@ -5178,7 +5234,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             deleteChordEvent(chordID)
         case .select, .move, .resizeLeading, .resizeTrailing, .correctChord:
             selectRenderedChordFromCanvas(chordID)
-        case .resizeLeft, .resizeRight, .grow, .shrink, .editText, .openInspector:
+        case .moveVertically, .resizeLeft, .resizeRight, .grow, .shrink, .editText, .openInspector:
             break
         }
     }
@@ -5201,7 +5257,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             handleCommittedBarlineTap(CommittedChordBarlineHitTarget(measureID: measureID, action: .select))
         case .delete:
             handleCommittedBarlineTap(CommittedChordBarlineHitTarget(measureID: measureID, action: .delete))
-        case .move, .resizeLeading, .resizeTrailing, .resizeLeft, .resizeRight,
+        case .move, .moveVertically, .resizeLeading, .resizeTrailing, .resizeLeft, .resizeRight,
              .grow, .shrink, .editText, .correctChord, .openInspector:
             break
         }
@@ -5230,7 +5286,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             resizeCueText(cueTextID, by: CueText.scaleStep)
         case .delete:
             deleteCueText(cueTextID)
-        case .resizeLeading, .resizeTrailing, .resizeLeft, .resizeRight, .correctChord, .openInspector:
+        case .moveVertically, .resizeLeading, .resizeTrailing, .resizeLeft, .resizeRight, .correctChord, .openInspector:
             break
         }
     }
@@ -5241,7 +5297,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             handleRoadmapMarkerEditTap(RoadmapMarkerEditHitTarget(markerID: markerID, action: .delete))
         case .select, .move:
             handleRoadmapMarkerEditTap(RoadmapMarkerEditHitTarget(markerID: markerID, action: .select))
-        case .resizeLeading, .resizeTrailing, .resizeLeft, .resizeRight,
+        case .moveVertically, .resizeLeading, .resizeTrailing, .resizeLeft, .resizeRight,
              .grow, .shrink, .editText, .correctChord, .openInspector:
             break
         }
@@ -5681,6 +5737,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
         let location = recognizer.location(in: self)
+        if activeAnnotationPositionDrag != nil {
+            handleAnnotationPositionPan(recognizer)
+            return
+        }
         if endingEditInteraction.isActive {
             handleEndingEditPan(recognizer)
             return
@@ -5708,13 +5768,17 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
 
             switch (dragState.target.objectID, dragState.target.action) {
+            case (_, .moveVertically):
+                if beginAnnotationPositionDrag(dragState, at: location) { return }
             case (.endingSpan(_), .move), (.endingSpan(_), .resizeTrailing):
                 handleEndingEditPan(recognizer)
                 return
             case (.cueText(_), .move):
+                if beginsAsVerticalAnnotationDrag(dragState, at: location) { return }
                 handleCueTextMovePan(recognizer)
                 return
             case (.roadmapMarker(_), .move):
+                if beginsAsVerticalAnnotationDrag(dragState, at: location) { return }
                 handleRoadmapMarkerEditPan(recognizer)
                 return
             case (.chord(_), .resizeTrailing):
@@ -5825,7 +5889,199 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         if let committed = effect.committedChart {
             applyCommittedEndingEdit(committed, action: effect.action)
         }
-        if effect.needsDisplay { setNeedsDisplay() }
+        if effect.needsDisplay {
+            updateAnnotationPositionHandleFrames()
+            setNeedsDisplay()
+        }
+    }
+
+    private func beginsAsVerticalAnnotationDrag(_ admitted: RenderedEditDragState, at point: CGPoint) -> Bool {
+        abs(point.y - admitted.startLocation.y) > abs(point.x - admitted.startLocation.x)
+            && beginAnnotationPositionDrag(admitted, at: point)
+    }
+
+    private func beginAnnotationPositionDrag(_ admitted: RenderedEditDragState, at point: CGPoint) -> Bool {
+        let objectID = admitted.target.objectID
+        guard interactionMode == .browse, !isInteractionSuspended,
+              renderedEditSelectionState().contains(objectID),
+              let modelOffset = LeadSheetAnnotationPositionDrag.modelOffset(for: objectID, in: chart)
+        else { return false }
+        let visualOffset: CGFloat
+        if let handle = annotationPositionHandlePlacements.first(where: { $0.frame.contains(admitted.startLocation) }) {
+            visualOffset = handle.offsetFromDefault
+        } else {
+            switch objectID {
+            case .cueText(let id):
+                visualOffset = cueTextLayouts().first(where: { $0.id == id })?.verticalOffsetFromDefault ?? CGFloat(modelOffset)
+            case .roadmapMarker(let id):
+                visualOffset = roadmapMarkerLayouts().first(where: { $0.id == id })?.verticalOffsetFromDefault ?? CGFloat(modelOffset)
+            default:
+                return false
+            }
+        }
+        activeAnnotationPositionDrag = LeadSheetAnnotationPositionDrag(objectID: objectID, chartID: chart.id,
+            modelOffset: modelOffset, startingOffsetFromDefault: visualOffset, startY: admitted.startLocation.y,
+            screenPointsPerDisplayedPoint: canvasScreenPointsPerDisplayedPoint())
+        annotationPositionDragY = point.y
+        lockParentScrollForChordMove()
+        setNeedsDisplay()
+        return true
+    }
+
+    private func handleAnnotationPositionPan(_ recognizer: UIPanGestureRecognizer) {
+        guard let drag = activeAnnotationPositionDrag else { return }
+        annotationPositionDragY = recognizer.location(in: self).y
+        switch recognizer.state {
+        case .changed:
+            setNeedsDisplay()
+        case .ended:
+            var updated = chart
+            let changed = drag.commit(in: &updated, selected: renderedEditSelectionState().selectedObjectID,
+                at: annotationPositionDragY)
+            cancelAnnotationPositionDrag()
+            if changed { applyUpdatedChart(updated, reason: .adjustAnnotationPosition) }
+        case .cancelled, .failed:
+            cancelAnnotationPositionDrag()
+        default:
+            break
+        }
+    }
+
+    private func cancelAnnotationPositionDrag() {
+        guard activeAnnotationPositionDrag != nil else { return }
+        activeAnnotationPositionDrag = nil
+        unlockParentScrollForChordMove()
+        setNeedsDisplay()
+    }
+
+    private func annotationPositionPreviewTranslation(for objectID: RenderedEditObjectID) -> CGFloat? {
+        guard let drag = activeAnnotationPositionDrag, drag.objectID == objectID else { return nil }
+        return drag.previewTranslation(at: annotationPositionDragY)
+    }
+
+    private func updateAnnotationPositionSelection() {
+        if let drag = activeAnnotationPositionDrag, !renderedEditSelectionState().contains(drag.objectID) {
+            cancelAnnotationPositionDrag()
+        }
+        refreshAnnotationPositionHandles()
+    }
+
+    private func refreshAnnotationPositionHandles() {
+        let selection = renderedEditSelectionState()
+        let scale = max(canvasScreenPointsPerDisplayedPoint(), 0.1)
+        var placements: [LeadSheetAnnotationPositionEditOverlay.Handle] = []
+        var objectID: RenderedEditObjectID?
+        var modelOffset: Double = 0
+        if interactionMode == .browse, !isInteractionSuspended, let pageLayout,
+           let selected = selection.selectedObjectID,
+           let offset = LeadSheetAnnotationPositionDrag.modelOffset(for: selected, in: chart) {
+            placements = LeadSheetAnnotationPositionEditOverlay.handles(for: RenderedEditContext(
+                pageLayout: pageLayout, layoutStyle: chart.layoutStyle, selection: selection,
+                screenPointsPerDisplayedPoint: scale))
+            objectID = selected
+            modelOffset = offset
+        }
+        annotationPositionHandleID = objectID
+        annotationPositionHandlePlacements = placements
+        while annotationPositionHandleViews.count > placements.count {
+            annotationPositionHandleViews.removeLast().removeFromSuperview()
+        }
+        while annotationPositionHandleViews.count < placements.count {
+            let view = LeadSheetAnnotationPositionHandleView()
+            annotationPositionHandleViews.append(view)
+            addSubview(view)
+        }
+        for (view, placement) in zip(annotationPositionHandleViews, placements) {
+            view.updateFrame(placement.frame, scale: scale, modelOffset: modelOffset)
+            view.adjustment = { [weak self] movement in
+                guard let self, let objectID, self.renderedEditSelectionState().contains(objectID) else { return }
+                var updated = self.chart
+                let offset = Double(placement.offsetFromDefault + movement / scale)
+                if LeadSheetAnnotationPositionDrag.setOffset(offset, for: objectID, in: &updated) {
+                    self.applyUpdatedChart(updated, reason: .adjustAnnotationPosition)
+                }
+            }
+        }
+        updateAnnotationPositionHandleFrames()
+    }
+
+    private func updateAnnotationPositionHandleFrames() {
+        let placements = annotationPositionHandlePlacements
+        let scale = max(canvasScreenPointsPerDisplayedPoint(), 0.1)
+        displayedAnnotationPositionHandles = annotationPositionHandlePreview(from: placements, scale: scale)
+        for (index, view) in annotationPositionHandleViews.enumerated() {
+            if index < displayedAnnotationPositionHandles.count {
+                view.frame = displayedAnnotationPositionHandles[index].frame
+                view.isHidden = false
+            } else {
+                view.isHidden = true
+            }
+        }
+    }
+
+    private func annotationPositionHandlePreview(
+        from placements: [LeadSheetAnnotationPositionEditOverlay.Handle], scale: CGFloat
+    ) -> [LeadSheetAnnotationPositionEditOverlay.Handle] {
+        let dx: CGFloat
+        let dy: CGFloat
+        switch annotationPositionHandleID {
+        case .cueText(let id) where activeCueTextMoveDrag?.cueTextID == id:
+            guard let drag = activeCueTextMoveDrag else { return placements }
+            dx = drag.currentFrame.minX - drag.initialFrame.minX
+            dy = drag.currentFrame.minY - drag.initialFrame.minY
+        case .roadmapMarker(let id) where activeRoadmapMarkerEditDrag?.markerID == id:
+            guard let drag = activeRoadmapMarkerEditDrag else { return placements }
+            dx = drag.currentFrame.minX - drag.initialFrame.minX
+            dy = 0
+        case .endingSpan:
+            guard let segments = endingEditInteraction.projectedSegments, let pageLayout else { return placements }
+            var pairs = Array(zip(placements, segments))
+            if !pairs.isEmpty, endingEditInteraction.dragFeedback?.action == .resizeTrailing,
+               let trailingPlacement = placements.last, let trailingSegment = segments.last {
+                pairs[pairs.count - 1] = (trailingPlacement, trailingSegment)
+            }
+            return pairs.map { placement, segment in
+                let paper = pageLayout.systems.first { $0.index == segment.systemIndex }
+                    .map { pageLayout.paperFrame(for: $0) }
+                return placement.following(segment.occupiedFrame, in: paper, scale: scale)
+            }
+        default:
+            return placements
+        }
+        return placements.map {
+            $0.following($0.annotationFrame.offsetBy(dx: dx, dy: dy), scale: scale)
+        }
+    }
+
+    private func annotationPositionTarget(at point: CGPoint, action: RenderedEditAction) -> RenderedEditHitTarget? {
+        guard let objectID = annotationPositionHandleID,
+              renderedEditSelectionState().contains(objectID),
+              let placement = displayedAnnotationPositionHandles.first(where: { $0.frame.contains(point) })
+        else { return nil }
+        return RenderedEditHitTarget(objectID: objectID, action: action, priority: .selectedObjectEditControl,
+            frame: placement.frame, requiresSelection: true, mutationRisk: action.isMove ? .visual : .nonMutating)
+    }
+
+    private func drawAnnotationPositionFeedback() {
+        guard let objectID = annotationPositionHandleID else { return }
+        let scale = max(canvasScreenPointsPerDisplayedPoint(), 0.1)
+        let dy = annotationPositionPreviewTranslation(for: objectID)
+        for placement in displayedAnnotationPositionHandles {
+            let frame = placement.annotationFrame.offsetBy(dx: 0, dy: dy ?? 0)
+            let path = UIBezierPath()
+            let nearest = CGPoint(x: min(max(frame.midX, placement.frame.minX), placement.frame.maxX),
+                y: min(max(frame.midY, placement.frame.minY), placement.frame.maxY))
+            path.move(to: nearest)
+            path.addLine(to: CGPoint(x: min(max(nearest.x, frame.minX), frame.maxX),
+                y: min(max(nearest.y, frame.minY), frame.maxY)))
+            if dy != nil {
+                path.append(UIBezierPath(roundedRect: frame.insetBy(dx: -3 / scale, dy: -3 / scale),
+                    cornerRadius: 4 / scale))
+            }
+            UIColor.systemBlue.withAlphaComponent(dy == nil ? 0.44 : 0.85).setStroke()
+            path.lineWidth = 1.3 / scale
+            path.stroke()
+        }
     }
 
     private func freeInkArticulationHit(at point: CGPoint)
@@ -6018,6 +6274,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func cancelEndingEditDrag() {
         guard endingEditInteraction.cancel() else { return }
+        updateAnnotationPositionHandleFrames()
         unlockParentScrollForChordMove()
         setNeedsDisplay()
     }
@@ -6258,6 +6515,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             setNeedsDisplay()
 
             if recognizer.state == .ended {
+                self.activeCueTextMoveDrag = nil
                 if let target = LeadSheetCanvasInteractionTargeting.cueTextMoveTarget(
                     at: location,
                     in: pageLayout,
@@ -6276,7 +6534,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                         selectedCueTextID = activeCueTextMoveDrag.cueTextID
                     }
                 }
-                self.activeCueTextMoveDrag = nil
                 unlockParentScrollForChordMove()
                 setNeedsDisplay()
             }
@@ -6297,7 +6554,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func handleRoadmapMarkerEditPan(_ recognizer: UIPanGestureRecognizer) {
         switch recognizer.state {
         case .began:
-            let startLocation = renderedObjectMoveStartLocation(for: recognizer)
             guard let target = renderedObjectMoveAdmittedDrag?.target,
                   case .roadmapMarker(let markerID) = target.objectID,
                   let markerLayout = roadmapMarkerLayouts().first(where: { $0.id == markerID }) else {
@@ -6340,6 +6596,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             setNeedsDisplay()
 
             if recognizer.state == .ended {
+                self.activeRoadmapMarkerEditDrag = nil
                 let normalizedOffset = LeadSheetRoadmapMarkerEditOverlayGeometry.normalizedOffset(
                     for: clampedFrame,
                     in: activeRoadmapMarkerEditDrag.movementFrame
@@ -6351,7 +6608,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 ) {
                     applyUpdatedChart(updatedChart, reason: .moveRoadmapMarker)
                 }
-                self.activeRoadmapMarkerEditDrag = nil
                 unlockParentScrollForChordMove()
                 setNeedsDisplay()
             }
@@ -9575,6 +9831,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         parentScrollGestureGate.updateCanvasView(self)
         updateChordInkConfirmOverlayVisibility()
+        refreshAnnotationPositionHandles()
     }
 
     private func clearNoteSelectionInk() {
