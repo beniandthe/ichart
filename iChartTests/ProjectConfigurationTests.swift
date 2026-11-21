@@ -1,4 +1,5 @@
 import XCTest
+@testable import iChart
 
 final class ProjectConfigurationTests: XCTestCase {
     func testOptionalTelemetryStartsOffMainAfterLibraryInitializationWithoutAwaitingReadback() throws {
@@ -46,6 +47,7 @@ final class ProjectConfigurationTests: XCTestCase {
             "swift-concurrency-extras": "1.4.1",
             "swift-crypto": "4.5.2",
             "swift-http-types": "1.8.0",
+            "swift-issue-reporting": "2.1.2",
             "xctest-dynamic-overlay": "1.13.1"
         ]
         XCTAssertEqual(pins.count, expectedVersions.count)
@@ -56,6 +58,9 @@ final class ProjectConfigurationTests: XCTestCase {
             XCTAssertEqual(state["version"] as? String, expectedVersions[identity])
             let revision = try XCTUnwrap(state["revision"] as? String)
             XCTAssertNotNil(revision.range(of: "^[0-9a-f]{40}$", options: .regularExpression))
+            if identity == "swift-issue-reporting" {
+                XCTAssertEqual(revision, "b23bb4493c439d3e05152bc167014235ba3d47fc")
+            }
         }
     }
 
@@ -503,7 +508,12 @@ final class ProjectConfigurationTests: XCTestCase {
         )
 
         XCTAssertTrue(traceText.contains("performance-trace.jsonl"))
-        XCTAssertTrue(traceText.contains("Library/Application Support/iChart"))
+        XCTAssertTrue(traceText.contains("IChartStorageNamespace.scopedDirectory("))
+        XCTAssertTrue(traceText.contains(".appendingPathComponent(\"Library/Application Support\", isDirectory: true)"))
+        XCTAssertTrue(traceText.contains(".appendingPathComponent(\"iChart\", isDirectory: true)"))
+        let publicSupportDirectory = URL(fileURLWithPath: "/synthetic/Library/Application Support", isDirectory: true)
+        XCTAssertEqual(IChartStorageNamespace.scopedDirectory(publicSupportDirectory, mode: .publicApp)
+            .appendingPathComponent("iChart", isDirectory: true).path, "/synthetic/Library/Application Support/iChart")
         XCTAssertTrue(traceText.contains("maxTraceSizeBytes"))
         XCTAssertTrue(traceText.contains("IChartTelemetry.basicRecordingAuthorization()"))
         XCTAssertTrue(traceText.contains("authorization.isCurrent"))
@@ -930,7 +940,11 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(libraryText.contains("Continue to Charts"))
         XCTAssertFalse(libraryText.contains("Button(\"Close\")"))
         XCTAssertTrue(appRootText.contains("hasSeenAccountLandingKey"))
-        XCTAssertTrue(appRootText.contains("UserDefaults.standard.bool(forKey: Self.hasSeenAccountLandingKey)"))
+        XCTAssertTrue(appRootText.contains("hasSeenAccountLandingKey = \"iChartHasSeenAccountLanding\""))
+        XCTAssertTrue(appRootText.contains("IChartStorageNamespace.defaults.bool(forKey: Self.hasSeenAccountLandingKey)"))
+        if !IChartStorageNamespace.isInternalStaging {
+            XCTAssertTrue(IChartStorageNamespace.defaults === UserDefaults.standard)
+        }
         XCTAssertTrue(appRootText.contains("struct IChartLaunchScreenView"))
         XCTAssertTrue(authStoreText.contains("firstName = \"first_name\""))
         XCTAssertTrue(authStoreText.contains("lastName = \"last_name\""))
@@ -2227,6 +2241,10 @@ final class ProjectConfigurationTests: XCTestCase {
             contentsOf: projectRoot
                 .appendingPathComponent("supabase/functions/_shared/app_store_subscription_authority.mjs")
         )
+        let productCatalogText = try String(
+            contentsOf: projectRoot
+                .appendingPathComponent("supabase/functions/_shared/app_store_product_catalog.mjs")
+        )
         let authorityStoreText = try String(
             contentsOf: projectRoot
                 .appendingPathComponent("supabase/functions/_shared/supabase_subscription_authority_store.mjs")
@@ -2287,8 +2305,18 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(functionText.contains("Hello from Functions"))
         XCTAssertFalse(functionText.contains("withSupabase"))
         XCTAssertFalse(claimFunctionText.contains("withSupabase"))
-        XCTAssertTrue(authorityText.contains("com.ichart.app.pro.monthly"))
-        XCTAssertTrue(authorityText.contains("com.ichart.app.pro.annual"))
+        let publicProductStart = try XCTUnwrap(productCatalogText.range(of: "export const appStorePublicProductIDs = Object.freeze(["))
+        let publicProductEnd = try XCTUnwrap(productCatalogText.range(of: "]);", range: publicProductStart.upperBound..<productCatalogText.endIndex))
+        let publicProducts = productCatalogText[publicProductStart.upperBound..<publicProductEnd.lowerBound]
+        XCTAssertTrue(publicProducts.contains("com.ichart.app.pro.monthly"))
+        XCTAssertTrue(publicProducts.contains("com.ichart.app.pro.annual"))
+        XCTAssertFalse(publicProducts.contains("staging.fix036"))
+        XCTAssertTrue(productCatalogText.contains("export function isAppStoreProductID(productID, config = {})"))
+        XCTAssertTrue(productCatalogText.contains("? appStoreStagingProductIDs\n    : appStorePublicProductIDs;"))
+        XCTAssertTrue(authorityText.contains("export const iChartProProductIDs = appStorePublicProductIDs;"))
+        XCTAssertTrue(authorityText.contains("return isAppStoreProductID(productID, config);"))
+        XCTAssertTrue(authorityText.contains("appStorePayloadProductScopeAllowed(transactionInfo, dependencies, \"transaction\")"))
+        XCTAssertTrue(authorityText.contains("appStorePayloadProductScopeAllowed(renewalInfo, dependencies, \"renewalInfo\")"))
         XCTAssertTrue(authorityText.contains("App Store signedPayload verification is not configured."))
         XCTAssertTrue(authorityText.contains("writeSubscriptionAuthority"))
         XCTAssertTrue(authorityText.contains("Missing App Store signedPayload."))
