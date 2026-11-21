@@ -542,7 +542,7 @@ private struct IChartHelpArticleSection: Identifiable {
             bullets: [
                 "Open PDFs, choose Import PDF, then choose a PDF in Files. iChart saves a local copy; the original file stays where it is.",
                 "Check the preview after import. Choose Share to send a copy, or Add to Setlist to arrange it with other songs.",
-                "For a one-page chord sheet with selectable text and barlines, choose Create Editable Chart. Compare the draft with the PDF, correct each measure, then choose Save as New Chart. Use View Original PDF in the new chart's Actions menu to revisit the saved original.",
+                "For a PDF with selectable chords and clear barlines, choose Create Editable Chart. Compare the draft with the PDF, correct each measure, then choose Save as New Chart. Use View Original PDF in the new chart's Actions menu to revisit the saved original.",
                 "Use Search PDFs to find a title or file name. Choose Sort: Recent or Name to change the displayed order.",
                 "Cancel an import while it is preparing if you chose the wrong file. If a PDF cannot be opened, check that the original is a readable PDF and import it again."
             ]

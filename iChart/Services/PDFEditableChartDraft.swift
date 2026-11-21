@@ -1,9 +1,26 @@
 import Foundation
 
-/// A reviewable chord grid extracted from the selectable text of one PDF page.
+/// The editable chord fields and their original PDF row order.
 struct PDFEditableChartDraft: Sendable {
     var title: String
     var rows: [[String]]
+    var staffPageNumbers: [Int]? = nil
+
+    var usesDrawnBarlines: Bool { staffPageNumbers != nil }
+
+    func rowLabel(_ rowIndex: Int) -> String {
+        guard let pages = staffPageNumbers, pages.indices.contains(rowIndex) else {
+            return "Row \(rowIndex + 1)"
+        }
+        let page = pages[rowIndex]
+        let rowOnPage = pages.prefix(rowIndex + 1).count { $0 == page }
+        return "PDF page \(page) · Row \(rowOnPage)"
+    }
+
+    func reviewIssue(forMeasure text: String) -> String? {
+        if usesDrawnBarlines && Self.chordTokens(in: text).isEmpty { return nil }
+        return Self.issue(forMeasure: text)
+    }
 
     static func read(title: String, pages: [String]) throws -> Self {
         guard pages.count == 1 else { throw PDFEditableChartDraftError.singlePageRequired }
@@ -70,7 +87,7 @@ struct PDFEditableChartDraft: Sendable {
         }
         for (rowIndex, row) in rows.enumerated() {
             for (measureIndex, text) in row.enumerated() {
-                if let issue = Self.issue(forMeasure: text) {
+                if let issue = reviewIssue(forMeasure: text) {
                     throw PDFEditableChartDraftError.invalidMeasure(row: rowIndex + 1,
                         measure: measureIndex + 1, issue: issue)
                 }
@@ -86,6 +103,7 @@ struct PDFEditableChartDraft: Sendable {
             let measures = try row.map { text in
                 var measure = initialMeasures[measureIndex]
                 measureIndex += 1
+                if usesDrawnBarlines { measure.authoringState = .committed }
                 let tokens = Self.chordTokens(in: text)
                 for (chordIndex, token) in tokens.enumerated() {
                     let quarterBeatNumerator = 4 * chordIndex
@@ -94,6 +112,7 @@ struct PDFEditableChartDraft: Sendable {
                     let suggestion = MeasureChordInsertionSuggestion(startPosition: position,
                         duration: .slash, mappedRhythmSlotIndex: nil)
                     _ = measure.appendChordEvent(symbol: try ChordSymbolParser.parse(token),
+                        spellingIntent: usesDrawnBarlines ? .explicit : .automatic,
                         rawInput: token, suggestion: suggestion)
                 }
                 return measure

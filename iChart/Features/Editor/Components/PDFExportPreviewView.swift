@@ -106,7 +106,7 @@ struct PDFExportPreviewView: View {
                 .tint(IChartInterfaceStyle.actionText)
                 .accessibilityHint("Review the chords and measures before saving a new Simple Chord Sheet.")
                 .accessibilityIdentifier("pdf.preview.create-editable-chart")
-                Text("For one-page chord grids with selectable text and | barlines.")
+                Text("For selectable chord symbols above a staff or in a one-page chord grid.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

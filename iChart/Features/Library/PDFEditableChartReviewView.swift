@@ -32,12 +32,19 @@ struct PDFEditableChartReviewView: View {
                     .accessibilityIdentifier("pdf.editable-chart.source-toggle")
                 }
                 Divider()
-                if showingOriginalPDF {
-                    PDFDocumentView(url: url)
-                        .ichartDocumentDisplayAppearance()
-                        .accessibilityIdentifier("pdf.editable-chart.original")
-                } else if let draft {
-                    draftFields(draft)
+                if let draft {
+                    ZStack {
+                        draftFields(draft)
+                            .opacity(showingOriginalPDF ? 0 : 1)
+                            .allowsHitTesting(!showingOriginalPDF)
+                            .accessibilityHidden(showingOriginalPDF)
+                        PDFDocumentView(url: url)
+                            .ichartDocumentDisplayAppearance()
+                            .opacity(showingOriginalPDF ? 1 : 0)
+                            .allowsHitTesting(showingOriginalPDF)
+                            .accessibilityHidden(!showingOriginalPDF)
+                            .accessibilityIdentifier("pdf.editable-chart.original")
+                    }
                 } else if errorMessage == nil {
                     VStack(spacing: 12) {
                         ProgressView()
@@ -82,6 +89,9 @@ struct PDFEditableChartReviewView: View {
             }
         }
         .interactiveDismissDisabled(isSaving)
+        .onChange(of: showingOriginalPDF) { _, isShowingPDF in
+            if isShowingPDF { endEditing() }
+        }
         .task {
             guard draft == nil, !isReading else { return }
             await readDraft()
@@ -96,6 +106,11 @@ struct PDFEditableChartReviewView: View {
             Text("Creates a Simple Chord Sheet in 4/4, with chords evenly spaced within each measure.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+            if draft?.usesDrawnBarlines == true {
+                Text("Leave a measure blank when the PDF shows no chord change.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
             if isSaving {
                 ProgressView("Saving chart…")
                     .accessibilityIdentifier("pdf.editable-chart.saving")
@@ -132,7 +147,7 @@ struct PDFEditableChartReviewView: View {
                     .background(IChartTypedSheetScrollSupport())
             }
             ForEach(current.rows.indices, id: \.self) { rowIndex in
-                Section("Row \(rowIndex + 1)") {
+                Section(current.rowLabel(rowIndex)) {
                     ForEach(current.rows[rowIndex].indices, id: \.self) { measureIndex in
                         let number = measureNumber(rowIndex: rowIndex, measureIndex: measureIndex)
                         VStack(alignment: .leading, spacing: 5) {
@@ -145,7 +160,7 @@ struct PDFEditableChartReviewView: View {
                                 compact: true
                             )
                             .disabled(isSaving || didSave)
-                            if let issue = PDFEditableChartDraft.issue(forMeasure: current.rows[rowIndex][measureIndex]) {
+                            if let issue = current.reviewIssue(forMeasure: current.rows[rowIndex][measureIndex]) {
                                 Text(issue)
                                     .font(.caption)
                                     .foregroundStyle(.orange)
@@ -168,7 +183,7 @@ struct PDFEditableChartReviewView: View {
         guard let draft, !isReading, !isSaving, !didSave,
               !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         let measures = draft.rows.flatMap { $0 }
-        return !measures.isEmpty && measures.allSatisfy { PDFEditableChartDraft.issue(forMeasure: $0) == nil }
+        return !measures.isEmpty && measures.allSatisfy { draft.reviewIssue(forMeasure: $0) == nil }
     }
 
     private func measureNumber(rowIndex: Int, measureIndex: Int) -> Int {
@@ -201,10 +216,14 @@ struct PDFEditableChartReviewView: View {
     }
 
     @MainActor
+    private func endEditing() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
+    @MainActor
     private func saveDraft() async {
         guard !isSaving, !didSave else { return }
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
-            to: nil, from: nil, for: nil)
+        endEditing()
         guard canSave, let draft else { return }
         isSaving = true
         errorMessage = nil
