@@ -8,8 +8,10 @@ struct PDFExportPreviewView: View {
     let exportedPDF: ExportedPDF
     var source: IChartPDFLibrarySource? = nil
     var pdfItemID: UUID? = nil
+    var onSaveEditableChart: ((Chart) async -> Bool)? = nil
     @State private var showingShareSheet = false
     @State private var showingAddToSetlist = false
+    @State private var showingEditableChartReview = false
 
     private var appearance: IChartAppAppearance {
         IChartAppAppearance(persistedValue: appAppearanceValue)
@@ -55,11 +57,25 @@ struct PDFExportPreviewView: View {
         .sheet(isPresented: $showingAddToSetlist) {
             if let pdfItemID { AddPDFToSetlistSheet(pdfItemIDs: [pdfItemID]) }
         }
+        .sheet(isPresented: $showingEditableChartReview) {
+            if let pdfItemID, let onSaveEditableChart {
+                PDFEditableChartReviewView(url: exportedPDF.url, title: exportedPDF.navigationTitle,
+                    sourcePDFLibraryItemID: pdfItemID, onSave: onSaveEditableChart)
+            }
+        }
+    }
+
+    private var canCreateEditableChart: Bool {
+        source == .personalImport && pdfItemID != nil && onSaveEditableChart != nil
     }
 
     private var exportSummary: some View {
         VStack(alignment: .center, spacing: 10) {
-            Text(pdfItemID == nil ? "Check this reading copy, then Share it." : "Read this saved PDF, Share it, or add it to a setlist.")
+            Text(canCreateEditableChart
+                ? "Read this PDF, Share it, add it to a setlist, or choose Create Editable Chart to review its chords."
+                : pdfItemID == nil
+                    ? "Check this reading copy, then Share it."
+                    : "Read this saved PDF, Share it, or add it to a setlist.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -78,6 +94,23 @@ struct PDFExportPreviewView: View {
                 .tint(IChartInterfaceStyle.actionText)
                 .accessibilityHint("Choose a setlist for this saved PDF.")
                 .accessibilityIdentifier("pdf.preview.add-to-setlist")
+            }
+            if canCreateEditableChart {
+                Button {
+                    showingEditableChartReview = true
+                } label: {
+                    Label("Create Editable Chart", systemImage: "square.and.pencil")
+                        .frame(minHeight: 32)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(IChartInterfaceStyle.actionText)
+                .accessibilityHint("Review the chords and measures before saving a new Simple Chord Sheet.")
+                .accessibilityIdentifier("pdf.preview.create-editable-chart")
+                Text("For one-page chord grids with selectable text and | barlines.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.center)
             }
             Text(exportedPDF.fileName)
                 .font(.subheadline.weight(.semibold))

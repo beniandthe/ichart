@@ -58,6 +58,11 @@ final class ChartLibraryStore: ObservableObject {
     )?
     private var asyncPersistenceInFlight = false
     private var persistenceGeneration = 0
+    private var convertedPDFChartSave: (
+        chart: Chart,
+        previousSelection: Chart.ID?,
+        continuation: CheckedContinuation<Bool, Never>
+    )?
 
     init(
         charts: [Chart],
@@ -217,6 +222,24 @@ final class ChartLibraryStore: ObservableObject {
             selectedChartID = preparedChart.id
         }
         return true
+    }
+
+    /// Review stays open until the admitted draft is present in a saved snapshot.
+    @MainActor
+    func saveConvertedPDFChart(_ preparedChart: Chart) async -> Bool {
+        guard convertedPDFChartSave == nil else { return false }
+        return await withCheckedContinuation { continuation in
+            convertedPDFChartSave = (preparedChart, selectedChartID, continuation)
+            guard createPreparedChart(preparedChart) else {
+                convertedPDFChartSave = nil
+                continuation.resume(returning: false)
+                return
+            }
+            if repository == nil {
+                convertedPDFChartSave = nil
+                continuation.resume(returning: true)
+            }
+        }
     }
 
     @discardableResult
@@ -799,6 +822,7 @@ final class ChartLibraryStore: ObservableObject {
                     }
                 }
 
+                self.completeConvertedPDFChartSave(snapshot: pendingPersistence.snapshot, result: result)
                 self.scheduleAsyncPersistenceIfNeeded(repository: repository)
             }
             if case .success = result {
@@ -823,11 +847,13 @@ final class ChartLibraryStore: ObservableObject {
             if notifyCloudSync {
                 onSnapshotSaved?(snapshot)
             }
+            completeConvertedPDFChartSave(snapshot: snapshot, result: .success(()))
             Self.recordPersistenceResult(.save, succeeded: true,
                 durationMilliseconds: (ProcessInfo.processInfo.systemUptime - saveStartedAt) * 1_000)
             return true
         } catch {
             markSaveFailed(error)
+            completeConvertedPDFChartSave(snapshot: snapshot, result: .failure(error))
             Self.recordPersistenceResult(.save, succeeded: false,
                 durationMilliseconds: (ProcessInfo.processInfo.systemUptime - saveStartedAt) * 1_000)
             return false
@@ -877,6 +903,45 @@ final class ChartLibraryStore: ObservableObject {
         let message = error.localizedDescription
         retryableSaveFailureMessage = message
         persistenceStatus = .failed(message: message)
+    }
+
+    private func completeConvertedPDFChartSave(
+        snapshot savedSnapshot: ChartLibrarySnapshot,
+        result: Result<Void, Error>
+    ) {
+        guard let pending = convertedPDFChartSave else { return }
+        guard savedSnapshot.charts.contains(where: { $0.id == pending.chart.id }) else {
+            // A later removal can supersede the queued creation before any
+            // snapshot writes it. Complete that request without recreating it.
+            if !charts.contains(where: { $0.id == pending.chart.id }),
+               pendingAsyncPersistence?.snapshot.charts.contains(where: { $0.id == pending.chart.id }) != true {
+                convertedPDFChartSave = nil
+                pending.continuation.resume(returning: false)
+            }
+            return
+        }
+        switch result {
+        case .success:
+            convertedPDFChartSave = nil
+            pending.continuation.resume(returning: charts.contains { $0.id == pending.chart.id })
+        case .failure:
+            // The serial queue can already hold a newer snapshot containing
+            // this chart. Let that write finish before deciding to roll back.
+            guard pendingAsyncPersistence?.snapshot.charts.contains(where: { $0.id == pending.chart.id }) != true
+            else { return }
+            convertedPDFChartSave = nil
+            if charts.first(where: { $0.id == pending.chart.id }) == pending.chart,
+               !projects.contains(where: { $0.chartIDs.contains(pending.chart.id) }) {
+                let wasPersistenceEnabled = persistenceEnabled
+                persistenceEnabled = false
+                charts.removeAll { $0.id == pending.chart.id }
+                if selectedChartID == pending.chart.id {
+                    selectedChartID = Self.sanitizedSelection(pending.previousSelection, charts: charts)
+                }
+                persistenceEnabled = wasPersistenceEnabled
+            }
+            pending.continuation.resume(returning: false)
+        }
     }
 
     @discardableResult

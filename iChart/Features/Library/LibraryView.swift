@@ -542,6 +542,7 @@ private struct IChartHelpArticleSection: Identifiable {
             bullets: [
                 "Open PDFs, choose Import PDF, then choose a PDF in Files. iChart saves a local copy; the original file stays where it is.",
                 "Check the preview after import. Choose Share to send a copy, or Add to Setlist to arrange it with other songs.",
+                "For a one-page chord sheet with selectable text and barlines, choose Create Editable Chart. Compare the draft with the PDF, correct each measure, then choose Save as New Chart. Use View Original PDF in the new chart's Actions menu to revisit the saved original.",
                 "Use Search PDFs to find a title or file name. Choose Sort: Recent or Name to change the displayed order.",
                 "Cancel an import while it is preparing if you chose the wrong file. If a PDF cannot be opened, check that the original is a readable PDF and import it again."
             ]
@@ -904,6 +905,7 @@ struct LibraryView: View {
     @State private var forumSubmittedSearchText = ""
     @State private var forumPublishRequest: IChartForumPublishRequest?
     @State private var selectedPDFLibraryItem: IChartPDFLibraryItem?
+    @State private var convertedChartToOpen: Chart.ID?
     @State private var selectedAddToSetlistPDF: IChartPDFLibraryItem?
     @State private var chartSearchText = ""
     @State private var projectSearchText = ""
@@ -1279,9 +1281,14 @@ struct LibraryView: View {
         .sheet(item: $selectedAddToSetlistPDF) { item in
             AddPDFToSetlistSheet(pdfItemIDs: [item.id])
         }
-        .sheet(item: $selectedPDFLibraryItem) { item in
+        .sheet(item: $selectedPDFLibraryItem, onDismiss: openConvertedPDFChart) { item in
             if let exportedPDF = pdfLibraryStore.exportedPDF(for: item) {
-                PDFExportPreviewView(exportedPDF: exportedPDF, source: item.source, pdfItemID: item.id)
+                PDFExportPreviewView(
+                    exportedPDF: exportedPDF,
+                    source: item.source,
+                    pdfItemID: item.id,
+                    onSaveEditableChart: saveConvertedPDFChart
+                )
             } else {
                 NavigationStack {
                     ContentUnavailableView(
@@ -1533,7 +1540,7 @@ struct LibraryView: View {
                     noun: "PDFs"
                 ) { shownSelectedIDs in
                     let items = filteredPDFs.filter { shownSelectedIDs.contains($0.id) }
-                    libraryAlert.requestDeletion(IChartLibraryDeleteRequest(pdfs: items))
+                    requestPDFDeletion(items)
                 }
                 IChartPDFLibraryHomeView(
                     items: filteredPDFs,
@@ -1556,7 +1563,7 @@ struct LibraryView: View {
                         selectedPDFLibraryItem = item
                     },
                     onDelete: { item in
-                        libraryAlert.requestDeletion(IChartLibraryDeleteRequest(pdfs: [item]))
+                        requestPDFDeletion([item])
                     },
                     onAddToSetlist: { item in selectedAddToSetlistPDF = item },
                     isFiltering: !pdfSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -1965,6 +1972,9 @@ struct LibraryView: View {
                                     store.pruneLocalChartForCurrentPlan(id: chart.id)
                                 }
                             },
+                            onOpenOriginalPDF: chart.sourcePDFLibraryItemID.map { itemID in
+                                { openOriginalPDF(itemID) }
+                            },
                             onDelete: {
                                 libraryAlert.requestDeletion(IChartLibraryDeleteRequest(charts: [chart]))
                             }
@@ -2128,6 +2138,45 @@ struct LibraryView: View {
         }
 
         onOpenChart(chartID, initialCanvasMode)
+    }
+
+    private func saveConvertedPDFChart(_ chart: Chart) async -> Bool {
+        guard convertedChartToOpen == nil,
+              let source = selectedPDFLibraryItem,
+              source.source == .personalImport,
+              chart.sourcePDFLibraryItemID == source.id,
+              pdfLibraryStore.items.contains(where: { $0.id == source.id }),
+              pdfLibraryStore.exportedPDF(for: source) != nil,
+              await store.saveConvertedPDFChart(chart) else { return false }
+
+        convertedChartToOpen = chart.id
+        selectedPDFLibraryItem = nil
+        return true
+    }
+
+    private func openConvertedPDFChart() {
+        guard let chartID = convertedChartToOpen else { return }
+        convertedChartToOpen = nil
+        selectedHomeTab = .charts
+        chartsWorkspaceModeRawValue = IChartChartsWorkspaceMode.charts.rawValue
+        openChartIfAllowed(chartID, initialCanvasMode: .browse)
+    }
+
+    private func openOriginalPDF(_ itemID: UUID) {
+        guard let item = pdfLibraryStore.items.first(where: { $0.id == itemID }),
+              pdfLibraryStore.exportedPDF(for: item) != nil else {
+            presentLibraryError("The original PDF is unavailable on this device. You can still edit the chart.")
+            return
+        }
+        selectedPDFLibraryItem = item
+    }
+
+    private func requestPDFDeletion(_ items: [IChartPDFLibraryItem]) {
+        let ids = Set(items.map(\.id))
+        let linkedChartCount = store.charts.count { chart in
+            chart.sourcePDFLibraryItemID.map { ids.contains($0) } ?? false
+        }
+        libraryAlert.requestDeletion(IChartLibraryDeleteRequest(pdfs: items, linkedChartCount: linkedChartCount))
     }
 
     private func refreshForumHomeIfVisible(
@@ -7877,6 +7926,7 @@ private struct ProjectRowView: View {
     let onDuplicate: () -> Void
     let onShareToForum: () -> Void
     let onRemoveLocal: () -> Void
+    let onOpenOriginalPDF: (() -> Void)?
     let onDelete: () -> Void
 
     var body: some View {
@@ -7912,6 +7962,7 @@ private struct ProjectRowView: View {
             }
         }
         .contextMenu {
+            originalPDFAction
             if canOpenForEditing {
                 Button(action: onRename) {
                     Label("Rename", systemImage: "pencil")
@@ -7942,6 +7993,7 @@ private struct ProjectRowView: View {
     private var rowActionControl: some View {
         if canOpenForEditing {
             Menu {
+                originalPDFAction
                 Button(action: onRename) {
                     Label("Rename", systemImage: "pencil")
                 }
@@ -7978,6 +8030,15 @@ private struct ProjectRowView: View {
             .controlSize(.small)
             .accessibilityLabel("Delete local chart")
             .accessibilityHint(lockMessage)
+        }
+    }
+
+    @ViewBuilder
+    private var originalPDFAction: some View {
+        if let onOpenOriginalPDF {
+            Button(action: onOpenOriginalPDF) {
+                Label("View Original PDF", systemImage: "doc.text")
+            }
         }
     }
 

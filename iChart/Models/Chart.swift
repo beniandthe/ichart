@@ -393,6 +393,8 @@ struct Chart: Identifiable, Codable, Hashable {
     var pageHandwrittenHeaderCoordinateSpace: PersistentInkCoordinateSpace?
     var pageHandwrittenChordData: Data?
     var pageHandwrittenChordCoordinateSpace: PersistentInkCoordinateSpace?
+    /// The local PDF Library reference for a chart created from an imported PDF.
+    var sourcePDFLibraryItemID: UUID? = nil
     var cloudBackupStatus: ChartCloudBackupStatus
     var createdAt: Date
     var updatedAt: Date
@@ -546,6 +548,7 @@ struct Chart: Identifiable, Codable, Hashable {
         case pageHandwrittenHeaderCoordinateSpace
         case pageHandwrittenChordData
         case pageHandwrittenChordCoordinateSpace
+        case sourcePDFLibraryItemID
         case cloudBackupStatus
         case createdAt
         case updatedAt
@@ -622,6 +625,7 @@ struct Chart: Identifiable, Codable, Hashable {
             try container.decodeIfPresent(PersistentInkCoordinateSpace.self, forKey: .pageHandwrittenChordCoordinateSpace),
             for: pageHandwrittenChordData
         )
+        sourcePDFLibraryItemID = try container.decodeIfPresent(UUID.self, forKey: .sourcePDFLibraryItemID)
         cloudBackupStatus = try container.decodeIfPresent(ChartCloudBackupStatus.self, forKey: .cloudBackupStatus)
             ?? .legacyLocal
         createdAt = try container.decode(Date.self, forKey: .createdAt)

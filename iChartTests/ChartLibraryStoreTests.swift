@@ -522,6 +522,28 @@ final class ChartLibraryStoreTests: XCTestCase {
         XCTAssertTrue(message.contains("Could not write saved library"))
     }
 
+    @MainActor
+    func testConvertedPDFSaveFailureRestoresLibraryAndAllowsRetry() async {
+        let repository = RecordingChartRepository()
+        repository.saveError = RecordingRepositoryError.save
+        let existing = Chart.blank(title: "Existing chart", layoutStyle: .simpleChordSheet)
+        let store = ChartLibraryStore(charts: [existing], selectedChartID: existing.id, repository: repository)
+        var converted = Chart.blank(title: "Converted chart", layoutStyle: .simpleChordSheet)
+        converted.sourcePDFLibraryItemID = UUID()
+
+        let firstSave = await store.saveConvertedPDFChart(converted)
+        XCTAssertFalse(firstSave)
+        XCTAssertEqual(store.charts, [existing])
+        XCTAssertEqual(store.selectedChartID, existing.id)
+        XCTAssertTrue(repository.savedSnapshots.isEmpty)
+
+        repository.saveError = nil
+        let retry = await store.saveConvertedPDFChart(converted)
+        XCTAssertTrue(retry)
+        XCTAssertEqual(repository.savedSnapshots.last?.charts, [converted, existing])
+        XCTAssertEqual(store.selectedChartID, converted.id)
+    }
+
     func testRetryAfterRepeatedEditorSaveFailureWritesLatestSnapshot() throws {
         let repository = RecordingChartRepository()
         repository.saveError = RecordingRepositoryError.save
