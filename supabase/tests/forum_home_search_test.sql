@@ -256,8 +256,8 @@ insert into private.free_pro_beta_memberships(owner_id,participating)
 values ('85000000-0000-4000-8000-000000000001',false);
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '85000000-0000-4000-8000-000000000001', true);
-select is(jsonb_array_length(public.search_forum_home('audit')->'songs'),0,
-    'explicit Basic participation blocks forum search through current policy');
+select is(jsonb_array_length(public.search_forum_home('audit')->'songs'),20,
+    'verified Basic participation can browse published forum metadata');
 reset role;
 
 select * from finish();

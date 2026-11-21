@@ -58,6 +58,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
     @Published private(set) var products: [Product] = []
     @Published private(set) var productOptions: [IChartStoreKitProductOption] = []
     @Published private(set) var entitlement: IChartSubscriptionEntitlement
+    @Published private(set) var verifiedSubscriptionOwnerID: UUID?
     @Published private(set) var state: IChartStoreKitSubscriptionState = .idle
     @Published private(set) var complimentaryOffers: [IChartComplimentaryOffer] = []
     @Published private(set) var complimentaryOfferStatuses: [IChartComplimentaryOfferStatus] = []
@@ -136,14 +137,17 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
             switch resolution {
             case .verified(let verifiedEntitlement, _):
                 entitlement = verifiedEntitlement
+                verifiedSubscriptionOwnerID = expectedOwnerID
                 state = .ready
             case .noRemoteSubscription:
+                verifiedSubscriptionOwnerID = nil
                 entitlement = IChartStoreKitEntitlementResolver.serverBackedEntitlement(
                     remoteEntitlement: nil,
                     localEntitlement: localEvaluation.entitlement
                 )
                 state = .ready
             case .unavailable(let claimFailed):
+                verifiedSubscriptionOwnerID = nil
                 if !claimFailed,
                    let fallbackEntitlement = IChartStoreKitEntitlementResolver.serverBackedFallbackForRemoteFailure(
                        localEntitlement: localEvaluation.entitlement
@@ -461,6 +465,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
                 // An accepted, same-owner ordinary claim establishes access even
                 // if campaign confirmation is pending. It does not finish the gift.
                 entitlement = claimedEntitlement
+                verifiedSubscriptionOwnerID = accountID
                 let confirmedResponse = try await subscriptionClaimService.complimentaryOffer(
                     request: IChartComplimentaryOfferServerRequest(
                         action: .confirm,
@@ -940,6 +945,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
                     return .retryLater
                 }
                 entitlement = claimedEntitlement
+                verifiedSubscriptionOwnerID = accountID
                 let confirmed = try await subscriptionClaimService.complimentaryOffer(
                     request: IChartComplimentaryOfferServerRequest(
                         action: .confirm,

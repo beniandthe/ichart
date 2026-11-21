@@ -8,6 +8,7 @@ struct PDFExportPreviewView: View {
     let exportedPDF: ExportedPDF
     var source: IChartPDFLibrarySource? = nil
     var pdfItemID: UUID? = nil
+    var editableChartConversionUnavailableMessage: String? = nil
     var onSaveEditableChart: ((Chart) async -> Bool)? = nil
     @State private var showingShareSheet = false
     @State private var showingAddToSetlist = false
@@ -60,12 +61,18 @@ struct PDFExportPreviewView: View {
         .sheet(isPresented: $showingEditableChartReview) {
             if let pdfItemID, let onSaveEditableChart {
                 PDFEditableChartReviewView(url: exportedPDF.url, title: exportedPDF.navigationTitle,
-                    sourcePDFLibraryItemID: pdfItemID, onSave: onSaveEditableChart)
+                    sourcePDFLibraryItemID: pdfItemID,
+                    conversionUnavailableMessage: editableChartConversionUnavailableMessage,
+                    onSave: onSaveEditableChart)
             }
         }
     }
 
     private var canCreateEditableChart: Bool {
+        supportsEditableChartConversion && editableChartConversionUnavailableMessage == nil
+    }
+
+    private var supportsEditableChartConversion: Bool {
         source == .personalImport && pdfItemID != nil && onSaveEditableChart != nil
     }
 
@@ -95,8 +102,9 @@ struct PDFExportPreviewView: View {
                 .accessibilityHint("Choose a setlist for this saved PDF.")
                 .accessibilityIdentifier("pdf.preview.add-to-setlist")
             }
-            if canCreateEditableChart {
+            if supportsEditableChartConversion {
                 Button {
+                    guard canCreateEditableChart else { return }
                     showingEditableChartReview = true
                 } label: {
                     Label("Create Editable Chart", systemImage: "square.and.pencil")
@@ -104,13 +112,17 @@ struct PDFExportPreviewView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(IChartInterfaceStyle.actionText)
-                .accessibilityHint("Review the chords and measures before saving a new Simple Chord Sheet.")
+                .disabled(!canCreateEditableChart)
+                .accessibilityHint(editableChartConversionUnavailableMessage
+                    ?? "Review the chords and measures before saving a new Simple Chord Sheet.")
                 .accessibilityIdentifier("pdf.preview.create-editable-chart")
-                Text("For selectable chord symbols above a staff or in a one-page chord grid.")
+                Text(editableChartConversionUnavailableMessage
+                    ?? "For selectable chord symbols above a staff or in a one-page chord grid.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .multilineTextAlignment(.center)
+                    .accessibilityIdentifier("pdf.preview.conversion-guidance")
             }
             Text(exportedPDF.fileName)
                 .font(.subheadline.weight(.semibold))

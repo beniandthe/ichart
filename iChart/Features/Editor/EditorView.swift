@@ -780,10 +780,12 @@ struct EditorView: View {
             ChartHeaderSheetView(chart: $chart)
         }
         .sheet(isPresented: $showingTypographySheet) {
-            ChartTypographySheetView(chart: $chart)
+            ChartTypographySheetView(chart: $chart,
+                premiumFontAccess: { store.entitlements.canUsePremiumFonts })
         }
         .sheet(isPresented: $showingNotationReadabilitySheet) {
-            ChartAppearanceSheetView(chart: $chart, panel: .engraving)
+            ChartAppearanceSheetView(chart: $chart, panel: .engraving,
+                premiumFontAccess: { store.entitlements.canUsePremiumFonts })
         }
         .sheet(item: $endingEditorRequest, onDismiss: handleEndingEditorDismissed) { request in
             EndingEditorSheet(

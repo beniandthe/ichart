@@ -6,6 +6,7 @@ import {
 const deleteAccountConfirmation = "DELETE_MY_ICHART_ACCOUNT";
 const forumPDFBucketID = "forum_chart_pdfs";
 const ownerSnapshotArchiveBucketID = "ichart-owner-snapshot-archives";
+const setlistPDFBucketID = "setlist-pdfs";
 const maximumRequestBytes = 4 * 1024;
 const cleanupPageSize = 1000;
 const maximumCleanupListingPages = 1000;
@@ -25,9 +26,11 @@ export function createAccountDeletionDependencies(env = globalThis.Deno?.env, op
     authenticatedUserID: (request) => authenticatedUserIDFromBearer(request, configuration, fetcher),
     listForumPDFStoragePaths: (ownerID) => listForumPDFStoragePaths(configuration, ownerID, fetcher),
     listOwnerSnapshotArchiveStoragePaths: (ownerID) => listOwnerSnapshotArchiveStoragePaths(configuration, ownerID, fetcher),
+    listSetlistPDFStoragePaths: (ownerID) => listSetlistPDFStoragePaths(configuration, ownerID, fetcher),
     prepareAccountDeletion: (ownerID) => prepareAccountDeletion(configuration, ownerID, fetcher),
     deleteForumPDFStoragePaths: (paths) => deleteForumPDFStoragePaths(configuration, paths, fetcher),
     deleteOwnerSnapshotArchiveStoragePaths: (ownerID, paths) => deleteOwnerSnapshotArchiveStoragePaths(configuration, ownerID, paths, fetcher),
+    deleteSetlistPDFStoragePaths: (ownerID, paths) => deleteSetlistPDFStoragePaths(configuration, ownerID, paths, fetcher),
     deleteAuthUser: (ownerID) => deleteAuthUser(configuration, ownerID, fetcher),
   };
 }
@@ -113,6 +116,14 @@ export async function handleAccountDeletionRequest(request, dependencies = {}) {
       throw new Error("Account archive cleanup is not configured.");
     }
 
+    const listedSetlistPDFs = typeof dependencies.listSetlistPDFStoragePaths === "function"
+      ? await dependencies.listSetlistPDFStoragePaths(ownerID) : [];
+    if (!Array.isArray(listedSetlistPDFs)) throw new Error("Account setlist inventory is invalid.");
+    const setlistPDFPaths = Array.from(new Set(listedSetlistPDFs.map((path) => ownedSetlistPDFPath(path, ownerID))));
+    if (setlistPDFPaths.length > 0 && typeof dependencies.deleteSetlistPDFStoragePaths !== "function") {
+      throw new Error("Account setlist cleanup is not configured.");
+    }
+
     await dependencies.prepareAccountDeletion(ownerID);
 
     if (storagePaths.length > 0 && typeof dependencies.deleteForumPDFStoragePaths === "function") {
@@ -123,12 +134,17 @@ export async function handleAccountDeletionRequest(request, dependencies = {}) {
       await dependencies.deleteOwnerSnapshotArchiveStoragePaths(ownerID, archivePaths);
     }
 
+    if (setlistPDFPaths.length > 0) {
+      await dependencies.deleteSetlistPDFStoragePaths(ownerID, setlistPDFPaths);
+    }
+
     await dependencies.deleteAuthUser(ownerID);
 
     return jsonResponse(202, {
       accepted: true,
       account_deleted: true,
       forum_pdf_storage_paths_deleted: storagePaths.length,
+      setlist_pdf_storage_paths_deleted: setlistPDFPaths.length,
     });
   } catch (error) {
     if (error instanceof AccountArchiveDeletionBusyError) {
@@ -178,7 +194,7 @@ async function listOwnerSnapshotArchiveStoragePaths(configuration, ownerID, fetc
   // upload is still leased. A retry may inventory storage only after it drains.
   if (scope.ready === false) throw new AccountArchiveDeletionBusyError();
   if (scope.ready !== true) throw new Error("Account archive scope is invalid.");
-  if (!await ownerSnapshotArchiveBucketExists(configuration, fetcher)) return [];
+  if (!await privateBucketExists(configuration, ownerSnapshotArchiveBucketID, fetcher)) return [];
 
   const paths = [];
   let offset = 0;
@@ -211,9 +227,9 @@ async function listOwnerSnapshotArchiveStoragePaths(configuration, ownerID, fetc
   throw new Error("Account archive inventory exceeded its safe listing bound.");
 }
 
-async function ownerSnapshotArchiveBucketExists(configuration, fetcher) {
+async function privateBucketExists(configuration, bucketID, fetcher) {
   const response = await fetcher(
-    supabaseURL(configuration, `/storage/v1/bucket/${ownerSnapshotArchiveBucketID}`),
+    supabaseURL(configuration, `/storage/v1/bucket/${bucketID}`),
     { method: "GET", headers: supabaseJSONHeaders(configuration) }
   );
   // This fixed-bucket metadata endpoint, rather than an object lookup, makes
@@ -230,10 +246,43 @@ async function ownerSnapshotArchiveBucketExists(configuration, fetcher) {
   }
   const bucket = await parseSupabaseJSONResponse(response);
   if (bucket === null || typeof bucket !== "object" || Array.isArray(bucket)
-      || bucket.id !== ownerSnapshotArchiveBucketID) {
+      || bucket.id !== bucketID) {
     throw new Error("Account archive bucket inventory is invalid.");
   }
   return true;
+}
+
+async function listSetlistPDFStoragePaths(configuration, ownerID, fetcher) {
+  const owner = canonicalOwnerID(ownerID);
+  if (!await privateBucketExists(configuration, setlistPDFBucketID, fetcher)) return [];
+  const scope = await parseSupabaseJSONResponse(await fetcher(
+    supabaseURL(configuration, "/rest/v1/rpc/begin_pdf_setlist_account_deletion"),
+    { method: "POST", headers: supabaseJSONHeaders(configuration), body: JSON.stringify({ target_owner_id: owner }) }
+  ));
+  if (scope?.owner_id !== owner || scope?.bucket !== setlistPDFBucketID || scope?.prefix !== `${owner}/`) {
+    throw new Error("Account setlist scope is invalid.");
+  }
+  const paths = [];
+  let offset = 0;
+  let previous = null;
+  for (let page = 0; page < maximumCleanupListingPages; page += 1) {
+    const rows = cleanupRows(await parseSupabaseJSONResponse(await fetcher(
+      supabaseURL(configuration, `/storage/v1/object/list/${setlistPDFBucketID}`),
+      { method: "POST", headers: supabaseJSONHeaders(configuration), body: JSON.stringify({
+        prefix: `${owner}/`, limit: cleanupPageSize, offset, sortBy: { column: "name", order: "asc" },
+      }) }
+    )));
+    if (rows.length === 0) return paths;
+    for (const row of rows) {
+      if (typeof row?.name !== "string" || row.id === null) throw new Error("Account setlist inventory is invalid.");
+      const path = ownedSetlistPDFPath(row.name.startsWith(`${owner}/`) ? row.name : `${owner}/${row.name}`, owner);
+      if (previous !== null && path <= previous) throw new Error("Account setlist inventory did not advance.");
+      paths.push(path);
+      previous = path;
+    }
+    offset += rows.length;
+  }
+  throw new Error("Account setlist inventory exceeded its safe listing bound.");
 }
 
 async function prepareAccountDeletion(configuration, ownerID, fetcher) {
@@ -335,6 +384,20 @@ async function deleteOwnerSnapshotArchiveStoragePaths(configuration, ownerID, pa
   }
 }
 
+async function deleteSetlistPDFStoragePaths(configuration, ownerID, paths, fetcher) {
+  const ownedPaths = paths.map((path) => ownedSetlistPDFPath(path, ownerID));
+  for (let start = 0; start < ownedPaths.length; start += cleanupDeleteConcurrency) {
+    const results = await Promise.allSettled(ownedPaths.slice(start, start + cleanupDeleteConcurrency).map(async (path) => {
+      const response = await fetcher(
+        supabaseURL(configuration, `/storage/v1/object/${setlistPDFBucketID}/${path.split("/").map(encodeURIComponent).join("/")}`),
+        { method: "DELETE", headers: supabaseJSONHeaders(configuration) }
+      );
+      if (!response.ok && response.status !== 404) throw new Error("Account setlist storage deletion failed.");
+    }));
+    if (results.some((result) => result.status === "rejected")) throw new Error("Account setlist storage deletion failed.");
+  }
+}
+
 function cleanupRows(value) {
   if (!Array.isArray(value) || value.length > cleanupPageSize
       || value.some((row) => row === null || typeof row !== "object" || Array.isArray(row))) {
@@ -372,6 +435,15 @@ function ownedSnapshotArchivePath(value, ownerID) {
   // batch. Unknown folders, encodings and path syntax must never be traversed.
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jsonl\.gz$/.test(name)) {
     throw new Error("Account archive path is invalid.");
+  }
+  return value;
+}
+
+function ownedSetlistPDFPath(value, ownerID) {
+  const prefix = `${canonicalOwnerID(ownerID)}/`;
+  if (typeof value !== "string" || !value.startsWith(prefix)
+      || !/^[0-9a-f]{64}\.pdf$/.test(value.slice(prefix.length))) {
+    throw new Error("Account setlist path is outside its owner scope.");
   }
   return value;
 }

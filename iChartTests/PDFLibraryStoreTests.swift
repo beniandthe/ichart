@@ -169,7 +169,7 @@ final class PDFLibraryStoreTests: XCTestCase {
         XCTAssertEqual(fixture.store.items, fixture.originalItems)
     }
 
-    func testFreeAccessPreservesForumPDFsSetlistEntriesAndBytesAcrossEveryBillingStateAndReload() throws {
+    func testReloadPreservesForumAndExportPDFBytesAndSetlistLinks() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -190,25 +190,21 @@ final class PDFLibraryStoreTests: XCTestCase {
         let originalItems = store.items
         let originalSetlists = setlistStore.setlists
 
-        for status in IChartSubscriptionStatus.allCases {
-            let billing = IChartSubscriptionEntitlement(status: status)
-            XCTAssertEqual(store.removeForumDownloadsIfInactive(for: billing), 0)
-            XCTAssertEqual(store.visibleItems(for: billing), originalItems)
-            XCTAssertEqual(store.items, originalItems)
-            let resolved = try XCTUnwrap(setlistStore.setlist(id: setlist.id)).resolvedEntries(in: store.visibleItems(for: billing))
-            XCTAssertEqual(resolved.map(\.id), [entry.id])
-            XCTAssertEqual(resolved.first?.pdfItem?.id, forumItem.id)
-            XCTAssertEqual(try Data(contentsOf: forumPDF.url), bytes)
-            XCTAssertEqual(try Data(contentsOf: localPDF.url), bytes)
-        }
+        store.reload()
+        XCTAssertEqual(store.items, originalItems)
+        let resolved = try XCTUnwrap(setlistStore.setlist(id: setlist.id)).resolvedEntries(in: store.items)
+        XCTAssertEqual(resolved.map(\.id), [entry.id])
+        XCTAssertEqual(resolved.first?.pdfItem?.id, forumItem.id)
+        XCTAssertEqual(try Data(contentsOf: forumPDF.url), bytes)
+        XCTAssertEqual(try Data(contentsOf: localPDF.url), bytes)
 
         let reopened = IChartPDFLibraryStore(baseDirectory: library)
-        XCTAssertEqual(reopened.visibleItems(for: .proExpired()), originalItems)
+        XCTAssertEqual(reopened.items, originalItems)
         XCTAssertEqual(IChartPDFSetlistStore(baseDirectory: root.appendingPathComponent("setlists", isDirectory: true)).setlists, originalSetlists)
         XCTAssertNotNil(reopened.exportedPDF(for: forumItem))
     }
 
-    func testInactiveSubscriptionRemovesForumDownloadsButKeepsChartExports() throws {
+    func testExplicitForumPDFDeletionPreservesUnselectedChartExport() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let sourceURL = root.appendingPathComponent("Source.pdf", isDirectory: false)
@@ -233,7 +229,8 @@ final class PDFLibraryStoreTests: XCTestCase {
         let chartExport = try store.save(exportedPDF, source: .chartExport)
         let forumDownload = try store.save(exportedPDF, source: .forumDownload)
 
-        let removedCount = store.removeForumDownloadsIfInactive(for: .basic, accessPolicy: .paidSubscription)
+        let forumItem = try XCTUnwrap(store.items.first { $0.source == .forumDownload })
+        let removedCount = try store.deleteItems(ids: [forumItem.id])
 
         XCTAssertEqual(removedCount, 1)
         XCTAssertEqual(store.items.count, 1)
@@ -246,7 +243,7 @@ final class PDFLibraryStoreTests: XCTestCase {
         XCTAssertEqual(reloadedStore.items.first?.source, .chartExport)
     }
 
-    func testGraceHidesForumDownloadsWithoutDeleting() throws {
+    func testForumDownloadRemainsReadableAfterReload() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let sourceURL = root.appendingPathComponent("Grace.pdf", isDirectory: false)
@@ -256,7 +253,8 @@ final class PDFLibraryStoreTests: XCTestCase {
             try? FileManager.default.removeItem(at: root)
         }
 
-        let store = IChartPDFLibraryStore(baseDirectory: root.appendingPathComponent("library", isDirectory: true))
+        let library = root.appendingPathComponent("library", isDirectory: true)
+        let store = IChartPDFLibraryStore(baseDirectory: library)
         let exportedPDF = ExportedPDF(
             url: sourceURL,
             chartTitle: "Grace Tune",
@@ -269,16 +267,11 @@ final class PDFLibraryStoreTests: XCTestCase {
         )
         let forumDownload = try store.save(exportedPDF, source: .forumDownload)
 
-        XCTAssertEqual(
-            store.removeForumDownloadsIfInactive(
-                for: .proGrace(graceEndsAt: Date(timeIntervalSinceReferenceDate: 200)),
-                accessPolicy: .paidSubscription
-            ),
-            0
-        )
-        XCTAssertTrue(store.visibleItems(for: .proGrace(graceEndsAt: Date(timeIntervalSinceReferenceDate: 200)), accessPolicy: .paidSubscription).isEmpty)
-        XCTAssertEqual(store.removeForumDownloadsIfInactive(for: .unavailable, accessPolicy: .paidSubscription), 0)
-        XCTAssertTrue(store.visibleItems(for: .unavailable, accessPolicy: .paidSubscription).isEmpty)
+        let item = try XCTUnwrap(store.items.first)
+        let reopened = IChartPDFLibraryStore(baseDirectory: library)
+        XCTAssertEqual(reopened.items, [item])
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(reopened.exportedPDF(for: item)).url),
+            try Data(contentsOf: forumDownload.url))
         XCTAssertTrue(FileManager.default.fileExists(atPath: forumDownload.url.path(percentEncoded: false)))
     }
 
@@ -468,7 +461,6 @@ final class PDFLibraryStoreTests: XCTestCase {
         XCTAssertThrowsError(try fixture.store.deleteItems(ids: [fixture.originalItems[0].id]))
         XCTAssertEqual(try Data(contentsOf: retainedURL), retainedBytes)
         XCTAssertThrowsError(try fixture.store.save(fixture.sourcePDF, source: .chartExport))
-        XCTAssertEqual(fixture.store.removeForumDownloadsIfInactive(for: .basic, accessPolicy: .paidSubscription), 0)
         XCTAssertEqual(try Data(contentsOf: retainedURL), retainedBytes)
 
         try FileManager.default.removeItem(at: manifest)

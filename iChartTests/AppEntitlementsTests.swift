@@ -116,26 +116,24 @@ final class AppEntitlementsTests: XCTestCase {
         XCTAssertFalse(entitlements.includes(.forums))
     }
 
-    func testForumDownloadRetentionAllowsActiveProOnlyAndPreservesGraceFiles() {
-        let graceEndsAt = Date(timeIntervalSinceReferenceDate: 100)
-        let inaccessibleStates: [IChartSubscriptionEntitlement] = [
-            .basic,
-            .proGrace(graceEndsAt: graceEndsAt),
-            .proExpired(),
-            .unavailable,
-            .legacyLocalPro
-        ]
+    func testPremiumLocalToolsAndHostedSetlistSyncRespectProductPolicyAndBilling() {
+        for policy in [IChartProductAccessPolicy.freeAllFeatures, .betaBasic, .paidSubscription] {
+            for status in IChartSubscriptionStatus.allCases {
+                let billing = IChartSubscriptionEntitlement(status: status)
+                let entitlements = AppEntitlements(subscription: billing, accessPolicy: policy)
+                let expectedLocalAccess = policy == .freeAllFeatures
+                    || (policy == .paidSubscription && [.proActive, .proGrace].contains(status))
+                let expectedSetlistSync = policy == .paidSubscription && status == .proActive
 
-        XCTAssertTrue(IChartSubscriptionEntitlement.activePro().allowsForumDownloadAccess(accessPolicy: .paidSubscription))
-        XCTAssertFalse(IChartSubscriptionEntitlement.activePro().shouldRemoveForumDownloads(accessPolicy: .paidSubscription))
-        inaccessibleStates.forEach { subscription in
-            XCTAssertFalse(subscription.allowsForumDownloadAccess(accessPolicy: .paidSubscription), "Expected forum downloads to be hidden for \(subscription.status)")
+                XCTAssertEqual(entitlements.canConvertPDFToEditableChart, expectedLocalAccess, "\(policy), \(status)")
+                XCTAssertEqual(entitlements.canUsePremiumFonts, expectedLocalAccess, "\(policy), \(status)")
+                XCTAssertEqual(entitlements.canSyncPDFSetlists, expectedSetlistSync, "\(policy), \(status)")
+                XCTAssertTrue(entitlements.includes(.pdfExport))
+                XCTAssertTrue(entitlements.includes(.documentTransposition))
+                XCTAssertTrue(entitlements.includes(.fontPresets), "Basic readability controls stay available")
+                XCTAssertEqual(entitlements.subscription, billing)
+            }
         }
-        XCTAssertTrue(IChartSubscriptionEntitlement.basic.shouldRemoveForumDownloads(accessPolicy: .paidSubscription))
-        XCTAssertTrue(IChartSubscriptionEntitlement.proExpired().shouldRemoveForumDownloads(accessPolicy: .paidSubscription))
-        XCTAssertTrue(IChartSubscriptionEntitlement.legacyLocalPro.shouldRemoveForumDownloads(accessPolicy: .paidSubscription))
-        XCTAssertFalse(IChartSubscriptionEntitlement.proGrace(graceEndsAt: graceEndsAt).shouldRemoveForumDownloads(accessPolicy: .paidSubscription))
-        XCTAssertFalse(IChartSubscriptionEntitlement.unavailable.shouldRemoveForumDownloads(accessPolicy: .paidSubscription))
     }
 
     func testLegacyEntitlementDecodingDefaultsSubscriptionFromActivePlan() throws {
@@ -175,8 +173,9 @@ final class AppEntitlementsTests: XCTestCase {
             for feature in EntitledFeature.allCases {
                 XCTAssertTrue(entitlements.includes(feature), "Expected free access for \(status), \(feature)")
             }
-            XCTAssertTrue(billing.allowsForumDownloadAccess)
-            XCTAssertFalse(billing.shouldRemoveForumDownloads)
+            XCTAssertTrue(entitlements.canConvertPDFToEditableChart)
+            XCTAssertTrue(entitlements.canUsePremiumFonts)
+            XCTAssertFalse(entitlements.canSyncPDFSetlists, "Hosted paid setlist sync has its own rollout boundary")
         }
         XCTAssertNil(AppEntitlements.free.localChartLimit)
     }

@@ -169,19 +169,19 @@ final class IChartForumBetaQueueTests: XCTestCase {
         await fixture.store.withdrawUpload(fixture.item)
         XCTAssertNil(fixture.store.errorMessage)
         XCTAssertEqual(fixture.store.statusMessage, "Forum submission withdrawn.")
-        XCTAssertEqual(fixture.store.state, .requiresPro)
+        XCTAssertEqual(fixture.store.state, .loaded([]))
         XCTAssertEqual(fixture.store.uploadQueue.first?.stage, .withdrawn)
 
         let detail = ownedDetail(fixture)
         await fixture.store.withdrawPost(detail)
         XCTAssertNil(fixture.store.errorMessage)
         XCTAssertEqual(fixture.store.statusMessage, "Forum submission withdrawn.")
-        XCTAssertEqual(fixture.store.state, .requiresPro)
+        XCTAssertEqual(fixture.store.state, .loaded([]))
         XCTAssertEqual(fixture.store.uploadQueue.first?.stage, .withdrawn)
         await fixture.store.removePost(detail)
         XCTAssertNil(fixture.store.errorMessage)
         XCTAssertEqual(fixture.store.statusMessage, "Chart removed from Forums.")
-        XCTAssertEqual(fixture.store.state, .requiresPro)
+        XCTAssertEqual(fixture.store.state, .loaded([]))
 
         let withdrawn = await fixture.service.withdrawnPostIDs
         let removed = await fixture.service.removedPostIDs

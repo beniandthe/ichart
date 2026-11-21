@@ -7,6 +7,7 @@ struct PDFEditableChartReviewView: View {
     let url: URL
     let title: String
     let sourcePDFLibraryItemID: UUID
+    var conversionUnavailableMessage: String? = nil
     let onSave: (Chart) async -> Bool
 
     @State private var draft: PDFEditableChartDraft?
@@ -45,6 +46,9 @@ struct PDFEditableChartReviewView: View {
                             .accessibilityHidden(!showingOriginalPDF)
                             .accessibilityIdentifier("pdf.editable-chart.original")
                     }
+                } else if conversionUnavailableMessage != nil {
+                    PDFDocumentView(url: url)
+                        .ichartDocumentDisplayAppearance()
                 } else if errorMessage == nil {
                     VStack(spacing: 12) {
                         ProgressView()
@@ -92,6 +96,10 @@ struct PDFEditableChartReviewView: View {
         .onChange(of: showingOriginalPDF) { _, isShowingPDF in
             if isShowingPDF { endEditing() }
         }
+        .onChange(of: conversionUnavailableMessage) { _, message in
+            guard message == nil, draft == nil, !isReading else { return }
+            Task { await readDraft() }
+        }
         .task {
             guard draft == nil, !isReading else { return }
             await readDraft()
@@ -110,6 +118,13 @@ struct PDFEditableChartReviewView: View {
                 Text("Leave a measure blank when the PDF shows no chord change.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+            }
+            if let conversionUnavailableMessage {
+                Text(draft == nil ? conversionUnavailableMessage
+                    : "\(conversionUnavailableMessage) Your review is kept here while this screen stays open.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("pdf.editable-chart.access-guidance")
             }
             if isSaving {
                 ProgressView("Saving chart…")
@@ -180,7 +195,8 @@ struct PDFEditableChartReviewView: View {
     }
 
     private var canSave: Bool {
-        guard let draft, !isReading, !isSaving, !didSave,
+        guard conversionUnavailableMessage == nil,
+              let draft, !isReading, !isSaving, !didSave,
               !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         let measures = draft.rows.flatMap { $0 }
         return !measures.isEmpty && measures.allSatisfy { draft.reviewIssue(forMeasure: $0) == nil }
@@ -199,7 +215,7 @@ struct PDFEditableChartReviewView: View {
 
     @MainActor
     private func readDraft() async {
-        guard !isReading else { return }
+        guard !isReading, conversionUnavailableMessage == nil else { return }
         isReading = true
         errorMessage = nil
         canRetryReading = false

@@ -21,6 +21,7 @@ private struct IChartSetlistAppearance: ViewModifier {
 
 struct SetlistsView: View {
     @EnvironmentObject private var setlistStore: IChartPDFSetlistStore
+    @Environment(\.setlistCloudSyncStore) private var cloudSyncStore
     @State private var selectedSetlistID: UUID?
     @State private var showingCreate = false
     @State private var pendingDeletion: IChartPDFSetlist?
@@ -63,6 +64,7 @@ struct SetlistsView: View {
                             .frame(maxWidth: .infinity)
                         IChartSetlistSearchControls(query: $searchText, order: $listOrder,
                             placeholder: "Search setlists", identifier: "setlists.search")
+                        if let cloudSyncStore { IChartSetlistCloudControls(store: cloudSyncStore) }
                     }
                     .padding(.horizontal, 16).padding(.vertical, 10)
                     List {
@@ -159,7 +161,6 @@ struct IChartSetlistDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var setlistStore: IChartPDFSetlistStore
     @EnvironmentObject private var pdfStore: IChartPDFLibraryStore
-    @EnvironmentObject private var chartStore: ChartLibraryStore
     let setlistID: UUID
     let onBack: (() -> Void)?
     @State private var showingAddPDFs = false
@@ -177,10 +178,7 @@ struct IChartSetlistDetailView: View {
 
     private var setlist: IChartPDFSetlist? { setlistStore.setlist(id: setlistID) }
     private var entries: [IChartPDFSetlistResolvedEntry] {
-        setlist?.resolvedEntries(in: pdfStore.visibleItems(
-            for: chartStore.subscriptionState,
-            accessPolicy: chartStore.entitlements.accessPolicy
-        )) ?? []
+        setlist?.resolvedEntries(in: pdfStore.items) ?? []
     }
 
     var body: some View {
@@ -422,7 +420,6 @@ private struct IChartSetlistPDFPicker: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var setlistStore: IChartPDFSetlistStore
     @EnvironmentObject private var pdfStore: IChartPDFLibraryStore
-    @EnvironmentObject private var chartStore: ChartLibraryStore
     let setlistID: UUID
     var replacementEntryID: UUID? = nil
     @State private var selectedIDs: Set<UUID> = []
@@ -431,7 +428,7 @@ private struct IChartSetlistPDFPicker: View {
     @State private var listOrder: IChartSetlistListOrder = .recent
 
     private var items: [IChartPDFLibraryItem] {
-        pdfStore.visibleItems(for: chartStore.subscriptionState, accessPolicy: chartStore.entitlements.accessPolicy)
+        pdfStore.items
     }
     private var filteredItems: [IChartPDFLibraryItem] {
         IChartSetlistSearch.pdfs(items, query: searchText, order: listOrder)
@@ -552,7 +549,6 @@ struct IChartSetlistPerformanceReader: View {
     @AppStorage(IChartAppAppearance.preferenceKey) private var appearanceValue = IChartAppAppearance.light.rawValue
     @EnvironmentObject private var setlistStore: IChartPDFSetlistStore
     @EnvironmentObject private var pdfStore: IChartPDFLibraryStore
-    @EnvironmentObject private var chartStore: ChartLibraryStore
     let setlistID: UUID
     @State private var selectedID: UUID?
     @State private var unreadableID: UUID?
@@ -566,10 +562,7 @@ struct IChartSetlistPerformanceReader: View {
 
     private var setlist: IChartPDFSetlist? { setlistStore.setlist(id: setlistID) }
     private var entries: [IChartPDFSetlistResolvedEntry] {
-        setlist?.resolvedEntries(in: pdfStore.visibleItems(
-            for: chartStore.subscriptionState,
-            accessPolicy: chartStore.entitlements.accessPolicy
-        )) ?? []
+        setlist?.resolvedEntries(in: pdfStore.items) ?? []
     }
     private var entryIDs: [UUID] { entries.map(\.id) }
     private var currentIndex: Int? { IChartSetlistReaderNavigation.index(in: entryIDs, selectedID: selectedID) }
@@ -981,5 +974,45 @@ struct IChartSetlistPDFDocumentView: UIViewRepresentable {
     final class Coordinator {
         var songID: UUID?
         var url: URL?
+    }
+}
+
+
+private struct IChartSetlistCloudControls: View {
+    @ObservedObject var store: IChartPDFSetlistCloudSyncStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(store.status)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("setlists.cloud.status")
+            if store.canSync && store.isSignedIn {
+                Text("Back Up Setlists includes their linked PDFs. Restore Setlists merges this account’s cloud library with your local setlists.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Button("Back Up Setlists") { store.backUpNow() }
+                        .accessibilityIdentifier("setlists.cloud.backup")
+                    Button("Restore Setlists") { store.restoreFromCloud() }
+                        .accessibilityIdentifier("setlists.cloud.restore")
+                    if store.isWorking { ProgressView() }
+                }
+                .disabled(store.isWorking || !store.isOnline)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .confirmationDialog("Choose setlist versions", isPresented: Binding(
+            get: { store.pendingConflict }, set: { if !$0 { store.dismissConflictPresentation() } }),
+            titleVisibility: .visible) {
+            Button("Keep Both Versions") { store.resolveConflicts(.both) }
+            Button("Keep Local Versions") { store.resolveConflicts(.local) }
+            Button("Use Cloud Versions") { store.resolveConflicts(.cloud) }
+            Button("Cancel", role: .cancel) { store.cancelConflict() }
+        } message: {
+            Text("The same setlists were edited locally and in the cloud. Keep Both Versions saves the local versions as separate copies. Your PDF files stay in the library.")
+        }
     }
 }

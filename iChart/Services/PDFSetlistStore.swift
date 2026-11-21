@@ -34,10 +34,69 @@ enum IChartPDFSetlistStoreError: LocalizedError, Equatable {
 final class IChartPDFSetlistStore: ObservableObject {
     @Published private(set) var setlists: [IChartPDFSetlist]
     @Published private(set) var loadError: String?
+    var onSaved: (() -> Void)?
+    var automaticCloudOwnerID: UUID?
+    private(set) var cloudOwners: [UUID: UUID] = [:]
+    private(set) var cloudCheckpoints: [UUID: IChartPDFSetlistCloudCheckpoint] = [:]
+    private var unavailableCloudMetadata: [String: IChartJSONValue]?
+    var cloudMetadataUnavailable: Bool { unavailableCloudMetadata != nil }
 
     private struct Manifest: Codable {
         var version: Int
         var setlists: [IChartPDFSetlist]
+        var cloudOwners: [UUID: UUID]?
+        var cloudCheckpoints: [UUID: IChartPDFSetlistCloudCheckpoint]?
+        var rawMetadata: [String: IChartJSONValue]?
+
+        enum CodingKeys: String, CodingKey { case version, setlists, cloudOwners, cloudCheckpoints }
+
+        init(version: Int, setlists: [IChartPDFSetlist], cloudOwners: [UUID: UUID]?,
+            cloudCheckpoints: [UUID: IChartPDFSetlistCloudCheckpoint]?, rawMetadata: [String: IChartJSONValue]? = nil) {
+            self.version = version
+            self.setlists = setlists
+            self.cloudOwners = cloudOwners
+            self.cloudCheckpoints = cloudCheckpoints
+            self.rawMetadata = rawMetadata
+        }
+
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            version = try values.decode(Int.self, forKey: .version)
+            setlists = try values.decode([IChartPDFSetlist].self, forKey: .setlists)
+            do {
+                cloudOwners = try values.decodeIfPresent([UUID: UUID].self, forKey: .cloudOwners)
+                cloudCheckpoints = try values.decodeIfPresent([UUID: IChartPDFSetlistCloudCheckpoint].self,
+                    forKey: .cloudCheckpoints)
+                for checkpoint in (cloudCheckpoints ?? [:]).values {
+                    guard checkpoint.revision > 0 else { throw IChartPDFSetlistCloudError.invalidBackup }
+                    try IChartPDFSetlistCloudValidation.validate(.init(setlists: checkpoint.setlists, pdfs: checkpoint.pdfs))
+                }
+            } catch {
+                // Optional sync metadata cannot make offline setlists unreadable.
+                // Retain it verbatim as JSON while local editing remains available.
+                var raw: [String: IChartJSONValue] = [:]
+                for key in [CodingKeys.cloudOwners, .cloudCheckpoints] where values.contains(key) {
+                    raw[key.rawValue] = try values.decode(IChartJSONValue.self, forKey: key)
+                }
+                rawMetadata = raw
+                cloudOwners = nil
+                cloudCheckpoints = nil
+            }
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var values = encoder.container(keyedBy: CodingKeys.self)
+            try values.encode(version, forKey: .version)
+            try values.encode(setlists, forKey: .setlists)
+            if let rawMetadata {
+                for key in [CodingKeys.cloudOwners, .cloudCheckpoints] {
+                    if let raw = rawMetadata[key.rawValue] { try values.encode(raw, forKey: key) }
+                }
+            } else {
+                try values.encodeIfPresent(cloudOwners, forKey: .cloudOwners)
+                try values.encodeIfPresent(cloudCheckpoints, forKey: .cloudCheckpoints)
+            }
+        }
     }
 
     private let baseDirectory: URL
@@ -59,7 +118,11 @@ final class IChartPDFSetlistStore: ObservableObject {
         self.setlists = []
         self.loadError = nil
         do {
-            setlists = try Self.load(from: manifestURL, fileManager: fileManager)
+            let loaded = try Self.loadManifest(from: manifestURL, fileManager: fileManager)
+            setlists = loaded.setlists
+            cloudOwners = loaded.cloudOwners ?? [:]
+            cloudCheckpoints = loaded.cloudCheckpoints ?? [:]
+            unavailableCloudMetadata = loaded.rawMetadata
         } catch {
             loadError = error.localizedDescription
         }
@@ -90,7 +153,9 @@ final class IChartPDFSetlistStore: ObservableObject {
         let setlist = IChartPDFSetlist(name: name, entries: Self.entries(for: pdfItems), createdAt: date, updatedAt: date)
         var candidate = setlists
         candidate.insert(setlist, at: 0)
-        try commit(candidate)
+        var owners = cloudOwners
+        if let automaticCloudOwnerID { owners[setlist.id] = automaticCloudOwnerID }
+        try commit(candidate, owners: owners)
         return setlist
     }
 
@@ -181,10 +246,11 @@ final class IChartPDFSetlistStore: ObservableObject {
 
     func reload() throws {
         do {
-            let loaded = try Self.load(from: manifestURL, fileManager: fileManager)
-            if setlists != loaded {
-                setlists = loaded
-            }
+            let loaded = try Self.loadManifest(from: manifestURL, fileManager: fileManager)
+            if setlists != loaded.setlists { setlists = loaded.setlists }
+            cloudOwners = loaded.cloudOwners ?? [:]
+            cloudCheckpoints = loaded.cloudCheckpoints ?? [:]
+            unavailableCloudMetadata = loaded.rawMetadata
             loadError = nil
         } catch {
             loadError = error.localizedDescription
@@ -204,13 +270,45 @@ final class IChartPDFSetlistStore: ObservableObject {
         try commit(candidate)
     }
 
-    private func commit(_ candidate: [IChartPDFSetlist]) throws {
-        let data = try ChartPersistenceCoders.encoder.encode(Manifest(version: 1, setlists: candidate))
+    func cloudSetlists(for ownerID: UUID, enrollingUnowned: Bool) -> [IChartPDFSetlist] {
+        setlists.filter { cloudOwners[$0.id] == ownerID || (enrollingUnowned && cloudOwners[$0.id] == nil) }
+    }
+
+    func applyCloudMerge(_ merged: [IChartPDFSetlist], ownerID: UUID,
+        checkpoint: IChartPDFSetlistCloudCheckpoint, expectedLocal: [IChartPDFSetlist]) throws {
+        try requireLoadedManifest()
+        guard !cloudMetadataUnavailable else { throw IChartPDFSetlistCloudError.invalidBackup }
+        guard setlists == expectedLocal else { throw CocoaError(.fileWriteFileExists) }
+        let ownedIDs = Set(cloudSetlists(for: ownerID, enrollingUnowned: false).map(\.id)).union(merged.map(\.id))
+        let unrelated = setlists.filter { !ownedIDs.contains($0.id) }
+        guard Set(merged.map(\.id)).count == merged.count,
+              merged.allSatisfy({ cloudOwners[$0.id] == nil || cloudOwners[$0.id] == ownerID }),
+              Set(unrelated.map(\.id)).isDisjoint(with: Set(merged.map(\.id))) else {
+            throw IChartPDFSetlistStoreError.duplicateIdentifiers
+        }
+        var owners = cloudOwners
+        for list in merged { owners[list.id] = ownerID }
+        var checkpoints = cloudCheckpoints
+        checkpoints[ownerID] = checkpoint
+        try commit(unrelated + merged, owners: owners, checkpoints: checkpoints)
+    }
+
+    private func commit(_ candidate: [IChartPDFSetlist], owners: [UUID: UUID]? = nil,
+        checkpoints: [UUID: IChartPDFSetlistCloudCheckpoint]? = nil) throws {
+        let nextOwners = owners ?? cloudOwners
+        let nextCheckpoints = checkpoints ?? cloudCheckpoints
+        let data = try ChartPersistenceCoders.encoder.encode(Manifest(version: 1, setlists: candidate,
+            cloudOwners: nextOwners.isEmpty ? nil : nextOwners,
+            cloudCheckpoints: nextCheckpoints.isEmpty ? nil : nextCheckpoints,
+            rawMetadata: unavailableCloudMetadata))
         try fileManager.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
         try writeManifest(data, manifestURL)
         // Setlists refer to existing PDF IDs. Only this manifest is written;
         // deleting a setlist or entry never deletes or modifies a PDF file.
         setlists = candidate
+        cloudOwners = nextOwners
+        cloudCheckpoints = nextCheckpoints
+        onSaved?()
     }
 
     private func requireLoadedManifest() throws {
@@ -225,14 +323,16 @@ final class IChartPDFSetlistStore: ObservableObject {
         return name
     }
 
-    private static func load(from url: URL, fileManager: FileManager) throws -> [IChartPDFSetlist] {
-        guard fileManager.fileExists(atPath: url.path(percentEncoded: false)) else { return [] }
+    private static func loadManifest(from url: URL, fileManager: FileManager) throws -> Manifest {
+        guard fileManager.fileExists(atPath: url.path(percentEncoded: false)) else {
+            return Manifest(version: 1, setlists: [], cloudOwners: nil, cloudCheckpoints: nil)
+        }
         let manifest = try ChartPersistenceCoders.decoder.decode(Manifest.self, from: Data(contentsOf: url))
         guard manifest.version == 1 else { throw IChartPDFSetlistStoreError.unsupportedVersion(manifest.version) }
         guard Set(manifest.setlists.map(\.id)).count == manifest.setlists.count,
               manifest.setlists.allSatisfy({ Set($0.entries.map(\.id)).count == $0.entries.count }) else {
             throw IChartPDFSetlistStoreError.duplicateIdentifiers
         }
-        return manifest.setlists
+        return manifest
     }
 }

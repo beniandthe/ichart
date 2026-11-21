@@ -54,8 +54,11 @@ struct ChartAppearanceSheetView: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var chart: Chart
     let panel: ChartAppearancePanel
+    var premiumFontAccess: () -> Bool = { false }
+    private var canUsePremiumFonts: Bool { premiumFontAccess() }
     @State private var operationMessage: String?
     @State private var operationID = UUID()
+    @State private var showingPremiumFontUpgrade = false
 
     var body: some View {
         NavigationStack {
@@ -64,7 +67,9 @@ struct ChartAppearanceSheetView: View {
                     EditorSheetInstruction(title: panel.instructionTitle, steps: [
                         panel.instruction(for: chart.layoutStyle),
                         "Changes apply immediately to this chart and its exported PDF."
-                    ])
+                    ] + (panel == .notationFont && !canUsePremiumFonts ? [
+                        "Petaluma, MuseJazz, and Finale Jazz require Pro to apply. Fonts already saved in a chart stay in use."
+                    ] : []))
                     .accessibilityIdentifier("appearance-sheet-instruction")
                 }
 
@@ -96,6 +101,10 @@ struct ChartAppearanceSheetView: View {
         }
         .animation(.easeOut(duration: 0.16), value: operationMessage)
         .presentationDetents([.medium, .large])
+        .sheet(isPresented: $showingPremiumFontUpgrade) {
+            UpgradeSheetView(feature: .fontPresets)
+                .accessibilityIdentifier("fonts-upgrade-sheet")
+        }
     }
 
     private var documentStyleRows: some View {
@@ -122,12 +131,25 @@ struct ChartAppearanceSheetView: View {
                     detail: preset.detailText,
                     preview: notationPreview(for: preset),
                     previewFont: preset.notationPreviewFont(size: 22),
-                    isSelected: chart.notationFont == preset
+                    isSelected: chart.notationFont.releaseSafePreset == preset,
+                    requiresUpgrade: !canUsePremiumFonts && preset.requiresPremiumFonts
                 ) {
+                    let selection = ChartFontSelection.notation(preset)
+                    guard ChartFontSelectionPolicy.canApply(selection, to: chart,
+                        canUsePremiumFonts: canUsePremiumFonts) else {
+                        showingPremiumFontUpgrade = true
+                        return
+                    }
                     applyAppearanceChange("Updating fonts...") {
-                        chart.setNotationFont(preset)
+                        guard ChartFontSelectionPolicy.apply(selection, to: &chart,
+                            canUsePremiumFonts: premiumFontAccess()) else {
+                            operationMessage = nil
+                            showingPremiumFontUpgrade = true
+                            return
+                        }
                     }
                 }
+                .accessibilityIdentifier("appearance-font-\(preset.rawValue)")
             }
         }
     }
@@ -395,6 +417,7 @@ private struct AppearanceChoiceRow: View {
     var preview: String?
     var previewFont: Font?
     let isSelected: Bool
+    var requiresUpgrade = false
     let action: () -> Void
 
     var body: some View {
@@ -404,6 +427,13 @@ private struct AppearanceChoiceRow: View {
                     Text(title)
                         .font(.headline)
                         .foregroundStyle(.primary)
+
+                    if requiresUpgrade {
+                        Text("Pro")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel("Pro font")
+                    }
 
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
@@ -430,6 +460,8 @@ private struct AppearanceChoiceRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
-        .accessibilityHint("Applies immediately to this chart and its PDF")
+        .accessibilityHint(requiresUpgrade
+            ? "Opens Pro font options. The chart keeps its current fonts."
+            : "Applies immediately to this chart and its PDF")
     }
 }

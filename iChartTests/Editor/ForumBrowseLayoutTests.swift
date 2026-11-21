@@ -10,6 +10,38 @@ import XCTest
 final class ForumBrowseLayoutTests: XCTestCase {
     private let helperText = "Search songs, artists, arrangers, or tags, then tap Search. Use Load More for more matches. Open a chart to save its PDF or discuss it."
 
+    func testBasicForumHasReadableSearchAndChartEntryWithProParticipationClearlyExplained() async throws {
+        let basicHelper = "Search songs, artists, arrangers, or tags, then tap Search. Open a chart to read its discussion and author badges. Pro adds new PDF downloads, publishing, votes, and comments."
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let fixture = Fixture(style: style)
+            fixture.canParticipate = false
+            let mounted = try await mount(fixture, width: 360, category: .large)
+            let search = try await searchField(in: mounted)
+            let helper = try await node(basicHelper, in: mounted)
+            assertContained(search.convert(search.bounds, to: mounted.window), in: mounted.viewport)
+            assertContained(helper.frame(in: mounted.window), in: mounted.viewport)
+            var foundProOptions = false
+            var foundChart = false
+            try await inspectEveryScrollPosition(mounted) { nodes in
+                for item in nodes {
+                    let label = item.element.accessibilityLabel ?? ""
+                    XCTAssertFalse(item.isButton && label == "Submit To Forum")
+                    if item.isButton && label == "View Pro Options" {
+                        foundProOptions = true
+                        assertHorizontallyContained(item.frame(in: mounted.window), in: mounted.viewport)
+                    }
+                    if item.isButton && label.hasPrefix("Open ") { foundChart = true }
+                }
+            }
+            XCTAssertTrue(foundProOptions)
+            XCTAssertTrue(foundChart)
+            XCTAssertTrue(fixture.searchRequests.isEmpty)
+            XCTAssertEqual(fixture.publishCount, 0)
+            XCTAssertTrue(fixture.openedPosts.isEmpty)
+            await mounted.close()
+        }
+    }
+
     func testTopChartsCardsAndSearchFitNarrowAndAvailableWidthsForBothStyles() async throws {
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
             for requestedWidth in [CGFloat(360), 568, 900] {
@@ -501,6 +533,7 @@ final class ForumBrowseLayoutTests: XCTestCase {
         @Published var forumGeneration = 0
         @Published var hasMoreSearchResults = false
         @Published var isLoadingMoreSearchResults = false
+        var canParticipate = true
         let summaries: [IChartForumSongSummary]
         var searchRequests: [String] = []
         var refreshQueries: [String] = []
@@ -547,7 +580,7 @@ final class ForumBrowseLayoutTests: XCTestCase {
                 onOpenAccount: { fixture.accountOpenCount += 1 },
                 hasMoreSearchResults: fixture.hasMoreSearchResults,
                 isLoadingMoreSearchResults: fixture.isLoadingMoreSearchResults,
-                onLoadMoreSearchResults: fixture.loadMore)
+                onLoadMoreSearchResults: fixture.loadMore, canParticipate: fixture.canParticipate)
                 .id(fixture.forumGeneration)
         }
     }

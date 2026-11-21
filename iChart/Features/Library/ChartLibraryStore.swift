@@ -119,31 +119,14 @@ final class ChartLibraryStore: ObservableObject {
         entitlements.localChartLimit
     }
 
-    var requiresLocalChartPruningForCurrentPlan: Bool {
-        // Voluntarily leaving free Pro must not force deletion or lock editing
-        // of existing charts. Only new-chart capacity is limited in Beta Basic.
-        guard !entitlements.accessPolicy.isFreeBeta else { return false }
-        guard let localChartLimit else {
-            return false
+    var editablePDFConversionUnavailableMessage: String? {
+        guard entitlements.canConvertPDFToEditableChart else {
+            return entitlements.accessPolicy.isFreeBeta
+                ? "Rejoin free Pro in Settings to create an editable chart from this PDF. Reading and sharing the PDF stay available."
+                : "Create Editable Chart requires Pro. Reading and sharing the PDF stay available on Basic."
         }
-
-        return charts.count > localChartLimit
-    }
-
-    var isChartEditingLockedByCurrentPlan: Bool {
-        requiresLocalChartPruningForCurrentPlan
-    }
-
-    var canOpenChartsForEditing: Bool {
-        !isChartEditingLockedByCurrentPlan
-    }
-
-    var localChartOverflowCount: Int {
-        guard let localChartLimit else {
-            return 0
-        }
-
-        return max(0, charts.count - localChartLimit)
+        guard canCreateChart else { return chartCapacityText }
+        return nil
     }
 
     func canUse(_ feature: EntitledFeature) -> Bool {
@@ -227,7 +210,10 @@ final class ChartLibraryStore: ObservableObject {
     /// Review stays open until the admitted draft is present in a saved snapshot.
     @MainActor
     func saveConvertedPDFChart(_ preparedChart: Chart) async -> Bool {
-        guard convertedPDFChartSave == nil else { return false }
+        // Review can outlive a plan change. Recheck access at admission,
+        // independently of the preview button and normal chart capacity.
+        guard entitlements.canConvertPDFToEditableChart,
+              convertedPDFChartSave == nil else { return false }
         return await withCheckedContinuation { continuation in
             convertedPDFChartSave = (preparedChart, selectedChartID, continuation)
             guard createPreparedChart(preparedChart) else {
@@ -460,25 +446,6 @@ final class ChartLibraryStore: ObservableObject {
             return 0
         }
         return deletedCharts.count
-    }
-
-    @discardableResult
-    func pruneLocalChartForCurrentPlan(id chartID: Chart.ID) -> Bool {
-        guard requiresLocalChartPruningForCurrentPlan,
-              charts.contains(where: { $0.id == chartID }) else {
-            return false
-        }
-
-        let proposedSelection = selectedChartID == chartID
-            ? charts.first(where: { $0.id != chartID })?.id
-            : selectedChartID
-
-        performPersistedBatch(notifyCloudSync: false) {
-            charts.removeAll { $0.id == chartID }
-            removeChartFromAllProjectsInPlace(chartID)
-            selectedChartID = Self.sanitizedSelection(proposedSelection, charts: charts)
-        }
-        return true
     }
 
     #if DEBUG

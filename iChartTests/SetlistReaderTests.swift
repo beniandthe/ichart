@@ -115,7 +115,6 @@ final class SetlistReaderTests: XCTestCase {
         for status in [IChartSubscriptionStatus.proExpired, .basic, .unavailable, .proGrace] {
             let billing = IChartSubscriptionEntitlement(status: status)
             chartStore.applySubscriptionState(billing)
-            XCTAssertEqual(pdfStore.removeForumDownloadsIfInactive(for: billing), 0)
             try await Task.sleep(nanoseconds: 100_000_000)
             XCTAssertTrue(pdfView.document === originalDocument)
             XCTAssertEqual(chartStore.entitlements.subscription, billing)
@@ -124,7 +123,7 @@ final class SetlistReaderTests: XCTestCase {
         }
     }
 
-    func testPerformanceReaderDropsForumPDFWhenAccessChangesWithoutDeletingSource() async throws {
+    func testPaidPerformanceReaderKeepsForumPDFReadableThroughDowngradeAndRestore() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = try writePDF(title: "Forum Song", pageCount: 1, in: directory)
@@ -142,15 +141,21 @@ final class SetlistReaderTests: XCTestCase {
         let window = try makeWindow(host: host)
         defer { window.close() }
         let pdfView = try await waitForPDFView(in: host.view)
-        XCTAssertNotNil(pdfView.document)
+        let originalDocument = try XCTUnwrap(pdfView.document)
+        let originalBytes = try Data(contentsOf: saved.url)
 
-        chartStore.entitlements = AppEntitlements(subscription: .proGrace(graceEndsAt: .now.addingTimeInterval(60)), accessPolicy: .paidSubscription)
-        try await waitForUnavailableReader(in: window)
-        XCTAssertNil(pdfView.document, "Even a transition-retained PDF view must release revoked content")
-        XCTAssertTrue(descendants(window).compactMap { $0 as? PDFView }.allSatisfy { $0.document == nil },
-            "Revoked access must leave no readable PDF document in the presented hierarchy")
-        XCTAssertEqual(setlistStore.setlist(id: setlist.id)?.entries, [entry])
-        XCTAssertTrue(FileManager.default.fileExists(atPath: saved.url.path), "Changing access must not delete the source PDF")
+        for status in [IChartSubscriptionStatus.proGrace, .proExpired, .basic, .unavailable, .proActive] {
+            chartStore.applySubscriptionState(IChartSubscriptionEntitlement(status: status))
+            try await Task.sleep(nanoseconds: 100_000_000)
+            XCTAssertTrue(pdfView.document === originalDocument)
+            XCTAssertEqual(setlistStore.setlist(id: setlist.id)?.entries, [entry])
+            XCTAssertEqual(try Data(contentsOf: saved.url), originalBytes)
+        }
+
+        let reopenedPDFs = IChartPDFLibraryStore(baseDirectory: directory.appendingPathComponent("PDF Library", isDirectory: true))
+        let reopenedSetlists = IChartPDFSetlistStore(baseDirectory: directory.appendingPathComponent("Setlists", isDirectory: true))
+        let retainedSetlist = try XCTUnwrap(reopenedSetlists.setlist(id: setlist.id))
+        XCTAssertEqual(retainedSetlist.resolvedEntries(in: reopenedPDFs.items).first?.pdfItem?.id, entry.pdfItemID)
     }
 
     func testSetlistNameUsesNativeFieldWithoutSavingDraftChanges() async throws {

@@ -65,6 +65,8 @@ struct UpgradeSheetView: View {
                     Text(IChartLegalLinks.freeProTitle)
                         .font(.largeTitle.weight(.semibold))
                     Text(IChartLegalLinks.freeProNotice)
+                    Text(feature.upgradeMessage)
+                        .foregroundStyle(.secondary)
                     Text(IChartLegalLinks.futurePricingNotice)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -89,9 +91,11 @@ struct UpgradeSheetView: View {
 
                 VStack(alignment: .leading, spacing: 12) {
                     benefitRow("Unlimited local charts")
+                    benefitRow("Editable charts from PDFs")
                     benefitRow("Projects for song variants")
-                    benefitRow("Cloud backup and restore")
-                    benefitRow("Forums access")
+                    benefitRow("Chart and setlist cloud backup")
+                    benefitRow("Forum downloads and participation")
+                    benefitRow("Premium chart fonts")
                 }
 
                 storeKitPurchaseControls

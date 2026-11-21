@@ -5,6 +5,17 @@ import PDFKit
 import Supabase
 
 enum IChartForumPDFMetadata {
+    /// Match the saved artifact itself rather than its title: distinct forum
+    /// posts can have identical names. This never requests a network PDF.
+    static func savedPDF(for post: ForumChartPost, among savedPDFs: [ExportedPDF]) -> ExportedPDF? {
+        savedPDFs.first { pdf in
+            guard pdf.layoutStyle == post.layoutStyle,
+                  let document = PDFDocument(url: pdf.url), document.pageCount > 0 else { return false }
+            return ForumPDFInstrumentSnapshot.validated(
+                subject: document.documentAttributes?[PDFDocumentAttribute.subjectAttribute] as? String,
+                postID: post.id, layoutStyle: post.layoutStyle) != nil
+        }
+    }
     static func cacheDownloadedPDF(data: Data, post: ForumChartPost, in directory: URL,
                                    fileManager: FileManager = .default) throws -> ExportedPDF {
         // Each request owns its output. Titles are display names, not file
@@ -109,6 +120,7 @@ final class IChartForumStore: ObservableObject {
     @Published private(set) var isLoadingEarlierComments = false
     @Published private(set) var homeNextCursor: IChartForumHomeCursor?
     @Published private(set) var isLoadingMoreHome = false
+    @Published private(set) var canBrowseForums = false
 
     private let service: IChartForumServicing
     private let defaults: UserDefaults
@@ -165,6 +177,7 @@ final class IChartForumStore: ObservableObject {
     private static let uploadQueueStorageKey = "iChartForumUploadQueue"
 
     var hasUploadWorkInFlight: Bool { !uploadTasks.isEmpty }
+    var canParticipateInForums: Bool { allowsForumPublishing }
 
     func setQASampleDataEnabled(_ isEnabled: Bool) {
         #if DEBUG
@@ -190,18 +203,14 @@ final class IChartForumStore: ObservableObject {
         entitlements: AppEntitlements,
         query: String? = nil
     ) async {
+        applyAccess(entitlements: entitlements, charts: uploadCharts,
+            currentUserID: authState.signedInSession?.id,
+            isAccountVerified: authState.signedInSession?.isEmailVerified == true)
         invalidateHomePagination()
         let requestID = UUID()
         homeRequestID = requestID
-        guard let signedInSession = authState.signedInSession else {
+        guard let signedInSession = authState.signedInSession, signedInSession.isEmailVerified else {
             state = .signedOut
-            selectedDetail = nil
-            currentUserBadges = nil
-            return
-        }
-
-        guard entitlements.includes(.forums) else {
-            state = .requiresPro
             selectedDetail = nil
             currentUserBadges = nil
             return
@@ -250,7 +259,7 @@ final class IChartForumStore: ObservableObject {
     }
 
     func loadMoreHome() async {
-        guard !isWorking, !isLoadingMoreHome, case .loaded = state,
+        guard canBrowseForums, !isWorking, !isLoadingMoreHome, case .loaded = state,
               let cursor = homeNextCursor else { return }
         let generation = homeRequestID
         let query = lastQuery
@@ -317,6 +326,7 @@ final class IChartForumStore: ObservableObject {
     }
 
     func openPost(_ post: ForumChartPost, song: ForumSong) async {
+        guard canBrowseForums else { return }
         invalidatePDFDownload()
         detailSessionID = UUID()
         earlierCommentsRequestID = nil
@@ -337,7 +347,7 @@ final class IChartForumStore: ObservableObject {
             return
         }
         guard allowsForumPublishing, uploadOwnerID == ownerID else {
-            errorMessage = "Rejoin free Pro in Settings before posting to Forums. Your local chart is unchanged."
+            errorMessage = "Open Plan Settings for Pro before posting to Forums. Your local chart is unchanged."
             return
         }
 
@@ -392,13 +402,16 @@ final class IChartForumStore: ObservableObject {
 
     /// Membership and account changes pause queued publishing, never discard it.
     /// Completed downloads remain in the independent PDF library.
-    func applyAccess(entitlements: AppEntitlements, charts: [Chart], currentUserID: UUID?) {
+    func applyAccess(entitlements: AppEntitlements, charts: [Chart], currentUserID: UUID?,
+        isAccountVerified: Bool = true) {
         let changedOwner = uploadOwnerID != currentUserID
         let previouslyAllowed = allowsForumPublishing
+        let previouslyBrowsed = canBrowseForums
         uploadOwnerID = currentUserID
         uploadCharts = charts
-        allowsForumPublishing = entitlements.includes(.forums) && currentUserID != nil
-        if changedOwner || !allowsForumPublishing {
+        canBrowseForums = currentUserID != nil && isAccountVerified
+        allowsForumPublishing = entitlements.includes(.forums) && canBrowseForums
+        if changedOwner || previouslyAllowed != allowsForumPublishing || !canBrowseForums {
             invalidateHomePagination()
             clearSelectedDetail()
         }
@@ -406,10 +419,14 @@ final class IChartForumStore: ObservableObject {
             uploadTasks.values.forEach { $0.cancel() }
         }
         guard allowsForumPublishing else {
-            selectedDetail = nil
-            state = currentUserID == nil ? .signedOut : .requiresPro
+            if !canBrowseForums {
+                state = .signedOut
+                currentUserBadges = nil
+            } else if changedOwner || !previouslyBrowsed || state == .requiresPro {
+                state = .loaded([])
+            }
             if uploadQueue.contains(where: { $0.stage.isActive }) {
-                statusMessage = "Forum uploads are paused. Your queued charts are kept; rejoin free Pro in Settings to resume."
+                statusMessage = "Forum uploads are paused. Your queued charts are kept; open Plan Settings to resume with Pro."
             }
             return
         }
@@ -453,7 +470,7 @@ final class IChartForumStore: ObservableObject {
             return
         }
         guard allowsForumPublishing, uploadOwnerID == currentUserID else {
-            errorMessage = "Rejoin free Pro in Settings to resume this queued upload."
+            errorMessage = "Open Plan Settings for Pro to resume this queued upload."
             return
         }
         guard uploadQueue.contains(where: { $0.id == item.id && $0.stage == .failed }),
@@ -535,13 +552,14 @@ final class IChartForumStore: ObservableObject {
 
     private func refreshAfterOwnedCleanup() async throws {
         guard allowsForumPublishing else {
-            state = uploadOwnerID == nil ? .signedOut : .requiresPro
+            if !canBrowseForums { state = .signedOut }
             return
         }
         try await reloadCurrentHome(using: activeService)
     }
 
     func vote(_ vote: ForumVoteValue, on detail: IChartForumPostDetail) async {
+        guard allowsForumPublishing else { return }
         await run {
             let requestService = activeService
             try await requestService.vote(postID: detail.post.id, vote: vote)
@@ -553,7 +571,8 @@ final class IChartForumStore: ObservableObject {
 
     func addComment(_ body: String, to detail: IChartForumPostDetail) async -> Bool {
         let submittedBody = ForumPublishDraft.normalizedDisplayText(body)
-        guard !submittedBody.isEmpty, !isWorking, selectedDetail?.post.id == detail.post.id else { return false }
+        guard allowsForumPublishing, !submittedBody.isEmpty, !isWorking,
+              selectedDetail?.post.id == detail.post.id else { return false }
 
         var posted = false
         await run {
@@ -570,7 +589,7 @@ final class IChartForumStore: ObservableObject {
     }
 
     func loadEarlierComments() async {
-        guard !isWorking, !isLoadingEarlierComments,
+        guard canBrowseForums, !isWorking, !isLoadingEarlierComments,
               let detail = selectedDetail, let cursor = detail.earlierCommentCursor else { return }
         let sessionID = detailSessionID
         let requestID = UUID()
@@ -600,6 +619,7 @@ final class IChartForumStore: ObservableObject {
     }
 
     func reportPost(_ reason: ForumReportReason, detailText: String?, detail: IChartForumPostDetail) async {
+        guard canBrowseForums else { return }
         await run(successMessage: "Report sent.") {
             try await activeService.reportPost(postID: detail.post.id, reason: reason, detail: detailText)
             try await refreshSelectedDetail(postID: detail.post.id, song: detail.song)
@@ -607,6 +627,7 @@ final class IChartForumStore: ObservableObject {
     }
 
     func reportComment(_ comment: ForumComment, reason: ForumReportReason, detailText: String?, detail: IChartForumPostDetail) async {
+        guard canBrowseForums else { return }
         await run(successMessage: "Report sent.") {
             try await activeService.reportComment(commentID: comment.id, reason: reason, detail: detailText)
             try await refreshSelectedDetail(postID: detail.post.id, song: detail.song)
@@ -614,6 +635,7 @@ final class IChartForumStore: ObservableObject {
     }
 
     func blockUser(ownerID: UUID, displayName: String) async {
+        guard canBrowseForums else { return }
         await run(successMessage: "\(displayName.isEmpty ? "Contributor" : displayName) blocked. Their forum posts and comments are hidden for this account.") {
             try await activeService.blockUser(ownerID: ownerID)
             selectedDetail = nil
