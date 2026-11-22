@@ -1,0 +1,202 @@
+-- Synthetic PostgreSQL regression. Run after the existing isolated authority
+-- fixture and 20261106045008_atomic_storekit_subscription_authority.sql only.
+-- Never run against a linked Supabase database. Everything rolls back.
+\set ON_ERROR_STOP on
+begin;
+set local plpgsql.check_asserts = on;
+do $$
+begin
+    if current_database() <> 'ichart_authority_audit' then
+        raise exception 'Isolated ichart_authority_audit database required.';
+    end if;
+end;
+$$;
+
+-- The historical fixture grants ALL on both tables, masking fresh-database
+-- notification permissions. Remove ledger access only, preserving claim access.
+revoke all on public.app_store_notification_events from service_role;
+create temporary table ledger_grant_before as
+select pg_get_functiondef('public.apply_storekit_subscription_authority(jsonb,uuid)'::regprocedure) as definition,
+    c.relrowsecurity,
+    (select count(*) from pg_policy where polrelid = c.oid) as policy_count
+from pg_class c where c.oid = 'public.app_store_notification_events'::regclass;
+insert into auth.users(id) values ('00000000-0000-4000-8000-000000000091');
+set local role service_role;
+do $$
+declare result jsonb;
+begin
+    result := public.apply_storekit_subscription_authority(
+        '{"provider":"storekit","plan":"studioSubscription","status":"active","storekit_original_transaction_id":"grant-original","app_store_signed_at":"2026-11-22T00:00:00Z","app_store_last_transaction_id":"100"}',
+        '00000000-0000-4000-8000-000000000091');
+    assert result ->> 'mapping_status' = 'claimed' and (result ->> 'stored')::boolean;
+end;
+$$;
+\echo PASS 1: claims work without ledger grants
+
+do $$
+declare before_row jsonb;
+begin
+    select to_jsonb(s) into before_row from public.subscriptions s
+        where storekit_original_transaction_id = 'grant-original';
+    begin
+        perform public.apply_storekit_subscription_authority(
+            '{"storekit_original_transaction_id":"grant-original","app_store_notification_uuid":"grant-event","status":"inactive","app_store_signed_at":"2026-11-22T00:01:00Z"}');
+        raise exception 'Mapped notification unexpectedly bypassed missing ledger grants.';
+    exception when insufficient_privilege then null;
+    end;
+    assert (select to_jsonb(s) = before_row from public.subscriptions s
+        where storekit_original_transaction_id = 'grant-original');
+end;
+$$;
+reset role;
+do $$ begin assert (select count(*) = 0 from public.app_store_notification_events); end; $$;
+\echo PASS 2: missing ledger grants fail atomically
+
+grant insert (notification_uuid, original_transaction_id, signed_at)
+    on public.app_store_notification_events to service_role;
+set local role service_role;
+do $$
+begin
+    begin
+        perform public.apply_storekit_subscription_authority(
+            '{"storekit_original_transaction_id":"grant-original","app_store_notification_uuid":"grant-event","status":"inactive","app_store_signed_at":"2026-11-22T00:01:00Z"}');
+        raise exception 'INSERT-only incorrectly satisfied conflict-target SELECT.';
+    exception when insufficient_privilege then null;
+    end;
+end;
+$$;
+reset role;
+do $$
+begin
+    assert (select count(*) = 0 from public.app_store_notification_events);
+    assert (select status = 'active' from public.subscriptions where storekit_original_transaction_id = 'grant-original');
+end;
+$$;
+\echo PASS 3: INSERT alone still fails conflict-target SELECT
+
+\ir ../migrations/20261122163736_grant_service_role_notification_ledger_access.sql
+do $$
+declare role_name text; column_name text;
+begin
+    assert has_column_privilege('service_role', 'public.app_store_notification_events', 'notification_uuid', 'SELECT');
+    foreach column_name in array array['notification_uuid', 'original_transaction_id', 'signed_at'] loop
+        assert has_column_privilege('service_role', 'public.app_store_notification_events', column_name, 'INSERT');
+    end loop;
+    foreach column_name in array array['original_transaction_id', 'signed_at', 'received_at'] loop
+        assert not has_column_privilege('service_role', 'public.app_store_notification_events', column_name, 'SELECT');
+    end loop;
+    assert not has_column_privilege('service_role', 'public.app_store_notification_events', 'received_at', 'INSERT');
+    assert not has_table_privilege('service_role', 'public.app_store_notification_events', 'SELECT');
+    assert not has_table_privilege('service_role', 'public.app_store_notification_events', 'INSERT');
+    assert not has_table_privilege('service_role', 'public.app_store_notification_events', 'UPDATE');
+    assert not has_table_privilege('service_role', 'public.app_store_notification_events', 'DELETE');
+    foreach role_name in array array['anon', 'authenticated'] loop
+        assert not has_any_column_privilege(role_name, 'public.app_store_notification_events', 'SELECT');
+        assert not has_any_column_privilege(role_name, 'public.app_store_notification_events', 'INSERT');
+        assert not has_any_column_privilege(role_name, 'public.app_store_notification_events', 'UPDATE');
+        assert not has_table_privilege(role_name, 'public.app_store_notification_events', 'DELETE');
+        assert not has_function_privilege(role_name, 'public.apply_storekit_subscription_authority(jsonb,uuid)', 'EXECUTE');
+    end loop;
+    assert not (select prosecdef from pg_proc where oid = 'public.apply_storekit_subscription_authority(jsonb,uuid)'::regprocedure);
+    assert (select relrowsecurity from pg_class where oid = 'public.app_store_notification_events'::regclass);
+    assert (select definition = pg_get_functiondef('public.apply_storekit_subscription_authority(jsonb,uuid)'::regprocedure)
+        and relrowsecurity and policy_count = (select count(*) from pg_policy
+            where polrelid = 'public.app_store_notification_events'::regclass) from ledger_grant_before);
+end;
+$$;
+\echo PASS 4: narrow columns, client denial, RLS and invoker boundaries preserved
+
+\ir ../migrations/20261122163736_grant_service_role_notification_ledger_access.sql
+\echo PASS 5: migration reapplies without error
+
+set local role service_role;
+do $$
+declare result jsonb;
+begin
+    result := public.apply_storekit_subscription_authority(
+        '{"storekit_original_transaction_id":"grant-original","app_store_notification_uuid":"grant-event","status":"inactive","app_store_signed_at":"2026-11-22T00:01:00Z"}');
+    assert result ->> 'mapping_status' = 'updated' and (result ->> 'stored')::boolean;
+end;
+$$;
+reset role;
+do $$
+begin
+    assert (select count(*) = 1 from public.app_store_notification_events);
+    assert (select original_transaction_id = 'grant-original' and signed_at = '2026-11-22T00:01:00Z'::timestamptz
+        from public.app_store_notification_events where notification_uuid = 'grant-event');
+    assert (select status = 'inactive' from public.subscriptions where storekit_original_transaction_id = 'grant-original');
+end;
+$$;
+\echo PASS 6: mapped notification stores ledger and authority
+
+set local role service_role;
+do $$
+declare result jsonb; before_row jsonb;
+begin
+    select to_jsonb(s) into before_row from public.subscriptions s
+        where storekit_original_transaction_id = 'grant-original';
+    result := public.apply_storekit_subscription_authority(
+        '{"storekit_original_transaction_id":"grant-original","app_store_notification_uuid":"grant-event","status":"active","app_store_signed_at":"2026-11-22T00:02:00Z"}');
+    assert result ->> 'mapping_status' = 'duplicate_notification' and not (result ->> 'stored')::boolean;
+    assert (select to_jsonb(s) = before_row from public.subscriptions s
+        where storekit_original_transaction_id = 'grant-original');
+end;
+$$;
+reset role;
+do $$ begin assert (select count(*) = 1 from public.app_store_notification_events); end; $$;
+\echo PASS 7: duplicate notification is idempotent
+
+set local role service_role;
+do $$
+begin
+    begin
+        update public.app_store_notification_events set signed_at = now() where notification_uuid = 'grant-event';
+        raise exception 'Service role unexpectedly gained ledger UPDATE.';
+    exception when insufficient_privilege then null;
+    end;
+    begin
+        delete from public.app_store_notification_events where notification_uuid = 'grant-event';
+        raise exception 'Service role unexpectedly gained ledger DELETE.';
+    exception when insufficient_privilege then null;
+    end;
+end;
+$$;
+\echo PASS 8: service ledger UPDATE and DELETE remain denied
+
+do $$
+begin
+    begin
+        insert into public.app_store_notification_events(notification_uuid, original_transaction_id, received_at)
+            values ('forbidden-received-at', 'grant-original', now());
+        raise exception 'Service role unexpectedly gained received_at INSERT.';
+    exception when insufficient_privilege then null;
+    end;
+    begin
+        perform original_transaction_id from public.app_store_notification_events;
+        raise exception 'Service role unexpectedly gained transaction-column SELECT.';
+    exception when insufficient_privilege then null;
+    end;
+end;
+$$;
+reset role;
+\echo PASS 9: unrelated ledger columns remain inaccessible
+
+set local role authenticated;
+do $$
+begin
+    begin
+        insert into public.app_store_notification_events(notification_uuid, original_transaction_id)
+            values ('forbidden-client', 'grant-original');
+        raise exception 'Client unexpectedly gained ledger INSERT.';
+    exception when insufficient_privilege then null;
+    end;
+    begin
+        perform notification_uuid from public.app_store_notification_events;
+        raise exception 'Client unexpectedly gained ledger SELECT.';
+    exception when insufficient_privilege then null;
+    end;
+end;
+$$;
+reset role;
+\echo PASS 10: authenticated client cannot read or write ledger
+rollback;
