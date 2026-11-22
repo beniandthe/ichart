@@ -320,6 +320,13 @@ final class ForumBrowseLayoutTests: XCTestCase {
             let fixture = Fixture(style: .simpleChordSheet)
             fixture.state = state
             let mounted = try await mount(fixture, width: 360, category: .large)
+            if state == .requiresPro {
+                let nodes = try NativeAccessibilityLookup.nodes(in: mounted.host.view)
+                XCTAssertTrue(nodes.contains {
+                    ($0.element.accessibilityLabel ?? "").contains("Rejoin Pro — Free")
+                }, "The public Basic gate explains the actual free-beta recovery action")
+                XCTAssertNil(findSearchField(in: mounted.host.view))
+            }
             try activate(try await node(action, in: mounted, button: true))
             XCTAssertEqual(fixture.accountOpenCount, 1)
             XCTAssertTrue(fixture.searchRequests.isEmpty)

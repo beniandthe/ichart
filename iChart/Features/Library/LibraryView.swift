@@ -585,7 +585,9 @@ private struct IChartHelpArticleSection: Identifiable {
             id: "faq-forums",
             title: "What are Forums?",
             systemImageName: "bubble.left.and.bubble.right",
-            body: "Forums are an account-based space for sharing useful chart PDFs with other musicians. A verified account can browse songs and discussions; Pro adds publishing, new downloads, votes, and comments.",
+            body: IChartProductAccessPolicy.current.isFreeBeta
+                ? "Forums use a verified account with free Pro. If you choose Basic, open Plan Settings and choose Rejoin Pro — Free to browse, read, and participate. Your saved PDFs stay available."
+                : "Forums are an account-based space for sharing useful chart PDFs with other musicians. A verified account can browse songs and discussions; Pro adds publishing, new downloads, votes, and comments.",
             bullets: [
                 "A forum upload starts from a chart you made in iChart.",
                 "Use the search field at the top of Forums, then tap Search to find songs, artists, arrangers, or tags. Use Load More for additional matches. Your search text stays available while results load or if you need to retry.",
@@ -3377,11 +3379,16 @@ struct IChartForumHomeView: View {
         case .requiresPro:
             VStack(spacing: 12) {
                 ContentUnavailableView("Forums Require Pro", systemImage: "lock.icloud",
-                    description: Text("Open Settings to rejoin free Pro or check your current plan."))
+                    description: Text(IChartProductAccessPolicy.current.isFreeBeta
+                        ? "Choose Open Plan Settings, then Rejoin Pro — Free to browse and share community charts. Your saved PDFs and queued charts are kept."
+                        : "Open Plan Settings to check your Pro access. A verified account can still browse and read; your saved PDFs and queued charts are kept."))
                 if let onOpenAccount {
                     Button("Open Plan Settings", action: onOpenAccount)
                         .buttonStyle(.borderedProminent)
                         .tint(IChartHomeBrand.blue)
+                        .accessibilityHint(IChartProductAccessPolicy.current.isFreeBeta
+                            ? "Open Plan Settings, then choose Rejoin Pro — Free. Your saved charts and PDFs stay on this iPad."
+                            : "Open Plan Settings to check Pro access. Your saved charts and PDFs stay on this iPad.")
                 }
             }
             .frame(maxWidth: .infinity)
@@ -6755,6 +6762,14 @@ private struct IChartPlanSettings: View {
 
     private var isFreeAccess: Bool { store.entitlements.accessPolicy.includesAllFeatures }
     private var isFreeBeta: Bool { IChartProductAccessPolicy.current.isFreeBeta }
+    private var forumAccessText: String {
+        switch store.entitlements.accessPolicy {
+        case .freeAllFeatures: return "Included"
+        case .betaBasic: return "Rejoin free Pro"
+        case .paidSubscription:
+            return store.entitlements.includes(.forums) ? "Read, download, and participate" : "Browse and read"
+        }
+    }
     private var planTitle: String {
         isFreeBeta ? (isFreeAccess ? IChartLegalLinks.freeProTitle : IChartLegalLinks.betaBasicTitle) : store.subscriptionState.displayTitle
     }
@@ -6791,7 +6806,7 @@ private struct IChartPlanSettings: View {
 
                 IChartSettingsRow(
                     title: "Forums",
-                    value: store.entitlements.includes(.forums) ? "Read, download, and participate" : "Browse and read",
+                    value: forumAccessText,
                     systemImageName: "bubble.left.and.bubble.right",
                     theme: theme
                 )

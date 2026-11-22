@@ -9,6 +9,9 @@ import plistlib
 import tempfile
 import unittest
 from unittest.mock import patch
+
+# The existing CI entry point verifies both isolated packaging lanes.
+from test_public_beta_packaging import PublicBetaPackagingTests
 import zipfile
 
 MODULE_PATH = Path(__file__).with_name("archive_internal_paid_staging.py")

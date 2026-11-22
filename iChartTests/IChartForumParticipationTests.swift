@@ -8,6 +8,79 @@ import XCTest
 final class IChartForumParticipationTests: XCTestCase {
     private let chartStyles: [ChartLayoutStyle] = [.simpleChordSheet, .rhythmSectionSheet]
 
+    func testPublicBetaBasicDoesNotRequestForumReadsUntilRejoiningFreePro() async throws {
+        for billing in [IChartSubscriptionEntitlement.basic, .activePro(), .proExpired()] {
+            let fixture = try makeFixture()
+            defer { fixture.clean() }
+            let account = IChartAuthState.signedIn(.init(id: fixture.detail.post.ownerID,
+                email: nil, phone: nil, isEmailVerified: true))
+            await fixture.store.refresh(authState: account,
+                entitlements: AppEntitlements(subscription: billing, accessPolicy: .betaBasic), query: "Test Song")
+            XCTAssertEqual(fixture.store.state, .requiresPro)
+            XCTAssertFalse(fixture.store.canBrowseForums)
+            XCTAssertFalse(fixture.store.canParticipateInForums)
+            await fixture.store.openPost(fixture.detail.post, song: fixture.detail.song)
+            await fixture.store.reportPost(ForumReportReason.allCases[0], detailText: nil, detail: fixture.detail)
+            XCTAssertNil(fixture.store.selectedDetail)
+            let homeBeforeRejoin = await fixture.service.homePageRequests
+            let detailBeforeRejoin = await fixture.service.detailRequestCount
+            let safetyBeforeRejoin = await fixture.service.safetyRequestCounts
+            XCTAssertTrue(homeBeforeRejoin.isEmpty, "The existing public beta RPC rejects opted-out accounts")
+            XCTAssertEqual(detailBeforeRejoin, 0)
+            XCTAssertEqual(safetyBeforeRejoin, [0, 0, 0])
+
+            await fixture.store.refresh(authState: account,
+                entitlements: AppEntitlements(subscription: billing, accessPolicy: .freeAllFeatures), query: "Test Song")
+            XCTAssertTrue(fixture.store.canBrowseForums)
+            XCTAssertTrue(fixture.store.canParticipateInForums)
+            XCTAssertEqual(fixture.store.state, .loaded([]))
+            await fixture.store.openPost(fixture.detail.post, song: fixture.detail.song)
+            XCTAssertNotNil(fixture.store.selectedDetail)
+            let homeAfterRejoin = await fixture.service.homePageRequests
+            let detailAfterRejoin = await fixture.service.detailRequestCount
+            XCTAssertEqual(homeAfterRejoin.count, 1)
+            XCTAssertEqual(detailAfterRejoin, 1)
+        }
+    }
+
+    func testVerifiedPublicFreeProCanBrowseWithoutAnApplePaidEntitlement() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.clean() }
+        await fixture.store.refresh(authState: .signedIn(.init(id: fixture.detail.post.ownerID,
+            email: nil, phone: nil, isEmailVerified: true)),
+            entitlements: AppEntitlements(subscription: .basic, accessPolicy: .freeAllFeatures))
+        XCTAssertEqual(fixture.store.state, .loaded([]))
+        XCTAssertTrue(fixture.store.canBrowseForums)
+        XCTAssertTrue(fixture.store.canParticipateInForums)
+        let requests = await fixture.service.homePageRequests
+        XCTAssertEqual(requests.count, 1)
+    }
+
+    func testOptingOutDuringHeldHomeRequestDoesNotStartBadgesRead() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.clean() }
+        await fixture.service.holdFirstHomePage(query: "held before opt-out")
+        let pending = Task { await refreshSearch("held before opt-out", fixture: fixture) }
+        try await waitForFirstHomePage(fixture, query: "held before opt-out")
+
+        fixture.store.applyAccess(
+            entitlements: AppEntitlements(subscription: .activePro(), accessPolicy: .betaBasic),
+            charts: [], currentUserID: fixture.detail.post.ownerID, isAccountVerified: true)
+        await fixture.service.releaseFirstHomePage(query: "held before opt-out",
+            page: .init(summaries: [], nextCursor: nil))
+        await pending.value
+
+        let homeRequests = await fixture.service.homePageRequests
+        let badgeRequests = await fixture.service.badgeRequestCount
+        XCTAssertEqual(homeRequests.count, 1, "The original read began while free Pro was allowed")
+        XCTAssertEqual(badgeRequests, 0, "A late home response must not start another read after opting out")
+        XCTAssertEqual(fixture.store.state, .requiresPro)
+        XCTAssertFalse(fixture.store.canBrowseForums)
+        XCTAssertNil(fixture.store.currentUserBadges)
+        XCTAssertNil(fixture.store.errorMessage)
+        XCTAssertFalse(fixture.store.isWorking)
+    }
+
     func testVerifiedBasicCanReadAndUseSafetyWithoutRequestingParticipationOrPDF() async throws {
         for style in chartStyles {
             let fixture = try makeFixture(commentCount: 177, layoutStyle: style)
@@ -1019,6 +1092,8 @@ private actor ForumParticipationService: IChartForumServicing {
     private(set) var earlierCursors: [ForumCommentCursor] = []
     struct HomePageRequest { let query: String; let cursor: IChartForumHomeCursor? }
     private(set) var homePageRequests: [HomePageRequest] = []
+    private(set) var detailRequestCount = 0
+    private(set) var badgeRequestCount = 0
     private var firstHomePages: [String: IChartForumHomePage] = [:]
     private var homePageContinuations: [UUID: CheckedContinuation<IChartForumHomePage, Error>] = [:]
     private var heldFirstHomeQueries: Set<String> = []
@@ -1087,6 +1162,7 @@ private actor ForumParticipationService: IChartForumServicing {
     }
 
     func loadPostDetail(postID: UUID, song: ForumSong) async throws -> IChartForumPostDetail {
+        detailRequestCount += 1
         if rejectsNextDetailLoad {
             rejectsNextDetailLoad = false
             throw Failure.refresh
@@ -1113,7 +1189,10 @@ private actor ForumParticipationService: IChartForumServicing {
         return page
     }
 
-    func loadCurrentUserBadges() async throws -> [ForumAuthorBadgeType] { [.communityExpert] }
+    func loadCurrentUserBadges() async throws -> [ForumAuthorBadgeType] {
+        badgeRequestCount += 1
+        return [.communityExpert]
+    }
 
     private func commentPage(before cursor: ForumCommentCursor? = nil) -> ForumCommentPage {
         let selected = comments.filter {

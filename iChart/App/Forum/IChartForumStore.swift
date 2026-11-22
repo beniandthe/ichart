@@ -215,6 +215,13 @@ final class IChartForumStore: ObservableObject {
             currentUserBadges = nil
             return
         }
+        guard canBrowseForums else {
+            state = .requiresPro
+            selectedDetail = nil
+            currentUserBadges = nil
+            errorMessage = nil
+            return
+        }
 
         #if DEBUG
         if isQASampleDataEnabled {
@@ -245,6 +252,7 @@ final class IChartForumStore: ObservableObject {
         }
         do {
             let page = try await requestService.loadHomePage(query: nextQuery, after: nil)
+            guard !Task.isCancelled, homeRequestID == requestID, canBrowseForums else { return }
             let badges = try? await requestService.loadCurrentUserBadges()
             guard !Task.isCancelled, homeRequestID == requestID else { return }
             currentUserBadges = badges
@@ -409,7 +417,12 @@ final class IChartForumStore: ObservableObject {
         let previouslyBrowsed = canBrowseForums
         uploadOwnerID = currentUserID
         uploadCharts = charts
-        canBrowseForums = currentUserID != nil && isAccountVerified
+        // The existing public beta backend still requires free-Pro membership
+        // for reads. Verified Basic browsing belongs to the paid rollout's
+        // server contract, selected by runtime policy rather than build flags.
+        let allowsBrowsing = entitlements.accessPolicy == .paidSubscription
+            || entitlements.includes(.forums)
+        canBrowseForums = currentUserID != nil && isAccountVerified && allowsBrowsing
         allowsForumPublishing = entitlements.includes(.forums) && canBrowseForums
         if changedOwner || previouslyAllowed != allowsForumPublishing || !canBrowseForums {
             invalidateHomePagination()
@@ -420,7 +433,7 @@ final class IChartForumStore: ObservableObject {
         }
         guard allowsForumPublishing else {
             if !canBrowseForums {
-                state = .signedOut
+                state = currentUserID != nil && isAccountVerified ? .requiresPro : .signedOut
                 currentUserBadges = nil
             } else if changedOwner || !previouslyBrowsed || state == .requiresPro {
                 state = .loaded([])
@@ -552,7 +565,7 @@ final class IChartForumStore: ObservableObject {
 
     private func refreshAfterOwnedCleanup() async throws {
         guard allowsForumPublishing else {
-            if !canBrowseForums { state = .signedOut }
+            if !canBrowseForums, state != .requiresPro { state = .signedOut }
             return
         }
         try await reloadCurrentHome(using: activeService)
