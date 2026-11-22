@@ -320,14 +320,31 @@ final class ForumBrowseLayoutTests: XCTestCase {
             let fixture = Fixture(style: .simpleChordSheet)
             fixture.state = state
             let mounted = try await mount(fixture, width: 360, category: .large)
+            let recoveryButton = try await node(action, in: mounted, button: true)
             if state == .requiresPro {
-                let nodes = try NativeAccessibilityLookup.nodes(in: mounted.host.view)
-                XCTAssertTrue(nodes.contains {
-                    ($0.element.accessibilityLabel ?? "").contains("Rejoin Pro — Free")
-                }, "The public Basic gate explains the actual free-beta recovery action")
+                // SwiftUI may render the gate before materializing its
+                // accessibility text. Use the same bounded readiness contract
+                // as the recovery control, retaining the semantic assertion.
+                try await wait(mounted.window,
+                    message: "The public Basic gate must explain Open Plan Settings, then Rejoin Pro — Free") {
+                    try NativeAccessibilityLookup.nodes(in: mounted.host.view).contains { value in
+                        let frame = value.frame(in: mounted.window)
+                        guard !frame.isEmpty, !frame.intersection(mounted.viewport).isEmpty else { return false }
+                        let visibleText = [value.element.accessibilityLabel,
+                            value.element.accessibilityValue,
+                            value.element.accessibilityAttributedLabel?.string]
+                            .compactMap { $0 }.joined(separator: " ")
+                        let recoveryHint = value.isButton && value.element.accessibilityLabel == action
+                            ? value.element.accessibilityHint ?? "" : ""
+                        return [visibleText, recoveryHint].contains { text in
+                            text.contains("Open Plan Settings") && text.contains("Rejoin Pro — Free")
+                        }
+                    }
+                }
                 XCTAssertNil(findSearchField(in: mounted.host.view))
             }
-            try activate(try await node(action, in: mounted, button: true))
+            assertContained(recoveryButton.frame(in: mounted.window), in: mounted.viewport)
+            try activate(recoveryButton)
             XCTAssertEqual(fixture.accountOpenCount, 1)
             XCTAssertTrue(fixture.searchRequests.isEmpty)
             XCTAssertEqual(fixture.publishCount, 0)
@@ -399,8 +416,16 @@ final class ForumBrowseLayoutTests: XCTestCase {
     }
 
     private func mountContent(_ content: AnyView, width: CGFloat, category: ContentSizeCategory) async throws -> Mounted {
-        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-            .first { $0.activationState == .foregroundActive })
+        // Hosted XCTest can begin while the app's existing scene is still
+        // foregroundInactive. Wait for readiness rather than creating a scene.
+        var activeScene: UIWindowScene?
+        for _ in 0..<40 {
+            activeScene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+                .first { $0.activationState == .foregroundActive }
+            if activeScene != nil { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        let scene = try XCTUnwrap(activeScene, "The hosted app must have an active scene before mounting Forum")
         let previous = scene.windows.first(where: \.isKeyWindow)
         let container = UIViewController()
         let window = UIWindow(windowScene: scene)
@@ -466,13 +491,15 @@ final class ForumBrowseLayoutTests: XCTestCase {
         XCTFail("The four-period fixture must remain navigable by ordinary scrolling")
     }
 
-    private func wait(_ window: UIWindow, until condition: () throws -> Bool) async throws {
+    private func wait(_ window: UIWindow,
+        message: String = "The mounted production forum view did not reach its expected state",
+        until condition: () throws -> Bool) async throws {
         for _ in 0..<40 {
             window.layoutIfNeeded()
             if try condition() { return }
             try await Task.sleep(nanoseconds: 50_000_000)
         }
-        XCTAssertTrue(try condition(), "The mounted production forum view did not reach its expected state")
+        XCTAssertTrue(try condition(), message)
     }
 
     private func settle(_ window: UIWindow) async throws {

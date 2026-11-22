@@ -133,6 +133,8 @@ PYTHONPYCACHEPREFIX="$R/python-cache" \
   python3 "$S/scripts/test_public_beta_packaging.py"
 ```
 
-No editor-tool behavior or on-screen guidance changes in this packaging patch.
+The packaging guard does not change editor tools. This release also aligns the
+Forum entry gate, recovery hint, Plan row and How To with the deployed free-beta
+policy: voluntary Basic members rejoin free Pro before using Forums.
 
 The existing CI packaging entry point, `test_internal_paid_staging_packaging.py`, also imports the public guard test class. This runs both packaging lanes without changing workflow permissions. The notification-ledger SQL controls remain separately recorded local validation; no hosted migration deployment is part of this release.

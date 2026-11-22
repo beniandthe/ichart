@@ -594,7 +594,9 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Forum PDFs keep the publisher's instrument view and transposition at submission. Change the view in the chart before Submit To Forum if needed.",
                 "Older downloads without reliable view metadata show Instrument view unknown. Downloading never changes the notes printed in the PDF.",
                 "iChart checks that the PDF and chart details belong to that upload before it appears publicly.",
-                "Basic members can search songs, open chart details, read comments, see badges, report concerns, and block contributors. Pro adds Submit To Forum, Save PDF & Open, voting, and posting comments.",
+                IChartProductAccessPolicy.current.isFreeBeta
+                    ? "Free Pro members can search songs, open chart details, read comments, see badges, report concerns, block contributors, and participate. If you choose Basic, use Rejoin Pro — Free in Plan Settings to return to Forums."
+                    : "Basic members can search songs, open chart details, read comments, see badges, report concerns, and block contributors. Pro adds Submit To Forum, Save PDF & Open, voting, and posting comments.",
                 "PDFs already saved to this device remain available in PDFs and setlists if Pro ends. Open Saved PDF opens a saved copy without downloading it again.",
                 "Author badges appear beside chart contributors. Open a chart to read what its author’s badges mean."
             ]
