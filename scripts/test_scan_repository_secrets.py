@@ -35,6 +35,20 @@ class RepositorySecretScannerTests(unittest.TestCase):
         self.assertTrue(scanner.scan_text("supabase/functions/other.mjs", quoted(key())))
         self.assertTrue(scanner.scan_text(FORUM_PATH, quoted(dsn())))
 
+    def test_staging_negative_key_fixtures_are_exact_and_path_scoped(self):
+        fixtures = (
+            ("iChartTests/IChartStagingConfigurationIsolationTests.swift", key("synthetic_not_a_client_key")),
+            ("scripts/test_internal_paid_staging_packaging.py", key("invented_secret_123456789")),
+        )
+        for path, value in fixtures:
+            with self.subTest(path=path):
+                self.assertEqual(scanner.scan_text(path, quoted(value)), [])
+                self.assertTrue(scanner.scan_text("iChart/Other.swift", quoted(value)))
+                self.assertTrue(scanner.scan_text(path, quoted(value + "_changed")))
+                self.assertTrue(scanner.scan_text(path, value))
+                findings = scanner.scan_text(path, quoted(value) + ", " + quoted(key("another_value")))
+                self.assertEqual([finding.rule for finding in findings], ["supabase-secret-key"])
+
     def test_dsn_near_matches_in_allowed_path_are_rejected(self):
         for value in (dsn(password="DO_NOT_EXPOSE_2"), dsn(host="other.example"),
                       dsn(database="private-extra"), dsn() + "/extra"):

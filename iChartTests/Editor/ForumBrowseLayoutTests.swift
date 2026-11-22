@@ -10,6 +10,38 @@ import XCTest
 final class ForumBrowseLayoutTests: XCTestCase {
     private let helperText = "Search songs, artists, arrangers, or tags, then tap Search. Use Load More for more matches. Open a chart to save its PDF or discuss it."
 
+    func testBasicForumHasReadableSearchAndChartEntryWithProParticipationClearlyExplained() async throws {
+        let basicHelper = "Search songs, artists, arrangers, or tags, then tap Search. Open a chart to read its discussion and author badges. Pro adds new PDF downloads, publishing, votes, and comments."
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let fixture = Fixture(style: style)
+            fixture.canParticipate = false
+            let mounted = try await mount(fixture, width: 360, category: .large)
+            let search = try await searchField(in: mounted)
+            let helper = try await node(basicHelper, in: mounted)
+            assertContained(search.convert(search.bounds, to: mounted.window), in: mounted.viewport)
+            assertContained(helper.frame(in: mounted.window), in: mounted.viewport)
+            var foundProOptions = false
+            var foundChart = false
+            try await inspectEveryScrollPosition(mounted) { nodes in
+                for item in nodes {
+                    let label = item.element.accessibilityLabel ?? ""
+                    XCTAssertFalse(item.isButton && label == "Submit To Forum")
+                    if item.isButton && label == "View Pro Options" {
+                        foundProOptions = true
+                        assertHorizontallyContained(item.frame(in: mounted.window), in: mounted.viewport)
+                    }
+                    if item.isButton && label.hasPrefix("Open ") { foundChart = true }
+                }
+            }
+            XCTAssertTrue(foundProOptions)
+            XCTAssertTrue(foundChart)
+            XCTAssertTrue(fixture.searchRequests.isEmpty)
+            XCTAssertEqual(fixture.publishCount, 0)
+            XCTAssertTrue(fixture.openedPosts.isEmpty)
+            await mounted.close()
+        }
+    }
+
     func testTopChartsCardsAndSearchFitNarrowAndAvailableWidthsForBothStyles() async throws {
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
             for requestedWidth in [CGFloat(360), 568, 900] {
@@ -19,6 +51,15 @@ final class ForumBrowseLayoutTests: XCTestCase {
                 let search = try await searchField(in: mounted)
                 let helper = try await node(helperText, in: mounted)
                 assertContained(search.convert(search.bounds, to: mounted.window), in: mounted.viewport)
+                XCTAssertEqual(search.bounds.height, 44, accuracy: 1,
+                    "Forum search stays a single line at standard text size")
+                XCTAssertLessThanOrEqual(search.bounds.width, 520)
+                XCTAssertGreaterThanOrEqual(search.editingRect(forBounds: search.bounds).width, 64)
+                for mode in [search.keyboardModeButton, search.scribbleModeButton] {
+                    XCTAssertGreaterThanOrEqual(mode.bounds.width, 44)
+                    XCTAssertGreaterThanOrEqual(mode.bounds.height, 44)
+                    assertContained(mode.convert(mode.bounds, to: mounted.window), in: mounted.viewport)
+                }
                 assertContained(helper.frame(in: mounted.window), in: mounted.viewport)
                 let helperHeight = helper.frame(in: mounted.window).height
                 if mounted.viewport.width <= 568 {
@@ -279,7 +320,31 @@ final class ForumBrowseLayoutTests: XCTestCase {
             let fixture = Fixture(style: .simpleChordSheet)
             fixture.state = state
             let mounted = try await mount(fixture, width: 360, category: .large)
-            try activate(try await node(action, in: mounted, button: true))
+            let recoveryButton = try await node(action, in: mounted, button: true)
+            if state == .requiresPro {
+                // SwiftUI may render the gate before materializing its
+                // accessibility text. Use the same bounded readiness contract
+                // as the recovery control, retaining the semantic assertion.
+                try await wait(mounted.window,
+                    message: "The public Basic gate must explain Open Plan Settings, then Rejoin Pro — Free") {
+                    try NativeAccessibilityLookup.nodes(in: mounted.host.view).contains { value in
+                        let frame = value.frame(in: mounted.window)
+                        guard !frame.isEmpty, !frame.intersection(mounted.viewport).isEmpty else { return false }
+                        let visibleText = [value.element.accessibilityLabel,
+                            value.element.accessibilityValue,
+                            value.element.accessibilityAttributedLabel?.string]
+                            .compactMap { $0 }.joined(separator: " ")
+                        let recoveryHint = value.isButton && value.element.accessibilityLabel == action
+                            ? value.element.accessibilityHint ?? "" : ""
+                        return [visibleText, recoveryHint].contains { text in
+                            text.contains("Open Plan Settings") && text.contains("Rejoin Pro — Free")
+                        }
+                    }
+                }
+                XCTAssertNil(findSearchField(in: mounted.host.view))
+            }
+            assertContained(recoveryButton.frame(in: mounted.window), in: mounted.viewport)
+            try activate(recoveryButton)
             XCTAssertEqual(fixture.accountOpenCount, 1)
             XCTAssertTrue(fixture.searchRequests.isEmpty)
             XCTAssertEqual(fixture.publishCount, 0)
@@ -351,8 +416,16 @@ final class ForumBrowseLayoutTests: XCTestCase {
     }
 
     private func mountContent(_ content: AnyView, width: CGFloat, category: ContentSizeCategory) async throws -> Mounted {
-        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-            .first { $0.activationState == .foregroundActive })
+        // Hosted XCTest can begin while the app's existing scene is still
+        // foregroundInactive. Wait for readiness rather than creating a scene.
+        var activeScene: UIWindowScene?
+        for _ in 0..<40 {
+            activeScene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+                .first { $0.activationState == .foregroundActive }
+            if activeScene != nil { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        let scene = try XCTUnwrap(activeScene, "The hosted app must have an active scene before mounting Forum")
         let previous = scene.windows.first(where: \.isKeyWindow)
         let container = UIViewController()
         let window = UIWindow(windowScene: scene)
@@ -380,13 +453,13 @@ final class ForumBrowseLayoutTests: XCTestCase {
         return mounted
     }
 
-    private func searchField(in mounted: Mounted) async throws -> UITextField {
+    private func searchField(in mounted: Mounted) async throws -> IChartTypedUITextField {
         try await wait(mounted.window) { self.findSearchField(in: mounted.host.view) != nil }
         return try XCTUnwrap(findSearchField(in: mounted.host.view))
     }
 
-    private func findSearchField(in root: UIView) -> UITextField? {
-        descendants(root).compactMap { $0 as? UITextField }.first {
+    private func findSearchField(in root: UIView) -> IChartTypedUITextField? {
+        descendants(root).compactMap { $0 as? IChartTypedUITextField }.first {
             $0.accessibilityIdentifier == "forum.search" || $0.placeholder?.contains("Search songs") == true
         }
     }
@@ -418,13 +491,15 @@ final class ForumBrowseLayoutTests: XCTestCase {
         XCTFail("The four-period fixture must remain navigable by ordinary scrolling")
     }
 
-    private func wait(_ window: UIWindow, until condition: () throws -> Bool) async throws {
+    private func wait(_ window: UIWindow,
+        message: String = "The mounted production forum view did not reach its expected state",
+        until condition: () throws -> Bool) async throws {
         for _ in 0..<40 {
             window.layoutIfNeeded()
             if try condition() { return }
             try await Task.sleep(nanoseconds: 50_000_000)
         }
-        XCTAssertTrue(try condition(), "The mounted production forum view did not reach its expected state")
+        XCTAssertTrue(try condition(), message)
     }
 
     private func settle(_ window: UIWindow) async throws {
@@ -492,6 +567,7 @@ final class ForumBrowseLayoutTests: XCTestCase {
         @Published var forumGeneration = 0
         @Published var hasMoreSearchResults = false
         @Published var isLoadingMoreSearchResults = false
+        var canParticipate = true
         let summaries: [IChartForumSongSummary]
         var searchRequests: [String] = []
         var refreshQueries: [String] = []
@@ -538,7 +614,7 @@ final class ForumBrowseLayoutTests: XCTestCase {
                 onOpenAccount: { fixture.accountOpenCount += 1 },
                 hasMoreSearchResults: fixture.hasMoreSearchResults,
                 isLoadingMoreSearchResults: fixture.isLoadingMoreSearchResults,
-                onLoadMoreSearchResults: fixture.loadMore)
+                onLoadMoreSearchResults: fixture.loadMore, canParticipate: fixture.canParticipate)
                 .id(fixture.forumGeneration)
         }
     }

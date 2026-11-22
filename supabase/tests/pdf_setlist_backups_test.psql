@@ -1,0 +1,153 @@
+-- Run only against an isolated local database after the setlist migration.
+\set ON_ERROR_STOP on
+begin;
+create function pg_temp.assert_true(value boolean, label text) returns void
+language plpgsql as $$ begin
+    if value is distinct from true then raise exception 'Setlist contract failed: %', label; end if;
+end $$;
+create function pg_temp.expect_error(expected text, statement text, label text) returns void
+language plpgsql as $$ begin
+    begin execute statement;
+    exception when others then
+        if sqlstate = expected then return; end if;
+        raise exception 'Setlist contract % failed with %, expected %', label, sqlstate, expected;
+    end;
+    raise exception 'Setlist contract % did not reject the request', label;
+end $$;
+
+insert into auth.users(id, email_confirmed_at) values
+    ('e0360000-0000-4000-8000-000000000101', now()),
+    ('e0360000-0000-4000-8000-000000000102', now()),
+    ('e0360000-0000-4000-8000-000000000103', now());
+insert into public.subscriptions(owner_id, provider, plan, status, app_store_status,
+    entitlement_expires_at, last_verified_at) values
+    ('e0360000-0000-4000-8000-000000000101','storekit','studioSubscription','active','active',now()+interval '1 day',now()),
+    ('e0360000-0000-4000-8000-000000000102','storekit','studioSubscription','active','active',now()+interval '1 day',now())
+on conflict(owner_id) do update set provider=excluded.provider, plan=excluded.plan, status=excluded.status,
+    app_store_status=excluded.app_store_status, entitlement_expires_at=excluded.entitlement_expires_at,
+    last_verified_at=excluded.last_verified_at;
+select pg_temp.assert_true(not has_schema_privilege('authenticated','private','USAGE'), 'private schema remains hidden');
+select pg_temp.assert_true(not has_function_privilege('anon','public.get_pdf_setlist_backup(uuid)','EXECUTE'), 'anonymous GET denied');
+select pg_temp.assert_true(not has_function_privilege('anon','public.commit_pdf_setlist_backup(uuid,bigint,jsonb)','EXECUTE'), 'anonymous commit denied');
+select pg_temp.assert_true(not has_table_privilege('authenticated','private.pdf_setlist_backups','UPDATE'), 'direct manifest update denied');
+select pg_temp.assert_true(not (select public from storage.buckets where id='setlist-pdfs'), 'PDF bucket remains private');
+select pg_temp.assert_true((select file_size_limit=52428800 and allowed_mime_types=array['application/pdf']
+    from storage.buckets where id='setlist-pdfs'), 'storage byte and MIME limits');
+insert into storage.buckets(id,name,public) values ('setlist-contract-other','setlist-contract-other',true);
+insert into storage.objects(bucket_id,name,metadata) values ('setlist-contract-other','public.pdf','{}');
+grant select on storage.objects to anon;
+create policy setlist_contract_other_public on storage.objects for select to anon
+    using(bucket_id='setlist-contract-other');
+set local role anon;
+select pg_temp.assert_true((select count(*)=1 from storage.objects where bucket_id='setlist-contract-other'),
+    'unrelated public bucket stays readable');
+select pg_temp.assert_true(not public.current_user_has_paid_setlist_cloud(), 'anonymous eligibility is false');
+reset role;
+
+set local role authenticated;
+set local request.jwt.claim.sub = 'e0360000-0000-4000-8000-000000000101';
+select pg_temp.assert_true(public.current_user_has_paid_setlist_cloud(), 'paid owner eligible');
+select pg_temp.assert_true(public.get_pdf_setlist_backup(auth.uid())='{"version":0,"manifest":null}'::jsonb, 'new owner starts empty');
+select pg_temp.assert_true(public.commit_pdf_setlist_backup(auth.uid(), 0,'{"schema_version":1,"setlists":[],"pdfs":[]}')->>'version'='1', 'first commit');
+select pg_temp.assert_true(public.commit_pdf_setlist_backup(auth.uid(), 0,'{"schema_version":1,"setlists":[],"pdfs":[]}')->>'version'='1', 'retry preserves version');
+select pg_temp.expect_error('PT409', $q$select public.commit_pdf_setlist_backup(auth.uid(), 0,
+    '{"schema_version":1,"setlists":[],"pdfs":[],"note":"stale"}')$q$, 'stale CAS');
+select pg_temp.assert_true(public.get_pdf_setlist_backup(auth.uid())->>'version'='1', 'conflict leaves prior version');
+select pg_temp.expect_error('22023', $q$select public.commit_pdf_setlist_backup(auth.uid(), -1,
+    '{"schema_version":1,"setlists":[],"pdfs":[]}')$q$, 'negative version');
+select pg_temp.expect_error('22023', $q$select public.commit_pdf_setlist_backup(auth.uid(), 1,'{"schema_version":2,"setlists":[],"pdfs":[]}')$q$, 'unknown schema');
+select pg_temp.expect_error('22023', $q$select public.commit_pdf_setlist_backup(auth.uid(), 1,
+    jsonb_build_object('schema_version',1,'setlists','[]'::jsonb,'pdfs','[]'::jsonb,'padding',repeat('a',10485760)))$q$, 'oversized manifest');
+select pg_temp.expect_error('42501', $q$select * from private.pdf_setlist_backups$q$, 'direct private read');
+select pg_temp.expect_error('42501', $q$insert into storage.objects(bucket_id,name,metadata)
+    values('setlist-pdfs','e0360000-0000-4000-8000-000000000102/'||repeat('a',64)||'.pdf','{"size":100,"mimetype":"application/pdf"}')$q$, 'foreign PDF insert');
+select pg_temp.expect_error('42501', $q$insert into storage.objects(bucket_id,name,metadata)
+    values('setlist-pdfs','e0360000-0000-4000-8000-000000000101/../foreign.pdf','{"size":100,"mimetype":"application/pdf"}')$q$, 'path traversal');
+insert into storage.objects(bucket_id,name,metadata) values
+    ('setlist-pdfs','e0360000-0000-4000-8000-000000000101/'||repeat('a',64)||'.pdf','{"size":100,"mimetype":"application/pdf"}');
+with updated as (update storage.objects set metadata='{"size":9}' where bucket_id='setlist-pdfs' returning 1)
+select pg_temp.assert_true(not exists(select 1 from updated), 'PDF update cannot replace retained bytes');
+-- Supabase Storage's service sets this transaction-local switch after its own
+-- object authorization. Exercise the row policy independently of that guard.
+select set_config('storage.allow_delete_query','true',true);
+with deleted as (delete from storage.objects where bucket_id='setlist-pdfs' returning 1)
+select pg_temp.assert_true(not exists(select 1 from deleted), 'PDF delete cannot remove retained bytes');
+select set_config('storage.allow_delete_query','false',true);
+select pg_temp.assert_true((select count(*)=1 from storage.objects where bucket_id='setlist-pdfs'), 'owner sees uploaded PDF');
+select pg_temp.assert_true(public.commit_pdf_setlist_backup(auth.uid(), 1,jsonb_build_object('schema_version',1,
+    'setlists',jsonb_build_array(jsonb_build_object('id','e0360000-0000-4000-8000-000000000201','entries',
+        jsonb_build_array(jsonb_build_object('pdfItemID','E0360000-0000-4000-8000-000000000301')))),
+    'pdfs',jsonb_build_array(jsonb_build_object('id','e0360000-0000-4000-8000-000000000301',
+        'content_sha256',repeat('a',64),'file_size_bytes',100,
+        'item',jsonb_build_object('id','E0360000-0000-4000-8000-000000000301','source','forumDownload')))))->>'version'='2',
+    'complete private backup accepts retained forum download');
+select pg_temp.expect_error('22023', $q$select public.commit_pdf_setlist_backup(auth.uid(), 2,jsonb_build_object('schema_version',1,
+    'setlists','[]'::jsonb,'pdfs',jsonb_build_array(jsonb_build_object('id','e0360000-0000-4000-8000-000000000302',
+    'content_sha256',repeat('b',64),'file_size_bytes',100,'item',jsonb_build_object('id','e0360000-0000-4000-8000-000000000302')))))$q$,
+    'missing uploaded PDF');
+select pg_temp.expect_error('22023', $q$select public.commit_pdf_setlist_backup(auth.uid(), 2,
+    '{"schema_version":1,"pdfs":[],"setlists":[{"id":"e0360000-0000-4000-8000-000000000201","entries":[{"pdfItemID":"e0360000-0000-4000-8000-000000000399"}]}]}')$q$,
+    'missing entry PDF');
+select pg_temp.assert_true(public.get_pdf_setlist_backup(auth.uid())->>'version'='2', 'invalid manifest leaves current backup');
+
+set local request.jwt.claim.sub = 'e0360000-0000-4000-8000-000000000102';
+select pg_temp.expect_error('42501', $q$select public.get_pdf_setlist_backup(
+    'e0360000-0000-4000-8000-000000000101')$q$, 'captured owner must match GET bearer');
+select pg_temp.expect_error('42501', $q$select public.commit_pdf_setlist_backup(
+    'e0360000-0000-4000-8000-000000000101',0,'{"schema_version":1,"setlists":[],"pdfs":[]}')$q$,
+    'captured owner must match commit bearer');
+select pg_temp.assert_true(public.get_pdf_setlist_backup(auth.uid())='{"version":0,"manifest":null}'::jsonb, 'another owner cannot read backup');
+select pg_temp.assert_true((select count(*)=0 from storage.objects where bucket_id='setlist-pdfs'), 'another owner cannot see PDF');
+select pg_temp.expect_error('22023', $q$select public.commit_pdf_setlist_backup(auth.uid(), 0,jsonb_build_object('schema_version',1,
+    'setlists','[]'::jsonb,'pdfs',jsonb_build_array(jsonb_build_object('id','e0360000-0000-4000-8000-000000000301',
+    'content_sha256',repeat('a',64),'file_size_bytes',100,'item',jsonb_build_object('id','e0360000-0000-4000-8000-000000000301')))))$q$,
+    'another owner cannot reference PDF');
+set local request.jwt.claim.sub = 'e0360000-0000-4000-8000-000000000103';
+select pg_temp.assert_true(not public.current_user_has_paid_setlist_cloud(), 'beta-only owner has no paid cloud access');
+select pg_temp.expect_error('42501', 'select public.get_pdf_setlist_backup(auth.uid())', 'unpaid read');
+select pg_temp.expect_error('42501', $q$insert into storage.objects(bucket_id,name,metadata)
+    values('setlist-pdfs','e0360000-0000-4000-8000-000000000103/'||repeat('c',64)||'.pdf','{"size":100,"mimetype":"application/pdf"}')$q$, 'unpaid upload');
+reset role;
+update public.subscriptions set app_store_status='grace' where owner_id='e0360000-0000-4000-8000-000000000101';
+set local role authenticated;
+set local request.jwt.claim.sub = 'e0360000-0000-4000-8000-000000000101';
+select pg_temp.assert_true(not public.current_user_has_paid_setlist_cloud(), 'grace pauses cloud');
+select pg_temp.expect_error('42501', 'select public.get_pdf_setlist_backup(auth.uid())', 'grace read');
+reset role;
+update public.subscriptions set app_store_status='active', entitlement_expires_at=now()-interval '1 second'
+    where owner_id='e0360000-0000-4000-8000-000000000101';
+set local role authenticated;
+select pg_temp.assert_true(not public.current_user_has_paid_setlist_cloud(), 'expired paid access denied');
+reset role;
+update public.subscriptions set entitlement_expires_at=now()+interval '1 day'
+    where owner_id='e0360000-0000-4000-8000-000000000101';
+update auth.users set email_confirmed_at=null where id='e0360000-0000-4000-8000-000000000101';
+set local role authenticated;
+select pg_temp.assert_true(not public.current_user_has_paid_setlist_cloud(), 'unverified owner denied');
+reset role;
+update auth.users set email_confirmed_at=now(), banned_until=now()+interval '1 hour'
+    where id='e0360000-0000-4000-8000-000000000101';
+set local role authenticated;
+select pg_temp.assert_true(not public.current_user_has_paid_setlist_cloud(), 'banned owner denied');
+reset role;
+update auth.users set banned_until=null, is_anonymous=true where id='e0360000-0000-4000-8000-000000000101';
+set local role authenticated;
+select pg_temp.assert_true(not public.current_user_has_paid_setlist_cloud(), 'anonymous account denied');
+reset role;
+select pg_temp.assert_true((select version=2 from private.pdf_setlist_backups
+    where owner_id='e0360000-0000-4000-8000-000000000101'), 'access changes preserve durable snapshot');
+set local role authenticated;
+set local request.jwt.claim.sub = 'e0360000-0000-4000-8000-000000000102';
+select pg_temp.expect_error('42501', $q$select public.begin_pdf_setlist_account_deletion(
+    'e0360000-0000-4000-8000-000000000102')$q$, 'clients cannot start account deletion scope');
+reset role;
+set local role service_role;
+select pg_temp.assert_true(public.begin_pdf_setlist_account_deletion('e0360000-0000-4000-8000-000000000102')=
+    '{"owner_id":"e0360000-0000-4000-8000-000000000102","bucket":"setlist-pdfs","prefix":"e0360000-0000-4000-8000-000000000102/"}'::jsonb,
+    'service scope fences the exact account');
+reset role;
+set local role authenticated;
+select pg_temp.assert_true(not public.current_user_has_paid_setlist_cloud(), 'deletion fence stops new backup writes');
+select pg_temp.expect_error('42501', $q$select public.commit_pdf_setlist_backup(auth.uid(),0,
+    '{"schema_version":1,"setlists":[],"pdfs":[]}')$q$, 'account deletion cannot race manifest commit');
+rollback;

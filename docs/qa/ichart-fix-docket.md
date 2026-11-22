@@ -1,5 +1,32 @@
 # iChart Fix Docket
 
+## FIX-036 — Basic and Pro
+
+- Basic includes both chart styles, standard fonts, original PDF import and
+  sharing, unlimited local PDF setlists, and verified Forum browsing and
+  safety controls. Its three-chart limit applies to creation and duplication.
+- Paid Pro adds new editable charts from PDFs, Project organization and
+  variant duplication, saved-setlist backup and sync with linked PDFs, Forum
+  downloads and participation, and Petaluma, MuseJazz, and Finale Jazz.
+- Downgrade keeps saved charts editable and exportable with their saved
+  fonts. Existing Projects remain visible as read-only groups. Local PDFs
+  and setlists remain usable offline. Returning to Pro resumes access to the
+  same account’s setlist backup.
+
+Local verification covered over-cap chart editing, both chart styles and their
+fonts, original PDF reading and sharing, retained conversion review, and
+offline playback of saved Forum PDFs. The two-device Simulator fixture backed
+up and restored a linked PDF, then reopened it after access ended. Isolated
+Supabase tests covered Basic Forum reading and safety, paid-only actions,
+private setlist files, concurrent revision checks, and account deletion. SwiftPM
+passed 2,012 tests with 92 optional tests skipped. The focused iPad Simulator run
+passed 321 tests. The font revocation and setlist restore follow-up passed its
+10 focused tests.
+
+See the [plan policy](../ichart-plan-policy-source-of-truth.md) for release
+configuration and the complete access matrix. The candidate defaults to the
+current free beta. Physical iPad and hosted paid rollout acceptance remain open.
+
 ## Measure rows and Free Ink — November 14, 2026
 
 **FIX-027: Fit measure inserts and adjacent-row moves.** Priority P1. In Rhythm

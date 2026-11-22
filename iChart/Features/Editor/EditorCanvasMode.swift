@@ -217,6 +217,9 @@ enum EditorCanvasMode: Hashable {
             var details = [EditorToolGuidanceSection(
                 title: "Chords and cues",
                 text: "Drag a chord with Apple Pencil, then lift to place it. Beat guides show its destination. Tap a chord to show its controls: tap the red X to delete or drag the width handle to change width. Double-tap a chord to correct it. Tap a measure or cue to see its actions."
+            ), .init(
+                title: "Space cues, endings, and form marks",
+                text: "Tap the item, then drag Move Up or Down to adjust its height. Reset Position restores automatic spacing. For endings, Move and Lengthen adjust the measures."
             )]
             if layoutStyle == .simpleChordSheet || layoutStyle == .rhythmSectionSheet {
                 details.append(.init(
@@ -331,7 +334,7 @@ enum EditorCanvasMode: Hashable {
             if supportsSymbolRendering {
                 details.append(.init(
                     title: "Rendering symbols",
-                    text: "Leave clear space around each symbol. Rendering replaces only that symbol's strokes; other handwriting stays on the page. iChart keeps the original strokes with the converted mark."
+                    text: "Draw an accent (>) in one or two strokes. Leave clear space around each symbol. Other handwriting stays on the page, and iChart keeps the symbol's original strokes."
                 ))
             }
             if hasFreeInkArticulations && supportsSymbolRendering {
@@ -353,9 +356,9 @@ enum EditorCanvasMode: Hashable {
             return .init(
                 title: "Add a typed cue beside a measure",
                 steps: ["Tap a measure, then choose Above or Below.",
-                        "Tap the field to type. For Scribble, tap its Pencil icon, then write. Tap Add or Apply."],
+                        "Choose Keyboard or Scribble. For Scribble, tap the field with Apple Pencil before writing. Tap Add or Apply."],
                 detailsTitle: "Text guide",
-                details: [.init(title: "Existing cues", text: "Tap an existing cue with Apple Pencil to edit it, change its size, or delete it.")]
+                details: [.init(title: "Existing cues", text: "Tap an existing cue with Apple Pencil to edit it, change its size, or delete it. In Select, use Move Up or Down to adjust its height.")]
             )
         }
     }
@@ -384,12 +387,12 @@ enum EditorCanvasMode: Hashable {
         case .simpleChordSheet:
             details.append(.init(
                 title: "Barlines",
-                text: "Draw tall barlines between chords. A lone rendered chord moves to beat 1 when barlines form its measure."
+                text: "Draw tall barlines between chords with a gap on both sides. A lone rendered chord moves to beat 1 when barlines form its measure."
             ))
         case .rhythmSectionSheet:
             details.append(.init(
                 title: "Barlines and measures",
-                text: "The first chord in each measure renders on beat 1. Draw a tall barline to split at a rhythmic boundary. A lone rendered chord moves to beat 1 when barlines form its measure. If a note crosses the cut, the line stays as ink. Draw barlines on their own at the empty row end to add measures. Use Measures for other form edits."
+                text: "The first chord in each measure renders on beat 1. Draw a tall barline to split at a rhythmic boundary. Leave a gap on both sides. A lone rendered chord moves to beat 1 when barlines form its measure. If a note crosses the cut, the line stays as ink. Draw barlines on their own at the empty row end to add measures. Use Measures for other form edits."
             ))
         case .leadSheet:
             break

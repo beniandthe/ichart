@@ -255,7 +255,7 @@ final class PersonalInkEvaluationStore: @unchecked Sendable {
     // full journals still fail closed instead of silently evicting evidence.
     static let maximumRuns = 32
     static let maximumJournalByteCount = 24_000_000
-    static let shared = PersonalInkEvaluationStore(url: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    static let shared = PersonalInkEvaluationStore(url: IChartStorageNamespace.scopedDirectory(FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0])
         .appendingPathComponent("PersonalHandwriting/evaluation-v1.json"))
     private let url: URL
     private let queue = DispatchQueue(label: "com.ichart.personal-evaluation", qos: .utility)

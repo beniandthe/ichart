@@ -413,7 +413,7 @@ struct PersonalHandwritingView: View {
                             isFocused: $isIntendedTextFocused
                         )
                         .frame(minHeight: 48)
-                        .accessibilityHint("Tap to type. Use Start Scribble to write with Apple Pencil.")
+                        .accessibilityHint("Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing.")
                         .accessibilityIdentifier("personal.intended")
                         Button("Record Result") { model.score(intendedText: intendedText) }
                             .buttonStyle(.bordered).disabled(intendedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)

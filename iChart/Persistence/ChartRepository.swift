@@ -166,12 +166,7 @@ private extension URL {
 
 extension FileChartRepository {
     static func live(fileManager: FileManager = .default) -> FileChartRepository {
-        let applicationSupportURL = (try? fileManager.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )) ?? fileManager.temporaryDirectory
+        let applicationSupportURL = IChartStorageNamespace.applicationSupportDirectory(fileManager: fileManager)
 
         let baseDirectory = applicationSupportURL.appendingPathComponent("iChart", isDirectory: true)
         let snapshotURL = baseDirectory.appendingPathComponent("library-state.json")

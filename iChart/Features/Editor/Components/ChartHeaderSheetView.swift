@@ -38,7 +38,7 @@ struct ChartHeaderSheetView: View {
             Form {
                 Section {
                     EditorSheetInstruction(title: "Set the chart’s heading", steps: [
-                        "Tap a field to type. For Scribble, tap its Pencil icon, then write in the field.",
+                        "Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing.",
                         "Tap Apply to save or Cancel to keep the existing heading."
                     ])
                     .accessibilityIdentifier("header-sheet-instruction")
@@ -115,7 +115,7 @@ struct ChartHeaderSheetView: View {
         )
             .frame(minHeight: 52)
             .accessibilityLabel(title)
-            .accessibilityHint("Tap to type. Use Start Scribble to write with Apple Pencil.")
+            .accessibilityHint("Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing.")
     }
 
     private func requestKeyboard(for field: ChartHeaderTextInputField) {

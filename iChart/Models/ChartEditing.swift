@@ -2954,6 +2954,22 @@ extension Chart {
     }
 
     @discardableResult
+    mutating func setCueTextVerticalOffset(_ cueTextID: UUID, to offset: Double) -> Bool {
+        guard offset.isFinite,
+              let index = cueTexts.firstIndex(where: { $0.id == cueTextID }),
+              measureLocation(id: cueTexts[index].anchorMeasureID) != nil else {
+            return false
+        }
+
+        let clampedOffset = CueText.clampedVerticalOffset(offset)
+        guard cueTexts[index].verticalOffset != clampedOffset else { return false }
+
+        cueTexts[index].verticalOffset = clampedOffset
+        updatedAt = .now
+        return true
+    }
+
+    @discardableResult
     mutating func moveCueText(
         _ cueTextID: UUID,
         to targetMeasureID: UUID,
@@ -3451,6 +3467,34 @@ extension Chart {
         }
 
         roadmapObjects[roadmapObjectIndex].horizontalOffsetWithinMeasure = clampedOffset
+        updatedAt = .now
+        return true
+    }
+
+    @discardableResult
+    mutating func setRoadmapAnnotationVerticalOffset(_ roadmapObjectID: UUID, to offset: Double) -> Bool {
+        guard offset.isFinite,
+              let index = roadmapObjects.firstIndex(where: { $0.id == roadmapObjectID }),
+              let start = measureLocation(id: roadmapObjects[index].startMeasureID) else {
+            return false
+        }
+
+        let object = roadmapObjects[index]
+        if object.type.isEnding {
+            guard let endMeasureID = object.endMeasureID,
+                  let end = measureLocation(id: endMeasureID),
+                  flattenedMeasureIndex(for: start) <= flattenedMeasureIndex(for: end) else {
+                return false
+            }
+        } else if !object.type.isPointMarker || object.endMeasureID != nil {
+            return false
+        }
+
+        let clampedOffset = CueText.clampedVerticalOffset(offset)
+        let storedOffset = clampedOffset == 0 ? nil : clampedOffset
+        guard object.verticalOffset != storedOffset else { return false }
+
+        roadmapObjects[index].verticalOffset = storedOffset
         updatedAt = .now
         return true
     }

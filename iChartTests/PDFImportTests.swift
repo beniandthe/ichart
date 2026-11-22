@@ -38,7 +38,7 @@ final class PDFImportTests: XCTestCase {
         XCTAssertEqual(reopened.items, store.items)
         let restored = try XCTUnwrap(reopenedSetlists.setlist(id: setlist.id))
         XCTAssertEqual(restored.entries.map(\.id), [entries[1].id, entries[0].id])
-        let resolved = restored.resolvedEntries(in: reopened.visibleItems(for: .basic))
+        let resolved = restored.resolvedEntries(in: reopened.items)
         XCTAssertEqual(resolved.compactMap(\.pdfItem).map(\.id), [imported.id, exportItem.id])
         let retained = try XCTUnwrap(reopened.exportedPDF(for: imported))
         XCTAssertEqual(try Data(contentsOf: retained.url), fixture.bytes)
@@ -100,10 +100,13 @@ final class PDFImportTests: XCTestCase {
         defer { fixture.remove() }
         let store = IChartPDFLibraryStore(baseDirectory: fixture.library)
         let item = try await store.importPDF(from: fixture.source)
+        let chartStore = ChartLibraryStore(charts: [],
+            entitlements: AppEntitlements(subscription: .activePro(), accessPolicy: .paidSubscription))
         for status in IChartSubscriptionStatus.allCases {
-            let entitlement = IChartSubscriptionEntitlement(status: status)
-            XCTAssertEqual(store.removeForumDownloadsIfInactive(for: entitlement, accessPolicy: .paidSubscription), 0)
-            XCTAssertEqual(store.visibleItems(for: entitlement, accessPolicy: .paidSubscription), [item])
+            chartStore.applySubscriptionState(IChartSubscriptionEntitlement(status: status))
+            store.reload()
+            XCTAssertEqual(store.items, [item])
+            XCTAssertTrue(chartStore.charts.isEmpty, "Original PDFs do not use editable chart slots")
         }
         XCTAssertEqual(try Data(contentsOf: XCTUnwrap(store.exportedPDF(for: item)).url), fixture.bytes)
     }

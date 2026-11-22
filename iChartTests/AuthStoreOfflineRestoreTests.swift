@@ -1,6 +1,8 @@
 #if canImport(UIKit)
 import Foundation
 import Supabase
+import SwiftUI
+import UIKit
 import XCTest
 @testable import iChart
 
@@ -286,6 +288,96 @@ final class AuthStoreOfflineRestoreTests: XCTestCase {
     private func makeStore(_ service: OfflineRestoreAccountService) -> IChartAuthStore {
         IChartAuthStore(service: service, pendingVerificationEmailStorage: OfflineRestoreMemoryStorage())
     }
+}
+
+@MainActor
+final class AccountFieldLayoutTests: XCTestCase {
+    func testCredentialsStayCompactInPortraitAndLandscape() async throws {
+        for viewport in [CGSize(width: 820, height: 1_180), CGSize(width: 1_180, height: 820)] {
+            try await withAccount(viewport: viewport, category: .large) { view in
+                let email = try textField("Email", in: view)
+                let password = try secureField(in: view)
+                let emailFrame = email.convert(email.bounds, to: view)
+                let passwordFrame = password.convert(password.bounds, to: view)
+                XCTAssertEqual(email.bounds.height, 44, accuracy: 1)
+                XCTAssertLessThanOrEqual(password.bounds.height, 44)
+                XCTAssertLessThanOrEqual(emailFrame.maxX, 560)
+                XCTAssertLessThanOrEqual(passwordFrame.maxX, 560)
+                XCTAssertEqual(passwordFrame.minX, emailFrame.minX, accuracy: 1)
+                XCTAssertEqual(emailFrame.midY,
+                    email.keyboardModeButton.convert(email.keyboardModeButton.bounds, to: view).midY, accuracy: 1)
+                XCTAssertTrue(password.isSecureTextEntry)
+            }
+        }
+    }
+
+    func testSignupFieldsGrowInNarrowAccessibilityLayoutAndPasswordUsesKeyboard() async throws {
+        try await withAccount(viewport: CGSize(width: 360, height: 900),
+            category: .accessibility3, entryMode: .createAccount) { view in
+            for label in ["First Name", "Last Name", "Email"] {
+                let field = try textField(label, in: view)
+                let edit = field.editingRect(forBounds: field.bounds)
+                XCTAssertGreaterThan(field.bounds.height, 44)
+                XCTAssertGreaterThan(edit.width, 70)
+                XCTAssertTrue(view.bounds.insetBy(dx: -1, dy: -1).contains(field.convert(field.bounds, to: view)))
+                XCTAssertGreaterThan(edit.minY, -1)
+                XCTAssertLessThanOrEqual(edit.maxY, field.bounds.maxY + 1)
+            }
+            let password = try secureField(in: view)
+            XCTAssertTrue(password.becomeFirstResponder())
+            for _ in 0..<20 {
+                if password.isFirstResponder { break }
+                try await Task.sleep(nanoseconds: 20_000_000)
+            }
+            XCTAssertTrue(password.isFirstResponder)
+            XCTAssertTrue(password.isSecureTextEntry)
+            XCTAssertNil(password.inputView, "The password must keep the system keyboard")
+            XCTAssertFalse(password is IChartTypedUITextField)
+        }
+    }
+
+    private func withAccount(
+        viewport: CGSize, category: DynamicTypeSize, entryMode: IChartAccountEntryMode = .signIn,
+        verify: (UIView) async throws -> Void
+    ) async throws {
+        let store = IChartAuthStore(service: OfflineRestoreAccountService(),
+            pendingVerificationEmailStorage: OfflineRestoreMemoryStorage())
+        let host = UIHostingController(rootView: ScrollView {
+            IChartAccountSettings(authStore: store, theme: IChartHomeTheme(mode: .light),
+                initialEntryMode: entryMode)
+        }
+        .dynamicTypeSize(category)
+        .environment(\.horizontalSizeClass, viewport.width < 600 ? .compact : .regular))
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive })
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(origin: .zero, size: viewport)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.endEditing(true)
+            window.isHidden = true
+            window.rootViewController = nil
+            previousWindow?.makeKey()
+        }
+        for _ in 0..<10 {
+            window.layoutIfNeeded()
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        try await verify(host.view)
+    }
+
+    private func textField(_ label: String, in view: UIView) throws -> IChartTypedUITextField {
+        try XCTUnwrap(descendants(view).compactMap { $0 as? IChartTypedUITextField }
+            .first { $0.accessibilityLabel == label })
+    }
+
+    private func secureField(in view: UIView) throws -> UITextField {
+        try XCTUnwrap(descendants(view).compactMap { $0 as? UITextField }.first(where: \.isSecureTextEntry))
+    }
+
+    private func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(descendants) }
 }
 
 @MainActor

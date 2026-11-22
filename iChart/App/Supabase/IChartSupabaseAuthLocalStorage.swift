@@ -45,6 +45,7 @@ struct IChartSupabaseAuthLocalStorage: AuthLocalStorage {
     }
 
     func store(key: String, value: Data) throws {
+        let key = IChartStorageNamespace.authStorageKey(key)
         do {
             try primary.store(key: key, value: value)
             try? fallback.remove(key: key)
@@ -58,6 +59,7 @@ struct IChartSupabaseAuthLocalStorage: AuthLocalStorage {
     }
 
     func retrieve(key: String) throws -> Data? {
+        let key = IChartStorageNamespace.authStorageKey(key)
         do {
             if let value = try primary.retrieve(key: key) {
                 return value
@@ -76,6 +78,7 @@ struct IChartSupabaseAuthLocalStorage: AuthLocalStorage {
     }
 
     func remove(key: String) throws {
+        let key = IChartStorageNamespace.authStorageKey(key)
         try? primary.remove(key: key)
         try fallback.remove(key: key)
     }
@@ -92,7 +95,7 @@ struct IChartSupabaseAuthLocalStorage: AuthLocalStorage {
 final class IChartUserDefaultsAuthLocalStorage: AuthLocalStorage, @unchecked Sendable {
     private let defaults: UserDefaults
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = IChartStorageNamespace.defaults) {
         self.defaults = defaults
     }
 

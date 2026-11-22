@@ -11,6 +11,7 @@ struct IChartApp: App {
     @StateObject private var forumStore: IChartForumStore
     @StateObject private var pdfLibraryStore: IChartPDFLibraryStore
     @StateObject private var setlistStore: IChartPDFSetlistStore
+    @StateObject private var setlistCloudSyncStore: IChartPDFSetlistCloudSyncStore
 
     init() {
         let initializationStartedAt = ProcessInfo.processInfo.systemUptime
@@ -18,6 +19,9 @@ struct IChartApp: App {
         let supabaseClients = IChartSupabaseClientFactory.liveClients()
         let libraryStore = ChartLibraryStore.live()
         let pdfLibraryStore = IChartPDFLibraryStore.live()
+        let setlistStore = IChartPDFSetlistStore.live()
+        let setlistCloudSyncStore = IChartPDFSetlistCloudSyncStore.live(clients: supabaseClients)
+        setlistCloudSyncStore.attach(setlistStore: setlistStore, pdfStore: pdfLibraryStore)
         libraryStore.onSnapshotSaved = nil
         _store = StateObject(wrappedValue: libraryStore)
         _authStore = StateObject(wrappedValue: IChartAuthStore.live(clients: supabaseClients))
@@ -26,7 +30,8 @@ struct IChartApp: App {
         _betaProStore = StateObject(wrappedValue: IChartBetaProStore.live(clients: supabaseClients))
         _forumStore = StateObject(wrappedValue: IChartForumStore.live(clients: supabaseClients))
         _pdfLibraryStore = StateObject(wrappedValue: pdfLibraryStore)
-        _setlistStore = StateObject(wrappedValue: IChartPDFSetlistStore.live())
+        _setlistStore = StateObject(wrappedValue: setlistStore)
+        _setlistCloudSyncStore = StateObject(wrappedValue: setlistCloudSyncStore)
 
         #if canImport(UIKit)
         NotationFontRegistrar.registerBundledFontsIfNeeded()
@@ -67,6 +72,22 @@ struct IChartApp: App {
                     AppRootView()
                 }
             }
+                #if ICHART_STAGING_STOREKIT_PRODUCTS
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Internal staging")
+                            .font(.caption.weight(.semibold))
+                        Text("Separate QA charts, PDFs and account. Your public app data stays separate.")
+                            .font(.caption2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+                    .padding(.vertical, 6)
+                    .background(.thinMaterial)
+                    .accessibilityElement(children: .combine)
+                }
+                #endif
                 .environmentObject(store)
                 .environmentObject(authStore)
                 .environmentObject(cloudSyncStore)
@@ -74,6 +95,10 @@ struct IChartApp: App {
                 .environmentObject(forumStore)
                 .environmentObject(pdfLibraryStore)
                 .environmentObject(setlistStore)
+                .environment(
+                    \.setlistCloudSyncStore,
+                    IChartProductAccessPolicy.current.offersPaidPurchases ? setlistCloudSyncStore : nil
+                )
                 .environment(\.betaProStore, betaProStore)
                 .environment(\.betaProRetryAction, { await retryBetaAccess() })
                 .modifier(IChartBetaProNoticePresenter(store: betaProStore))
@@ -99,6 +124,9 @@ struct IChartApp: App {
                     applySubscriptionState(entitlement)
                     cloudSyncStore.authStateChanged(authStore.state)
                 }
+                .onChange(of: subscriptionStore.verifiedSubscriptionOwnerID) { _, _ in
+                    synchronizeSetlistCloudAccess()
+                }
                 .onChange(of: betaProStore.freeProAccess) { _, _ in
                     applyBetaAccessPolicy()
                     cloudSyncStore.authStateChanged(authStore.state)
@@ -109,6 +137,11 @@ struct IChartApp: App {
                     }
                     synchronizeBetaAccess(authStore.state)
                     await retryBetaAccess()
+                    if IChartProductAccessPolicy.current.offersPaidPurchases,
+                       subscriptionStore.state != .idle, !subscriptionStore.state.isWorking {
+                        await subscriptionStore.refreshEntitlements()
+                        applySubscriptionState(subscriptionStore.entitlement)
+                    }
                     // One best-effort request; optional delivery is never an
                     // awaited foreground loop or an app-readiness condition.
                     IChartTelemetry.flush()
@@ -124,6 +157,7 @@ struct IChartApp: App {
                     // Apply the new account's choice before scheduling cloud work.
                     synchronizeBetaAccess(state)
                     cloudSyncStore.authStateChanged(state)
+                    synchronizeSetlistCloudAccess()
                     Task {
                         await retryBetaAccess()
                         await subscriptionStore.refreshEntitlements()
@@ -146,12 +180,14 @@ struct IChartApp: App {
     }
 
     private func synchronizeBetaAccess(_ state: IChartAuthState) {
+        guard IChartProductAccessPolicy.current.isFreeBeta else { return }
         betaProStore.authStateChanged(state)
         applyBetaAccessPolicy()
     }
 
     @MainActor
     private func retryBetaAccess() async {
+        guard IChartProductAccessPolicy.current.isFreeBeta else { return }
         await betaProStore.retryAfterSessionRecovery {
             if case .temporarilyOffline = authStore.state, !authStore.isWorking {
                 await authStore.refreshSession()
@@ -174,10 +210,30 @@ struct IChartApp: App {
             currentLibraryEntitlement: store.entitlements.subscription
         )
         store.applySubscriptionState(resolvedEntitlement)
-        pdfLibraryStore.removeForumDownloadsIfInactive(
-            for: resolvedEntitlement,
-            accessPolicy: store.entitlements.accessPolicy
-        )
+        synchronizeSetlistCloudAccess()
+    }
+
+    private func synchronizeSetlistCloudAccess() {
+        let session: IChartAccountSession?
+        let online: Bool
+        switch authStore.state {
+        case .signedIn(let account):
+            session = account
+            online = true
+        case .temporarilyOffline(let account):
+            session = account
+            online = false
+        default:
+            session = nil
+            online = false
+        }
+
+        let ownerID = session?.isEmailVerified == true ? session?.id : nil
+        let canSync = ownerID != nil
+            && ownerID == subscriptionStore.verifiedSubscriptionOwnerID
+            && subscriptionStore.entitlement.status == .proActive
+            && store.entitlements.canSyncPDFSetlists
+        setlistCloudSyncStore.updateAccess(ownerID: ownerID, canSync: canSync, isOnline: online)
     }
 }
 

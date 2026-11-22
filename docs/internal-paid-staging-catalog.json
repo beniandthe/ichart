@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "audience": "internal TestFlight only",
+  "supabase_project_ref": "gfqpbikqvdgtjjgxrkgo",
+  "supabase_url": "https://gfqpbikqvdgtjjgxrkgo.supabase.co",
+  "currency": "USD",
+  "requested_prices": {
+    "monthly": {
+      "period": "P1M",
+      "amount": "6.99",
+      "minor_units": 699
+    },
+    "annual": {
+      "period": "P1Y",
+      "amount": "60.00",
+      "minor_units": 6000
+    }
+  },
+  "apple_product_selection": "separate unsubmitted FIX-036 staging products; existing public product schedules unchanged",
+  "apple_price_status": "App Store Connect US catalog confirms USD6.99 monthly and exactlyUSD60.00 annual; actual StoreKit fetch/display unverified",
+  "public_beta_defaults": "unchanged; free beta and production backend",
+  "staging_product_ids": {
+    "monthly": "com.ichart.app.staging.fix036.monthly",
+    "annual": "com.ichart.app.staging.fix036.annual"
+  },
+  "apple_catalog_readback": {
+    "observed_date": "2026-11-20",
+    "source": "release operator live App Store Connect readback",
+    "subscription_group_id": "22601761",
+    "group_name": "iChart FIX-036 Staging",
+    "annual": {
+      "app_store_connect_id": "6837601925",
+      "usa_price": "60.00",
+      "currency": "USD",
+      "availability": "USA only, 1 of 175 territories",
+      "state": "Prepare for Submission",
+      "submitted": false
+    },
+    "monthly": {
+      "app_store_connect_id": "6837602589",
+      "usa_price": "6.99",
+      "currency": "USD",
+      "availability": "USA only, 1 of 175 territories",
+      "state": "Prepare for Submission",
+      "submitted": false
+    },
+    "actual_storekit_fetch_and_display": "pending"
+  }
+}

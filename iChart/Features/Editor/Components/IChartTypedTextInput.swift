@@ -1,9 +1,10 @@
 import SwiftUI
 import UIKit
 
-/// Native text entry uses a field tap for typing and a field-local Scribble action.
+/// A native text field with a stable pair of Keyboard and Scribble controls.
 struct IChartTypedTextField: UIViewRepresentable {
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let placeholder: String
     @Binding var text: String
     var isFocused: Binding<Bool>? = nil
@@ -20,6 +21,7 @@ struct IChartTypedTextField: UIViewRepresentable {
     var accessibilityIdentifier: String? = nil
     var accessibilityLabel: String? = nil
     var accessibilityHint: String? = nil
+    var compact = false
     var onKeyboardRequested: (() -> Void)?
     var onNext: (() -> Void)?
     var onSubmit: (() -> Void)?
@@ -49,7 +51,8 @@ struct IChartTypedTextField: UIViewRepresentable {
         }
         field.autocapitalizationType = autocapitalizationType
         field.autocorrectionType = autocorrectionType
-        field.font = font
+        field.adjustsFontForContentSizeCategory = !compact
+        field.font = inputFont
         field.textAlignment = textAlignment
         field.borderStyle = borderStyle
         if field.isEnabled != isEnabled { field.isEnabled = isEnabled }
@@ -72,7 +75,7 @@ struct IChartTypedTextField: UIViewRepresentable {
         DispatchQueue.main.async { [weak field] in
             guard let field else { return }
             if field.requestsFocus, field.window != nil {
-                if !field.isFirstResponder { field.requestKeyboard() }
+                if !field.isFirstResponder { field.requestSelectedInputMode() }
             } else if !field.requestsFocus, field.isFirstResponder {
                 DispatchQueue.main.async { [weak field] in
                     guard let field, !field.requestsFocus, field.isFirstResponder else { return }
@@ -83,6 +86,24 @@ struct IChartTypedTextField: UIViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: IChartTypedUITextField, context: Context) -> CGSize? {
+        guard compact else { return nil }
+        // Keep the height independent of the parent’s spare space and the
+        // ideal width independent of the current query or placeholder.
+        let idealWidth = uiView.inputModeControls.intrinsicContentSize.width + 84
+        let proposedWidth = proposal.width ?? idealWidth
+        return CGSize(width: proposedWidth.isFinite ? max(0, proposedWidth) : idealWidth,
+                      height: max(44, ceil(inputFont.lineHeight + 16)))
+    }
+
+    private var inputFont: UIFont {
+        guard compact,
+              let textStyle = font.fontDescriptor.object(forKey: .textStyle) as? String else { return font }
+        let traits = UITraitCollection(preferredContentSizeCategory: UIContentSizeCategory(dynamicTypeSize))
+        return UIFont.preferredFont(forTextStyle: UIFont.TextStyle(rawValue: textStyle), compatibleWith: traits)
+    }
+
     static func dismantleUIView(_ field: IChartTypedUITextField, coordinator: Coordinator) {
         field.requestsFocus = false
         field.exitScribble()
@@ -153,7 +174,6 @@ struct IChartTypedTextView: UIViewRepresentable {
         view.delegate = context.coordinator
         view.backgroundColor = .clear
         view.adjustsFontForContentSizeCategory = true
-        view.textContainerInset = UIEdgeInsets(top: 8, left: 5, bottom: 8, right: 49)
         view.textContainer.lineFragmentPadding = 0
         view.isScrollEnabled = true
         view.keyboardDismissMode = .interactive
@@ -210,13 +230,16 @@ struct IChartTypedTextView: UIViewRepresentable {
     }
 }
 
-final class IChartTypedUITextField: UITextField, UIScribbleInteractionDelegate, UIGestureRecognizerDelegate {
+final class IChartTypedUITextField: UITextField, IChartNativeTextInput, UIScribbleInteractionDelegate, UIGestureRecognizerDelegate {
     var requestsFocus = false
     var onKeyboardRequested: (() -> Void)?
     private let inputMode = IChartTextInputMode()
-    var inputModeButton: UIButton { inputMode.button }
+    var inputModeControls: UIView { inputMode.controls }
+    var keyboardModeButton: UIButton { inputMode.keyboardButton }
+    var scribbleModeButton: UIButton { inputMode.scribbleButton }
     var isScribbleEnabled: Bool { inputMode.isScribbleEnabled }
-    private lazy var keyboardTap = IChartNativeKeyboardFocus.makeTap(target: self,
+    var isScribblePrepared: Bool { inputMode.isScribblePrepared && isFirstResponder }
+    private lazy var inputTap = IChartNativeKeyboardFocus.makeTap(target: self,
         action: #selector(directTap(_:)), delegate: self)
 
     override init(frame: CGRect) {
@@ -228,68 +251,90 @@ final class IChartTypedUITextField: UITextField, UIScribbleInteractionDelegate, 
         installInputControls()
     }
     override func rightViewRect(forBounds bounds: CGRect) -> CGRect {
-        CGRect(x: max(0, bounds.width - 48), y: max(0, (bounds.height - 44) / 2), width: 44, height: 44)
+        let size = inputMode.controls.intrinsicContentSize
+        return CGRect(x: max(0, bounds.maxX - size.width - 4), y: bounds.midY - size.height / 2,
+            width: size.width, height: size.height)
     }
     private func installInputControls() {
         addInteraction(UIScribbleInteraction(delegate: self))
-        rightView = inputModeButton
+        rightView = inputMode.controls
         rightViewMode = .always
-        inputModeButton.addTarget(self, action: #selector(toggleInputMode), for: .touchUpInside)
-        addGestureRecognizer(keyboardTap)
+        inputMode.keyboardButton.addTarget(self, action: #selector(selectKeyboard), for: .touchUpInside)
+        inputMode.scribbleButton.addTarget(self, action: #selector(selectScribble), for: .touchUpInside)
+        addGestureRecognizer(inputTap)
     }
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        if window != nil, requestsFocus, !isFirstResponder { requestKeyboard() }
+        if window != nil, requestsFocus, !isFirstResponder { requestSelectedInputMode() }
         if window == nil {
             exitScribble()
             IChartKeyboardInputContext.finish(for: self)
         }
     }
     override func resignFirstResponder() -> Bool {
+        inputMode.rememberSelection(in: self)
         let resigned = super.resignFirstResponder()
-        if resigned { IChartKeyboardInputContext.finish(for: self) }
+        if resigned {
+            exitScribble()
+            IChartKeyboardInputContext.finish(for: self)
+        }
         return resigned
     }
     func scribbleInteraction(_ interaction: UIScribbleInteraction, shouldBeginAt location: CGPoint) -> Bool {
-        isScribbleEnabled && isEnabled && isUserInteractionEnabled && bounds.contains(location)
+        isScribblePrepared && isEnabled && isUserInteractionEnabled && bounds.contains(location)
             && !rightViewRect(forBounds: bounds).contains(location)
     }
     func scribbleInteractionWillBeginWriting(_ interaction: UIScribbleInteraction) {
-        if isScribbleEnabled { IChartKeyboardInputContext.handwritingBegan(in: self) }
+        if isScribblePrepared { IChartKeyboardInputContext.handwritingBegan(in: self) }
     }
     func setInputName(_ name: String) { inputMode.setName(name) }
-    func didBeginInput() { inputMode.dismissOtherScribble() }
+    func didBeginInput() { inputMode.didBegin(in: self) }
     func exitScribble() { inputMode.exitScribble() }
+    func requestSelectedInputMode() {
+        if isScribbleEnabled { prepareScribble() } else { requestKeyboard() }
+    }
     func requestKeyboard(at point: CGPoint? = nil) {
         guard isEnabled, isUserInteractionEnabled else { return }
-        inputMode.dismissOtherScribble()
-        exitScribble()
-        IChartNativeKeyboardFocus.request(self, at: point)
+        inputMode.requestKeyboard(in: self, at: point)
         if isFirstResponder { onKeyboardRequested?() }
     }
-    @objc private func toggleInputMode() {
+    func prepareScribble(at point: CGPoint? = nil) {
         guard isEnabled, isUserInteractionEnabled else { return }
-        if isScribbleEnabled { requestKeyboard() } else { inputMode.armScribble(in: self) }
+        inputMode.prepareScribble(in: self, at: point)
+    }
+    @objc private func selectKeyboard() { requestKeyboard() }
+    @objc private func selectScribble() {
+        guard isEnabled, isUserInteractionEnabled else { return }
+        inputMode.armScribble(in: self)
     }
     @objc private func directTap(_ recognizer: UITapGestureRecognizer) {
-        requestKeyboard(at: recognizer.location(in: self))
+        let point = recognizer.location(in: self)
+        if isScribbleEnabled {
+            // Finish routing the initiating touch before admitting Pencil ink.
+            DispatchQueue.main.async { [weak self] in self?.prepareScribble(at: point) }
+        } else {
+            requestKeyboard(at: point)
+        }
     }
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        isEnabled && inputMode.allowsTypingTap(touch.type)
+        isEnabled && inputMode.allowsBodyTap(touch.type)
             && !rightViewRect(forBounds: bounds).contains(touch.location(in: self))
     }
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-        gestureRecognizer === keyboardTap || otherGestureRecognizer === keyboardTap
+        gestureRecognizer === inputTap || otherGestureRecognizer === inputTap
     }
 }
 
-final class IChartTypedUITextView: UITextView, UIScribbleInteractionDelegate, UIGestureRecognizerDelegate {
+final class IChartTypedUITextView: UITextView, IChartNativeTextInput, UIScribbleInteractionDelegate, UIGestureRecognizerDelegate {
     private let inputMode = IChartTextInputMode()
-    var inputModeButton: UIButton { inputMode.button }
+    var inputModeControls: UIView { inputMode.controls }
+    var keyboardModeButton: UIButton { inputMode.keyboardButton }
+    var scribbleModeButton: UIButton { inputMode.scribbleButton }
     var isScribbleEnabled: Bool { inputMode.isScribbleEnabled }
+    var isScribblePrepared: Bool { inputMode.isScribblePrepared && isFirstResponder }
     private let placeholderLabel = UILabel()
-    private lazy var keyboardTap = IChartNativeKeyboardFocus.makeTap(target: self,
+    private lazy var inputTap = IChartNativeKeyboardFocus.makeTap(target: self,
         action: #selector(directTap(_:)), delegate: self)
 
     override init(frame: CGRect, textContainer: NSTextContainer?) {
@@ -309,9 +354,12 @@ final class IChartTypedUITextView: UITextView, UIScribbleInteractionDelegate, UI
         addSubview(placeholderLabel)
         let pencil = NSNumber(value: UITouch.TouchType.pencil.rawValue)
         panGestureRecognizer.allowedTouchTypes.removeAll { $0 == pencil }
-        inputModeButton.addTarget(self, action: #selector(toggleInputMode), for: .touchUpInside)
-        addSubview(inputModeButton)
-        addGestureRecognizer(keyboardTap)
+        textContainerInset = UIEdgeInsets(top: 8, left: 5, bottom: 8,
+            right: inputMode.controls.intrinsicContentSize.width + 5)
+        inputMode.keyboardButton.addTarget(self, action: #selector(selectKeyboard), for: .touchUpInside)
+        inputMode.scribbleButton.addTarget(self, action: #selector(selectScribble), for: .touchUpInside)
+        addSubview(inputMode.controls)
+        addGestureRecognizer(inputTap)
     }
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -321,8 +369,9 @@ final class IChartTypedUITextView: UITextView, UIScribbleInteractionDelegate, UI
             let size = placeholderLabel.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
             placeholderLabel.frame = CGRect(x: inset.left, y: inset.top, width: width, height: size.height)
         }
-        inputModeButton.frame = inputModeButtonFrame
-        inputModeButton.isEnabled = isEditable
+        inputMode.controls.frame = inputModeControlsFrame
+        inputMode.keyboardButton.isEnabled = isEditable
+        inputMode.scribbleButton.isEnabled = isEditable
     }
     func setPlaceholder(_ placeholder: String?, color: UIColor) {
         guard placeholderLabel.text != placeholder || placeholderLabel.textColor != color
@@ -351,101 +400,179 @@ final class IChartTypedUITextView: UITextView, UIScribbleInteractionDelegate, UI
         }
     }
     override func resignFirstResponder() -> Bool {
+        inputMode.rememberSelection(in: self)
         let resigned = super.resignFirstResponder()
-        if resigned { IChartKeyboardInputContext.finish(for: self) }
+        if resigned {
+            exitScribble()
+            IChartKeyboardInputContext.finish(for: self)
+        }
         return resigned
     }
     func scribbleInteraction(_ interaction: UIScribbleInteraction, shouldBeginAt location: CGPoint) -> Bool {
-        isScribbleEnabled && isEditable && isUserInteractionEnabled && bounds.contains(location)
-            && !inputModeButtonFrame.contains(location)
+        isScribblePrepared && isEditable && isUserInteractionEnabled && bounds.contains(location)
+            && !inputModeControlsFrame.contains(location)
     }
     func scribbleInteractionWillBeginWriting(_ interaction: UIScribbleInteraction) {
-        if isScribbleEnabled { IChartKeyboardInputContext.handwritingBegan(in: self) }
+        if isScribblePrepared { IChartKeyboardInputContext.handwritingBegan(in: self) }
     }
-    private var inputModeButtonFrame: CGRect {
-        CGRect(x: bounds.maxX - 44, y: bounds.minY, width: 44, height: 44)
+    private var inputModeControlsFrame: CGRect {
+        let size = inputMode.controls.intrinsicContentSize
+        return CGRect(x: bounds.maxX - size.width, y: bounds.minY, width: size.width, height: size.height)
     }
     func setInputName(_ name: String) { inputMode.setName(name) }
-    func didBeginInput() { inputMode.dismissOtherScribble() }
+    func didBeginInput() { inputMode.didBegin(in: self) }
     func exitScribble() { inputMode.exitScribble() }
     func requestKeyboard(at point: CGPoint? = nil) {
         guard isEditable, isUserInteractionEnabled else { return }
-        inputMode.dismissOtherScribble()
-        exitScribble()
-        IChartNativeKeyboardFocus.request(self, at: point)
+        inputMode.requestKeyboard(in: self, at: point)
     }
-    @objc private func toggleInputMode() {
+    func prepareScribble(at point: CGPoint? = nil) {
         guard isEditable, isUserInteractionEnabled else { return }
-        if isScribbleEnabled { requestKeyboard() } else { inputMode.armScribble(in: self) }
+        inputMode.prepareScribble(in: self, at: point)
+    }
+    @objc private func selectKeyboard() { requestKeyboard() }
+    @objc private func selectScribble() {
+        guard isEditable, isUserInteractionEnabled else { return }
+        inputMode.armScribble(in: self)
     }
     @objc private func directTap(_ recognizer: UITapGestureRecognizer) {
-        requestKeyboard(at: recognizer.location(in: self))
+        let point = recognizer.location(in: self)
+        if isScribbleEnabled {
+            DispatchQueue.main.async { [weak self] in self?.prepareScribble(at: point) }
+        } else {
+            requestKeyboard(at: point)
+        }
     }
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        isEditable && inputMode.allowsTypingTap(touch.type)
-            && !inputModeButtonFrame.contains(touch.location(in: self))
+        isEditable && inputMode.allowsBodyTap(touch.type)
+            && !inputModeControlsFrame.contains(touch.location(in: self))
     }
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-        gestureRecognizer === keyboardTap || otherGestureRecognizer === keyboardTap
+        gestureRecognizer === inputTap || otherGestureRecognizer === inputTap
     }
 }
 
-/// A single accessory slot keeps the input and its controls in place. An armed
-/// field owns Scribble until the user chooses typing or another field takes over.
+@MainActor
+private protocol IChartNativeTextInput: UITextInput where Self: UIView {
+    var inputView: UIView? { get set }
+    var inputAccessoryView: UIView? { get set }
+}
+
+/// The selected mode controls the input view before UIKit receives focus. A
+/// separate preparation step rejects the initiating Pencil tap as handwriting.
 @MainActor
 private final class IChartTextInputMode {
     private static weak var scribbleOwner: IChartTextInputMode?
-    let button = IChartInputModeButton(type: .system)
-    private var name = "text"
-
+    private weak var input: (any IChartNativeTextInput)?
+    private let writingInputView = UIView(frame: .zero)
+    private var typingAccessory: UIView?
+    private var savedSelection: IChartTextSelection?
+    let controls = IChartInputModeControls()
+    var keyboardButton: UIButton { controls.keyboard }
+    var scribbleButton: UIButton { controls.scribble }
     var isScribbleEnabled: Bool { Self.scribbleOwner === self }
+    private(set) var isScribblePrepared = false
 
-    init() {
-        button.frame = CGRect(x: 0, y: 0, width: 44, height: 44)
-        updateButton()
-    }
+    init() { updateButtons() }
 
     func setName(_ name: String) {
-        guard self.name != name else { return }
-        self.name = name
-        updateButton()
+        keyboardButton.accessibilityHint = "Type in \(name)."
+        scribbleButton.accessibilityHint = "Tap \(name), then write with Apple Pencil."
     }
 
-    func allowsTypingTap(_ touchType: UITouch.TouchType) -> Bool {
-        touchType != .pencil || !isScribbleEnabled
+    func allowsBodyTap(_ touchType: UITouch.TouchType) -> Bool {
+        touchType != .pencil || !isScribblePrepared
     }
 
-    func armScribble(in input: UIView) {
-        if input.isFirstResponder {
-            guard input.resignFirstResponder() else { return }
-        } else {
-            input.window?.endEditing(false)
-        }
-        dismissOtherScribble()
+    func armScribble(in input: any IChartNativeTextInput) {
+        guard !isScribbleEnabled else { return }
+        Self.scribbleOwner?.exitScribble()
+        if !input.isFirstResponder { input.window?.endEditing(false) }
+        rememberSelection(in: input)
+        self.input = input
         Self.scribbleOwner = self
-        updateButton()
+        typingAccessory = input.inputAccessoryView
+        input.inputView = writingInputView
+        input.inputAccessoryView = nil
+        updateButtons()
+        if input.isFirstResponder {
+            IChartKeyboardInputContext.handwritingBegan(in: input)
+            input.reloadInputViews()
+            savedSelection?.restore(in: input)
+        }
     }
 
-    func dismissOtherScribble() {
-        if !isScribbleEnabled { Self.scribbleOwner?.exitScribble() }
+    func prepareScribble(in input: any IChartNativeTextInput, at point: CGPoint?) {
+        guard isScribbleEnabled, !isScribblePrepared, input.window != nil else { return }
+        IChartKeyboardInputContext.handwritingBegan(in: input)
+        guard input.isFirstResponder || input.becomeFirstResponder() else {
+            IChartKeyboardInputContext.finish(for: input)
+            return
+        }
+        if let savedSelection {
+            savedSelection.restore(in: input)
+        } else if let point, let position = input.closestPosition(to: point) {
+            input.selectedTextRange = input.textRange(from: position, to: position)
+        }
+        isScribblePrepared = true
+    }
+
+    func requestKeyboard(in input: any IChartNativeTextInput, at point: CGPoint?) {
+        let changesInputView = isScribbleEnabled
+        let selection = input.isFirstResponder ? IChartTextSelection(input) : savedSelection
+        Self.scribbleOwner?.exitScribble()
+        IChartNativeKeyboardFocus.request(input, at: point, selection: selection,
+            reloadsInputViews: changesInputView)
+    }
+
+    func didBegin(in input: any IChartNativeTextInput) {
+        if !isScribbleEnabled {
+            Self.scribbleOwner?.exitScribble()
+            IChartKeyboardInputContext.begin(for: input)
+        }
+    }
+
+    func rememberSelection(in input: any IChartNativeTextInput) {
+        if input.isFirstResponder, input.markedTextRange == nil {
+            savedSelection = IChartTextSelection(input)
+        }
     }
 
     func exitScribble() {
         guard isScribbleEnabled else { return }
         Self.scribbleOwner = nil
-        updateButton()
+        isScribblePrepared = false
+        input?.inputView = nil
+        input?.inputAccessoryView = typingAccessory
+        input = nil
+        typingAccessory = nil
+        updateButtons()
     }
 
-    private func updateButton() {
-        let isWriting = isScribbleEnabled
-        var configuration = UIButton.Configuration.plain()
-        configuration.image = UIImage(systemName: isWriting ? "keyboard" : "pencil.and.scribble")
-        configuration.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10)
-        button.configuration = configuration
-        button.accessibilityLabel = isWriting ? "Use keyboard for \(name)" : "Start Scribble for \(name)"
-        button.accessibilityHint = isWriting ? nil : "Then write in this field with Apple Pencil."
-        button.accessibilityValue = isWriting ? "Scribble on" : nil
+    private func updateButtons() {
+        controls.select(isScribbleEnabled ? scribbleButton : keyboardButton)
+    }
+}
+
+private struct IChartTextSelection {
+    let start: Int
+    let end: Int
+
+    @MainActor
+    init?(_ input: any UITextInput) {
+        guard let selection = input.selectedTextRange else { return nil }
+        start = input.offset(from: input.beginningOfDocument, to: selection.start)
+        end = input.offset(from: input.beginningOfDocument, to: selection.end)
+    }
+
+    @MainActor
+    func restore(in input: any UITextInput) {
+        guard input.markedTextRange == nil else { return }
+        let length = input.offset(from: input.beginningOfDocument, to: input.endOfDocument)
+        guard let first = input.position(from: input.beginningOfDocument, offset: min(start, length)),
+              let last = input.position(from: input.beginningOfDocument, offset: min(end, length)) else { return }
+        input.selectedTextRange = input.textRange(from: first, to: last)
     }
 }
 
@@ -460,16 +587,26 @@ enum IChartKeyboardInputContext {
 
     @discardableResult
     static func begin(for input: UIView) -> Bool {
+        claim(for: input, expectsPencil: false)
+    }
+
+    static func handwritingBegan(in input: UIView) {
+        _ = claim(for: input, expectsPencil: true)
+    }
+
+    private static func claim(for input: UIView, expectsPencil: Bool) -> Bool {
         guard input is IChartTypedUITextField || input is IChartTypedUITextView else { return false }
         guard let current = UITextInputContext.current() else { return false }
-        if owner == nil || context !== current {
+        // A different UIKit input context has its own initial expectation.
+        // Restore the old context before taking ownership of the new one.
+        if context !== current || owner == nil {
             restore()
             originalPencilInputExpected = current.isPencilInputExpected
             context = current
         }
         owner = input
-        guard current.isPencilInputExpected else { return false }
-        current.isPencilInputExpected = false
+        guard current.isPencilInputExpected != expectsPencil else { return false }
+        current.isPencilInputExpected = expectsPencil
         return true
     }
 
@@ -478,27 +615,11 @@ enum IChartKeyboardInputContext {
         restore()
     }
 
-    static func handwritingBegan(in input: UIView) {
-        guard input is IChartTypedUITextField || input is IChartTypedUITextView else { return }
-        // A new owned Scribble start may arrive before the previous sibling's
-        // end-edit callback. Relinquish that keyboard lease immediately.
-        let current = UITextInputContext.current()
-        if context === current {
-            clearOwner()
-        } else {
-            restore()
-        }
-        if let current, !current.isPencilInputExpected { current.isPencilInputExpected = true }
-    }
-
     private static func restore() {
-        if let context, originalPencilInputExpected == true, !context.isPencilInputExpected {
-            context.isPencilInputExpected = true
+        if let context, let originalPencilInputExpected,
+           context.isPencilInputExpected != originalPencilInputExpected {
+            context.isPencilInputExpected = originalPencilInputExpected
         }
-        clearOwner()
-    }
-
-    private static func clearOwner() {
         owner = nil
         context = nil
         originalPencilInputExpected = nil
@@ -507,22 +628,22 @@ enum IChartKeyboardInputContext {
 
 @MainActor
 private enum IChartNativeKeyboardFocus {
-    static func request(_ input: UIView & UITextInput, at point: CGPoint? = nil) {
+    static func request(_ input: any IChartNativeTextInput, at point: CGPoint?,
+        selection: IChartTextSelection?, reloadsInputViews: Bool) {
         let wasFocused = input.isFirstResponder
-        let selection = input.selectedTextRange
-        let changesInputMode = IChartKeyboardInputContext.begin(for: input)
-        // Keep an active editing session intact. Reload only when an existing
-        // Scribble responder actually needs to switch to keyboard input.
-        if input.isFirstResponder {
-            if changesInputMode { input.reloadInputViews() }
+        let changesInputHint = IChartKeyboardInputContext.begin(for: input)
+        if wasFocused {
+            // Native mode transitions keep the current responder and undo
+            // session. Unchanged keyboard requests need no reload.
+            if reloadsInputViews || changesInputHint { input.reloadInputViews() }
         } else if !input.becomeFirstResponder() {
             IChartKeyboardInputContext.finish(for: input)
             return
         }
         if !wasFocused, input.markedTextRange == nil, let point, let position = input.closestPosition(to: point) {
             input.selectedTextRange = input.textRange(from: position, to: position)
-        } else if changesInputMode, input.markedTextRange == nil, let selection {
-            input.selectedTextRange = selection
+        } else if !wasFocused || reloadsInputViews || changesInputHint {
+            selection?.restore(in: input)
         }
     }
     static func makeTap(target: AnyObject, action: Selector, delegate: UIGestureRecognizerDelegate) -> UITapGestureRecognizer {
@@ -536,11 +657,42 @@ private enum IChartNativeKeyboardFocus {
     }
 }
 
-/// UITextField sizes its right view from sizeThatFits, not its initial frame.
-/// Keep the embedded action's actual target at least 44 points in both axes.
-private final class IChartInputModeButton: UIButton {
-    override var intrinsicContentSize: CGSize { CGSize(width: 44, height: 44) }
+/// One fixed accessory footprint keeps the text and hit targets in place as
+/// either input mode becomes active. Each labeled control gets a 44pt target.
+private final class IChartInputModeControls: UIStackView {
+    let keyboard = UIButton(type: .system)
+    let scribble = UIButton(type: .system)
+
+    init() {
+        super.init(frame: .zero)
+        axis = .horizontal
+        alignment = .fill
+        distribution = .fillEqually
+        addArrangedSubview(keyboard)
+        addArrangedSubview(scribble)
+        for (button, title) in [(keyboard, "Keyboard"), (scribble, "Scribble")] {
+            button.setTitle(title, for: .normal)
+            button.accessibilityLabel = title
+            button.titleLabel?.font = .preferredFont(forTextStyle: .caption1)
+            button.titleLabel?.adjustsFontForContentSizeCategory = true
+            button.titleLabel?.adjustsFontSizeToFitWidth = true
+            button.titleLabel?.minimumScaleFactor = 0.6
+            button.layer.cornerRadius = 8
+        }
+    }
+    required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override var intrinsicContentSize: CGSize { CGSize(width: 140, height: 44) }
     override func sizeThatFits(_ size: CGSize) -> CGSize { intrinsicContentSize }
+
+    func select(_ selected: UIButton) {
+        for button in [keyboard, scribble] {
+            let isSelected = button === selected
+            button.isSelected = isSelected
+            button.backgroundColor = isSelected ? UIColor.tintColor.withAlphaComponent(0.13) : .clear
+            if isSelected { button.accessibilityTraits.insert(.selected) }
+            else { button.accessibilityTraits.remove(.selected) }
+        }
+    }
 }
 
 private enum IChartTypingAccessory {

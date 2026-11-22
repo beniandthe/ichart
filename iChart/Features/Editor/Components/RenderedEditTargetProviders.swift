@@ -293,6 +293,12 @@ struct CueTextRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
             return targets
         }
 
+        // Preserve an explicit cue selection when its glyphs overlap a nearby
+        // chord's direct-move hit area, as they can in a Simple Chord Sheet.
+        targets.append(RenderedEditHitTarget(objectID: objectID, action: .move,
+            priority: .selectedObjectEditControl, frame: cueTextLayout.frame,
+            requiresSelection: true, mutationRisk: .visual))
+
         let controls = LeadSheetCueTextEditOverlayGeometry.controlFrames(for: cueTextLayout)
         let controlOutset = LeadSheetCueTextEditOverlayGeometry.controlHitOutset
         targets.append(

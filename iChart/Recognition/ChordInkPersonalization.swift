@@ -382,7 +382,7 @@ struct PersonalInkSnapshot {
 /// never on PencilKit's drawing callback. Recognition takes an immutable snapshot.
 final class PersonalInkProfileStore: @unchecked Sendable {
     static let maximumStoredBytes = 8_000_000
-    static let shared = PersonalInkProfileStore(url: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    static let shared = PersonalInkProfileStore(url: IChartStorageNamespace.scopedDirectory(FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0])
         .appendingPathComponent("PersonalHandwriting/profile-v1.json"))
     private let url: URL
     private let lock = NSLock()

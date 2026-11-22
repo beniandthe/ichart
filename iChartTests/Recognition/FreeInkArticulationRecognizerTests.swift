@@ -154,6 +154,79 @@ final class FreeInkArticulationRecognizerTests: XCTestCase {
         }
     }
 
+    func testAutomaticAccentAcceptsAMildlyRoundedLeg() {
+        let roundedLeg = [(0.0, 0.0), (12, 6.5), (24, 7), (12, 11), (0, 14)]
+        for direction in [roundedLeg, Array(roundedLeg.reversed())] {
+            let result = FreeInkArticulationRecognizer.automaticCandidate(
+                in: [stroke(direction)], eligibleStrokeIndices: [0]
+            )
+            XCTAssertEqual(result?.kind, .accent)
+            XCTAssertEqual(result?.indices, [0])
+        }
+    }
+
+    func testAutomaticAccentAcceptsModestTiltAndStaggeredOpenEnds() {
+        let chevron = [(0.0, 0.0), (12, 3.5), (24, 7), (12, 10.5), (0, 14)]
+        let tilted = [-12.0, 12].map { degrees in
+            let angle = degrees * .pi / 180
+            return chevron.map { x, y in
+                (x * cos(angle) - y * sin(angle), x * sin(angle) + y * cos(angle))
+            }
+        }
+        let staggered = [(0.0, 0.0), (14, 3.5), (28, 7), (18, 11), (7.5, 16)]
+        for points in tilted + [staggered] {
+            for direction in [points, Array(points.reversed())] {
+                let result = FreeInkArticulationRecognizer.automaticCandidate(
+                    in: [stroke(direction)], eligibleStrokeIndices: [0]
+                )
+                XCTAssertEqual(result?.kind, .accent)
+                XCTAssertEqual(result?.indices, [0])
+            }
+        }
+    }
+
+    func testAutomaticAccentAcceptsUnevenLegsPointingToTheSameTip() {
+        let upper = [(0.0, 0.0), (12, 3.5), (24, 7)]
+        let lower = [(2.0, 14.0), (12, 10.8), (19.8, 8.1)]
+        let nearbyStroke = stroke([(26, 10), (27, 6), (28, 2)], creationTimeOffset: 0.2, duration: 0.2)
+        let distantStroke = stroke([(60, 10), (61, 6), (62, 2)], creationTimeOffset: 0.2, duration: 0.2)
+
+        for legs in [[upper, Array(lower.reversed())], [lower, Array(upper.reversed())]] {
+            let first = stroke(legs[0], creationTimeOffset: 1, duration: 0.2)
+            let second = stroke(legs[1], creationTimeOffset: 1.4, duration: 0.2)
+            let result = FreeInkArticulationRecognizer.automaticCandidate(
+                in: [distantStroke, first, second], eligibleStrokeIndices: [1, 2]
+            )
+            XCTAssertEqual(result?.kind, .accent)
+            XCTAssertEqual(result?.indices, [1, 2])
+            XCTAssertNil(FreeInkArticulationRecognizer.automaticCandidate(
+                in: [nearbyStroke, first, second], eligibleStrokeIndices: [1, 2]
+            ), "Nearby handwriting must prevent claiming either accent stroke")
+            XCTAssertNil(FreeInkArticulationRecognizer.automaticCandidate(
+                in: [first, second], eligibleStrokeIndices: [1]
+            ), "A recent stroke must not claim an older pen stroke")
+            let delayed = stroke(legs[1], creationTimeOffset: 1.9, duration: 0.2)
+            XCTAssertNil(FreeInkArticulationRecognizer.automaticCandidate(
+                in: [first, delayed], eligibleStrokeIndices: [0, 1]
+            ), "Both strokes must have been drawn together")
+        }
+    }
+
+    func testAccentToleranceDoesNotTurnOpenAnglesOrOtherMarksIntoAccents() {
+        let upper = stroke([(0, 0), (12, 3.5), (24, 7)])
+        let openAngle = stroke([(2, 14), (12, 12), (21, 10)])
+        let slash = stroke([(4, 14), (11, 8), (18, 1)])
+        let leftChevron = stroke([(24, 0), (12, 3.5), (0, 7), (12, 10.5), (24, 14)])
+        let caret = stroke([(0, 14), (4.5, 7), (9, 0), (13.5, 6.5), (18, 13.4)])
+        let arch = stroke([(0, 11), (3, 6), (7, 2), (12, 0), (18, 1.5), (23, 5.3), (26, 10)])
+
+        XCTAssertNil(FreeInkArticulationRecognizer.recognize([upper, openAngle]))
+        XCTAssertNil(FreeInkArticulationRecognizer.recognize([slash]))
+        XCTAssertNil(FreeInkArticulationRecognizer.recognize([leftChevron]))
+        XCTAssertEqual(FreeInkArticulationRecognizer.recognize([caret]), .marcato)
+        XCTAssertEqual(FreeInkArticulationRecognizer.recognize([arch, stroke([(13, 8)])]), .fermata)
+    }
+
     func testAutomaticAccentAcceptsShortRetraceAtTheOpenEndOfAnUnevenChevron() {
         // Approximate a shallow upper leg with a short Pencil retrace at
         // its open end. The right tip is still shared by two straight legs.

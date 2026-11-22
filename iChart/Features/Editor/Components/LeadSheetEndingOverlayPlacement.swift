@@ -8,7 +8,9 @@ enum LeadSheetEndingOverlayPlacement {
         var frames = [layout.header.frame, layout.header.handwrittenFrame]
         for system in layout.systems {
             frames += system.endingLayouts.map(\.occupiedFrame)
-            frames += system.roadmapMarkerLayouts.map(\.frame)
+            frames += system.roadmapMarkerLayouts.map {
+                $0.frame.union(LeadSheetRoadmapMarkerLabelGeometry.labelFrame(for: $0))
+            }
             frames += system.keySignatureLayouts.map(\.frame)
             frames += [system.clefFrame, system.keyTextFrame, system.timeSignatureFrame,
                 system.sectionTextFrame, system.roadmapTextFrame].compactMap { $0 }

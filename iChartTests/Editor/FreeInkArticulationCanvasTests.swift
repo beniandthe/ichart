@@ -230,6 +230,111 @@ final class FreeInkArticulationCanvasTests: XCTestCase {
         assertStrokes(authoring.drawing, equalTo: [nearby, mark])
     }
 
+    func testSimpleCanvasConvertsAndRestoresLessExactAccents() async throws {
+        try await assertLessExactAccentsOnCanvas(style: .simpleChordSheet)
+    }
+
+    func testRhythmCanvasConvertsAndRestoresLessExactAccents() async throws {
+        try await assertLessExactAccentsOnCanvas(style: .rhythmSectionSheet)
+    }
+
+    private func assertLessExactAccentsOnCanvas(style: ChartLayoutStyle) async throws {
+        let pageSize = CGSize(width: 1_200, height: 1_200)
+        var chart = Chart.draft(title: "Free Ink accent variations", layoutStyle: style)
+        chart.completeInitialSetup(title: chart.title, key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine, startingMeasureCount: 4)
+        let measureID = try XCTUnwrap(chart.measures.first?.id)
+        XCTAssertTrue(chart.appendRecognizedChord(
+            ChordSymbol(root: .c, accidental: .natural, quality: "", extensions: [], alterations: [], slashBass: nil),
+            rawInput: "C", to: measureID, atFraction: 0.4
+        ))
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize)
+        let page = try XCTUnwrap(layout.pages.first)
+        let chord = try XCTUnwrap(layout.systems.first?.measures.first?.chordLayouts.first)
+        let pageFrame = LeadSheetActiveInkScope.pageWritingFrame(for: layout)
+        let aboveChord = CGPoint(x: chord.frame.midX, y: chord.frame.minY - 4)
+        let openSpace = CGPoint(x: page.frame.midX, y: page.frame.maxY - 90)
+
+        func path(around anchor: CGPoint, offsets: [(CGFloat, CGFloat)], seed: UInt32,
+            time: TimeInterval? = nil) -> PKStroke {
+            stroke(offsets.map { x, y in
+                CGPoint(x: anchor.x - pageFrame.minX + x, y: anchor.y - pageFrame.minY + y)
+            }, seed: seed, creationTime: time)
+        }
+        let unrelated = path(around: openSpace, offsets: [(42, -4), (50, 7), (48, 13)], seed: 40)
+        let rounded = path(around: openSpace,
+            offsets: [(-12, -7), (0, -0.5), (12, 0), (0, 4), (-12, 7)], seed: 41)
+        let split = [
+            path(around: aboveChord, offsets: [(-12, -7), (0, -3.5), (12, 0)], seed: 42, time: 42),
+            path(around: aboveChord, offsets: [(-10, 7), (0, 3.8), (7.8, 1.1)], seed: 43, time: 42.32)
+        ]
+        chart.pageHandwrittenNotationData = PKDrawing(strokes: [unrelated]).dataRepresentation()
+        chart.pageHandwrittenNotationCoordinateSpace = LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(
+            for: layout, relativeTo: pageFrame)
+
+        let view = LeadSheetCanvasUIKitView(frame: CGRect(origin: .zero, size: pageSize))
+        view.chart = chart
+        view.interactionMode = .freeHand
+        let controller = UIViewController()
+        controller.view = view
+        let window = UIWindow(frame: view.frame)
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        view.layoutIfNeeded()
+        let authoring = try XCTUnwrap(view.subviews.compactMap { $0 as? PKCanvasView }.last)
+        assertStrokes(authoring.drawing, equalTo: [unrelated])
+
+        func write(_ strokes: [PKStroke], expecting count: Int) async {
+            let conversion = expectation(description: "Free Ink renders accent \(count) in \(style)")
+            view.onChartChanged = { chart in
+                if chart.freeInkArticulations.count == count { conversion.fulfill() }
+            }
+            // Deliver a separate tool cycle for each leg, just as PencilKit
+            // does after a pen lift in the middle of the mark.
+            for stroke in strokes {
+                view.canvasViewDidBeginUsingTool(authoring)
+                authoring.drawing = PKDrawing(strokes: authoring.drawing.strokes + [stroke])
+                view.canvasViewDrawingDidChange(authoring)
+                view.canvasViewDidEndUsingTool(authoring)
+            }
+            XCTAssertEqual(view.chart.freeInkArticulations.count, count - 1)
+            await fulfillment(of: [conversion], timeout: 4)
+            view.onChartChanged = nil
+        }
+
+        await write([rounded], expecting: 1)
+        let floating = try XCTUnwrap(view.chart.freeInkArticulations.first)
+        XCTAssertEqual(floating.kind, .accent)
+        XCTAssertNil(floating.measureID)
+        XCTAssertNil(floating.attachment)
+        XCTAssertNotNil(floating.pagePoint)
+        assertStrokes(try PKDrawing(data: floating.sourceInkData), equalTo: [rounded])
+
+        await write(split, expecting: 2)
+        let attached = try XCTUnwrap(view.chart.freeInkArticulations.last)
+        XCTAssertEqual(attached.kind, .accent)
+        XCTAssertEqual(attached.measureID, measureID)
+        XCTAssertEqual(attached.attachment, .chord(id: chord.id))
+        assertStrokes(try PKDrawing(data: attached.sourceInkData), equalTo: split)
+        assertStrokes(authoring.drawing, equalTo: [unrelated])
+        assertStrokes(try PKDrawing(data: XCTUnwrap(view.chart.pageHandwrittenNotationData)),
+            equalTo: [unrelated])
+
+        let snapshot = ChartLibrarySnapshot(charts: [view.chart], selectedChartID: view.chart.id, entitlements: .free)
+        let reopened = try ChartPersistenceCoders.decoder.decode(ChartLibrarySnapshot.self,
+            from: ChartPersistenceCoders.encoder.encode(snapshot))
+        view.chart = try XCTUnwrap(reopened.charts.first)
+        view.layoutIfNeeded()
+        XCTAssertEqual(view.chart.freeInkArticulations, [floating, attached])
+        XCTAssertTrue(view.restoreFreeInkArticulation(articulationID: floating.id))
+        XCTAssertTrue(view.restoreFreeInkArticulation(articulationID: attached.id))
+        XCTAssertTrue(view.chart.freeInkArticulations.isEmpty)
+        let restored = [unrelated, rounded] + split
+        assertStrokes(authoring.drawing, equalTo: restored)
+        assertStrokes(try PKDrawing(data: XCTUnwrap(view.chart.pageHandwrittenNotationData)), equalTo: restored)
+    }
+
     func testTapChoosesTheNearestMarkWhenTouchTargetsOverlap() throws {
         let pageSize = CGSize(width: 1_200, height: 1_200)
         var chart = Chart.draft(title: "Overlapping touch targets", layoutStyle: .rhythmSectionSheet)
@@ -391,7 +496,7 @@ final class FreeInkArticulationCanvasTests: XCTestCase {
         return stroke(offsets.map { CGPoint(x: origin.x + $0.0, y: origin.y + $0.1) }, seed: seed)
     }
 
-    private func stroke(_ points: [CGPoint], seed: UInt32) -> PKStroke {
+    private func stroke(_ points: [CGPoint], seed: UInt32, creationTime: TimeInterval? = nil) -> PKStroke {
         let path = points.enumerated().map { offset, point in
             PKStrokePoint(location: point, timeOffset: Double(offset) * 0.1,
                 size: CGSize(width: 2, height: 2), opacity: 0.8, force: 0.7,
@@ -399,7 +504,7 @@ final class FreeInkArticulationCanvasTests: XCTestCase {
         }
         return PKStroke(ink: PKInk(.pen, color: LeadSheetPersistentInkColorPolicy.inkColor),
             path: PKStrokePath(controlPoints: path,
-                creationDate: Date(timeIntervalSinceReferenceDate: Double(seed))),
+                creationDate: Date(timeIntervalSinceReferenceDate: creationTime ?? Double(seed))),
             transform: .identity, mask: nil, randomSeed: seed)
     }
 

@@ -12,7 +12,7 @@ struct AppRootView: View {
 
     init() {
         _isLaunchAnimationVisible = State(
-            initialValue: UserDefaults.standard.bool(forKey: Self.hasSeenAccountLandingKey)
+            initialValue: IChartStorageNamespace.defaults.bool(forKey: Self.hasSeenAccountLandingKey)
         )
     }
 
@@ -26,13 +26,7 @@ struct AppRootView: View {
                 .navigationDestination(for: ProjectRoute.self) { route in
                     switch route {
                     case .chart(let chartID, let initialCanvasMode):
-                        if store.isChartEditingLockedByCurrentPlan {
-                            ContentUnavailableView(
-                                "Resolve Basic Limit",
-                                systemImage: "lock.doc",
-                                description: Text("Remove local charts until the library has 3 Basic charts, or restore Pro to keep editing.")
-                            )
-                        } else if let chart = store.editorBinding(for: chartID) {
+                        if let chart = store.editorBinding(for: chartID) {
                             EditorView(chart: chart, initialCanvasMode: initialCanvasMode) {
                                 store.selectedChartID = nil
                                 projectPath.removeAll()
@@ -45,14 +39,6 @@ struct AppRootView: View {
                             )
                         }
                     }
-                }
-                .onChange(of: store.isChartEditingLockedByCurrentPlan) { _, isLocked in
-                    guard isLocked else {
-                        return
-                    }
-
-                    store.selectedChartID = nil
-                    projectPath.removeAll()
                 }
             }
 
@@ -80,21 +66,6 @@ struct AppRootView: View {
     }
 
     private func openChartWithFeedback(_ chartID: Chart.ID, initialCanvasMode: EditorCanvasMode) {
-        guard store.canOpenChartsForEditing else {
-            store.selectedChartID = nil
-            projectPath.removeAll()
-            IChartTelemetry.record(
-                "app.open_chart",
-                properties: [
-                    "result": .string("locked"),
-                    "to_mode": .string(initialCanvasMode.telemetryValue),
-                    "chart_count": .int(store.charts.count),
-                    "local_chart_limit": .int(store.localChartLimit ?? -1)
-                ]
-            )
-            return
-        }
-
         let chart = store.charts.first(where: { $0.id == chartID })
         let chartTitle = chart?.title ?? "Chart"
         let operationID = UUID()
@@ -125,23 +96,6 @@ struct AppRootView: View {
                     "app.open_chart",
                     properties: [
                         "result": .string("cancelled"),
-                        "layout_style": .string(chart?.layoutStyle.rawValue ?? "unknown"),
-                        "measure_count": .int(chart?.measures.count ?? 0),
-                        "to_mode": .string(initialCanvasMode.telemetryValue)
-                    ]
-                )
-                return
-            }
-
-            guard store.canOpenChartsForEditing else {
-                store.selectedChartID = nil
-                projectPath.removeAll()
-                activeOperationMessage = nil
-                IChartPerformanceTrace.end(traceSpan, metadata: ["result": "locked"])
-                IChartTelemetry.record(
-                    "app.open_chart",
-                    properties: [
-                        "result": .string("locked"),
                         "layout_style": .string(chart?.layoutStyle.rawValue ?? "unknown"),
                         "measure_count": .int(chart?.measures.count ?? 0),
                         "to_mode": .string(initialCanvasMode.telemetryValue)

@@ -58,6 +58,11 @@ final class ChartLibraryStore: ObservableObject {
     )?
     private var asyncPersistenceInFlight = false
     private var persistenceGeneration = 0
+    private var convertedPDFChartSave: (
+        chart: Chart,
+        previousSelection: Chart.ID?,
+        continuation: CheckedContinuation<Bool, Never>
+    )?
 
     init(
         charts: [Chart],
@@ -114,31 +119,14 @@ final class ChartLibraryStore: ObservableObject {
         entitlements.localChartLimit
     }
 
-    var requiresLocalChartPruningForCurrentPlan: Bool {
-        // Voluntarily leaving free Pro must not force deletion or lock editing
-        // of existing charts. Only new-chart capacity is limited in Beta Basic.
-        guard !entitlements.accessPolicy.isFreeBeta else { return false }
-        guard let localChartLimit else {
-            return false
+    var editablePDFConversionUnavailableMessage: String? {
+        guard entitlements.canConvertPDFToEditableChart else {
+            return entitlements.accessPolicy.isFreeBeta
+                ? "Rejoin free Pro in Settings to create an editable chart from this PDF. Reading and sharing the PDF stay available."
+                : "Create Editable Chart requires Pro. Reading and sharing the PDF stay available on Basic."
         }
-
-        return charts.count > localChartLimit
-    }
-
-    var isChartEditingLockedByCurrentPlan: Bool {
-        requiresLocalChartPruningForCurrentPlan
-    }
-
-    var canOpenChartsForEditing: Bool {
-        !isChartEditingLockedByCurrentPlan
-    }
-
-    var localChartOverflowCount: Int {
-        guard let localChartLimit else {
-            return 0
-        }
-
-        return max(0, charts.count - localChartLimit)
+        guard canCreateChart else { return chartCapacityText }
+        return nil
     }
 
     func canUse(_ feature: EntitledFeature) -> Bool {
@@ -217,6 +205,27 @@ final class ChartLibraryStore: ObservableObject {
             selectedChartID = preparedChart.id
         }
         return true
+    }
+
+    /// Review stays open until the admitted draft is present in a saved snapshot.
+    @MainActor
+    func saveConvertedPDFChart(_ preparedChart: Chart) async -> Bool {
+        // Review can outlive a plan change. Recheck access at admission,
+        // independently of the preview button and normal chart capacity.
+        guard entitlements.canConvertPDFToEditableChart,
+              convertedPDFChartSave == nil else { return false }
+        return await withCheckedContinuation { continuation in
+            convertedPDFChartSave = (preparedChart, selectedChartID, continuation)
+            guard createPreparedChart(preparedChart) else {
+                convertedPDFChartSave = nil
+                continuation.resume(returning: false)
+                return
+            }
+            if repository == nil {
+                convertedPDFChartSave = nil
+                continuation.resume(returning: true)
+            }
+        }
     }
 
     @discardableResult
@@ -437,25 +446,6 @@ final class ChartLibraryStore: ObservableObject {
             return 0
         }
         return deletedCharts.count
-    }
-
-    @discardableResult
-    func pruneLocalChartForCurrentPlan(id chartID: Chart.ID) -> Bool {
-        guard requiresLocalChartPruningForCurrentPlan,
-              charts.contains(where: { $0.id == chartID }) else {
-            return false
-        }
-
-        let proposedSelection = selectedChartID == chartID
-            ? charts.first(where: { $0.id != chartID })?.id
-            : selectedChartID
-
-        performPersistedBatch(notifyCloudSync: false) {
-            charts.removeAll { $0.id == chartID }
-            removeChartFromAllProjectsInPlace(chartID)
-            selectedChartID = Self.sanitizedSelection(proposedSelection, charts: charts)
-        }
-        return true
     }
 
     #if DEBUG
@@ -799,6 +789,7 @@ final class ChartLibraryStore: ObservableObject {
                     }
                 }
 
+                self.completeConvertedPDFChartSave(snapshot: pendingPersistence.snapshot, result: result)
                 self.scheduleAsyncPersistenceIfNeeded(repository: repository)
             }
             if case .success = result {
@@ -823,11 +814,13 @@ final class ChartLibraryStore: ObservableObject {
             if notifyCloudSync {
                 onSnapshotSaved?(snapshot)
             }
+            completeConvertedPDFChartSave(snapshot: snapshot, result: .success(()))
             Self.recordPersistenceResult(.save, succeeded: true,
                 durationMilliseconds: (ProcessInfo.processInfo.systemUptime - saveStartedAt) * 1_000)
             return true
         } catch {
             markSaveFailed(error)
+            completeConvertedPDFChartSave(snapshot: snapshot, result: .failure(error))
             Self.recordPersistenceResult(.save, succeeded: false,
                 durationMilliseconds: (ProcessInfo.processInfo.systemUptime - saveStartedAt) * 1_000)
             return false
@@ -877,6 +870,45 @@ final class ChartLibraryStore: ObservableObject {
         let message = error.localizedDescription
         retryableSaveFailureMessage = message
         persistenceStatus = .failed(message: message)
+    }
+
+    private func completeConvertedPDFChartSave(
+        snapshot savedSnapshot: ChartLibrarySnapshot,
+        result: Result<Void, Error>
+    ) {
+        guard let pending = convertedPDFChartSave else { return }
+        guard savedSnapshot.charts.contains(where: { $0.id == pending.chart.id }) else {
+            // A later removal can supersede the queued creation before any
+            // snapshot writes it. Complete that request without recreating it.
+            if !charts.contains(where: { $0.id == pending.chart.id }),
+               pendingAsyncPersistence?.snapshot.charts.contains(where: { $0.id == pending.chart.id }) != true {
+                convertedPDFChartSave = nil
+                pending.continuation.resume(returning: false)
+            }
+            return
+        }
+        switch result {
+        case .success:
+            convertedPDFChartSave = nil
+            pending.continuation.resume(returning: charts.contains { $0.id == pending.chart.id })
+        case .failure:
+            // The serial queue can already hold a newer snapshot containing
+            // this chart. Let that write finish before deciding to roll back.
+            guard pendingAsyncPersistence?.snapshot.charts.contains(where: { $0.id == pending.chart.id }) != true
+            else { return }
+            convertedPDFChartSave = nil
+            if charts.first(where: { $0.id == pending.chart.id }) == pending.chart,
+               !projects.contains(where: { $0.chartIDs.contains(pending.chart.id) }) {
+                let wasPersistenceEnabled = persistenceEnabled
+                persistenceEnabled = false
+                charts.removeAll { $0.id == pending.chart.id }
+                if selectedChartID == pending.chart.id {
+                    selectedChartID = Self.sanitizedSelection(pending.previousSelection, charts: charts)
+                }
+                persistenceEnabled = wasPersistenceEnabled
+            }
+            pending.continuation.resume(returning: false)
+        }
     }
 
     @discardableResult

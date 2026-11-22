@@ -28,6 +28,7 @@ struct LeadSheetEndingEditInteraction {
     private var activeAction: RenderedEditAction?
     private var previewedRange: ClosedRange<Int>?
     private(set) var previewChart: Chart?
+    private(set) var projectedSegments: [LeadSheetEndingLayout]?
     private(set) var dragFeedback: LeadSheetEndingDragFeedback?
 
     var isActive: Bool { session != nil }
@@ -46,6 +47,7 @@ struct LeadSheetEndingEditInteraction {
         activeAction = nil
         previewedRange = nil
         previewChart = nil
+        projectedSegments = nil
         dragFeedback = nil
         return wasActive
     }
@@ -93,6 +95,12 @@ struct LeadSheetEndingEditInteraction {
             if changed {
                 previewedRange = range
                 previewChart = range == nil ? nil : session.previewChart(at: location)
+                if let previewChart, previewChart != chart, let pageLayout, let activeEndingID {
+                    projectedSegments = LeadSheetEndingEditOverlay.previewSegments(
+                        for: activeEndingID, previewChart: previewChart, sourceLayout: pageLayout)
+                } else {
+                    projectedSegments = nil
+                }
                 dragFeedback = range.map { LeadSheetEndingDragFeedback(action: session.action,
                     range: $0, sourceSystemIndex: session.sourceSystemIndex) }
             }

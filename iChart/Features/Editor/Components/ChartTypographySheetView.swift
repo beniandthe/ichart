@@ -4,10 +4,13 @@ import UIKit
 struct ChartTypographySheetView: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var chart: Chart
+    var premiumFontAccess: () -> Bool = { false }
+    private var canUsePremiumFonts: Bool { premiumFontAccess() }
     @State private var operationMessage: String?
     @State private var operationID = UUID()
     @State private var showsIndividualFonts = false
     @State private var presentationDetent: PresentationDetent = .large
+    @State private var showingPremiumFontUpgrade = false
 
     var body: some View {
         NavigationStack {
@@ -15,7 +18,10 @@ struct ChartTypographySheetView: View {
                 Section {
                     EditorSheetInstruction(title: "Choose a font set", steps: [
                         "Tap a matched set to update this chart and its PDF immediately.",
-                        "Open Customize to change individual parts."
+                        "Open Customize to change individual parts.",
+                        canUsePremiumFonts
+                            ? "Your Pro access includes Petaluma, MuseJazz, and Finale Jazz."
+                            : "Petaluma, MuseJazz, and Finale Jazz require Pro to apply. Fonts already saved in a chart stay in use."
                     ])
                     .accessibilityIdentifier("fonts-sheet-instruction")
                 }
@@ -35,12 +41,12 @@ struct ChartTypographySheetView: View {
                             detail: preset.detailText,
                             preview: chordPreviewText,
                             previewFont: preset.chordTextPreviewFont(size: 24),
-                            isSelected: chart.typography.matchedSet == preset
+                            isSelected: chart.typography.matchedSet.releaseSafeTextFamily == preset,
+                            requiresUpgrade: !canUsePremiumFonts && preset.requiresPremiumFonts
                         ) {
-                            applyTypographyChange {
-                                chart.setMatchedFontFamily(preset)
-                            }
+                            selectFont(.matchedSet(preset))
                         }
+                        .accessibilityIdentifier("font-matched-\(preset.rawValue)")
                     }
                 }
 
@@ -64,11 +70,7 @@ struct ChartTypographySheetView: View {
                         selected: chart.typography.chordOverride,
                         preview: chordPreviewText,
                         previewFont: { $0.chordTextPreviewFont(size: 24) },
-                        action: { preset in
-                            applyTypographyChange {
-                                chart.setChordFontOverride(preset)
-                            }
-                        }
+                        action: { selectFont(.chordOverride($0)) }
                     )
 
                     overrideSection(
@@ -76,11 +78,7 @@ struct ChartTypographySheetView: View {
                         selected: chart.typography.headerOverride,
                         preview: "Almost Like Being In Love",
                         previewFont: { $0.textPreviewFont(size: 20) },
-                        action: { preset in
-                            applyTypographyChange {
-                                chart.setHeaderFontOverride(preset)
-                            }
-                        }
+                        action: { selectFont(.headerOverride($0)) }
                     )
 
                     overrideSection(
@@ -88,11 +86,7 @@ struct ChartTypographySheetView: View {
                         selected: chart.typography.textOverride,
                         preview: "(Medium Swing)  To Coda",
                         previewFont: { $0.textPreviewFont(size: 17) },
-                        action: { preset in
-                            applyTypographyChange {
-                                chart.setTextFontOverride(preset)
-                            }
-                        }
+                        action: { selectFont(.textOverride($0)) }
                     )
 
                     Section("Notation Symbols") {
@@ -102,12 +96,12 @@ struct ChartTypographySheetView: View {
                                 detail: preset.detailText,
                                 preview: notationPreview(for: preset),
                                 previewFont: preset.notationPreviewFont(size: 22),
-                                isSelected: chart.notationFont == preset
+                                isSelected: chart.notationFont.releaseSafePreset == preset,
+                                requiresUpgrade: !canUsePremiumFonts && preset.requiresPremiumFonts
                             ) {
-                                applyTypographyChange {
-                                    chart.setNotationFont(preset)
-                                }
+                                selectFont(.notation(preset))
                             }
+                            .accessibilityIdentifier("font-notation-\(preset.rawValue)")
                         }
                     }
                 }
@@ -130,6 +124,10 @@ struct ChartTypographySheetView: View {
         }
         .animation(.easeOut(duration: 0.16), value: operationMessage)
         .presentationDetents([.medium, .large], selection: $presentationDetent)
+        .sheet(isPresented: $showingPremiumFontUpgrade) {
+            UpgradeSheetView(feature: .fontPresets)
+                .accessibilityIdentifier("fonts-upgrade-sheet")
+        }
     }
 
     @ViewBuilder
@@ -146,7 +144,8 @@ struct ChartTypographySheetView: View {
                 detail: chart.typography.matchedSet.detailText,
                 preview: preview,
                 previewFont: previewFont(chart.typography.matchedSet),
-                isSelected: selected == nil
+                isSelected: selected == nil,
+                requiresUpgrade: !canUsePremiumFonts && chart.typography.matchedSet.requiresPremiumFonts
             ) {
                 action(nil)
             }
@@ -157,7 +156,8 @@ struct ChartTypographySheetView: View {
                     detail: preset.detailText,
                     preview: preview,
                     previewFont: previewFont(preset),
-                    isSelected: selected == preset
+                    isSelected: selected?.releaseSafeTextFamily == preset,
+                    requiresUpgrade: !canUsePremiumFonts && preset.requiresPremiumFonts
                 ) {
                     action(preset)
                 }
@@ -171,6 +171,21 @@ struct ChartTypographySheetView: View {
 
     private func notationPreview(for preset: NotationFontPreset) -> String {
         preset.notationPreviewSampleText
+    }
+
+    private func selectFont(_ selection: ChartFontSelection) {
+        guard ChartFontSelectionPolicy.canApply(selection, to: chart, canUsePremiumFonts: canUsePremiumFonts) else {
+            showingPremiumFontUpgrade = true
+            return
+        }
+        applyTypographyChange {
+            guard ChartFontSelectionPolicy.apply(selection, to: &chart,
+                canUsePremiumFonts: premiumFontAccess()) else {
+                operationMessage = nil
+                showingPremiumFontUpgrade = true
+                return
+            }
+        }
     }
 
     private func applyTypographyChange(_ work: @escaping () -> Void) {
@@ -219,6 +234,7 @@ private struct TypographyChoiceRow: View {
     var preview: String?
     var previewFont: Font?
     let isSelected: Bool
+    var requiresUpgrade = false
     let action: () -> Void
 
     var body: some View {
@@ -228,6 +244,13 @@ private struct TypographyChoiceRow: View {
                     Text(title)
                         .font(.headline)
                         .foregroundStyle(.primary)
+
+                    if requiresUpgrade {
+                        Text("Pro")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel("Pro font")
+                    }
 
                     if isSelected {
                         Image(systemName: "checkmark")
@@ -258,6 +281,8 @@ private struct TypographyChoiceRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
-        .accessibilityHint("Applies immediately to this chart and its PDF")
+        .accessibilityHint(requiresUpgrade
+            ? "Opens Pro font options. The chart keeps its current fonts."
+            : "Applies immediately to this chart and its PDF")
     }
 }

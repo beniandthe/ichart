@@ -1,5 +1,40 @@
 import Foundation
 
+/// Complex quality ink offers several diagonal lookalikes. Require separate
+/// physical strokes for the written separator and the bass in those chords.
+enum ChordInkSlashBassEvidence {
+    static func requiresIndependentInk(for symbol: ChordSymbol) -> Bool {
+        symbol.slashBass != nil
+            && (symbol.quality == "ø" || symbol.quality == "°" || symbol.quality.contains("△"))
+    }
+
+    static func hasIndependentInk(separator: InkCluster, bass: InkCluster) -> Bool {
+        guard separator.strokes.count == 1, let slash = separator.strokes.first,
+              slash.points.count >= 2, slash.isLooseSlashBassSeparatorCandidate, !isCappedSeven(slash),
+              bass.bounds.recognitionMidX > separator.bounds.recognitionMidX else {
+            return false
+        }
+
+        return bass.strokes.contains {
+            $0.points.count >= 2 && !$0.isLooseSlashBassSeparatorCandidate && !isCappedSeven($0)
+        }
+    }
+
+    private static func isCappedSeven(_ stroke: InkStroke) -> Bool {
+        guard stroke.points.count >= 7 else { return false }
+        if startsWithSevenCap(stroke) { return true }
+        return startsWithSevenCap(InkStroke(points: Array(stroke.points.reversed()), bounds: stroke.bounds))
+    }
+
+    private static func startsWithSevenCap(_ stroke: InkStroke) -> Bool {
+        guard let start = stroke.points.first, let end = stroke.points.last else { return false }
+        let bounds = stroke.bounds
+        return stroke.hasEarlyTopHorizontalRun && stroke.isSevenCandidate(minimumHeight: 5.5)
+            && bounds.maxX - start.x >= bounds.width * 0.35
+            && bounds.maxX - end.x >= bounds.width * 0.25
+    }
+}
+
 struct ChordInkCandidateEvidencePolicy {
     private static let rootTexts: Set<String> = ["A", "B", "C", "D", "E", "F", "G"]
     private static let rootAccidentalVetoTexts: Set<String> = ["b", "#"]
@@ -18,7 +53,8 @@ struct ChordInkCandidateEvidencePolicy {
     ) -> Bool {
         guard candidate.glyphCandidates.count <= candidateColumns.count,
               candidate.glyphCandidates.count <= clusters.count else {
-            return true
+            return (try? ChordSymbolParser.parse(candidate.text))
+                .map { !ChordInkSlashBassEvidence.requiresIndependentInk(for: $0) } ?? true
         }
 
         guard allowsRootAccidentalEvidence(
@@ -275,9 +311,26 @@ struct ChordInkCandidateEvidencePolicy {
             return false
         }
 
-        let bassRootGlyph = candidate.glyphCandidates[slashIndex + 1]
+        let bassIndex = slashIndex + 1
+        let bassRootGlyph = candidate.glyphCandidates[bassIndex]
         guard Self.rootTexts.contains(bassRootGlyph.text) else {
             return false
+        }
+
+        if ChordInkSlashBassEvidence.requiresIndependentInk(for: symbol) {
+            guard bassRootGlyph.source != .composer, bassRootGlyph.confidence >= 0.55,
+                  ChordInkSlashBassEvidence.hasIndependentInk(
+                      separator: clusters[slashIndex], bass: clusters[bassIndex]
+                  ),
+                  !hasDominantConflict(
+                      in: candidateColumns[bassIndex],
+                      selected: bassRootGlyph,
+                      conflictTexts: Self.hardSlashConflictTexts,
+                      minimumConflictConfidence: 0.70,
+                      allowedLag: 0.04
+                  ) else {
+                return false
+            }
         }
 
         guard let slashBass = symbol.slashBass,
@@ -373,8 +426,17 @@ struct ChordInkCandidateEvidencePolicy {
             guard glyph.text == "ø",
                   candidateColumns.indices.contains(index),
                   clusters.indices.contains(index),
-                  glyph.confidence >= 0.55 else {
+                  let owned = candidateColumns[index].first(where: {
+                      $0.text == "ø" && $0.source != .composer && $0.confidence >= 0.55
+                  }) else {
                 continue
+            }
+
+            let strokes = clusters[index].strokes
+            if owned.source != .heuristic, strokes.count == 2,
+               !hasCrossedDiminishedLoop(strokes[0], slash: strokes[1]),
+               !hasCrossedDiminishedLoop(strokes[1], slash: strokes[0]) {
+                return false
             }
 
             if hasTriangleOwnershipConflict(
@@ -389,6 +451,12 @@ struct ChordInkCandidateEvidencePolicy {
         }
 
         return false
+    }
+
+    private func hasCrossedDiminishedLoop(_ loop: InkStroke, slash: InkStroke) -> Bool {
+        loop.isDiminishedCircleConstructionCandidate
+            && slash.isHalfDiminishedSlashConstructionCandidate
+            && slash.crossesDiminishedLoop(loop.bounds)
     }
 
     private func hasOwnedMajorTriangleQualityEvidence(

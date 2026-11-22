@@ -881,6 +881,14 @@ final class ChordInkCandidateComposerTests: XCTestCase {
     }
 
     func testRecognitionComposerStillAllowsOwnedHalfDiminishedQuality() {
+        let circle = (0...32).map { step in
+            let angle = Double(step) * 2 * .pi / 32
+            return InkPoint(x: 73 + 10 * cos(angle), y: 35 + 10 * sin(angle))
+        }
+        let crossedLoop = InkCluster(strokes: [
+            InkStroke(points: circle),
+            InkStroke(points: [InkPoint(x: 63, y: 45), InkPoint(x: 83, y: 25)])
+        ])
         let result = recognitionComposer.composeRecognitionCandidates(
             from: [
                 [glyph("B", confidence: 0.97, source: .heuristic)],
@@ -895,7 +903,7 @@ final class ChordInkCandidateComposerTests: XCTestCase {
             clusters: [
                 cluster(minX: 0, minY: 22, maxX: 30, maxY: 58),
                 cluster(minX: 36, minY: 14, maxX: 48, maxY: 38),
-                cluster(minX: 60, minY: 22, maxX: 86, maxY: 48, strokes: 2),
+                crossedLoop,
                 cluster(minX: 98, minY: 18, maxX: 116, maxY: 52)
             ]
         )

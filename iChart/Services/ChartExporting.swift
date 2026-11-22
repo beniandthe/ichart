@@ -89,8 +89,7 @@ struct PDFChartExporter: ChartExporting {
     }
 
     static func live(fileManager: FileManager = .default) -> PDFChartExporter {
-        let baseDirectory = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first
-            ?? fileManager.temporaryDirectory
+        let baseDirectory = IChartStorageNamespace.cachesDirectory(fileManager: fileManager)
 
         return PDFChartExporter(
             exportDirectory: baseDirectory.appendingPathComponent("iChartExports", isDirectory: true),

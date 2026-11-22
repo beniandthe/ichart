@@ -1,9 +1,11 @@
-export const storeKitProvider = "storekit";
+import {
+  appStorePublicProductIDs,
+  appStorePayloadProductScopeAllowed,
+  isAppStoreProductID,
+} from "./app_store_product_catalog.mjs";
 
-export const iChartProProductIDs = Object.freeze([
-  "com.ichart.app.pro.monthly",
-  "com.ichart.app.pro.annual",
-]);
+export const storeKitProvider = "storekit";
+export const iChartProProductIDs = appStorePublicProductIDs;
 
 const activeNotificationTypes = new Set([
   "DID_CHANGE_RENEWAL_PREF",
@@ -17,8 +19,8 @@ const activeNotificationTypes = new Set([
   "SUBSCRIBED",
 ]);
 
-export function isIChartProProductID(productID) {
-  return iChartProProductIDs.includes(normalizedString(productID));
+export function isIChartProProductID(productID, config = {}) {
+  return isAppStoreProductID(productID, config);
 }
 
 export function normalizeStoreKitEnvironment(environment) {
@@ -178,7 +180,7 @@ export function subscriptionAuthorityUpdateFromVerifiedNotification(notification
     },
     now
   );
-  const grantsActivePro = isIChartProProductID(productID)
+  const grantsActivePro = isIChartProProductID(productID, options)
     && appStoreStatus === "active"
     && isFuture(expiresAt, now.getTime());
   const cloudRetentionDeadline = cloudRetentionDeadlineForAuthority({
@@ -258,7 +260,7 @@ export function subscriptionAuthorityUpdateFromVerifiedTransaction(transactionIn
   const appStoreStatus = revokedAt !== null
     ? "revoked"
     : isFuture(expiresAt, now.getTime()) ? "active" : "expired";
-  const grantsActivePro = isIChartProProductID(productID)
+  const grantsActivePro = isIChartProProductID(productID, options)
     && appStoreStatus === "active"
     && isFuture(expiresAt, now.getTime());
   const cloudRetentionDeadline = cloudRetentionDeadlineForAuthority({
@@ -364,13 +366,22 @@ export async function handleAppStoreServerNotificationRequest(request, dependenc
     });
   }
 
+  if (!appStorePayloadProductScopeAllowed(transactionInfo, dependencies, "transaction")
+    || (renewalInfo !== null && renewalInfo !== undefined && Object.keys(renewalInfo).length > 0
+      && !appStorePayloadProductScopeAllowed(renewalInfo, dependencies, "renewalInfo"))) {
+    return jsonResponse(422, {
+      accepted: false,
+      error: "Verified App Store payload is outside this deployment's subscription product scope.",
+    });
+  }
+
   const authorityUpdate = subscriptionAuthorityUpdateFromVerifiedNotification(
     {
       ...decodedNotification,
       transactionInfo,
       renewalInfo,
     },
-    { now: dependencies.now ?? new Date() }
+    { now: dependencies.now ?? new Date(), stagingStoreKitProducts: dependencies.stagingStoreKitProducts === true }
   );
 
   if (
@@ -461,10 +472,11 @@ export async function handleStoreKitSubscriptionClaimRequest(request, dependenci
 
   const authorityUpdate = subscriptionAuthorityUpdateFromVerifiedTransaction(
     transactionInfo,
-    { now: dependencies.now ?? new Date() }
+    { now: dependencies.now ?? new Date(), stagingStoreKitProducts: dependencies.stagingStoreKitProducts === true }
   );
 
-  if (!isIChartProProductID(authorityUpdate.storekit_product_id)) {
+  if (!appStorePayloadProductScopeAllowed(transactionInfo, dependencies, "transaction")
+    || !isIChartProProductID(authorityUpdate.storekit_product_id, dependencies)) {
     return jsonResponse(422, {
       accepted: false,
       error: "Verified StoreKit transaction is not an iChart Pro subscription.",
@@ -619,6 +631,8 @@ function verificationStatusName(status) {
       return "sandbox_fallback_root_check";
     case 28:
       return "sandbox_fallback_leaf_check";
+    case 49:
+      return "staging_product_scope";
     default:
       return "unknown";
   }

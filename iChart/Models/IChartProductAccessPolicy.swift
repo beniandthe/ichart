@@ -14,7 +14,11 @@ enum IChartProductAccessPolicy: Hashable {
     case betaBasic
     case paidSubscription
 
+    #if ICHART_PAID_SUBSCRIPTION
+    static let current: Self = .paidSubscription
+    #else
     static let current: Self = .freeAllFeatures
+    #endif
 
     var includesAllFeatures: Bool { self == .freeAllFeatures }
     var isFreeBeta: Bool { self != .paidSubscription }

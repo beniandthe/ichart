@@ -93,7 +93,7 @@ enum IChartPDFImportService {
             if hasSecurityScope { sourceURL.stopAccessingSecurityScopedResource() }
         }
 
-        let stagingDirectory = fileManager.temporaryDirectory
+        let stagingDirectory = IChartStorageNamespace.temporaryDirectory(fileManager: fileManager)
             .appendingPathComponent("iChart-PDF-Import-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
         let stagedURL = stagingDirectory.appendingPathComponent("original.pdf")

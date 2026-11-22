@@ -289,6 +289,93 @@ final class PDFSetlistStoreTests: XCTestCase {
         XCTAssertTrue(IChartPDFSetlistStore(baseDirectory: root.appendingPathComponent("Setlists")).setlists.isEmpty)
     }
 
+    func testUnreadableOptionalCloudMetadataKeepsOfflineSetlistsEditableAndPreservesMetadata() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = IChartPDFSetlistStore(baseDirectory: root)
+        let list = try store.create(name: "Offline set")
+        let url = manifest(in: root)
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let opaque = ["future_format": "preserve this account state"]
+        json["cloudCheckpoints"] = opaque
+        try JSONSerialization.data(withJSONObject: json).write(to: url)
+        let reopened = IChartPDFSetlistStore(baseDirectory: root)
+        XCTAssertNil(reopened.loadError)
+        XCTAssertTrue(reopened.cloudMetadataUnavailable)
+        XCTAssertEqual(reopened.setlists, [list])
+        try reopened.rename(setlistID: list.id, to: "Edited offline")
+        let saved = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        XCTAssertEqual(saved["cloudCheckpoints"] as? [String: String], opaque)
+        XCTAssertEqual(reopened.setlists.first?.name, "Edited offline")
+        XCTAssertThrowsError(try reopened.applyCloudMerge([], ownerID: UUID(),
+            checkpoint: .init(revision: 1, setlists: [], pdfs: []), expectedLocal: reopened.setlists))
+    }
+
+    func testCloudCheckpointPreservesUnrelatedLocalSetlistsAndAccountOwnership() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = IChartPDFSetlistStore(baseDirectory: root)
+        let local = try store.create(name: "Local only")
+        let owner = UUID()
+        let remote = IChartPDFSetlist(name: "Cloud set")
+        try store.applyCloudMerge([remote], ownerID: owner,
+            checkpoint: .init(revision: 2, setlists: [remote], pdfs: []), expectedLocal: store.setlists)
+        XCTAssertEqual(Set(store.setlists.map(\.id)), [local.id, remote.id])
+        XCTAssertEqual(store.cloudSetlists(for: owner, enrollingUnowned: false), [remote])
+        XCTAssertTrue(store.cloudSetlists(for: UUID(), enrollingUnowned: false).isEmpty)
+        let reopened = IChartPDFSetlistStore(baseDirectory: root)
+        XCTAssertEqual(reopened.cloudCheckpoints[owner]?.revision, 2)
+        XCTAssertEqual(reopened.cloudOwners[remote.id], owner)
+        XCTAssertNil(reopened.cloudOwners[local.id])
+    }
+
+    func testCloudMergeRejectsNewerLocalEditsWithoutChangingTheManifest() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = IChartPDFSetlistStore(baseDirectory: root)
+        let local = try store.create(name: "Original")
+        let snapshot = store.setlists
+        try store.rename(setlistID: local.id, to: "New local edit")
+        let before = try Data(contentsOf: manifest(in: root))
+        XCTAssertThrowsError(try store.applyCloudMerge(snapshot, ownerID: UUID(),
+            checkpoint: .init(revision: 1, setlists: snapshot, pdfs: []), expectedLocal: snapshot))
+        XCTAssertEqual(try Data(contentsOf: manifest(in: root)), before)
+        XCTAssertEqual(store.setlists.first?.name, "New local edit")
+    }
+
+    func testThreeWaySetlistMergeKeepsIndependentEditsAndRequiresConflictResolution() {
+        let a = IChartPDFSetlist(name: "A")
+        let b = IChartPDFSetlist(name: "B")
+        var localA = a
+        localA.name = "Local A"
+        var remoteB = b
+        remoteB.name = "Remote B"
+        let independent = IChartPDFSetlistCloudMerge(local: [localA, b], remote: [a, remoteB], baseline: [a, b])
+        XCTAssertTrue(independent.conflictingIDs.isEmpty)
+        XCTAssertEqual(Set(independent.resolved().map(\.name)), ["Local A", "Remote B"])
+        var remoteA = a
+        remoteA.name = "Remote A"
+        let conflict = IChartPDFSetlistCloudMerge(local: [localA], remote: [remoteA], baseline: [a])
+        XCTAssertEqual(conflict.conflictingIDs, [a.id])
+        XCTAssertEqual(conflict.resolved(.local), [localA])
+        XCTAssertEqual(conflict.resolved(.cloud), [remoteA])
+        let copies = conflict.resolved(.both)
+        XCTAssertEqual(copies.count, 2)
+        XCTAssertEqual(Set(copies.map(\.id)).count, 2)
+        XCTAssertTrue(copies.contains(remoteA))
+    }
+
+    func testCloudPDFManifestRejectsMissingReferencesAndInvalidHash() throws {
+        let item = pdfItem(title: "Song")
+        let list = IChartPDFSetlist(name: "Gig", entries: [.init(pdfItemID: item.id, displayTitle: "Song")])
+        XCTAssertThrowsError(try IChartPDFSetlistCloudValidation.validate(.init(setlists: [list], pdfs: [])))
+        XCTAssertThrowsError(try IChartPDFSetlistCloudValidation.validate(.init(setlists: [list],
+            pdfs: [.init(item: item, sha256: "not a hash")])))
+        let document = IChartPDFSetlistCloudDocument(setlists: [], pdfs: [])
+        let encoded = try ChartPersistenceCoders.encoder.encode(document)
+        XCTAssertEqual(try ChartPersistenceCoders.decoder.decode(IChartPDFSetlistCloudDocument.self, from: encoded), document)
+    }
+
     private func temporaryRoot() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
     }
@@ -306,3 +393,263 @@ final class PDFSetlistStoreTests: XCTestCase {
         )
     }
 }
+
+#if canImport(UIKit)
+import UIKit
+import Supabase
+
+@MainActor
+final class PDFSetlistCloudSyncTests: XCTestCase {
+    func testPinnedSupabaseCodersPreserveSubsecondManifestTimestamps() throws {
+        struct Parameters: Encodable { let manifest: IChartJSONValue }
+        let timestamp = Date(timeIntervalSinceReferenceDate: 817_234_567.123456)
+        let list = IChartPDFSetlist(name: "Timestamp", createdAt: timestamp, updatedAt: timestamp)
+        let document = IChartPDFSetlistCloudDocument(setlists: [list], pdfs: [])
+        let payload = try IChartPDFSetlistCloudValidation.payload(document)
+        let wire = try PostgrestClient.Configuration.jsonEncoder.encode(Parameters(manifest: payload))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: wire) as? [String: Any])
+        let manifest = try XCTUnwrap(object["manifest"] as? [String: Any])
+        let rows = try XCTUnwrap(manifest["setlists"] as? [[String: Any]])
+        XCTAssertEqual(rows.first?["createdAt"] as? Double, timestamp.timeIntervalSinceReferenceDate)
+        let response = try PostgrestClient.Configuration.jsonEncoder.encode(
+            IChartPDFSetlistCloudEnvelope(version: 3, manifest: document))
+        let decoded = try PostgrestClient.Configuration.jsonDecoder.decode(IChartPDFSetlistCloudEnvelope.self, from: response)
+        XCTAssertEqual(decoded.manifest, document)
+    }
+
+    func testLinkedPDFBacksUpRestoresOnSecondDeviceAndRemainsReadableAfterAccessEnds() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let data = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 200, height: 200)).pdfData { context in
+            context.beginPage()
+            NSString(string: "Offline setlist PDF").draw(at: CGPoint(x: 10, y: 10), withAttributes: nil)
+        }
+        let source = directory.appendingPathComponent("Source.pdf")
+        try data.write(to: source)
+        let pdfsA = IChartPDFLibraryStore(baseDirectory: directory.appendingPathComponent("A/PDFs"))
+        _ = try pdfsA.save(.init(url: source, chartTitle: "Song", layoutStyle: .simpleChordSheet,
+            transpositionView: .concert, chordTranspositionSemitones: 0, pageCount: 1,
+            fileSizeBytes: data.count, exportedAt: .now), source: .chartExport)
+        let item = try XCTUnwrap(pdfsA.items.first)
+        let listsA = IChartPDFSetlistStore(baseDirectory: directory.appendingPathComponent("A/Setlists"))
+        let original = try listsA.create(name: "Tour", pdfItems: [item])
+        let owner = UUID()
+        let service = PDFSetlistCloudFakeService()
+        let syncA = IChartPDFSetlistCloudSyncStore(service: service)
+        syncA.attach(setlistStore: listsA, pdfStore: pdfsA)
+        syncA.updateAccess(ownerID: owner, canSync: true)
+        syncA.backUpNow()
+        try await finish(syncA)
+        XCTAssertEqual(listsA.cloudCheckpoints[owner]?.setlists, [original])
+        let pdfRootB = directory.appendingPathComponent("B/PDFs")
+        let listRootB = directory.appendingPathComponent("B/Setlists")
+        let pdfsB = IChartPDFLibraryStore(baseDirectory: pdfRootB)
+        let existingSource = directory.appendingPathComponent("BSource/Source.pdf")
+        try FileManager.default.createDirectory(at: existingSource.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        let existingData = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 200, height: 200)).pdfData { context in
+            context.beginPage()
+            NSString(string: "Device B local PDF").draw(at: CGPoint(x: 10, y: 10), withAttributes: nil)
+        }
+        try existingData.write(to: existingSource)
+        let existingPDF = try pdfsB.save(.init(url: existingSource, chartTitle: "Other Song",
+            layoutStyle: .simpleChordSheet, transpositionView: .concert, chordTranspositionSemitones: 0,
+            pageCount: 1, fileSizeBytes: existingData.count, exportedAt: .now), source: .chartExport)
+        let existingItem = try XCTUnwrap(pdfsB.items.first)
+        XCTAssertEqual(existingItem.fileName, item.fileName)
+        let listsB = IChartPDFSetlistStore(baseDirectory: listRootB)
+        let syncB = IChartPDFSetlistCloudSyncStore(service: service)
+        syncB.attach(setlistStore: listsB, pdfStore: pdfsB)
+        syncB.updateAccess(ownerID: owner, canSync: true)
+        syncB.restoreFromCloud()
+        try await finish(syncB)
+        XCTAssertEqual(listsB.setlists, [original])
+        let restored = try XCTUnwrap(pdfsB.items.first { $0.id == item.id })
+        XCTAssertEqual(pdfsB.items.count, 2)
+        XCTAssertNotEqual(restored.fileName, item.fileName)
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(pdfsB.exportedPDF(for: restored)).url), data)
+        let restoredCloudVersion = await service.commitCount()
+        syncB.backUpNow()
+        try await finish(syncB)
+        syncA.backUpNow()
+        try await finish(syncA)
+        let cloudVersionAfterRepeat = await service.commitCount()
+        XCTAssertEqual(cloudVersionAfterRepeat, restoredCloudVersion)
+        XCTAssertEqual(try Data(contentsOf: existingPDF.url), existingData)
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(pdfsB.exportedPDF(for: restored)).url), data)
+        syncB.updateAccess(ownerID: nil, canSync: false)
+        let reopenedPDFs = IChartPDFLibraryStore(baseDirectory: pdfRootB)
+        let reopenedLists = IChartPDFSetlistStore(baseDirectory: listRootB)
+        XCTAssertEqual(reopenedLists.setlists, [original])
+        let cached = try XCTUnwrap(reopenedPDFs.items.first { $0.id == item.id })
+        XCTAssertEqual(reopenedPDFs.items.count, 2)
+        XCTAssertNotNil(reopenedPDFs.items.first { $0.id == existingItem.id })
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(reopenedPDFs.exportedPDF(for: cached)).url), data)
+        XCTAssertEqual(try Data(contentsOf: existingPDF.url), existingData)
+    }
+
+    func testExplicitBackupEnrollsLocalSetlistsAndRepeatedSyncMakesNoNewCloudVersion() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let lists = IChartPDFSetlistStore(baseDirectory: directory.appendingPathComponent("Setlists"))
+        let pdfs = IChartPDFLibraryStore(baseDirectory: directory.appendingPathComponent("PDFs"))
+        let local = try lists.create(name: "Tonight")
+        let owner = UUID()
+        let service = PDFSetlistCloudFakeService()
+        let sync = IChartPDFSetlistCloudSyncStore(service: service)
+        sync.attach(setlistStore: lists, pdfStore: pdfs)
+        sync.updateAccess(ownerID: owner, canSync: true)
+        sync.backUpNow()
+        try await finish(sync)
+        XCTAssertEqual(lists.cloudOwners[local.id], owner)
+        let commitsAfterStep1 = await service.commitCount()
+        XCTAssertEqual(commitsAfterStep1, 1)
+        sync.backUpNow()
+        try await finish(sync)
+        let commitsAfterStep2 = await service.commitCount()
+        XCTAssertEqual(commitsAfterStep2, 1)
+        let otherOwner = UUID()
+        sync.updateAccess(ownerID: otherOwner, canSync: true)
+        try await Task.sleep(for: .milliseconds(30))
+        XCTAssertEqual(lists.setlists, [local])
+        XCTAssertEqual(lists.cloudOwners[local.id], owner)
+        XCTAssertNil(lists.automaticCloudOwnerID)
+        XCTAssertTrue(lists.cloudSetlists(for: otherOwner, enrollingUnowned: false).isEmpty)
+    }
+
+    func testConcurrentCloudEditsRequireAChoiceAndKeepBothPreservesEachVersion() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let lists = IChartPDFSetlistStore(baseDirectory: directory.appendingPathComponent("Setlists"))
+        let pdfs = IChartPDFLibraryStore(baseDirectory: directory.appendingPathComponent("PDFs"))
+        let original = try lists.create(name: "Gig")
+        let owner = UUID()
+        let service = PDFSetlistCloudFakeService()
+        let sync = IChartPDFSetlistCloudSyncStore(service: service)
+        sync.attach(setlistStore: lists, pdfStore: pdfs)
+        sync.updateAccess(ownerID: owner, canSync: true)
+        sync.backUpNow()
+        try await finish(sync)
+        try lists.rename(setlistID: original.id, to: "Local Gig")
+        var remote = original
+        remote.name = "Remote Gig"
+        await service.configure(remote: .init(version: 2,
+            manifest: .init(setlists: [remote], pdfs: [])), holdsFetch: false)
+        sync.backUpNow()
+        try await finish(sync)
+        XCTAssertTrue(sync.pendingConflict)
+        XCTAssertEqual(lists.setlists.first?.name, "Local Gig")
+        // SwiftUI dismisses a dialog before delivering its action.
+        sync.dismissConflictPresentation()
+        sync.resolveConflicts(.both)
+        try await finish(sync)
+        XCTAssertFalse(sync.pendingConflict)
+        XCTAssertEqual(Set(lists.setlists.map(\.name)), ["Remote Gig", "Local Gig (Local copy)"])
+        XCTAssertEqual(Set(lists.setlists.map(\.id)).count, 2)
+    }
+
+    func testAccountChangeAndExpiryKeepLocalSetlistsAndInvalidateAnInFlightRestore() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let lists = IChartPDFSetlistStore(baseDirectory: directory.appendingPathComponent("Setlists"))
+        let pdfs = IChartPDFLibraryStore(baseDirectory: directory.appendingPathComponent("PDFs"))
+        let local = try lists.create(name: "Keep offline")
+        let remote = IChartPDFSetlist(name: "Remote account")
+        let service = PDFSetlistCloudFakeService()
+        await service.configure(remote: .init(version: 1, manifest: .init(setlists: [remote], pdfs: [])), holdsFetch: true)
+        let sync = IChartPDFSetlistCloudSyncStore(service: service)
+        sync.attach(setlistStore: lists, pdfStore: pdfs)
+        sync.updateAccess(ownerID: UUID(), canSync: true)
+        sync.restoreFromCloud()
+        for _ in 0..<50 {
+            if await service.isHolding() { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        sync.updateAccess(ownerID: nil, canSync: false)
+        await service.resumeFetch()
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertFalse(sync.isWorking)
+        XCTAssertEqual(lists.setlists, [local])
+        XCTAssertTrue(lists.cloudOwners.isEmpty)
+        let commitsAfterStep3 = await service.commitCount()
+        XCTAssertEqual(commitsAfterStep3, 0)
+    }
+
+    func testNewLocalEditDuringCloudReadIsKeptAndCanBeRetried() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let lists = IChartPDFSetlistStore(baseDirectory: directory.appendingPathComponent("Setlists"))
+        let pdfs = IChartPDFLibraryStore(baseDirectory: directory.appendingPathComponent("PDFs"))
+        let local = try lists.create(name: "First name")
+        let service = PDFSetlistCloudFakeService()
+        await service.configure(remote: .init(version: 0, manifest: nil), holdsFetch: true)
+        let sync = IChartPDFSetlistCloudSyncStore(service: service)
+        sync.attach(setlistStore: lists, pdfStore: pdfs)
+        sync.updateAccess(ownerID: UUID(), canSync: true)
+        sync.backUpNow()
+        for _ in 0..<50 {
+            if await service.isHolding() { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try lists.rename(setlistID: local.id, to: "Latest edit")
+        await service.resumeFetch()
+        try await finish(sync)
+        XCTAssertEqual(lists.setlists.first?.name, "Latest edit")
+        let commitsAfterStep4 = await service.commitCount()
+        XCTAssertEqual(commitsAfterStep4, 0)
+        sync.backUpNow()
+        try await finish(sync)
+        let commitsAfterStep5 = await service.commitCount()
+        XCTAssertEqual(commitsAfterStep5, 1)
+        XCTAssertEqual(lists.setlists.first?.name, "Latest edit")
+    }
+
+    private func finish(_ sync: IChartPDFSetlistCloudSyncStore) async throws {
+        for _ in 0..<100 {
+            if !sync.isWorking { return }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTFail("The local fake cloud operation must finish")
+    }
+}
+
+private actor PDFSetlistCloudFakeService: IChartPDFSetlistCloudServicing {
+    private var remote = IChartPDFSetlistCloudEnvelope(version: 0, manifest: nil)
+    private var commits = 0
+    private var holdsFetch = false
+    private var pdfData: [String: Data] = [:]
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func configure(remote: IChartPDFSetlistCloudEnvelope, holdsFetch: Bool) {
+        self.remote = remote
+        self.holdsFetch = holdsFetch
+    }
+    func isHolding() -> Bool { continuation != nil }
+    func resumeFetch() {
+        holdsFetch = false
+        continuation?.resume()
+        continuation = nil
+    }
+    func commitCount() -> Int { commits }
+    func fetch(ownerID: UUID) async throws -> IChartPDFSetlistCloudEnvelope {
+        if holdsFetch { await withCheckedContinuation { continuation = $0 } }
+        return remote
+    }
+    func download(_ pdf: IChartPDFSetlistCloudPDF, ownerID: UUID) async throws -> Data {
+        guard let data = pdfData[pdf.sha256] else { throw IChartPDFSetlistCloudError.missingPDF }
+        return data
+    }
+    func upload(_ pdf: IChartPDFSetlistCloudPDF, data: Data, ownerID: UUID) async throws {
+        try IChartPDFSetlistCloudValidation.validate(data, for: pdf)
+        pdfData[pdf.sha256] = data
+    }
+    func commit(_ document: IChartPDFSetlistCloudDocument, expectedVersion: Int64,
+        ownerID: UUID) async throws -> IChartPDFSetlistCloudEnvelope {
+        guard expectedVersion == remote.version else { throw IChartPDFSetlistCloudError.cloudChanged }
+        commits += 1
+        remote = .init(version: remote.version + 1, manifest: document)
+        return remote
+    }
+}
+#endif

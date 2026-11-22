@@ -21,7 +21,8 @@ RULES = (
 
 # Match the complete quoted source literal, including the hostname/path or key
 # suffix. Splitting these declarations prevents the scanner from finding its own
-# allowlist as credentials. Only these two existing test files receive exceptions.
+# allowlist as credentials. Each exception is one exact, synthetic test literal
+# at one path; matching prefixes and neighboring values remain subject to scans.
 SYNTHETIC_LITERALS = {
     "scripts/test_telemetry_work_queue.py": (
         '"' + "postgresql" + "://person:" + "DO_NOT_EXPOSE" + "@database.example/private" + '"',
@@ -29,6 +30,12 @@ SYNTHETIC_LITERALS = {
     ),
     "supabase/functions/_shared/forum_post_actions.test.mjs": (
         '"' + "sb_" + "secret_not_a_public_key" + '"',
+    ),
+    "iChartTests/IChartStagingConfigurationIsolationTests.swift": (
+        '"' + "sb_" + "secret_synthetic_not_a_client_key" + '"',
+    ),
+    "scripts/test_internal_paid_staging_packaging.py": (
+        '"' + "sb_" + "secret_invented_secret_123456789" + '"',
     ),
 }
 

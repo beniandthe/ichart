@@ -22,7 +22,7 @@ final class IChartBetaProStore: ObservableObject {
     private var sessionRecoveryTask: Task<Void, Never>?
     private var sessionRecoveryTaskID: UUID?
 
-    init(service: (any IChartBetaProService)?, defaults: UserDefaults = .standard) {
+    init(service: (any IChartBetaProService)?, defaults: UserDefaults = IChartStorageNamespace.defaults) {
         self.service = service
         self.defaults = defaults
     }

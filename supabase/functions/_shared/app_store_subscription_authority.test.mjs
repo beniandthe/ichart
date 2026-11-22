@@ -9,10 +9,93 @@ import {
   subscriptionAuthorityUpdateFromVerifiedNotification,
   subscriptionAuthorityUpdateFromVerifiedTransaction,
 } from "./app_store_subscription_authority.mjs";
+import { appStoreStagingProductIDs } from "./app_store_product_catalog.mjs";
 
 const now = new Date("2026-06-12T21:30:00.000Z");
 const futureExpiration = Date.parse("2026-07-12T21:30:00.000Z");
 const futureGrace = Date.parse("2026-06-19T21:30:00.000Z");
+
+function stagingTransaction(productId, environment = "Sandbox") {
+  return {
+    productId,
+    environment,
+    originalTransactionId: "synthetic-stage-original",
+    transactionId: "synthetic-stage-transaction",
+    appAccountToken: "00000000-0000-4000-8000-000000000001",
+    signedDate: now.getTime(),
+    expiresDate: futureExpiration,
+  };
+}
+
+test("staging claim accepts only dedicated Sandbox products before resolving or writing authority", async () => {
+  for (const productId of [...appStoreStagingProductIDs, ...iChartProProductIDs, "unknown"]) {
+    for (const environment of ["Sandbox", "Production"]) {
+      let resolved = 0;
+      let claim = null;
+      const response = await handleStoreKitSubscriptionClaimRequest(new Request("https://example.test/claim", {
+        method: "POST",
+        headers: { authorization: "Bearer synthetic-session" },
+        body: JSON.stringify({ signedTransactionInfo: "synthetic-signed-payload" }),
+      }), {
+        now,
+        stagingStoreKitProducts: true,
+        verifyAndDecodeTransaction: async () => stagingTransaction(productId, environment),
+        authenticatedUserID: async () => { resolved++; return "00000000-0000-4000-8000-000000000001"; },
+        writeSubscriptionAuthorityClaim: async (value) => { claim = value; return { stored: true }; },
+      });
+      const allowed = appStoreStagingProductIDs.includes(productId) && environment === "Sandbox";
+      assert.equal(response.status, allowed ? 202 : 422);
+      assert.equal(resolved, allowed ? 1 : 0);
+      assert.equal(claim?.authorityUpdate.plan ?? null, allowed ? "studioSubscription" : null);
+      assert.equal(claim?.authorityUpdate.storekit_product_id ?? null, allowed ? productId : null);
+    }
+  }
+});
+
+test("staging notifications reject public or cross-scope renewal products before authority writes", async () => {
+  for (const productId of [...appStoreStagingProductIDs, ...iChartProProductIDs]) {
+    for (const renewalKind of ["absent", "stage", "public"]) {
+      let update = null;
+      const notification = {
+        notificationType: "DID_RENEW",
+        environment: "Sandbox",
+        transactionInfo: stagingTransaction(productId),
+        ...(renewalKind === "absent" ? {} : { renewalInfo: {
+          productId: appStoreStagingProductIDs[0],
+          autoRenewProductId: renewalKind === "stage" ? appStoreStagingProductIDs[1] : iChartProProductIDs[1],
+          environment: "Sandbox",
+        } }),
+      };
+      const response = await handleAppStoreServerNotificationRequest(new Request("https://example.test/notification", {
+        method: "POST", body: JSON.stringify({ signedPayload: "synthetic-signed-notification" }),
+      }), {
+        now,
+        stagingStoreKitProducts: true,
+        verifyAndDecodeNotification: async () => notification,
+        writeSubscriptionAuthority: async (value) => { update = value; return { stored: true }; },
+      });
+      const allowed = appStoreStagingProductIDs.includes(productId) && renewalKind !== "public";
+      assert.equal(response.status, allowed ? 202 : 422);
+      assert.equal(update?.plan ?? null, allowed ? "studioSubscription" : null);
+      assert.equal(update?.storekit_product_id ?? null, allowed ? productId : null);
+    }
+  }
+});
+
+test("default public claims continue rejecting isolated staging products", async () => {
+  for (const productId of appStoreStagingProductIDs) {
+    const response = await handleStoreKitSubscriptionClaimRequest(new Request("https://example.test/claim", {
+      method: "POST", headers: { authorization: "Bearer synthetic-session" },
+      body: JSON.stringify({ signedTransactionInfo: "synthetic-signed-payload" }),
+    }), {
+      now,
+      verifyAndDecodeTransaction: async () => stagingTransaction(productId),
+      authenticatedUserID: async () => { assert.fail("out-of-scope product must not resolve owner"); },
+      writeSubscriptionAuthorityClaim: async () => { assert.fail("out-of-scope product must not write"); },
+    });
+    assert.equal(response.status, 422);
+  }
+});
 
 function oversizedStream(firstChunkBytes, secondChunkBytes) {
   let pulls = 0;

@@ -68,9 +68,10 @@ final class EditorToolGuidanceTests: XCTestCase {
                 layoutStyle: .rhythmSectionSheet, manualRenderWithPreview: manual)
             let legacy = EditorCanvasMode.chordEntry.toolGuidance(
                 layoutStyle: .leadSheet, manualRenderWithPreview: manual)
-            XCTAssertTrue(simple.referenceText.contains("Draw tall barlines between chords"))
+            XCTAssertTrue(simple.referenceText.contains("Draw tall barlines between chords with a gap on both sides"))
             XCTAssertFalse(simple.referenceText.contains("rhythmic boundary"))
             XCTAssertTrue(rhythm.referenceText.contains("split at a rhythmic boundary"))
+            XCTAssertTrue(rhythm.referenceText.contains("Leave a gap on both sides"))
             XCTAssertTrue(rhythm.referenceText.contains("If a note crosses the cut, the line stays as ink."))
             XCTAssertTrue(rhythm.referenceText.contains("empty row end"))
             XCTAssertTrue(rhythm.referenceText.contains("Use Measures for other form edits."))
@@ -95,7 +96,8 @@ final class EditorToolGuidanceTests: XCTestCase {
                 XCTAssertFalse(guidance.accessibilitySummary.contains("marcato"))
                 XCTAssertTrue(guidance.referenceText.contains("One finger scrolls"))
                 XCTAssertTrue(guidance.referenceText.contains("Two fingers pan and zoom"))
-                XCTAssertTrue(guidance.referenceText.contains("other handwriting stays on the page"))
+                XCTAssertTrue(guidance.referenceText.contains("Other handwriting stays on the page"))
+                XCTAssertTrue(guidance.referenceText.contains("Draw an accent (>) in one or two strokes"))
                 XCTAssertTrue(guidance.referenceText.contains("original strokes"))
                 XCTAssertTrue(guidance.referenceText.contains("Ink in or just below a measure follows it"))
                 XCTAssertTrue(guidance.referenceText.contains("Ink directly below a chord can follow that chord"))
@@ -137,6 +139,16 @@ final class EditorToolGuidanceTests: XCTestCase {
                 XCTAssertFalse(guidance.referenceText.contains("lone measure on the next row"))
                 XCTAssertFalse(selectGuide.referenceText.contains("lone measure on the next row"))
             }
+        }
+    }
+
+    func testSelectGuideDistinguishesAnnotationHeightFromEndingRange() {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let guide = EditorCanvasMode.browse.toolGuidance(
+                layoutStyle: style, manualRenderWithPreview: false)
+            XCTAssertTrue(guide.referenceText.contains("Move Up or Down to adjust its height"))
+            XCTAssertTrue(guide.referenceText.contains("Reset Position restores automatic spacing"))
+            XCTAssertTrue(guide.referenceText.contains("Move and Lengthen adjust the measures"))
         }
     }
 

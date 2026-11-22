@@ -1134,7 +1134,9 @@ final class ChordInkRecognitionSession {
                 durationMilliseconds: next.providerMilliseconds, completedScores: nil),
                 cacheKey: cacheKey, providerIndex: next.providerIndex)
         case .completed(let result):
-            candidates = result.map(ChordInkAutomaticFallbackCandidatePolicy.candidateScores(for:)) ?? []
+            candidates = result.map {
+                ChordInkAutomaticFallbackCandidatePolicy.candidateScores(for: $0, originalSource: request.strokes)
+            } ?? []
             outcome = .completed
             if fallbackTechnicalStates[cacheKey]?[next.providerIndex] != nil {
                 setFallbackTechnicalState(.init(attemptCount: next.completedAttempts,

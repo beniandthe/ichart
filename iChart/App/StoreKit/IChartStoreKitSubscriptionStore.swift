@@ -58,6 +58,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
     @Published private(set) var products: [Product] = []
     @Published private(set) var productOptions: [IChartStoreKitProductOption] = []
     @Published private(set) var entitlement: IChartSubscriptionEntitlement
+    @Published private(set) var verifiedSubscriptionOwnerID: UUID?
     @Published private(set) var state: IChartStoreKitSubscriptionState = .idle
     @Published private(set) var complimentaryOffers: [IChartComplimentaryOffer] = []
     @Published private(set) var complimentaryOfferStatuses: [IChartComplimentaryOfferStatus] = []
@@ -136,14 +137,17 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
             switch resolution {
             case .verified(let verifiedEntitlement, _):
                 entitlement = verifiedEntitlement
+                verifiedSubscriptionOwnerID = expectedOwnerID
                 state = .ready
             case .noRemoteSubscription:
+                verifiedSubscriptionOwnerID = nil
                 entitlement = IChartStoreKitEntitlementResolver.serverBackedEntitlement(
                     remoteEntitlement: nil,
                     localEntitlement: localEvaluation.entitlement
                 )
                 state = .ready
             case .unavailable(let claimFailed):
+                verifiedSubscriptionOwnerID = nil
                 if !claimFailed,
                    let fallbackEntitlement = IChartStoreKitEntitlementResolver.serverBackedFallbackForRemoteFailure(
                        localEntitlement: localEvaluation.entitlement
@@ -461,6 +465,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
                 // An accepted, same-owner ordinary claim establishes access even
                 // if campaign confirmation is pending. It does not finish the gift.
                 entitlement = claimedEntitlement
+                verifiedSubscriptionOwnerID = accountID
                 let confirmedResponse = try await subscriptionClaimService.complimentaryOffer(
                     request: IChartComplimentaryOfferServerRequest(
                         action: .confirm,
@@ -940,6 +945,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
                     return .retryLater
                 }
                 entitlement = claimedEntitlement
+                verifiedSubscriptionOwnerID = accountID
                 let confirmed = try await subscriptionClaimService.complimentaryOffer(
                     request: IChartComplimentaryOfferServerRequest(
                         action: .confirm,
@@ -965,7 +971,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
     }
 
     private func pendingComplimentaryPurchase() -> IChartPendingComplimentaryPurchase? {
-        guard let data = UserDefaults.standard.data(
+        guard let data = IChartStorageNamespace.defaults.data(
             forKey: Self.pendingComplimentaryPurchaseKey
         ) else {
             return nil
@@ -979,7 +985,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
         guard let data = try? JSONEncoder().encode(pending) else {
             return false
         }
-        UserDefaults.standard.set(data, forKey: Self.pendingComplimentaryPurchaseKey)
+        IChartStorageNamespace.defaults.set(data, forKey: Self.pendingComplimentaryPurchaseKey)
         return true
     }
 
@@ -987,7 +993,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
         guard pendingComplimentaryPurchase()?.attemptID == attemptID else {
             return
         }
-        UserDefaults.standard.removeObject(forKey: Self.pendingComplimentaryPurchaseKey)
+        IChartStorageNamespace.defaults.removeObject(forKey: Self.pendingComplimentaryPurchaseKey)
     }
 
     private func removePendingComplimentaryPurchase(matching transaction: Transaction) {
@@ -1010,7 +1016,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
         ) else {
             return
         }
-        UserDefaults.standard.removeObject(forKey: Self.pendingComplimentaryPurchaseKey)
+        IChartStorageNamespace.defaults.removeObject(forKey: Self.pendingComplimentaryPurchaseKey)
     }
 
     private func loadProducts() async {
@@ -1149,7 +1155,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
                 appropriateFor: nil,
                 create: false
             )
-            let debugURL = supportURL
+            let debugURL = IChartStorageNamespace.scopedDirectory(supportURL)
                 .appendingPathComponent("iChart", isDirectory: true)
                 .appendingPathComponent("debug-last-storekit-transaction.jws")
             if FileManager.default.fileExists(atPath: debugURL.path) {
@@ -1315,7 +1321,7 @@ private struct IChartSupabaseStoreKitSubscriptionClaimService: IChartStoreKitSub
                 storage: IChartSubscriptionRequestLocalStorage(),
                 autoRefreshToken: false,
                 accessToken: { pinnedAccessToken }
-            ))
+            ), global: .init(session: IChartSupabaseClientFactory.networkSession))
         )
     }
 

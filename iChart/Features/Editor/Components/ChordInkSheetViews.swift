@@ -270,7 +270,7 @@ struct PendingChordInkBatchConfirmation: Identifiable {
         if requiresSeparatedChordInk {
             return "Separate the grouped chords before rendering."
         }
-        return "Check the guesses and enter any missing chords. Tap a field to type or use its Pencil icon for Scribble. \(actionTitle) uses the chord text shown in each row."
+        return "Check the guesses and enter any missing chords. Choose Keyboard to type, or choose Scribble and tap the field with Apple Pencil before writing. \(actionTitle) uses the chord shown in each row."
     }
 
     var actionTitle: String {
@@ -849,7 +849,7 @@ struct ChordInkBatchConfirmationSheetView: View {
             .frame(height: 52)
             .accessibilityLabel("Chord entry for measure \(confirmation.displayMeasureNumber)")
             .accessibilityIdentifier("Chord review entry \(confirmation.id.uuidString)")
-            .accessibilityHint("Tap to type. Use Start Scribble to write with Apple Pencil.")
+            .accessibilityHint("Choose Keyboard to type, or choose Scribble and tap the field with Apple Pencil before writing.")
 
             if let feedback = ChordInkReviewEntryValidation(text: entryText(for: confirmation))
                 .feedbackText(hasMissingChordGuidance: confirmation.requiresDirectEntry && confirmation.reviewMessage != nil) {
@@ -861,7 +861,7 @@ struct ChordInkBatchConfirmationSheetView: View {
             }
 
             if confirmation.requiresDirectEntry && entryText(for: confirmation).isEmpty {
-                Text("Type the chord shown in your handwriting.")
+                Text("Enter the chord shown in your handwriting.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -1020,7 +1020,7 @@ struct ChordInkConfirmationSheetView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                Text("Tap the chord field to type or use its Pencil icon for Scribble.")
+                Text("Choose Keyboard to type, or choose Scribble and tap the chord field with Apple Pencil before writing.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
 
@@ -1050,7 +1050,7 @@ struct ChordInkConfirmationSheetView: View {
                             .stroke(isManualEntryFocused ? IChartInterfaceStyle.selectionBorder : IChartInterfaceStyle.cardBorder, lineWidth: 1)
                     }
                     .accessibilityLabel("Manual chord entry")
-                    .accessibilityHint("Tap to type. Use Start Scribble to write with Apple Pencil.")
+                    .accessibilityHint("Choose Keyboard to type, or choose Scribble and tap the field with Apple Pencil before writing.")
 
                 if let feedback = ChordInkReviewEntryValidation(text: manualCandidateText)
                     .feedbackText(hasMissingChordGuidance: confirmation.requiresDirectEntry && confirmation.reviewMessage != nil) {
@@ -1246,7 +1246,7 @@ struct ChordCorrectionSheetView: View {
                             .accessibilityHidden(true)
                     }
 
-                Text("Choose an alternative or change the quality. Tap the field to type or use its Pencil icon for Scribble. Save applies the chord shown in Change to.")
+                Text("Choose an alternative or change the quality. Choose Keyboard to type, or choose Scribble and tap the chord field with Apple Pencil before writing. Save applies the chord shown in Change to.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1293,7 +1293,7 @@ struct ChordCorrectionSheetView: View {
                             .stroke(isManualEntryFocused ? IChartInterfaceStyle.selectionBorder : IChartInterfaceStyle.cardBorder, lineWidth: 1)
                     }
                     .accessibilityLabel("Manual chord entry")
-                    .accessibilityHint("Tap to type. Use Start Scribble to write with Apple Pencil.")
+                    .accessibilityHint("Choose Keyboard to type, or choose Scribble and tap the field with Apple Pencil before writing.")
                 }
 
                 if trimmedCandidateText.isEmpty {
