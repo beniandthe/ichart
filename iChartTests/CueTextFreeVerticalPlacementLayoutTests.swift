@@ -17,7 +17,7 @@ final class CueTextFreeVerticalPlacementLayoutTests: XCTestCase {
                 let initial = try cue(cueID, in: before)
                 let system = try system(ownerID, in: before)
                 let paper = before.paperFrame(for: system)
-                let top = max(paper.minY + 4, before.header.handwrittenFrame.maxY + 4)
+                let top = paper.minY + 4
                 for request in [-180.0, 180.0] {
                     var moved = chart
                     XCTAssertTrue(moved.setCueTextManualVerticalOffset(cueID, to: request))
@@ -100,7 +100,7 @@ final class CueTextFreeVerticalPlacementLayoutTests: XCTestCase {
         }
     }
 
-    func testManualPlacementStopsAtActualHeaderAndFooterOnItsOwningPaper() throws {
+    func testManualPlacementStopsAtActualPaperTopAndFooterOnItsOwningPaper() throws {
         for style in styles {
             for atEnd in [false, true] {
                 var chart = try fixture(style: style, measureCount: 30)
@@ -115,9 +115,7 @@ final class CueTextFreeVerticalPlacementLayoutTests: XCTestCase {
                     XCTAssertTrue(moved.setCueTextManualVerticalOffset(cueID, to: offset))
                     let after = plan(moved)
                     let displayed = try cue(cueID, in: after)
-                    let minimumY = page.includesHeader
-                        ? max(page.frame.minY + 4, after.header.handwrittenFrame.maxY + 4)
-                        : page.frame.minY + 4
+                    let minimumY = page.frame.minY + 4
                     if offset < 0 {
                         XCTAssertEqual(displayed.frame.minY, minimumY, accuracy: 0.0001)
                     } else {
@@ -126,6 +124,53 @@ final class CueTextFreeVerticalPlacementLayoutTests: XCTestCase {
                     XCTAssertTrue(page.frame.insetBy(dx: -0.001, dy: -0.001).contains(displayed.frame))
                     assertFixedMusic(after, before, chart: chart)
                 }
+            }
+        }
+    }
+
+    func testFirstSystemCueCanMoveIntoHeaderAreaInEveryHeaderModeWithoutMovingMusic() throws {
+        for style in styles {
+            for mode in ChartHeaderInputMode.allCases {
+                var chart = try fixture(style: style)
+                chart.setHeaderInputMode(mode)
+                let ownerID = chart.measures[0].id
+                let cueID = try XCTUnwrap(chart.addCueText("Place beside the title", anchorMeasureID: ownerID,
+                    position: .below, atFraction: 0.375))
+                let before = plan(chart)
+                let initial = try cue(cueID, in: before)
+                let firstSystem = try system(ownerID, in: before)
+                let page = try XCTUnwrap(before.pages.first { $0.systemIDs.contains(firstSystem.id) })
+                XCTAssertTrue(page.includesHeader)
+                let targetY = page.frame.minY + 28
+                XCTAssertLessThan(targetY + initial.frame.height, before.header.handwrittenFrame.maxY,
+                    "The target must exercise space excluded by the former reserved-header ceiling")
+                let request = Double(targetY - initial.frame.minY)
+                XCTAssertLessThan(request, 0, "The first-row cue must actually move upward")
+                let template = try XCTUnwrap(LeadSheetPageLayoutEngine.cueTextMovePreviewTemplate(chart: chart,
+                    sourcePageLayout: before, cueID: cueID, targetMeasureID: ownerID, fraction: 0.375))
+                let legacyPreview = try XCTUnwrap(LeadSheetPageLayoutEngine.cueTextMovePreview(chart: chart,
+                    sourcePageLayout: before, cueID: cueID, targetMeasureID: ownerID,
+                    fraction: 0.375, verticalOffset: request, template: template))
+                XCTAssertGreaterThanOrEqual(legacyPreview.frame.minY, before.header.handwrittenFrame.maxY + 4,
+                    "An older cue without explicit manual Y must retain its header protection")
+                let preview = try XCTUnwrap(LeadSheetPageLayoutEngine.cueTextMovePreview(chart: chart,
+                    sourcePageLayout: before, cueID: cueID, targetMeasureID: ownerID,
+                    fraction: 0.375, verticalOffset: request, template: template,
+                    usesFreeVerticalPlacement: true))
+                XCTAssertEqual(preview.frame.minY, targetY, accuracy: 0.0001)
+                XCTAssertTrue(chart.setCueTextManualVerticalOffset(cueID, to: Double(preview.verticalOffsetFromDefault)))
+                let after = plan(chart)
+                let displayed = try cue(cueID, in: after)
+                assertFrame(displayed.frame, preview.frame)
+                XCTAssertLessThan(displayed.frame.minY, try measure(ownerID, in: after).staffFrame.minY)
+                XCTAssertEqual(chart.cueText(id: cueID)?.anchorMeasureID, ownerID)
+                XCTAssertEqual(chart.cueText(id: cueID)?.beatFraction, 0.375)
+                XCTAssertEqual(chart.headerInputMode, mode)
+                assertFixedMusic(after, before, chart: chart)
+                let reopened = try ChartPersistenceCoders.decoder.decode(Chart.self,
+                    from: ChartPersistenceCoders.encoder.encode(chart))
+                assertFrame(try cue(cueID, in: plan(reopened)).frame, displayed.frame)
+                assertFixedMusic(plan(reopened), before, chart: chart)
             }
         }
     }

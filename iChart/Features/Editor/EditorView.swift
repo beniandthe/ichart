@@ -7721,10 +7721,20 @@ enum CueTextEntryPanelGeometry {
     static let maximumWidth: CGFloat = 420
     static let horizontalMargin: CGFloat = 20
     static let headerHeight: CGFloat = 36
-    static let inputHeight: CGFloat = 72
+    static let minimumInputHeight: CGFloat = 44
+    static let maximumInputHeight: CGFloat = 240
     static let verticalSpacing: CGFloat = 10
     static let verticalPadding: CGFloat = 14
-    static let panelHeight = headerHeight + inputHeight + verticalSpacing + verticalPadding * 2
+
+    static func inputHeight(forContentHeight contentHeight: CGFloat, availableHeight: CGFloat) -> CGFloat {
+        let content = contentHeight.isFinite ? max(minimumInputHeight, ceil(contentHeight)) : minimumInputHeight
+        let available = availableHeight.isFinite ? max(minimumInputHeight, floor(availableHeight)) : maximumInputHeight
+        return min(content, min(maximumInputHeight, available))
+    }
+
+    static func panelHeight(forInputHeight inputHeight: CGFloat) -> CGFloat {
+        headerHeight + inputHeight + verticalSpacing + verticalPadding * 2
+    }
 
     static func panelWidth(for availableWidth: CGFloat) -> CGFloat {
         min(maximumWidth, max(1, availableWidth - horizontalMargin * 2))
@@ -7738,6 +7748,8 @@ private struct CueTextEntryPanelView: View {
     var highlightsAction = false
     let onAdd: () -> Void
     let onCancel: () -> Void
+    @State private var measuredInputHeight = CueTextEntryPanelGeometry.minimumInputHeight
+    @State private var availableInputHeight: CGFloat?
 
     private var canAdd: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -7745,6 +7757,10 @@ private struct CueTextEntryPanelView: View {
 
     var body: some View {
         GeometryReader { proxy in
+            let available = availableInputHeight ?? (proxy.size.height
+                - CueTextEntryPanelGeometry.panelHeight(forInputHeight: 0) - 24)
+            let inputHeight = CueTextEntryPanelGeometry.inputHeight(
+                forContentHeight: measuredInputHeight, availableHeight: available)
             ZStack(alignment: .top) {
                 // An outside tap dismisses typing rather than reopening the
                 // keyboard while the user navigates the chart.
@@ -7808,15 +7824,17 @@ private struct CueTextEntryPanelView: View {
                             placeholder: "Cue",
                             accessibilityIdentifier: "editor-cue-text-entry",
                             accessibilityLabel: "Cue text",
-                            accessibilityHint: "Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing."
+                            accessibilityHint: "Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing.",
+                            onContentHeightChange: { measuredInputHeight = $0 },
+                            onAvailableHeightChange: { availableInputHeight = $0 }
                         )
                     }
-                    .frame(height: CueTextEntryPanelGeometry.inputHeight)
+                    .frame(height: inputHeight)
                 }
                 .padding(CueTextEntryPanelGeometry.verticalPadding)
                 .frame(
                     width: CueTextEntryPanelGeometry.panelWidth(for: proxy.size.width),
-                    height: CueTextEntryPanelGeometry.panelHeight,
+                    height: CueTextEntryPanelGeometry.panelHeight(forInputHeight: inputHeight),
                     alignment: .top
                 )
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))

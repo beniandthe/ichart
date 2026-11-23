@@ -21,7 +21,7 @@ final class FinalCueTextExportCompletenessTests: XCTestCase {
         )
     }
 
-    func testPDFKeepsViewedCuePositionsInTheMarginAndBeyondTheOldHeightLimit() async throws {
+    func testPDFKeepsViewedCuePositionsAboveTheFirstSystemAndBeyondTheOldHeightLimit() async throws {
         NotationFontRegistrar.registerBundledFontsIfNeeded()
         let output = try proofOutputDirectory(label: "horizontal-cue-export")
         defer {
@@ -32,12 +32,12 @@ final class FinalCueTextExportCompletenessTests: XCTestCase {
             var chart = Chart.blank(title: "Cue Export Geometry", measureCount: 4, layoutStyle: style)
             let firstID = chart.measures[0].id
             let secondID = chart.measures[1].id
-            let marginText = "Hold rhythm"
+            let marginText = "Hold rhythm\nSoft entrance"
             let freeText = "Play lightly"
             let marginCueID = try XCTUnwrap(chart.addCueText(marginText, anchorMeasureID: firstID))
             let freeCueID = try XCTUnwrap(chart.addCueText(freeText, anchorMeasureID: secondID))
             XCTAssertTrue(chart.moveCueText(marginCueID, to: firstID, atFraction: 0,
-                horizontalPlacement: .init(region: .leadingMargin, fraction: 0.2)))
+                horizontalPlacement: .init(region: .leadingMargin, fraction: 0.2), manualVerticalOffset: -10_000))
             XCTAssertTrue(chart.moveCueText(freeCueID, to: secondID, atFraction: 0.25,
                 horizontalPlacement: .init(region: .measure, fraction: 0.32), manualVerticalOffset: 150))
 
@@ -53,6 +53,8 @@ final class FinalCueTextExportCompletenessTests: XCTestCase {
             let marginCue = try XCTUnwrap(first.cueTextLayouts.first { $0.id == marginCueID })
             let freeCue = try XCTUnwrap(second.cueTextLayouts.first { $0.id == freeCueID })
             XCTAssertLessThan(marginCue.frame.minX, first.staffFrame.minX - 4)
+            XCTAssertLessThan(marginCue.frame.minY, layout.header.handwrittenFrame.maxY)
+            XCTAssertGreaterThanOrEqual(marginCue.frame.minY, paper.minY)
             XCTAssertEqual(freeCue.frame.minX, second.staffFrame.minX + 0.32 * second.staffFrame.width, accuracy: 0.01)
             XCTAssertEqual(freeCue.verticalOffsetFromDefault, 150, accuracy: 0.01)
 
@@ -60,10 +62,10 @@ final class FinalCueTextExportCompletenessTests: XCTestCase {
             let document = try XCTUnwrap(PDFDocument(url: export.url))
             let page = try XCTUnwrap(document.page(at: 0))
             let text = try XCTUnwrap(page.string) as NSString
-            for cue in [marginCue, freeCue] {
-                let range = text.range(of: cue.text)
+            for (wording, cue) in [("Hold rhythm", marginCue), ("Soft entrance", marginCue), (freeText, freeCue)] {
+                let range = text.range(of: wording)
                 guard range.location != NSNotFound else {
-                    XCTFail("\(style) export omitted \(cue.text)")
+                    XCTFail("\(style) export omitted \(wording)")
                     continue
                 }
                 let selection = try XCTUnwrap(page.selection(for: range))
@@ -72,7 +74,7 @@ final class FinalCueTextExportCompletenessTests: XCTestCase {
                     width: cue.frame.width, height: cue.frame.height)
                 XCTAssertFalse(ink.isEmpty)
                 XCTAssertTrue(expected.insetBy(dx: -2, dy: -2).contains(ink),
-                    "\(style) export placed \(cue.text) outside its saved cue frame")
+                    "\(style) export placed \(wording) outside its saved cue frame")
             }
         }
     }

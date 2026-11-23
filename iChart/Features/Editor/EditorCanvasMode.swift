@@ -364,6 +364,7 @@ enum EditorCanvasMode: Hashable {
                 detailsTitle: "Text guide",
                 details: [
                     .init(title: "Cue placement", text: "The blue marker shows the cue’s beat. Check the measure and placement in the Text panel before tapping Add."),
+                    .init(title: "Text entry", text: "In Keyboard, press Return for a new line. All lines stay in the same cue."),
                     .init(title: "Existing cues", text: "Tap a cue with Apple Pencil, then use Edit, Larger, Smaller or Delete."),
                     .init(title: "Moving cues", text: Self.cueMoveGuidance)
                 ]

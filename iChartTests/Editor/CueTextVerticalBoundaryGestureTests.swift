@@ -304,6 +304,36 @@ final class CueTextVerticalBoundaryGestureTests: XCTestCase {
         }
     }
 
+    func testFirstSystemHeldCueFitsItsTextBoxAndCommitsAtThePaperTopWithoutMovingMusic() throws {
+        for style in styles {
+            let fixture = try fixture(style: style, position: .above, ownerMeasureIndex: 0, text: "I")
+            let mounted = try mount(fixture, route: .hold)
+            defer { mounted.close() }
+            let before = try cachedLayout(mounted.canvas)
+            let geometry = Geometry(before)
+            let original = try cue(fixture.cueID, in: before)
+            let paper = before.pages[0].frame
+            let dy = paper.minY + 4 - original.frame.minY
+            let gesture = try begin(mounted, fixture: fixture, route: .hold)
+            move(gesture, from: mounted.start, by: dy, state: .changed, on: mounted.canvas)
+            let preview = try preview(mounted.canvas)
+            XCTAssertEqual(preview.frame.minY, paper.minY + 4, accuracy: 0.001)
+            XCTAssertLessThan(preview.frame.minY, before.header.handwrittenFrame.maxY)
+            XCTAssertEqual(preview.frame.size, original.frame.size)
+            XCTAssertLessThan(preview.frame.width, 28)
+            let overlay = try XCTUnwrap(mounted.canvas.layer.sublayers?.first { $0.name == "cue-text-drag" })
+            let box = try XCTUnwrap(overlay.sublayers?.first { $0.name == "selection" })
+            assertEqual(box.frame, LeadSheetCueTextEditOverlayGeometry.editFrame(for: preview))
+            XCTAssertEqual(Geometry(try cachedLayout(mounted.canvas)), geometry)
+            XCTAssertTrue(mounted.writes.isEmpty)
+            move(gesture, from: mounted.start, by: dy, state: .ended, on: mounted.canvas)
+            try assertOneVerticalCommit(mounted, fixture: fixture, preview: preview, originalGeometry: geometry)
+            let controls = LeadSheetCueTextEditOverlayGeometry.controlFrames(for: preview, within: paper)
+            XCTAssertGreaterThan(controls.edit.minY, preview.frame.maxY)
+            XCTAssertTrue(paper.contains(controls.delete))
+        }
+    }
+
     private enum Route: CaseIterable { case body, hold }
 
     private struct Fixture {
@@ -353,7 +383,7 @@ final class CueTextVerticalBoundaryGestureTests: XCTestCase {
     }
 
     private func fixture(style: ChartLayoutStyle, position: CuePosition,
-        verticalOffset: Double = 0) throws -> Fixture {
+        verticalOffset: Double = 0, ownerMeasureIndex: Int = 2, text: String = "On cue") throws -> Fixture {
         var chart = Chart.blank(title: "Cue vertical boundaries", measureCount: 6, layoutStyle: style)
         chart.setStaffSystemDensity(.dense)
         let measures = chart.measures
@@ -361,12 +391,12 @@ final class CueTextVerticalBoundaryGestureTests: XCTestCase {
             ChartSystem(id: UUID(), index: index, spacingMode: .compact, lineBreakRule: .forced,
                 measures: Array(measures[first..<min(first + 2, measures.count)]))
         }
-        let measureID = chart.measures[2].id
+        let measureID = chart.measures[ownerMeasureIndex].id
         let chordID = try XCTUnwrap(chart.appendRecognizedChordEvent(try ChordSymbolParser.parse("Cmaj7"),
             rawInput: "Cmaj7", to: measureID, atFraction: 0.75))
         // The first Rhythm chord snaps to beat one. Use a separate cue column
         // so the fixture measures travel to the neighboring row's boundary.
-        let cueID = try XCTUnwrap(chart.addCueText("On cue", anchorMeasureID: measureID,
+        let cueID = try XCTUnwrap(chart.addCueText(text, anchorMeasureID: measureID,
             position: position, atFraction: 0.5))
         XCTAssertTrue(chart.updateCueText(cueID, verticalOffset: verticalOffset))
         let drawing = PKDrawing(strokes: [PKStroke(ink: PKInk(.pen,
@@ -377,12 +407,14 @@ final class CueTextVerticalBoundaryGestureTests: XCTestCase {
                     opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
             ], creationDate: Date(timeIntervalSinceReferenceDate: 10)), transform: .identity, mask: nil, randomSeed: 17)])
         let data = try XCTUnwrap(LeadSheetPersistentInkColorPolicy.persistentDrawingData(for: drawing))
-        let eventIndex = try XCTUnwrap(chart.systems[1].measures[0].chordEvents.firstIndex { $0.id == chordID })
-        chart.systems[1].measures[0].chordEvents[eventIndex].sourceInkData = data
+        let systemIndex = ownerMeasureIndex / 2
+        let measureIndex = ownerMeasureIndex % 2
+        let eventIndex = try XCTUnwrap(chart.systems[systemIndex].measures[measureIndex].chordEvents.firstIndex { $0.id == chordID })
+        chart.systems[systemIndex].measures[measureIndex].chordEvents[eventIndex].sourceInkData = data
         chart.pageHandwrittenNotationData = data
         chart.pageHandwrittenNotationCoordinateSpace = PersistentInkCoordinateSpace(width: 900, height: 1_400)
-        chart.systems[1].measures[0].handwrittenRhythmicNotationData = data
-        chart.systems[1].measures[0].handwrittenRhythmicNotationCoordinateSpace = PersistentInkCoordinateSpace(width: 300, height: 80)
+        chart.systems[systemIndex].measures[measureIndex].handwrittenRhythmicNotationData = data
+        chart.systems[systemIndex].measures[measureIndex].handwrittenRhythmicNotationCoordinateSpace = PersistentInkCoordinateSpace(width: 300, height: 80)
         chart = try ChartPersistenceCoders.decoder.decode(Chart.self,
             from: ChartPersistenceCoders.encoder.encode(chart))
         return Fixture(chart: chart, cueID: cueID)

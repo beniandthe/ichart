@@ -412,50 +412,41 @@ enum LeadSheetCueTextEditOverlayGeometry {
     static let editFrameHitOutset: CGFloat = 8
 
     static func editFrame(for cueTextLayout: LeadSheetCueTextLayout) -> CGRect {
-        let paddedFrame = cueTextLayout.frame.insetBy(dx: -5, dy: -4)
-        return CGRect(
-            x: paddedFrame.minX,
-            y: paddedFrame.minY,
-            width: max(32, paddedFrame.width),
-            height: max(22, paddedFrame.height)
-        )
+        cueTextLayout.frame.insetBy(dx: -2, dy: -2)
     }
 
     static func editHitFrame(for cueTextLayout: LeadSheetCueTextLayout) -> CGRect {
-        editFrame(for: cueTextLayout).insetBy(dx: -editFrameHitOutset, dy: -editFrameHitOutset)
+        let frame = editFrame(for: cueTextLayout).insetBy(dx: -editFrameHitOutset, dy: -editFrameHitOutset)
+        let width = max(44, frame.width), height = max(44, frame.height)
+        return CGRect(x: frame.midX - width / 2, y: frame.midY - height / 2,
+            width: width, height: height)
     }
 
-    static func controlFrames(for cueTextLayout: LeadSheetCueTextLayout) -> LeadSheetCueTextEditControlFrames {
+    static func controlFrames(for cueTextLayout: LeadSheetCueTextLayout,
+        within bounds: CGRect? = nil) -> LeadSheetCueTextEditControlFrames {
         let editFrame = editFrame(for: cueTextLayout)
-        let originY = editFrame.minY - controlSize - 4
-        let startX = editFrame.minX
         let controlStep = controlSize + controlGap
-
+        let rowWidth = controlSize * 4 + controlGap * 3
+        let gap = controlHitOutset + 1
+        var originY = editFrame.minY - controlSize - gap
+        var startX = editFrame.minX
+        if let bounds {
+            let usable = bounds.insetBy(dx: controlHitOutset, dy: controlHitOutset)
+            startX = min(max(startX, usable.minX), max(usable.minX, usable.maxX - rowWidth))
+            if originY < usable.minY { originY = editFrame.maxY + gap }
+            originY = min(max(originY, usable.minY), max(usable.minY, usable.maxY - controlSize))
+        }
         return LeadSheetCueTextEditControlFrames(
             edit: CGRect(x: startX, y: originY, width: controlSize, height: controlSize),
-            shrink: CGRect(
-                x: startX + controlStep,
-                y: originY,
-                width: controlSize,
-                height: controlSize
-            ),
-            grow: CGRect(
-                x: startX + controlStep * 2,
-                y: originY,
-                width: controlSize,
-                height: controlSize
-            ),
-            delete: CGRect(
-                x: startX + controlStep * 3,
-                y: originY,
-                width: controlSize,
-                height: controlSize
-            )
+            shrink: CGRect(x: startX + controlStep, y: originY, width: controlSize, height: controlSize),
+            grow: CGRect(x: startX + controlStep * 2, y: originY, width: controlSize, height: controlSize),
+            delete: CGRect(x: startX + controlStep * 3, y: originY, width: controlSize, height: controlSize)
         )
     }
 
-    static func controlHitFrames(for cueTextLayout: LeadSheetCueTextLayout) -> LeadSheetCueTextEditControlFrames {
-        let controls = controlFrames(for: cueTextLayout)
+    static func controlHitFrames(for cueTextLayout: LeadSheetCueTextLayout,
+        within bounds: CGRect? = nil) -> LeadSheetCueTextEditControlFrames {
+        let controls = controlFrames(for: cueTextLayout, within: bounds)
         let frames = [controls.edit, controls.shrink, controls.grow, controls.delete]
         let hits = frames.enumerated().map { index, frame in
             let padded = frame.insetBy(dx: -controlHitOutset, dy: -controlHitOutset)
@@ -488,7 +479,8 @@ enum LeadSheetCueTextEditOverlayGeometry {
     static func hitTarget(
         at location: CGPoint,
         in cueTextLayouts: [LeadSheetCueTextLayout],
-        selectedCueTextID: UUID?
+        selectedCueTextID: UUID?,
+        controlBounds: CGRect? = nil
     ) -> CueTextEditHitTarget? {
         let selected = cueTextLayouts.first { $0.id == selectedCueTextID }
         func controlTarget(_ controls: LeadSheetCueTextEditControlFrames, cue: LeadSheetCueTextLayout) -> CueTextEditHitTarget? {
@@ -498,12 +490,12 @@ enum LeadSheetCueTextEditOverlayGeometry {
             }
             return nil
         }
-        if let selected, let control = controlTarget(controlFrames(for: selected), cue: selected) { return control }
+        if let selected, let control = controlTarget(controlFrames(for: selected, within: controlBounds), cue: selected) { return control }
         if cueTextLayouts.contains(where: { $0.frame.contains(location) }),
            let cue = bodyHitTarget(at: location, in: cueTextLayouts) {
             return CueTextEditHitTarget(cueTextID: cue.id, action: .select)
         }
-        if let selected, let control = controlTarget(controlHitFrames(for: selected), cue: selected) { return control }
+        if let selected, let control = controlTarget(controlHitFrames(for: selected, within: controlBounds), cue: selected) { return control }
         guard let cue = bodyHitTarget(at: location, in: cueTextLayouts) else { return nil }
         return CueTextEditHitTarget(cueTextID: cue.id, action: .select)
     }

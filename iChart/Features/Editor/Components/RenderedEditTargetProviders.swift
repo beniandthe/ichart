@@ -276,20 +276,25 @@ struct CueTextRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
         let cues = context.pageLayout.systems.flatMap(\.measures).flatMap(\.cueTextLayouts)
         let glyphIndex = GlyphBandIndex(cues: cues)
         return cues.flatMap { cue in
-            cueTextTargets(for: cue, selection: context.selection, glyphIndex: glyphIndex)
+            let point = CGPoint(x: cue.frame.midX, y: cue.frame.midY)
+            let paper = context.pageLayout.pages.first(where: { $0.frame.contains(point) })?.frame
+                ?? context.pageLayout.pageBounds
+            return cueTextTargets(for: cue, selection: context.selection, glyphIndex: glyphIndex,
+                paperFrame: paper)
         }
     }
 
     private func cueTextTargets(
         for cueTextLayout: LeadSheetCueTextLayout,
         selection: RenderedEditSelectionState,
-        glyphIndex: GlyphBandIndex
+        glyphIndex: GlyphBandIndex,
+        paperFrame: CGRect
     ) -> [RenderedEditHitTarget] {
         let objectID = RenderedEditObjectID.cueText(cueTextLayout.id)
         let isSelected = selection.contains(objectID)
         let bodyHit = LeadSheetCueTextEditOverlayGeometry.editHitFrame(for: cueTextLayout)
-        let controls = isSelected ? LeadSheetCueTextEditOverlayGeometry.controlFrames(for: cueTextLayout) : nil
-        let hits = isSelected ? LeadSheetCueTextEditOverlayGeometry.controlHitFrames(for: cueTextLayout) : nil
+        let controls = isSelected ? LeadSheetCueTextEditOverlayGeometry.controlFrames(for: cueTextLayout, within: paperFrame) : nil
+        let hits = isSelected ? LeadSheetCueTextEditOverlayGeometry.controlHitFrames(for: cueTextLayout, within: paperFrame) : nil
         let controlHits = hits.map { [$0.edit, $0.shrink, $0.grow, $0.delete] } ?? []
         let hitBounds = controlHits.reduce(bodyHit) { $0.union($1) }
         let otherGlyphFrames = glyphIndex.frames(overlapping: hitBounds, excluding: cueTextLayout.id)

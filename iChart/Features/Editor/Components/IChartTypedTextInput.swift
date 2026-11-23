@@ -168,6 +168,8 @@ struct IChartTypedTextView: UIViewRepresentable {
     var accessibilityIdentifier: String? = nil
     var accessibilityLabel: String? = nil
     var accessibilityHint: String? = nil
+    var onContentHeightChange: ((CGFloat) -> Void)? = nil
+    var onAvailableHeightChange: ((CGFloat) -> Void)? = nil
 
     func makeUIView(context: Context) -> IChartTypedUITextView {
         let view = IChartTypedUITextView()
@@ -198,10 +200,13 @@ struct IChartTypedTextView: UIViewRepresentable {
         view.setInputName(accessibilityLabel ?? placeholder ?? "text")
         if view.markedTextRange == nil, view.text != text { view.text = text }
         view.setPlaceholder(placeholder, color: placeholderColor)
+        view.configureContentSizing(onContentHeightChange: onContentHeightChange,
+            onAvailableHeightChange: onAvailableHeightChange)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
     static func dismantleUIView(_ view: IChartTypedUITextView, coordinator: Coordinator) {
+        view.configureContentSizing(onContentHeightChange: nil, onAvailableHeightChange: nil)
         view.exitScribble()
         _ = view.resignFirstResponder()
         IChartKeyboardInputContext.finish(for: view)
@@ -214,6 +219,7 @@ struct IChartTypedTextView: UIViewRepresentable {
         init(parent: IChartTypedTextView) { self.parent = parent }
         func textViewDidChange(_ textView: UITextView) {
             (textView as? IChartTypedUITextView)?.updatePlaceholderVisibility()
+            (textView as? IChartTypedUITextView)?.contentSizingDidChange()
             parent.text = textView.text
         }
         func textViewDidBeginEditing(_ textView: UITextView) {
@@ -334,6 +340,14 @@ final class IChartTypedUITextView: UITextView, IChartNativeTextInput, UIScribble
     var isScribbleEnabled: Bool { inputMode.isScribbleEnabled }
     var isScribblePrepared: Bool { inputMode.isScribblePrepared && isFirstResponder }
     private let placeholderLabel = UILabel()
+    private var onContentHeightChange: ((CGFloat) -> Void)?
+    private var onAvailableHeightChange: ((CGFloat) -> Void)?
+    private var sizingKeyboardObservers: [NSObjectProtocol] = []
+    private var sizingKeyboardFrame: CGRect?
+    private var pendingSizingMetrics: (content: CGFloat, available: CGFloat)?
+    private var sizingDeliveryScheduled = false
+    private var lastContentHeight: CGFloat?
+    private var lastAvailableHeight: CGFloat?
     private lazy var inputTap = IChartNativeKeyboardFocus.makeTap(target: self,
         action: #selector(directTap(_:)), delegate: self)
 
@@ -344,6 +358,40 @@ final class IChartTypedUITextView: UITextView, IChartNativeTextInput, UIScribble
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         installInputControls()
+    }
+    deinit {
+        sizingKeyboardObservers.forEach(NotificationCenter.default.removeObserver)
+    }
+
+    func configureContentSizing(onContentHeightChange: ((CGFloat) -> Void)?,
+        onAvailableHeightChange: ((CGFloat) -> Void)?) {
+        self.onContentHeightChange = onContentHeightChange
+        self.onAvailableHeightChange = onAvailableHeightChange
+        guard onContentHeightChange != nil || onAvailableHeightChange != nil else {
+            sizingKeyboardObservers.forEach(NotificationCenter.default.removeObserver)
+            sizingKeyboardObservers.removeAll()
+            sizingKeyboardFrame = nil
+            pendingSizingMetrics = nil
+            lastContentHeight = nil
+            lastAvailableHeight = nil
+            return
+        }
+        if sizingKeyboardObservers.isEmpty {
+            for name in [UIResponder.keyboardWillChangeFrameNotification, UIResponder.keyboardWillHideNotification] {
+                sizingKeyboardObservers.append(NotificationCenter.default.addObserver(forName: name,
+                    object: nil, queue: .main) { [weak self] notification in
+                    guard let self else { return }
+                    self.sizingKeyboardFrame = notification.name == UIResponder.keyboardWillHideNotification
+                        ? nil : (notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
+                    self.setNeedsLayout()
+                })
+            }
+        }
+        setNeedsLayout()
+    }
+
+    func contentSizingDidChange() {
+        if onContentHeightChange != nil || onAvailableHeightChange != nil { setNeedsLayout() }
     }
     private func installInputControls() {
         addInteraction(UIScribbleInteraction(delegate: self))
@@ -372,6 +420,46 @@ final class IChartTypedUITextView: UITextView, IChartNativeTextInput, UIScribble
         inputMode.controls.frame = inputModeControlsFrame
         inputMode.keyboardButton.isEnabled = isEditable
         inputMode.scribbleButton.isEnabled = isEditable
+        reportContentSizingIfNeeded()
+    }
+
+    private func reportContentSizingIfNeeded() {
+        guard onContentHeightChange != nil || onAvailableHeightChange != nil,
+              let window, bounds.width.isFinite, bounds.width > 0 else { return }
+        let fitted = sizeThatFits(CGSize(width: bounds.width, height: .greatestFiniteMagnitude)).height
+        // Some native fitting passes omit the extra editable line after Return.
+        // The caret uses the same live text layout without switching TextKit engines.
+        let trailingLineBottom = text.last?.isNewline == true
+            ? caretRect(for: endOfDocument).maxY + textContainerInset.bottom : 0
+        let content = ceil(max(inputMode.controls.intrinsicContentSize.height, max(fitted, trailingLineBottom)))
+        let inputFrame = convert(bounds, to: window)
+        var availableBottom = window.bounds.maxY - window.safeAreaInsets.bottom
+        if let sizingKeyboardFrame {
+            let keyboard = window.convert(sizingKeyboardFrame, from: window.screen.coordinateSpace)
+            if keyboard.maxX > inputFrame.minX, keyboard.minX < inputFrame.maxX,
+               keyboard.maxY > inputFrame.minY, keyboard.minY < availableBottom {
+                availableBottom = min(availableBottom, keyboard.minY)
+            }
+        }
+        let available = max(0, floor(availableBottom - inputFrame.minY - 12))
+        guard content.isFinite, available.isFinite else { return }
+        pendingSizingMetrics = (content, available)
+        guard !sizingDeliveryScheduled else { return }
+        sizingDeliveryScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.sizingDeliveryScheduled = false
+            guard let metrics = self.pendingSizingMetrics else { return }
+            self.pendingSizingMetrics = nil
+            if self.lastContentHeight != metrics.content {
+                self.lastContentHeight = metrics.content
+                self.onContentHeightChange?(metrics.content)
+            }
+            if self.lastAvailableHeight != metrics.available {
+                self.lastAvailableHeight = metrics.available
+                self.onAvailableHeightChange?(metrics.available)
+            }
+        }
     }
     func setPlaceholder(_ placeholder: String?, color: UIColor) {
         guard placeholderLabel.text != placeholder || placeholderLabel.textColor != color

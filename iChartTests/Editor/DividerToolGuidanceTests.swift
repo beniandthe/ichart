@@ -64,10 +64,27 @@ final class DividerToolGuidanceTests: XCTestCase {
         XCTAssertEqual(openedViewport, viewport)
         field.requestKeyboard()
         enterCueText("Basses only", in: field)
+        _ = try await settledCanvasFrame(mounted)
+        let oneLineFrame = field.convert(field.bounds, to: mounted.window)
+        field.selectedRange = NSRange(location: ("Basses only" as NSString).length, length: 0)
+        field.insertText("\n")
+        let multilineFrame = try await cueInputFrame(in: mounted.window, tallerThan: oneLineFrame.height)
+        let multilineInput = try await cueInput(in: mounted.window)
+        XCTAssertTrue(multilineInput === field)
+        XCTAssertEqual(field.text, "Basses only\n")
+        XCTAssertEqual(multilineFrame.minY, oneLineFrame.minY, accuracy: 0.5)
+        XCTAssertEqual(multilineFrame.width, oneLineFrame.width, accuracy: 0.5)
+        field.insertText("Light pickups")
+        XCTAssertEqual(field.text, "Basses only\nLight pickups")
+        enterCueText("Basses only", in: field)
+        _ = try await settledCanvasFrame(mounted)
+        XCTAssertEqual(field.bounds.height, oneLineFrame.height, accuracy: 0.5,
+            "Removing a line returns the same input to its one-line height")
+        enterCueText("Basses only\nLight pickups", in: field)
         field.scribbleModeButton.sendActions(for: .touchUpInside)
         field.prepareScribble()
         XCTAssertTrue(field.isScribbleEnabled)
-        XCTAssertEqual(field.text, "Basses only")
+        XCTAssertEqual(field.text, "Basses only\nLight pickups")
         let scribbleViewport = try await settledCanvasFrame(mounted)
         XCTAssertEqual(scribbleViewport, viewport,
             "The paper viewport must stay fixed when entering text or switching input modes")
@@ -80,6 +97,7 @@ final class DividerToolGuidanceTests: XCTestCase {
         XCTAssertEqual(placed.anchorMeasureID, measureID)
         XCTAssertEqual(placed.position, .below)
         XCTAssertEqual(placed.beatFraction, 0.5)
+        XCTAssertEqual(placed.text, "Basses only\nLight pickups")
         XCTAssertEqual(firstSave.cueText(id: neighborID), original.cueText(id: neighborID))
 
         try activate(await node("Select", in: mounted.window, button: true))
@@ -89,20 +107,20 @@ final class DividerToolGuidanceTests: XCTestCase {
         sendEditorTap(at: CGPoint(x: cue.frame.midX, y: cue.frame.midY), in: mounted.canvas)
         try activate(await node("Edit", in: mounted.window, button: true))
         let cancelledInput = try await cueInput(in: mounted.window)
-        XCTAssertEqual(cancelledInput.text, "Basses only")
+        XCTAssertEqual(cancelledInput.text, "Basses only\nLight pickups")
         XCTAssertEqual(mounted.canvas.interactionMode, .browse)
         enterCueText("Discard this draft", in: cancelledInput)
         try activate(await node("Cancel", in: mounted.window, button: true))
         try activate(await node("Edit", in: mounted.window, button: true))
         let editInput = try await cueInput(in: mounted.window)
-        XCTAssertEqual(editInput.text, "Basses only", "Cancel leaves the original cue text intact")
+        XCTAssertEqual(editInput.text, "Basses only\nLight pickups", "Cancel leaves the original cue text intact")
         XCTAssertEqual(mounted.binding.wrappedValue, firstSave)
-        enterCueText("Basses enter", in: editInput)
+        enterCueText("Basses enter\nDrums out", in: editInput)
         try activate(await node("Apply", in: mounted.window, button: true))
         _ = try await node("Edit", in: mounted.window, button: true)
         let final = mounted.binding.wrappedValue
         var expected = placed
-        expected.text = "Basses enter"
+        expected.text = "Basses enter\nDrums out"
         expected.rawInput = expected.text
         XCTAssertEqual(final.cueText(id: placed.id), expected)
         XCTAssertEqual(final.cueText(id: neighborID), original.cueText(id: neighborID))
@@ -121,6 +139,17 @@ final class DividerToolGuidanceTests: XCTestCase {
             try await Task.sleep(nanoseconds: 50_000_000)
         }
         XCTFail("The editor did not present the Text entry field")
+        throw GuidanceFailure.missingControl
+    }
+
+    private func cueInputFrame(in window: UIWindow, tallerThan height: CGFloat) async throws -> CGRect {
+        for _ in 0..<25 {
+            let field = try await cueInput(in: window)
+            let frame = field.convert(field.bounds, to: window)
+            if frame.height > height + 1 { return frame }
+            try await Task.sleep(nanoseconds: 40_000_000)
+        }
+        XCTFail("Entering a new line should grow the existing cue field")
         throw GuidanceFailure.missingControl
     }
 

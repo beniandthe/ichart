@@ -504,6 +504,7 @@ struct LeadSheetCueTextMovePreviewTemplate {
     fileprivate var rowTop: CGFloat
     fileprivate var rowBottom: CGFloat
     fileprivate var paperTop: CGFloat
+    fileprivate var freePaperTop: CGFloat
     fileprivate var paperBottom: CGFloat
     fileprivate var otherCueFrames: [CGRect]
     fileprivate var obstacles: [CGRect]
@@ -713,7 +714,8 @@ enum LeadSheetPageLayoutEngine {
         }
         return LeadSheetCueTextMovePreviewTemplate(cueLayout: cue, measure: measure,
             system: baseline, paperFrame: page.frame,
-            rowTop: rowTop, rowBottom: rowBottom, paperTop: paperTop, paperBottom: paperBottom,
+            rowTop: rowTop, rowBottom: rowBottom, paperTop: paperTop,
+            freePaperTop: page.frame.minY + annotationTopEdgeClearance, paperBottom: paperBottom,
             otherCueFrames: otherCueFrames, obstacles: cueMovementObstacles(in: baseline, chart: projectedChart))
     }
 
@@ -745,7 +747,7 @@ enum LeadSheetPageLayoutEngine {
             : CGFloat(CueText.clampedVerticalOffset(verticalOffset))
         let y = freePlacement
             ? paperClampedCueY(for: cue.frame, offset: offset,
-                paperTop: frozen.paperTop, paperBottom: frozen.paperBottom)
+                paperTop: frozen.freePaperTop, paperBottom: frozen.paperBottom)
             : constrainedCueY(for: cue.frame, offset: offset,
                 rowTop: frozen.rowTop, rowBottom: frozen.rowBottom,
                 paperTop: frozen.paperTop, paperBottom: frozen.paperBottom,
@@ -853,7 +855,7 @@ enum LeadSheetPageLayoutEngine {
                         if manualOffset != nil || authoredOffset != 0 {
                             let y = manualOffset != nil
                                 ? paperClampedCueY(for: cue.frame, offset: CGFloat(authoredOffset),
-                                    paperTop: paperTop, paperBottom: paperBottom)
+                                    paperTop: page.frame.minY + annotationTopEdgeClearance, paperBottom: paperBottom)
                                 : constrainedCueY(for: cue.frame, offset: CGFloat(authoredOffset),
                                     rowTop: rowTop, rowBottom: rowBottom,
                                     paperTop: paperTop, paperBottom: paperBottom,
@@ -4557,9 +4559,9 @@ enum LeadSheetPageLayoutEngine {
         let paragraphWidths = cueText.text.split(separator: "\n", omittingEmptySubsequences: false).map { paragraph in
             paragraph.reduce(CGFloat(0)) { $0 + estimatedCueTextCharacterWidth($1, fontSize: fontSize) }
         }
-        let width = min(max(1, maximumWidth), max(28, (paragraphWidths.max() ?? 0) + 12))
+        let width = min(max(1, maximumWidth), max(1, ceil(paragraphWidths.max() ?? 0) + 1))
         let lineCount = max(1, paragraphWidths.reduce(0) { $0 + max(1, Int(ceil($1 / width))) })
-        return (CGSize(width: width, height: max(16, fontSize * 1.34) * CGFloat(lineCount)), lineCount)
+        return (CGSize(width: width, height: ceil(fontSize * 1.2 * CGFloat(lineCount)) + 1), lineCount)
         #endif
     }
 

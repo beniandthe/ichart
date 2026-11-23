@@ -3388,7 +3388,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         selectionPath.lineWidth = 1.2
         selectionPath.stroke()
 
-        let controlFrames = LeadSheetCueTextEditOverlayGeometry.controlFrames(for: cueTextLayout)
+        let controlFrames = LeadSheetCueTextEditOverlayGeometry.controlFrames(for: cueTextLayout,
+            within: cueTextControlBounds(for: cueTextLayout))
         drawCueTextEditControl(controlFrames.edit, label: "Aa")
         drawCueTextEditControl(controlFrames.shrink, label: "-")
         drawCueTextEditControl(controlFrames.grow, label: "+")
@@ -4723,6 +4724,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         } ?? []
     }
 
+    private func cueTextControlBounds(for cue: LeadSheetCueTextLayout) -> CGRect {
+        let point = CGPoint(x: cue.frame.midX, y: cue.frame.midY)
+        return pageLayout?.pages.first(where: { $0.frame.contains(point) })?.frame ?? bounds
+    }
+
     private func cueTextEditHitTarget(at location: CGPoint) -> CueTextEditHitTarget? {
         guard interactionMode.allowsCueTextEditing else {
             return nil
@@ -4731,7 +4737,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         return LeadSheetCueTextEditOverlayGeometry.hitTarget(
             at: location,
             in: cueTextLayouts(),
-            selectedCueTextID: selectedCueTextID
+            selectedCueTextID: selectedCueTextID,
+            controlBounds: cueTextLayouts().first(where: { $0.id == selectedCueTextID })
+                .map { cueTextControlBounds(for: $0) }
         )
     }
 

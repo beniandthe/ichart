@@ -622,6 +622,58 @@ enum LeadSheetChordTextFitting {
     }
 }
 
+struct LeadSheetCueTextTypesetter {
+    private let framesetter: CTFramesetter
+    private let range: CFRange
+    private let lineHeight: CGFloat
+
+    init(text: String, font: UIFont, color: UIColor = .black, alignment: NSTextAlignment = .left) {
+        let attributed = NSAttributedString(string: text, attributes: [
+            .font: font,
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): color.cgColor,
+            .paragraphStyle: LeadSheetHeaderTextFittingPolicy.paragraphStyle(alignment: alignment)
+        ])
+        framesetter = CTFramesetterCreateWithAttributedString(attributed)
+        range = CFRange(location: 0, length: attributed.length)
+        lineHeight = max(1, ceil(font.lineHeight))
+    }
+
+    func suggestedSize(width: CGFloat) -> CGSize {
+        CTFramesetterSuggestFrameSizeWithConstraints(framesetter, range, nil,
+            CGSize(width: width, height: CGFloat.greatestFiniteMagnitude), nil)
+    }
+
+    func layout(width: CGFloat) -> (frame: CTFrame, textWidth: CGFloat, height: CGFloat, baselineShift: CGFloat, lineCount: Int) {
+        func makeFrame(height: CGFloat) -> CTFrame {
+            CTFramesetterCreateFrame(framesetter, range,
+                CGPath(rect: CGRect(x: 0, y: 0, width: width, height: height), transform: nil), nil)
+        }
+        var height = max(1, ceil(suggestedSize(width: width).height) + 1)
+        var frame = makeFrame(height: height)
+        for _ in 0..<8 {
+            if CTFrameGetVisibleStringRange(frame).length == range.length { break }
+            height += lineHeight
+            frame = makeFrame(height: height)
+        }
+        let lines = CTFrameGetLines(frame) as! [CTLine]
+        guard !lines.isEmpty else { return (frame, 0, 1, 0, 0) }
+        var origins = Array(repeating: CGPoint.zero, count: lines.count)
+        CTFrameGetLineOrigins(frame, CFRange(location: 0, length: 0), &origins)
+        var bottom = CGFloat.infinity, top = -CGFloat.infinity, textWidth: CGFloat = 0
+        for (line, origin) in zip(lines, origins) {
+            var ascent: CGFloat = 0, descent: CGFloat = 0
+            let width = CTLineGetTypographicBounds(line, &ascent, &descent, nil)
+                - CTLineGetTrailingWhitespaceWidth(line)
+            textWidth = max(textWidth, CGFloat(width))
+            bottom = min(bottom, origin.y - descent)
+            top = max(top, origin.y + ascent)
+        }
+        // Keep Core Text's baselines and line breaks, with only a small
+        // drawing allowance outside the first and last lines.
+        return (frame, textWidth, ceil(top - bottom) + 1, 0.5 - bottom, lines.count)
+    }
+}
+
 struct LeadSheetNotationRenderer {
     let chart: Chart
 
@@ -798,34 +850,19 @@ struct LeadSheetNotationRenderer {
 
     func cueTextRenderMetrics(for cueText: CueText, maximumWidth: CGFloat) -> (size: CGSize, lineCount: Int) {
         let font = cueTextFont(emphasis: cueText.emphasis, scale: CGFloat(cueText.scale))
-        let attributedText = NSAttributedString(string: cueText.text, attributes: [
-            .font: font,
-            .paragraphStyle: LeadSheetHeaderTextFittingPolicy.paragraphStyle(alignment: .left)
-        ])
-        let naturalBounds = attributedText.boundingRect(
-            with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil
-        )
-        let width = min(max(1, maximumWidth), max(28, ceil(naturalBounds.width) + 12))
-        let suggestedSize = CTFramesetterSuggestFrameSizeWithConstraints(
-            CTFramesetterCreateWithAttributedString(attributedText),
-            CFRange(location: 0, length: attributedText.length), nil,
-            CGSize(width: width, height: CGFloat.greatestFiniteMagnitude), nil
-        )
-        var height = max(16, max(font.pointSize * 1.34, ceil(suggestedSize.height) + 1))
-        var frame = LeadSheetHeaderTextFittingPolicy.textFrame(
-            for: cueText.text, in: CGSize(width: width, height: height), font: font
-        )
-        // Measure the same CoreText frame used for drawing. Font ascent and
-        // leading can require a little more than the suggested rectangle.
-        for _ in 0..<8 {
-            if CTFrameGetVisibleStringRange(frame).length == attributedText.length { break }
-            height += max(1, ceil(font.lineHeight))
-            frame = LeadSheetHeaderTextFittingPolicy.textFrame(
-                for: cueText.text, in: CGSize(width: width, height: height), font: font
-            )
+        let typesetter = LeadSheetCueTextTypesetter(text: cueText.text, font: font)
+        let widthLimit = maximumWidth.isFinite ? max(1, maximumWidth) : CGFloat.greatestFiniteMagnitude
+        let suggested = typesetter.suggestedSize(width: widthLimit)
+        var width = min(widthLimit, max(1, ceil(suggested.width) + 1))
+        var measured = typesetter.layout(width: width)
+        // Re-measure at the widest actual line so wrapping agrees with drawing.
+        for _ in 0..<2 {
+            let fitted = min(widthLimit, max(1, ceil(measured.textWidth) + 1))
+            if abs(fitted - width) < 0.001 { break }
+            width = fitted
+            measured = typesetter.layout(width: width)
         }
-        return (CGSize(width: width, height: height), CFArrayGetCount(CTFrameGetLines(frame)))
+        return (CGSize(width: width, height: measured.height), measured.lineCount)
     }
 
     func drawCueText(_ cueTextLayout: LeadSheetCueTextLayout) {
@@ -841,17 +878,17 @@ struct LeadSheetNotationRenderer {
 
         let rect = cueTextLayout.frame
         guard let context = UIGraphicsGetCurrentContext(), rect.width >= 1, rect.height >= 1 else { return }
-        let frame = LeadSheetHeaderTextFittingPolicy.textFrame(
-            for: cueTextLayout.text, in: rect.size,
+        let typesetter = LeadSheetCueTextTypesetter(text: cueTextLayout.text,
             font: cueTextFont(emphasis: cueTextLayout.emphasis, scale: cueTextLayout.scale),
             color: style.inkColor.withAlphaComponent(alpha),
-            alignment: cueTextLayout.position == .trailingEdge ? .right : .left
-        )
+            alignment: cueTextLayout.position == .trailingEdge ? .right : .left)
+        let text = typesetter.layout(width: rect.width)
         context.saveGState()
         context.textMatrix = .identity
         context.translateBy(x: rect.minX, y: rect.maxY)
         context.scaleBy(x: 1, y: -1)
-        CTFrameDraw(frame, context)
+        context.translateBy(x: 0, y: text.baselineShift)
+        CTFrameDraw(text.frame, context)
         context.restoreGState()
     }
 

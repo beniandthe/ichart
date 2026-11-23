@@ -474,6 +474,7 @@ private struct IChartHelpArticleSection: Identifiable {
                 "If a selected chord has a custom width, Reset Width returns it to 100% width without changing its placement.",
                 "Tap text or roadmap markers in Select to move, resize, edit, or delete them.",
                 "Tap a text cue with Apple Pencil, then tap Edit to change its wording. Press and hold the cue, then drag it in any direction. The blue line stays at the center of its measure until you cross a barline and disappears in the row margin. Staff spacing stays fixed.",
+                "While typing a cue, press Return for a new line in the same cue.",
                 "For endings and form marks in Select, drag Move Up or Down. Reset Position restores automatic height.",
                 "For an ending, use Move to shift its measure range or Lengthen to change the last measure.",
                 "To remove an eligible chord-only divider, choose Select, tap the divider, then its red X or Delete. Protected Rhythm boundaries keep their content and remain in place."
