@@ -458,7 +458,7 @@ private struct AppearanceChoiceRow: View {
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iChartTapFeedback)
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
         .accessibilityHint(requiresUpgrade
             ? "Opens Pro font options. The chart keeps its current fonts."

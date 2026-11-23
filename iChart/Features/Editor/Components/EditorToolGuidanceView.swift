@@ -143,7 +143,7 @@ struct EditorToolGuidanceHeader: View {
                 .frame(minWidth: 44, minHeight: 44)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iChartTapFeedback)
         .foregroundStyle(.white)
         .background(IChartInterfaceStyle.actionBlue, in: RoundedRectangle(cornerRadius: 8))
         .accessibilityLabel(guidance.detailsTitle)

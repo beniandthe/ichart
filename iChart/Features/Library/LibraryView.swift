@@ -424,7 +424,7 @@ private struct IChartHelpArticleSection: Identifiable {
             systemImageName: "repeat",
             body: "Write chord-repeat symbols (%) in Write & Render. Use Tools > Repeats for measure repeats and repeat ranges.",
             bullets: [
-                "Select the first measure, then choose Repeat Measures > Start Repeat. Select the last measure and tap End Repeat.",
+                "Select the first measure, then choose Repeat Measures > Start Repeat. Tap the last measure and check the highlighted measure before tapping End Repeat.",
                 "Open Repeat Measures and choose Repeat This Measure for one measure, or Start Repeat for a range. Use Manage to remove repeats or edit and remove endings.",
                 "Write & Render does not convert drawn bar-and-dot repeat barlines. Use Free Ink to keep those signs as handwriting."
             ]
@@ -2575,7 +2575,7 @@ private struct NewChartLayoutPickerView: View {
                             )
                             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.iChartTapFeedback)
                         .tourActionHighlight(
                             isActive: isTourTarget,
                             cornerRadius: 10,
@@ -2648,7 +2648,7 @@ private struct IChartGuidedTourPrompt: View {
                     .frame(width: 30, height: 30)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iChartTapFeedback)
             .foregroundStyle(tourTitleColor.opacity(0.72))
             .accessibilityLabel("End Quick Start")
         }
@@ -3032,7 +3032,7 @@ private struct IChartLibrarySelectionRow: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iChartTapFeedback)
         .accessibilityLabel(title)
         .accessibilityValue(isSelected ? "Selected" : "Not selected")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
@@ -3186,7 +3186,7 @@ private struct IChartPDFLibraryRow: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iChartTapFeedback)
             .accessibilityLabel("Open \(item.displayTitle)")
             .accessibilityIdentifier("pdf.library.open.\(item.id.uuidString)")
 
@@ -3838,7 +3838,7 @@ private struct IChartForumTopChartColumn: View {
                 .background(IChartHomeBrand.blue.opacity(theme.isDark ? 0.78 : 0.88))
                 .clipShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iChartTapFeedback)
             .disabled(!canExpand)
             .accessibilityLabel(canExpand ? "\(period.title) top charts \(isExpanded ? "collapse" : "expand")" : "\(period.title) top charts")
 
@@ -3887,7 +3887,7 @@ private struct IChartForumTopChartColumn: View {
                         .background(IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.14 : 0.52))
                         .clipShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.iChartTapFeedback)
                 }
             }
         }
@@ -3967,7 +3967,7 @@ private struct IChartForumTopHeadlineRow: View {
             }
             .contentShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iChartTapFeedback)
         .accessibilityLabel("Open lead chart \(featuredPost.post.chartTitle)")
         .accessibilityValue(featuredPost.authorBadges.map(\.displayText).joined(separator: ", "))
     }
@@ -4016,7 +4016,7 @@ private struct IChartForumTopChartRow: View {
             }
             .contentShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iChartTapFeedback)
         .accessibilityLabel("Open \(featuredPost.post.chartTitle)")
         .accessibilityValue(featuredPost.authorBadges.map(\.displayText).joined(separator: ", "))
     }
@@ -4306,7 +4306,7 @@ private struct IChartForumPostRow: View {
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iChartTapFeedback)
         .accessibilityLabel("Open \(post.chartTitle)")
         .accessibilityValue(authorBadges.map(\.displayText).joined(separator: ", "))
     }
@@ -5154,7 +5154,7 @@ private struct IChartHomeSidebar: View {
                 .frame(width: 30, height: 30)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iChartTapFeedback)
         .accessibilityLabel(isCollapsed ? "Open sidebar" : "Collapse sidebar")
     }
 }
@@ -5222,7 +5222,7 @@ private struct IChartHomeAppearanceModeSwitch: View {
                         .background(backgroundColor(for: mode))
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.iChartTapFeedback)
                 .accessibilityLabel(mode.accessibilityLabel)
                 .accessibilityAddTraits(selectedMode == mode ? .isSelected : [])
             }
@@ -5275,7 +5275,7 @@ private struct IChartHomeSidebarButton: View {
                     .stroke(borderColor, lineWidth: 1)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iChartTapFeedback)
         .accessibilityLabel(tab.title)
     }
 
@@ -5328,7 +5328,7 @@ private struct IChartHelpTopicRow: View {
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iChartTapFeedback)
         .accessibilityLabel(topic.title)
     }
 }
@@ -5549,7 +5549,7 @@ private struct IChartHelpArticleSectionView: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iChartTapFeedback)
             .accessibilityHint(isExpanded ? "Collapse section" : "Expand section")
 
             if isExpanded {
@@ -5876,7 +5876,7 @@ private struct IChartKeyboardFocusButton: View {
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iChartTapFeedback)
         .accessibilityLabel(accessibilityLabel)
     }
 }
@@ -6251,7 +6251,7 @@ struct IChartAccountSettings: View {
                 Label("Email Didn't Arrive?", systemImage: "questionmark.circle")
                     .font(.caption.weight(.semibold))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iChartTapFeedback)
             .foregroundStyle(theme.actionText)
             .disabled(authStore.isWorking)
 
@@ -7637,7 +7637,7 @@ private struct IChartChartsWorkspaceModePicker: View {
                             }
                         }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.iChartTapFeedback)
                 .accessibilityLabel(mode.title)
                 .accessibilityValue(isSelected ? "Selected" : "Not selected")
             }
@@ -7827,7 +7827,7 @@ private struct IChartProjectChartRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iChartTapFeedback)
             .accessibilityHint("Open this saved chart to edit or export it.")
 
             if canManageProject {
@@ -7882,7 +7882,7 @@ private struct IChartPreviewModePicker: View {
                             }
                         }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.iChartTapFeedback)
                 .accessibilityLabel("\(mode.title) preview")
                 .accessibilityValue(isSelected ? "Selected" : "Not selected")
             }
@@ -8027,7 +8027,7 @@ private struct ProjectRowView: View {
                 .contentShape(Rectangle())
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iChartTapFeedback)
             .accessibilityHint("Open this saved chart to edit or export it.")
 
             rowActionControl

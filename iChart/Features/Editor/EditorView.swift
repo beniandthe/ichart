@@ -234,7 +234,7 @@ private struct EditorToolActionButton: View {
             ? Color.red
             : Color(red: 0.16, green: 0.38, blue: 0.82)
 
-        return Button(action: action) {
+        return IChartTapFeedbackButton(action: action) {
             Label(title, systemImage: systemImage)
                 .font(.caption.weight(.semibold))
                 .labelStyle(.titleAndIcon)
@@ -253,10 +253,10 @@ private struct EditorToolActionButton: View {
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
-        .buttonStyle(.plain)
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.45 : 1)
         .accessibilityLabel(title)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
         .tourActionHighlight(
             isActive: isTourHighlighted && !isDisabled,
             cornerRadius: 9,
@@ -434,7 +434,7 @@ private struct IChartEditorGuidedTourRail: View {
                         .frame(width: 30, height: 30)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.iChartTapFeedback)
                 .foregroundStyle(accent.opacity(0.72))
                 .accessibilityLabel("End Quick Start")
             }
@@ -1193,7 +1193,7 @@ struct EditorView: View {
                             .font(.headline)
                             .frame(width: 44, height: 44)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.iChartTapFeedback)
                     .contentShape(Rectangle())
                     .accessibilityLabel("Exit Chart")
 
@@ -1295,7 +1295,7 @@ struct EditorView: View {
             .frame(minHeight: EditorCommandLayoutPolicy.minimumTapTarget)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iChartTapFeedback)
         .disabled(isRetryingChartSave)
         .accessibilityLabel(isRetryingChartSave ? "Saving chart" : "Retry Save")
         .accessibilityValue("Chart not saved")
@@ -1779,7 +1779,7 @@ struct EditorView: View {
                     isSelected: canvasMode == .browse
                 )
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iChartTapFeedback)
             .accessibilityHint(
                 EditorCanvasMode.browse.toolGuidance(
                     layoutStyle: chart.layoutStyle,
@@ -1807,7 +1807,7 @@ struct EditorView: View {
                     from: canvasMode
                 )
             )
-            .buttonStyle(.plain)
+            .buttonStyle(.iChartTapFeedback)
             .accessibilityHint("Write with Apple Pencil in the highlighted lanes to render chart notation")
 
         case .ink:
@@ -1833,7 +1833,7 @@ struct EditorView: View {
                     from: canvasMode
                 )
             )
-            .buttonStyle(.plain)
+            .buttonStyle(.iChartTapFeedback)
             .accessibilityLabel(EditorCanvasMode.freeHand.activeToolTitle)
             .accessibilityHint(
                 EditorCanvasMode.freeHand.toolGuidance(
@@ -1860,7 +1860,7 @@ struct EditorView: View {
                     from: canvasMode
                 )
             )
-            .buttonStyle(.plain)
+            .buttonStyle(.iChartTapFeedback)
 
         case .documentSettings, .repeats, .timeSignature, .rhythm, .text, .formMarkers:
             EmptyView()
@@ -2157,7 +2157,7 @@ struct EditorView: View {
             }
         case .repeatEdit:
             if pendingRepeatStartMeasureID != nil {
-                guidance = guidance.replacingNextAction("Tap the last measure, then choose End Repeat.")
+                guidance = guidance.replacingNextAction("Tap the last measure. Check the highlighted measure, then choose End Repeat.")
             } else if let pendingEndingType {
                 guidance = guidance.replacingNextAction("Tap the last measure, then choose End \(endingToolTitle(for: pendingEndingType)).")
             }
@@ -2884,7 +2884,7 @@ struct EditorView: View {
             .background((status.isReading ? Color.blue : Color.orange).opacity(0.12))
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iChartTapFeedback)
         .foregroundStyle(status.isReading ? Color.secondary : Color.primary)
         .disabled(!status.canReview)
         .accessibilityLabel(status.accessibilityLabel)
@@ -3193,7 +3193,7 @@ struct EditorView: View {
                                 .background(tint)
                                 .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.iChartTapFeedback)
                     }
                     .frame(width: RhythmDiagnosticPreviewMetrics.statusWidth, alignment: .leading)
                 } else if preview.isCertain {
@@ -3614,7 +3614,7 @@ struct EditorView: View {
                 isTourHighlighted: editorGuidedTourStep == .shapeForm
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iChartTapFeedback)
         .accessibilityHint("Open measure layout actions with full explanations and availability details.")
         .accessibilityIdentifier("measure-layout-open")
         .sheet(item: $pendingMeasureLayoutRequest) { request in
@@ -7651,7 +7651,7 @@ private struct NoteEditPopoverView: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iChartTapFeedback)
         }
     }
 
@@ -7663,7 +7663,7 @@ private struct NoteEditPopoverView: View {
                 Label("Edit Note", systemImage: "chevron.left")
                     .font(.subheadline.weight(.semibold))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iChartTapFeedback)
 
             Divider()
 
@@ -7679,7 +7679,7 @@ private struct NoteEditPopoverView: View {
                                 isSelected: selectedRhythmValue == rhythmValue
                             )
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.iChartTapFeedback)
                     }
                 }
             }
@@ -8002,7 +8002,7 @@ private struct TimeSignatureScopeSheetView: View {
                 .foregroundStyle(Color(red: 0.11, green: 0.31, blue: 0.64))
                 .clipShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iChartTapFeedback)
         .tourActionHighlight(
             isActive: highlightsApplyActions,
             cornerRadius: 18

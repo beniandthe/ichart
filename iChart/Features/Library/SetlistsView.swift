@@ -102,7 +102,7 @@ struct SetlistsView: View {
                                 }
                                 .padding(.vertical, 4)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.iChartTapFeedback)
                             .accessibilityIdentifier("setlists.row.\(setlist.id.uuidString)")
                             .swipeActions {
                                 Button("Delete Setlist", role: .destructive) { pendingDeletion = setlist }
@@ -234,7 +234,7 @@ struct IChartSetlistDetailView: View {
                         } label: {
                             songRow(song, index: index)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.iChartTapFeedback)
                         .accessibilityIdentifier("setlists.song.\(song.id.uuidString)")
                         .accessibilityAction(named: Text("Move Up")) { moveSong(at: index, by: -1) }
                         .accessibilityAction(named: Text("Move Down")) { moveSong(at: index, by: 1) }
@@ -479,7 +479,7 @@ private struct IChartSetlistPDFPicker: View {
                         }
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.iChartTapFeedback)
                     .listRowBackground(selectedIDs.contains(item.id) ? IChartInterfaceStyle.selectionFill : Color.clear)
                     .disabled(pdfStore.exportedPDF(for: item) == nil)
                     .accessibilityIdentifier("setlists.pick.\(item.id.uuidString)")

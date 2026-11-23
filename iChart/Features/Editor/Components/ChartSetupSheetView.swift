@@ -233,7 +233,7 @@ struct ChartSetupSheetView: View {
                     .frame(width: 30, height: 30)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iChartTapFeedback)
             .foregroundStyle(IChartTourStyle.navy.opacity(0.72))
             .accessibilityLabel("End Quick Start")
         }
@@ -325,7 +325,7 @@ struct ChartSetupSheetView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.iChartTapFeedback)
                     .accessibilityLabel(preset.sheetDisplayText(for: chart.layoutStyle))
                     .accessibilityHint(preset.sheetDetailText(for: chart.layoutStyle))
 

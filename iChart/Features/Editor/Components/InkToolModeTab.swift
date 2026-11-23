@@ -22,7 +22,7 @@ struct InkToolModeTab: View {
                         .background(buttonBackground(for: toolMode))
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.iChartTapFeedback)
                 .accessibilityLabel(toolMode.accessibilityLabel)
                 .accessibilityAddTraits(mode == toolMode ? [.isSelected] : [])
             }

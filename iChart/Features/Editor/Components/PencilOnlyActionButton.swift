@@ -87,7 +87,7 @@ struct PencilOnlyActionButton: UIViewRepresentable {
     }
 }
 
-final class PencilOnlyUIButton: UIButton {
+final class PencilOnlyUIButton: IChartFeedbackUIButton {
     var acceptsDirectTouches = false
 
     override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {

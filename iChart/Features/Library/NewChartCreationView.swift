@@ -139,7 +139,7 @@ struct NewChartCreationView: View {
             .frame(maxWidth: .infinity, alignment: .center)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iChartTapFeedback)
         .accessibilityLabel(layoutStyle.displayText)
         .accessibilityHint(layoutStyle.detailText + " Opens setup. No chart is saved yet.")
         .accessibilityIdentifier("new-chart-layout-\(layoutStyle.rawValue)")

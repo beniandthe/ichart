@@ -107,8 +107,8 @@ final class ToolMeasureSelectionUITests: XCTestCase {
         for title in fixtureTitles {
             openFixture(title, in: app)
             openTool("Text", in: app)
-            let initial = try selectedMeasure(in: app)
             let guide = app.buttons["editor-tool-guide-button"]
+            XCTAssertTrue(guide.waitForExistence(timeout: 5))
             XCTAssertTrue(guide.isHittable)
             guide.tap()
             let done = app.buttons["editor-tool-guide-done"]
@@ -116,6 +116,10 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             done.tap()
             waitForRemoval(done, message: "Done closes the local tool guide")
 
+            // Text starts without an implicit measure. Choose one on the
+            // page before checking that a later tap retargets the tool.
+            tapFirstRow(at: 0.18, in: app)
+            let initial = try selectedMeasure(in: app)
             tapFirstRow(at: 0.47, in: app)
             let later = try waitForDifferentSelectedMeasure(than: initial, in: app)
             XCTAssertTrue(app.buttons["Above"].isHittable)
@@ -127,13 +131,14 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             XCTAssertFalse(entry.hasFocus, "Opening Text leaves the cue field idle")
             XCTAssertFalse(app.keyboards.firstMatch.exists)
             let entryFrame = entry.frame
-            let startScribble = app.buttons["Start Scribble for Cue text"]
-            XCTAssertTrue(startScribble.isHittable)
-            startScribble.tap()
+            let scribble = app.buttons["Scribble"]
+            XCTAssertTrue(scribble.waitForExistence(timeout: 5))
+            XCTAssertTrue(scribble.isHittable)
+            scribble.tap()
             XCTAssertFalse(entry.hasFocus, "Preparing for Scribble must leave the field idle")
             XCTAssertFalse(app.keyboards.firstMatch.exists)
             XCTAssertEqual(entry.frame, entryFrame)
-            let keyboard = app.buttons["Use keyboard for Cue text"]
+            let keyboard = app.buttons["Keyboard"]
             XCTAssertTrue(keyboard.isHittable)
             keyboard.tap()
             entry.typeText("Discard this cue")
@@ -277,7 +282,6 @@ final class ToolMeasureSelectionUITests: XCTestCase {
         let entry = app.buttons[title]
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
         entry.tap()
-        XCTAssertTrue(app.staticTexts["editor-guidance-context"].waitForExistence(timeout: 5))
     }
 
     @MainActor

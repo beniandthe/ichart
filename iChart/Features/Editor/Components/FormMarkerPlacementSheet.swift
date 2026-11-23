@@ -62,7 +62,7 @@ struct FormMarkerPlacementSheet: View {
                             .frame(maxWidth: .infinity, minHeight: 44)
                             .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.iChartTapFeedback)
                         .accessibilityAddTraits(draft.markerType == type ? [.isSelected] : [])
                         .accessibilityIdentifier("form-marker-option-\(type.rawValue)")
                     }

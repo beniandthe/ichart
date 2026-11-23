@@ -748,8 +748,8 @@ private enum IChartNativeKeyboardFocus {
 /// One fixed accessory footprint keeps the text and hit targets in place as
 /// either input mode becomes active. Each labeled control gets a 44pt target.
 private final class IChartInputModeControls: UIStackView {
-    let keyboard = UIButton(type: .system)
-    let scribble = UIButton(type: .system)
+    let keyboard = IChartFeedbackUIButton(type: .system)
+    let scribble = IChartFeedbackUIButton(type: .system)
 
     init() {
         super.init(frame: .zero)
