@@ -5,7 +5,7 @@ import XCTest
 final class EditorCommandLayoutPolicyTests: XCTestCase {
     func testSelectedChordWidthControlIsContextualAndUsesTheSafeResetPolicy() throws {
         XCTAssertEqual(EditorChordWidthAdjustmentPolicy.selectionInstruction,
-                       "Drag to move · Right handle adjusts width.")
+                       "Drag to move · Side handles resize.")
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let editor = try String(contentsOf: projectRoot.appendingPathComponent("iChart/Features/Editor/EditorView.swift"))

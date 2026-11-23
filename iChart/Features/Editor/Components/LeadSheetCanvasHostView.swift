@@ -2008,6 +2008,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private let freeInkArticulationDragAnchor = CAShapeLayer()
     private var renderedObjectMoveTouchStart: CGPoint?
     private var renderedObjectMoveAdmittedDrag: RenderedEditDragState?
+    private var admittedChordResizeDrag: ActiveChordResizeDrag?
     private var renderedObjectMoveStartsOnFreeInkArticulation = false
     private var renderedEditTapIntent = RenderedEditTapIntent()
     var chordMovePreviewFrame: CGRect? { activeChordMoveDrag?.currentFrame }
@@ -3891,7 +3892,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         using renderer: LeadSheetNotationRenderer
     ) {
         let editFrame = LeadSheetChordEditOverlayGeometry.editFrame(for: chordLayout)
-        let controlFrames = LeadSheetChordEditOverlayGeometry.controlFrames(for: chordLayout, within: bounds)
         let isActiveMove = activeChordMoveDrag?.chordID == chordLayout.id
         let isActiveResize = activeChordResizeDrag?.chordID == chordLayout.id
         let drawsControls = shouldDrawChordEditControls(for: chordLayout)
@@ -3921,6 +3921,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
+        let controlFrames = pageLayout.map {
+            LeadSheetChordEditOverlayGeometry.controlFrames(for: chordLayout, in: $0,
+                screenPointsPerDisplayedPoint: canvasScreenPointsPerDisplayedPoint())
+        } ?? LeadSheetChordEditOverlayGeometry.controlFrames(for: chordLayout, within: bounds)
+
         let deletePath = UIBezierPath(ovalIn: controlFrames.delete)
         UIColor.white.withAlphaComponent(0.96).setFill()
         deletePath.fill()
@@ -3935,7 +3940,23 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             alignment: .center
         )
 
-        drawChordResizeHandle(controlFrames.trailingResize, isActive: activeChordResizeDrag?.edge == .trailing)
+        for (frame, edge): (CGRect, ActiveChordResizeDrag.Edge) in [
+            (controlFrames.leadingResize, .leading), (controlFrames.trailingResize, .trailing)
+        ] {
+            let anchor = CGPoint(x: edge == .leading ? editFrame.minX : editFrame.maxX, y: editFrame.midY)
+            let innerPoint = CGPoint(x: edge == .leading ? frame.maxX : frame.minX, y: frame.midY)
+            if abs(innerPoint.y - anchor.y) > 1 || abs(innerPoint.x - anchor.x) > 6 {
+                let connector = UIBezierPath()
+                connector.move(to: anchor)
+                connector.addLine(to: CGPoint(x: anchor.x, y: innerPoint.y))
+                connector.addLine(to: innerPoint)
+                UIColor(red: 0.16, green: 0.38, blue: 0.86, alpha: 0.55).setStroke()
+                connector.lineWidth = 1 / max(0.05, canvasScreenPointsPerDisplayedPoint())
+                connector.stroke()
+            }
+            drawChordResizeHandle(frame,
+                isActive: activeChordResizeDrag?.chordID == chordLayout.id && activeChordResizeDrag?.edge == edge)
+        }
     }
 
     private func drawChordResizeHandle(_ frame: CGRect, isActive: Bool) {
@@ -3998,7 +4019,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         fieldPath.lineWidth = 1
         fieldPath.stroke()
 
-        for guideX in preview.guideXs {
+        let guideColor = UIColor(red: 0.16, green: 0.38, blue: 0.86, alpha: 1)
+        for (index, guideX) in preview.guideXs.enumerated() {
             let isActiveGuide = preview.activeGuideX.map { abs($0 - guideX) < 0.5 } ?? false
             let guidePath = UIBezierPath()
             guidePath.move(to: CGPoint(x: guideX, y: fieldFrame.minY - 2))
@@ -4007,12 +4029,22 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 activeColor.withAlphaComponent(0.82).setStroke()
                 guidePath.lineWidth = 1.7
                 guidePath.setLineDash([5, 2], count: 2, phase: 0)
+            } else if index == 0 {
+                guideColor.withAlphaComponent(0.65).setStroke()
+                guidePath.lineWidth = 1.3
             } else {
-                UIColor(red: 0.16, green: 0.38, blue: 0.86, alpha: 0.24).setStroke()
+                guideColor.withAlphaComponent(0.24).setStroke()
                 guidePath.lineWidth = 0.9
                 guidePath.setLineDash([3, 6], count: 2, phase: 0)
             }
             guidePath.stroke()
+            if index == 0 {
+                let style = NSMutableParagraphStyle()
+                style.alignment = .center
+                ("1" as NSString).draw(in: CGRect(x: guideX - 7, y: fieldFrame.minY - 16, width: 14, height: 13),
+                    withAttributes: [.font: UIFont.systemFont(ofSize: 11),
+                        .foregroundColor: isActiveGuide ? activeColor : guideColor, .paragraphStyle: style])
+            }
         }
 
         let targetPath = UIBezierPath()
@@ -4635,6 +4667,19 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
         renderedObjectMoveTouchStart = location
         renderedObjectMoveAdmittedDrag = drag
+        admittedChordResizeDrag = nil
+        if let target = drag?.target, case .chord(let chordID) = target.objectID,
+           target.action == .resizeLeading || target.action == .resizeTrailing,
+           let pageLayout, let glyph = chordLayout(for: chordID, in: pageLayout) {
+            // The grip owns this immutable chord/frame snapshot from Pencil
+            // contact, before the pan threshold or a selection/layout echo.
+            admittedChordResizeDrag = ActiveChordResizeDrag(chordID: chordID,
+                sourcePageLayout: pageLayout,
+                edge: target.action == .resizeLeading ? .leading : .trailing,
+                initialFrame: glyph.frame, currentFrame: glyph.frame, startLocation: location,
+                initialHorizontalScale: glyph.horizontalCompressionScale,
+                screenPointsPerDisplayedPoint: canvasScreenPointsPerDisplayedPoint())
+        }
         renderedObjectMoveStartsOnFreeInkArticulation = articulation
         return true
     }
@@ -4642,6 +4687,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func clearRenderedObjectMoveTouch() {
         renderedObjectMoveTouchStart = nil
         renderedObjectMoveAdmittedDrag = nil
+        admittedChordResizeDrag = nil
         renderedObjectMoveStartsOnFreeInkArticulation = false
     }
 
@@ -5781,7 +5827,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 if beginsAsVerticalAnnotationDrag(dragState, at: location) { return }
                 handleRoadmapMarkerEditPan(recognizer)
                 return
-            case (.chord(_), .resizeTrailing):
+            case (.chord(_), .resizeLeading), (.chord(_), .resizeTrailing):
                 handleChordResizePan(recognizer)
                 return
             case (.chord(_), .move):
@@ -6294,31 +6340,19 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         let location = recognizer.location(in: self)
         switch recognizer.state {
         case .began:
-            let startLocation = renderedObjectMoveStartLocation(for: recognizer)
             guard let pageLayout,
                   let target = renderedObjectMoveAdmittedDrag?.target,
                   case .chord(let chordID) = target.objectID,
-                  target.action == .resizeTrailing,
-                  let chordLayout = chordLayout(
-                    for: chordID,
-                    in: pageLayout
-                  ) else {
+                  target.action == .resizeLeading || target.action == .resizeTrailing,
+                  var drag = admittedChordResizeDrag,
+                  drag.chordID == chordID,
+                  chart.chordEvent(id: chordID) != nil else {
                 activeChordResizeDrag = nil
                 setNeedsDisplay()
                 return
             }
 
             selectedChordID = chordID
-            var drag = ActiveChordResizeDrag(
-                chordID: chordID,
-                sourcePageLayout: pageLayout,
-                edge: .trailing,
-                initialFrame: chordLayout.frame,
-                currentFrame: chordLayout.frame,
-                startLocation: startLocation,
-                initialHorizontalScale: chordLayout.horizontalCompressionScale,
-                screenPointsPerDisplayedPoint: canvasScreenPointsPerDisplayedPoint()
-            )
             drag.currentFrame = LeadSheetChordResizeDragPolicy.previewFrame(for: drag,
                 at: location, boundedBy: paperFrame(containing: drag.initialFrame, in: pageLayout))
             activeChordResizeDrag = drag
@@ -6384,7 +6418,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 to: placement.measureID,
                 atFraction: nil,
                 visualFraction: placement.fraction,
-                preserveMusicalPlacement: true
+                preserveMusicalPlacement: true,
+                allowsLeadingVisualInset: activeChordResizeDrag.edge == .leading ? true : nil
             ) || didChange
         }
 
@@ -6443,29 +6478,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         _ activeChordMoveDrag: ActiveChordMoveDrag,
         at location: CGPoint
     ) {
-        guard LeadSheetChordMoveDragPolicy.hasMeaningfulTranslation(
-            for: activeChordMoveDrag,
-            at: location
-        ), let target = LeadSheetChordMoveDragPolicy.target(
-            at: location,
-            for: activeChordMoveDrag,
-            chart: chart
-        ) else {
-            return
-        }
-
         var updatedChart = chart
-        let isFineAdjustmentWithinMeasure = chart.measureContainingChordEvent(
-            id: activeChordMoveDrag.chordID
-        )?.id == target.measureID
-            && activeChordMoveDrag.currentPositionPreview?.activeGuideX == nil
-        guard updatedChart.moveChordEventInCommittedChordLane(
-            activeChordMoveDrag.chordID,
-            to: target.measureID,
-            atFraction: target.fraction,
-            visualFraction: target.fraction,
-            preserveMusicalPlacement: isFineAdjustmentWithinMeasure
-        ) else {
+        guard LeadSheetChordMoveDragPolicy.commit(activeChordMoveDrag, at: location, in: &updatedChart) else {
             return
         }
 

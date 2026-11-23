@@ -174,7 +174,10 @@ final class EditorToolGuidanceTests: XCTestCase {
                 XCTAssertTrue(guidance.steps.joined().contains("Scroll with a finger"))
                 XCTAssertTrue(guidance.referenceText.contains("Drag a chord with Apple Pencil, then lift to place it"))
                 XCTAssertTrue(guidance.referenceText.contains("tap the red X to delete"))
-                XCTAssertTrue(guidance.referenceText.contains("drag the width handle to change width"))
+                XCTAssertTrue(guidance.steps.contains("Tap a chord for width handles. Drag its body to move it."))
+                XCTAssertTrue(guidance.referenceText.contains("Drag a side handle to resize that chord"))
+                XCTAssertTrue(guidance.referenceText.contains("Snap to beat 1 at the first guide"))
+                XCTAssertTrue(guidance.referenceText.contains("Cross the barline to move into the previous measure"))
                 XCTAssertTrue(guidance.referenceText.contains("Double-tap a chord to correct it"))
             }
         }

@@ -3159,16 +3159,25 @@ enum LeadSheetPageLayoutEngine {
             placement.chordEvent.manualVisualLaneFraction.map { (placement.chordEvent.id, $0) }
         })
         guard !visualFractions.isEmpty else { return chordLayouts }
+        let movementFrame = LeadSheetChordPlacementGuidePolicy.visualMovementFrame(
+            referenceFrame: chordBandFrame,
+            leadingRepeatMarkerMaxX: repeatMarkerLayouts.filter { $0.edge == .leading }.map(\.occupiedFrame.maxX).max(),
+            meterChangeFrame: meterChangeFrame
+        )
         let guideFrame = LeadSheetChordPlacementGuidePolicy.guideFrame(
             referenceFrame: chordBandFrame,
             leadingRepeatMarkerMaxX: repeatMarkerLayouts.filter { $0.edge == .leading }.map(\.occupiedFrame.maxX).max(),
             meterChangeFrame: meterChangeFrame
         )
+        let leadingInsetIDs = Set(placements.filter {
+            $0.chordEvent.manualVisualAllowsLeadingInset == true
+        }.map { $0.chordEvent.id })
         return chordLayouts.map { chordLayout in
             guard let visualFraction = visualFractions[chordLayout.id] else { return chordLayout }
             var placed = chordLayout
             let requestedX = chordBandFrame.minX + chordBandFrame.width * CGFloat(ChordEvent.clampedManualLaneFraction(visualFraction))
-            let leftX = min(max(guideFrame.minX, requestedX), chordBandFrame.maxX - 1)
+            let minimumX = leadingInsetIDs.contains(chordLayout.id) ? movementFrame.minX : guideFrame.minX
+            let leftX = min(max(minimumX, requestedX), chordBandFrame.maxX - 1)
             placed.frame.origin.x = leftX
             placed.fitFrame.origin.x = leftX
             placed.usesManualVisualPlacement = true

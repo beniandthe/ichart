@@ -23,7 +23,8 @@ struct ActiveChordMoveDrag {
 }
 
 struct ActiveChordResizeDrag {
-    enum Edge {
+    enum Edge: Equatable {
+        case leading
         case trailing
     }
 
@@ -128,21 +129,53 @@ enum LeadSheetChordMoveDragPolicy {
         let movementFrame = drag.sourcePageLayout.paperFrame(containing: initialCenter)
             ?? drag.sourcePageLayout.paperFrame
         let rawFrame = previewFrame(for: drag, at: location, boundedBy: movementFrame)
+        let sourceMeasure = drag.sourcePageLayout.systems.flatMap(\.measures).first {
+            $0.chordLayouts.contains { $0.id == drag.chordID }
+        }
+        let sourceGuideX = sourceMeasure.map {
+            LeadSheetChordPlacementGuidePolicy.guideFrame(for: $0, referenceFrame: $0.chordBandFrame).minX
+        } ?? drag.initialFrame.minX
+        // Only the leading-edge adjustment changes ownership from the glyph
+        // edge. Ordinary rightward moves retain the established pointer target.
+        let followsLeadingEdge = rawFrame.minX <= sourceGuideX
+            && (rawFrame.minX <= drag.initialFrame.minX || drag.initialFrame.minX <= sourceGuideX)
+        let measureAnchor = followsLeadingEdge
+            ? CGPoint(x: rawFrame.minX, y: location.y) : location
         return LeadSheetCanvasInteractionTargeting.chordMovePositionPreview(
-            measureAnchor: location,
+            measureAnchor: measureAnchor,
             fractionAnchorX: rawFrame.minX,
             in: drag.sourcePageLayout,
             chart: chart,
             dragInitialX: drag.initialFrame.minX,
-            screenPointsPerDisplayedPoint: drag.screenPointsPerDisplayedPoint
+            screenPointsPerDisplayedPoint: drag.screenPointsPerDisplayedPoint,
+            usesPhysicalMeasureBoundaries: followsLeadingEdge
         ) ?? LeadSheetCanvasInteractionTargeting.chordMovePositionPreview(
-            measureAnchor: CGPoint(x: rawFrame.midX, y: rawFrame.midY),
+            measureAnchor: CGPoint(x: followsLeadingEdge ? rawFrame.minX : rawFrame.midX, y: rawFrame.midY),
             fractionAnchorX: rawFrame.minX,
             in: drag.sourcePageLayout,
             chart: chart,
             dragInitialX: drag.initialFrame.minX,
-            screenPointsPerDisplayedPoint: drag.screenPointsPerDisplayedPoint
+            screenPointsPerDisplayedPoint: drag.screenPointsPerDisplayedPoint,
+            usesPhysicalMeasureBoundaries: followsLeadingEdge
         )
+    }
+
+    @discardableResult
+    static func commit(_ drag: ActiveChordMoveDrag, at location: CGPoint, in chart: inout Chart) -> Bool {
+        guard hasMeaningfulTranslation(for: drag, at: location),
+              let preview = drag.currentPositionPreview ?? positionPreview(at: location, for: drag, chart: chart),
+              let chord = chart.chordEvent(id: drag.chordID) else { return false }
+        let isSameMeasure = chart.measureContainingChordEvent(id: drag.chordID)?.id == preview.measureID
+        let isBeforeDownbeat = preview.targetX < preview.guideFrame.minX - 0.0001
+        let isAtDownbeatGuide = preview.activeGuideX.map { abs($0 - preview.guideFrame.minX) <= 0.0001 } ?? false
+        let targetsDownbeat = isBeforeDownbeat || isAtDownbeatGuide
+        let isAlreadyOnDownbeat = chord.startPosition.beat == 1 && chord.startPosition.subdivision == 0
+        let preserveMusicalPlacement = isSameMeasure && (targetsDownbeat
+            ? isAlreadyOnDownbeat : preview.activeGuideX == nil)
+        return chart.moveChordEventInCommittedChordLane(drag.chordID, to: preview.measureID,
+            atFraction: targetsDownbeat ? 0 : preview.targetFraction,
+            visualFraction: preview.targetFraction, preserveMusicalPlacement: preserveMusicalPlacement,
+            allowsLeadingVisualInset: isBeforeDownbeat)
     }
 }
 
@@ -183,17 +216,29 @@ enum LeadSheetChordResizeDragPolicy {
         let deltaX = location.x - drag.startLocation.x
         guard deltaX.isFinite else { return drag.initialFrame }
         let initialScale = CGFloat(ChordEvent.clampedManualHorizontalScale(Double(drag.initialHorizontalScale)))
-        let proposedWidth = drag.initialFrame.width + deltaX
+        let proposedWidth = drag.initialFrame.width + (drag.edge == .leading ? -deltaX : deltaX)
         // Width-only compression has explicit limits, never a density-based
         // font fit. Height and vertical position remain fixed throughout a drag.
         let scale = CGFloat(ChordEvent.clampedManualHorizontalScale(
             Double(initialScale * proposedWidth / max(0.001, drag.initialFrame.width))
         ))
-        let ratio = scale / initialScale
+        var width = drag.initialFrame.width * scale / initialScale
+        if drag.edge == .leading,
+           let sourceMeasure = drag.sourcePageLayout.systems.flatMap(\.measures).first(where: {
+               $0.chordLayouts.contains { $0.id == drag.chordID }
+           }) {
+            let movement = LeadSheetChordPlacementGuidePolicy.visualMovementFrame(
+                for: sourceMeasure, referenceFrame: sourceMeasure.chordBandFrame)
+            // A leading grip holds the right visible edge. It may approach the
+            // measure's safe visual start, but never crosses a signature/repeat
+            // reserve or changes the chord's musical measure/beat.
+            let minimumX = min(drag.initialFrame.minX, movement.minX)
+            width = min(width, max(0.001, drag.initialFrame.maxX - minimumX))
+        }
         return CGRect(
-            x: drag.initialFrame.minX,
+            x: drag.edge == .leading ? drag.initialFrame.maxX - width : drag.initialFrame.minX,
             y: drag.initialFrame.minY,
-            width: drag.initialFrame.width * ratio,
+            width: width,
             height: drag.initialFrame.height
         )
     }
@@ -380,12 +425,14 @@ enum LeadSheetCanvasInteractionTargeting {
         in pageLayout: LeadSheetPageLayout?,
         chart: Chart,
         dragInitialX: CGFloat? = nil,
-        screenPointsPerDisplayedPoint: CGFloat = 1
+        screenPointsPerDisplayedPoint: CGFloat = 1,
+        usesPhysicalMeasureBoundaries: Bool = false
     ) -> LeadSheetChordMovePositionPreview? {
         guard let target = chordMoveRawTarget(
             measureAnchor: measureAnchor,
             fractionAnchorX: fractionAnchorX,
-            in: pageLayout
+            in: pageLayout,
+            usesPhysicalMeasureBoundaries: usesPhysicalMeasureBoundaries
         ),
               let measure = chart.measure(id: target.measureID) else {
             return nil
@@ -400,7 +447,8 @@ enum LeadSheetCanvasInteractionTargeting {
                 screenPointsPerDisplayedPoint: screenPointsPerDisplayedPoint,
                 referenceFrame: target.referenceFrame,
                 guideFrame: target.guideFrame,
-                meter: meter
+                meter: meter,
+                visualMovementFrame: usesPhysicalMeasureBoundaries ? target.visualMovementFrame : nil
             )
         } else {
             resolved = LeadSheetChordMovePositionGuidePolicy.resolvedFraction(
@@ -430,8 +478,9 @@ enum LeadSheetCanvasInteractionTargeting {
     private static func chordMoveRawTarget(
         measureAnchor: CGPoint,
         fractionAnchorX: CGFloat,
-        in pageLayout: LeadSheetPageLayout?
-    ) -> (measureID: UUID, referenceFrame: CGRect, guideFrame: CGRect, rawFraction: Double)? {
+        in pageLayout: LeadSheetPageLayout?,
+        usesPhysicalMeasureBoundaries: Bool = false
+    ) -> (measureID: UUID, referenceFrame: CGRect, guideFrame: CGRect, visualMovementFrame: CGRect, rawFraction: Double)? {
         guard let pageLayout else {
             return nil
         }
@@ -441,7 +490,9 @@ enum LeadSheetCanvasInteractionTargeting {
                 for: system,
                 paperFrame: pageLayout.paperFrame(for: system)
             ),
-                  laneFrame.insetBy(dx: -8, dy: -8).contains(measureAnchor) else {
+                  laneFrame.insetBy(dx: -8, dy: -8).contains(measureAnchor)
+                    || (usesPhysicalMeasureBoundaries
+                        && (laneFrame.minY - 8...laneFrame.maxY + 8).contains(measureAnchor.y)) else {
                 continue
             }
 
@@ -452,7 +503,10 @@ enum LeadSheetCanvasInteractionTargeting {
 
                 return measure
             }
-            guard let targetMeasure = systemMeasures.first(where: { measure in
+            let physicalTarget = usesPhysicalMeasureBoundaries
+                ? (systemMeasures.last { measureAnchor.x >= $0.leadingBarlineX } ?? systemMeasures.first)
+                : nil
+            guard let targetMeasure = physicalTarget ?? systemMeasures.first(where: { measure in
                 chordMoveLaneSegmentFrame(for: measure).contains(measureAnchor)
             }) ?? systemMeasures.min(by: { lhs, rhs in
                 horizontalDistance(from: measureAnchor.x, to: chordMoveLaneSegmentFrame(for: lhs))
@@ -462,7 +516,7 @@ enum LeadSheetCanvasInteractionTargeting {
                 return nil
             }
 
-            let isFullWidthOpenLane = systemMeasures.count == 1
+            let isFullWidthOpenLane = !usesPhysicalMeasureBoundaries && systemMeasures.count == 1
                 && targetMeasure.isOpen
                 && !chordMoveLaneSegmentFrame(for: targetMeasure).contains(measureAnchor)
             let referenceFrame = isFullWidthOpenLane ? laneFrame : targetMeasure.chordBandFrame
@@ -476,6 +530,7 @@ enum LeadSheetCanvasInteractionTargeting {
                 measureID,
                 referenceFrame,
                 guideFrame,
+                LeadSheetChordPlacementGuidePolicy.visualMovementFrame(for: targetMeasure, referenceFrame: referenceFrame),
                 Double(min(max(rawFraction, 0), 0.9999))
             )
         }
@@ -494,6 +549,8 @@ enum LeadSheetCanvasInteractionTargeting {
                     for: targetMeasure,
                     referenceFrame: targetMeasure.chordBandFrame
                 ),
+                LeadSheetChordPlacementGuidePolicy.visualMovementFrame(for: targetMeasure,
+                    referenceFrame: targetMeasure.chordBandFrame),
                 Double(min(max(fraction, 0), 0.9999))
             )
         }

@@ -108,7 +108,8 @@ struct ChordRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
             system.measures.flatMap { measure in
                 chordTargets(in: measure, selection: context.selection,
                     allowsUnselectedMove: context.allowsUnselectedChordMove,
-                    protectedBodies: protectedBodies, canvasBounds: context.pageLayout.pageBounds)
+                    protectedBodies: protectedBodies, canvasBounds: context.pageLayout.pageBounds,
+                    screenPointsPerDisplayedPoint: context.screenPointsPerDisplayedPoint)
             }
         }
     }
@@ -118,7 +119,8 @@ struct ChordRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
         selection: RenderedEditSelectionState,
         allowsUnselectedMove: Bool,
         protectedBodies: [CGRect],
-        canvasBounds: CGRect
+        canvasBounds: CGRect,
+        screenPointsPerDisplayedPoint: CGFloat
     ) -> [RenderedEditHitTarget] {
         guard measure.sourceMeasureID != nil else {
             return []
@@ -158,8 +160,22 @@ struct ChordRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
                 return targets
             }
 
-            let controlFrames = LeadSheetChordEditOverlayGeometry.controlFrames(for: chordLayout, within: canvasBounds)
-            let controlOutset = LeadSheetChordEditOverlayGeometry.controlHitOutset
+            let controlFrames = LeadSheetChordEditOverlayGeometry.controlFrames(for: chordLayout,
+                within: canvasBounds, avoiding: protectedBodies,
+                screenPointsPerDisplayedPoint: screenPointsPerDisplayedPoint)
+            let controlOutset = LeadSheetChordEditOverlayGeometry.controlHitOutset / max(0.05, screenPointsPerDisplayedPoint)
+            targets.append(
+                RenderedEditHitTarget(
+                    objectID: objectID,
+                    action: .resizeLeading,
+                    priority: .selectedObjectResizeHandle,
+                    frame: LeadSheetChordEditOverlayGeometry.resizeHitFrame(for: controlFrames.leadingResize,
+                        edge: .leading, screenPointsPerDisplayedPoint: screenPointsPerDisplayedPoint),
+                    requiresSelection: true,
+                    mutationRisk: .visual,
+                    excludedFrames: protectedBodies
+                )
+            )
             targets.append(
                 RenderedEditHitTarget(
                     objectID: objectID,
@@ -176,7 +192,8 @@ struct ChordRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
                     objectID: objectID,
                     action: .resizeTrailing,
                     priority: .selectedObjectResizeHandle,
-                    frame: controlFrames.trailingResize.insetBy(dx: -controlOutset, dy: -controlOutset),
+                    frame: LeadSheetChordEditOverlayGeometry.resizeHitFrame(for: controlFrames.trailingResize,
+                        edge: .trailing, screenPointsPerDisplayedPoint: screenPointsPerDisplayedPoint),
                     requiresSelection: true,
                     mutationRisk: .visual,
                     excludedFrames: protectedBodies

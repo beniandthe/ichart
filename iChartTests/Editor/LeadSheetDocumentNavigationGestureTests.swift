@@ -166,7 +166,8 @@ final class LeadSheetDocumentNavigationGestureTests: XCTestCase {
                     return [
                         LeadSheetChordEditOverlayGeometry.selectedMoveBodyFrame(for: chord),
                         controls.delete.insetBy(dx: -outset, dy: -outset),
-                        controls.trailingResize.insetBy(dx: -outset, dy: -outset)
+                        LeadSheetChordEditOverlayGeometry.resizeHitFrame(for: controls.leadingResize, edge: .leading),
+                        LeadSheetChordEditOverlayGeometry.resizeHitFrame(for: controls.trailingResize, edge: .trailing)
                     ]
                 }
             let bodyPoint = try XCTUnwrap(modeLayout.systems.flatMap(\.measures)
@@ -306,9 +307,11 @@ final class LeadSheetDocumentNavigationGestureTests: XCTestCase {
         let actualControls = LeadSheetChordEditOverlayGeometry.controlFrames(
             for: chord, within: currentLayout.pageBounds)
         let outset = LeadSheetChordEditOverlayGeometry.controlHitOutset
-        for control in [actualControls.delete, actualControls.trailingResize] {
-            XCTAssertFalse(control.insetBy(dx: -outset, dy: -outset)
-                .intersects(LeadSheetChordEditOverlayGeometry.bodySelectionFrame(for: chord)),
+        let actualHitFrames = [actualControls.delete.insetBy(dx: -outset, dy: -outset),
+            LeadSheetChordEditOverlayGeometry.resizeHitFrame(for: actualControls.leadingResize, edge: .leading),
+            LeadSheetChordEditOverlayGeometry.resizeHitFrame(for: actualControls.trailingResize, edge: .trailing)]
+        for hitFrame in actualHitFrames {
+            XCTAssertFalse(hitFrame.intersects(LeadSheetChordEditOverlayGeometry.bodySelectionFrame(for: chord)),
                 "Padded controls must stay outside the complete narrow glyph body")
         }
         for glyphPoint in glyphPoints {

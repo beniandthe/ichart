@@ -25,15 +25,12 @@ final class ChordObjectGestureCanvasTests: XCTestCase {
             defer { host.close() }
             host.canvas.selectedChordID = event.id
             let glyph = try chordLayout(id: event.id, in: host.canvas)
-            let unbounded = LeadSheetChordEditOverlayGeometry.controlFrames(for: glyph).trailingResize
-                .insetBy(dx: -LeadSheetChordEditOverlayGeometry.controlHitOutset,
-                    dy: -LeadSheetChordEditOverlayGeometry.controlHitOutset)
+            let unbounded = LeadSheetChordEditOverlayGeometry.resizeHitFrame(
+                for: LeadSheetChordEditOverlayGeometry.controlFrames(for: glyph).trailingResize, edge: .trailing)
             XCTAssertGreaterThan(unbounded.maxX, host.canvas.bounds.maxX,
                 "This full-row fixture must actually require the edge fallback")
             let controls = LeadSheetChordEditOverlayGeometry.controlFrames(for: glyph, within: host.canvas.bounds)
-            let widthHit = controls.trailingResize.insetBy(
-                dx: -LeadSheetChordEditOverlayGeometry.controlHitOutset,
-                dy: -LeadSheetChordEditOverlayGeometry.controlHitOutset)
+            let widthHit = LeadSheetChordEditOverlayGeometry.resizeHitFrame(for: controls.trailingResize, edge: .trailing)
             XCTAssertTrue(host.canvas.bounds.contains(widthHit))
             XCTAssertFalse(widthHit.intersects(LeadSheetChordEditOverlayGeometry.bodySelectionFrame(for: glyph)))
             let start = CGPoint(x: controls.trailingResize.midX, y: controls.trailingResize.midY)
@@ -404,6 +401,78 @@ final class ChordObjectGestureCanvasTests: XCTestCase {
         XCTAssertTrue(host.canvas.responds(to: selector))
         _ = host.canvas.perform(selector, with: ChordTapFixture(point: body, coordinateView: host.canvas))
         XCTAssertEqual(corrections, [chordID])
+    }
+
+    func testPencilMoveSnapsToBeatOneThenReachesLeftBarlineBeforeCrossingInBothStyles() throws {
+        for style in [ChartLayoutStyle.rhythmSectionSheet, .simpleChordSheet] {
+            var original = try chart(style: style, text: "Db7(b9)")
+            let event = original.systems[0].measures[0].chordEvents.removeFirst()
+            original.systems[0].measures[1].authoringState = .committed
+            original.systems[0].measures[1].chordEvents = [event]
+            let previousID = original.measures[0].id
+            let selectedID = original.measures[1].id
+            let host = mount(original)
+            defer { host.close() }
+
+            let page = LeadSheetPageLayoutEngine.pageLayout(for: original, pageSize: host.canvas.bounds.size)
+            let measure = try XCTUnwrap(page.systems.flatMap(\.measures).first { $0.sourceMeasureID == selectedID })
+            let guideX = LeadSheetChordPlacementGuidePolicy.guideFrame(
+                for: measure, referenceFrame: measure.chordBandFrame
+            ).minX
+            let barlineX = measure.staffFrame.minX
+            XCTAssertGreaterThan(guideX - barlineX, 8, "The fixture needs room between the barline and beat 1")
+            let chord = try chordLayout(id: event.id, in: host.canvas)
+            let start = CGPoint(x: chord.frame.maxX - 2, y: chord.frame.midY)
+            let grabOffset = start.x - chord.frame.minX
+            let installedPan = try installedMovePan(in: host.canvas)
+            XCTAssertTrue(try receivesPencil(installedPan, at: start, in: host.canvas))
+            XCTAssertTrue(host.canvas.gestureRecognizerShouldBegin(installedPan))
+
+            let pan = ChordMovePanFixture(point: CGPoint(x: guideX + grabOffset + 0.5, y: start.y),
+                translation: .zero, state: .began, coordinateView: host.canvas)
+            host.canvas.handleRenderedObjectMovePan(pan)
+            XCTAssertEqual(try XCTUnwrap(host.canvas.chordMovePreviewFrame).minX, guideX, accuracy: 0.05)
+
+            pan.simulatedState = .changed
+            pan.point.x = barlineX + grabOffset + 1
+            host.canvas.handleRenderedObjectMovePan(pan)
+            let insidePreview = try XCTUnwrap(host.canvas.chordMovePreviewFrame)
+            XCTAssertGreaterThanOrEqual(insidePreview.minX, barlineX)
+            XCTAssertLessThan(insidePreview.minX - barlineX, 6, "The chord should reach the left barline margin")
+            XCTAssertEqual(host.canvas.chart, original, "Previewing a move leaves the saved chart alone")
+
+            pan.simulatedState = .ended
+            host.canvas.handleRenderedObjectMovePan(pan)
+            XCTAssertEqual(host.canvas.chart.measureContainingChordEvent(id: event.id)?.id, selectedID)
+            let placed = try XCTUnwrap(host.canvas.chart.chordEvent(id: event.id))
+            XCTAssertEqual(placed.startPosition.beat, 1)
+            XCTAssertEqual(placed.sourceInkData, event.sourceInkData)
+            let persisted = try ChartPersistenceCoders.decoder.decode(Chart.self,
+                from: ChartPersistenceCoders.encoder.encode(host.canvas.chart))
+            XCTAssertEqual(persisted, host.canvas.chart)
+            let committedGlyph = try chordLayout(id: event.id, in: host.canvas)
+            XCTAssertEqual(committedGlyph.frame.minX, insidePreview.minX, accuracy: 0.05)
+
+            host.canvas.layoutIfNeeded()
+            let nextStart = CGPoint(x: committedGlyph.frame.maxX - 2, y: committedGlyph.frame.midY)
+            let leftOfBarline = CGPoint(
+                x: barlineX - 2 + nextStart.x - committedGlyph.frame.minX,
+                y: nextStart.y
+            )
+            XCTAssertGreaterThan(leftOfBarline.x, barlineX,
+                "The Pencil is still on the right when the chord edge crosses left")
+            XCTAssertTrue(try receivesPencil(installedPan, at: nextStart, in: host.canvas))
+            XCTAssertTrue(host.canvas.gestureRecognizerShouldBegin(installedPan))
+            let crossing = ChordMovePanFixture(point: leftOfBarline, translation: .zero,
+                state: .began, coordinateView: host.canvas)
+            host.canvas.handleRenderedObjectMovePan(crossing)
+            crossing.simulatedState = .ended
+            host.canvas.handleRenderedObjectMovePan(crossing)
+
+            XCTAssertEqual(host.canvas.chart.measureContainingChordEvent(id: event.id)?.id, previousID)
+            XCTAssertEqual(host.canvas.chart.chordEvent(id: event.id)?.sourceInkData, event.sourceInkData)
+            XCTAssertEqual(host.canvas.chart.measures.flatMap(\.chordEvents).map(\.id), [event.id])
+        }
     }
 
     private func chart(style: ChartLayoutStyle, text: String) throws -> Chart {

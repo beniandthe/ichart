@@ -2787,7 +2787,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         )
         let sourceMeasure = try XCTUnwrap(sourceLayout.systems.first?.measures.first)
         let sourceChordLayout = try XCTUnwrap(sourceMeasure.chordLayouts.first { $0.id == chordID })
-        let controlFrames = LeadSheetChordEditOverlayGeometry.controlFrames(for: sourceChordLayout)
+        let controlFrames = LeadSheetChordEditOverlayGeometry.controlFrames(for: sourceChordLayout, in: sourceLayout)
 
         XCTAssertNil(
             LeadSheetChordEditOverlayGeometry.resizeHitTarget(
@@ -2825,13 +2825,11 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertEqual(compressedFrame.height, sourceChordLayout.frame.height, accuracy: 0.001)
         XCTAssertEqual(compressedFrame.midY, sourceChordLayout.frame.midY, accuracy: 0.001)
 
-        XCTAssertNil(
-            LeadSheetChordEditOverlayGeometry.resizeHitTarget(
-                at: CGPoint(x: controlFrames.leadingResize.midX, y: controlFrames.leadingResize.midY),
-                in: sourceLayout,
-                selectedChordID: chordID
-            )
-        )
+        let leadingTarget = try XCTUnwrap(LeadSheetChordEditOverlayGeometry.resizeHitTarget(
+            at: CGPoint(x: controlFrames.leadingResize.midX, y: controlFrames.leadingResize.midY),
+            in: sourceLayout, selectedChordID: chordID))
+        XCTAssertEqual(leadingTarget.chordID, chordID)
+        XCTAssertEqual(leadingTarget.action, .resizeLeading)
     }
 
     func testChordResizeHasBoundedWidthCompressionAndNeverChangesHeight() {

@@ -45,6 +45,11 @@ final class DividerToolGuidanceTests: XCTestCase {
         let nextAction = try await node(nextActionText, in: mounted.window)
         assertVisible(purpose, in: mounted.window)
         assertVisible(nextAction, in: mounted.window)
+        if tool == .browse {
+            let resizeInstruction = try await node("Tap a chord for width handles. Drag its body to move it.",
+                                                   in: mounted.window)
+            assertVisible(resizeInstruction, in: mounted.window)
+        }
         XCTAssertLessThan(purpose.frame(in: mounted.window).minY,
             nextAction.frame(in: mounted.window).maxY,
             "A concise purpose must introduce the tool's next action")

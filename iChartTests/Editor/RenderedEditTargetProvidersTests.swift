@@ -86,7 +86,8 @@ final class RenderedEditTargetProvidersTests: XCTestCase {
             at: CGPoint(x: controls.leadingResize.midX, y: controls.leadingResize.midY),
             in: context
         )
-        XCTAssertNotEqual(leadingDragTarget?.action, .resizeLeading)
+        XCTAssertEqual(leadingDragTarget?.objectID, chordObjectID)
+        XCTAssertEqual(leadingDragTarget?.action, .resizeLeading)
     }
 
     func testNarrowChordBodiesStaySelectableAndMovableOutsideControlHitAreas() throws {
@@ -98,8 +99,7 @@ final class RenderedEditTargetProvidersTests: XCTestCase {
             let controls = LeadSheetChordEditOverlayGeometry.controlFrames(for: fixture.chordLayout)
             let deleteHit = controls.delete.insetBy(dx: -LeadSheetChordEditOverlayGeometry.controlHitOutset,
                 dy: -LeadSheetChordEditOverlayGeometry.controlHitOutset)
-            let resizeHit = controls.trailingResize.insetBy(dx: -LeadSheetChordEditOverlayGeometry.controlHitOutset,
-                dy: -LeadSheetChordEditOverlayGeometry.controlHitOutset)
+            let resizeHit = LeadSheetChordEditOverlayGeometry.resizeHitFrame(for: controls.trailingResize, edge: .trailing)
             let router = RenderedEditRouter(providers: [ChordRenderedEditHitTargetProvider()])
             for x in [fixture.chordLayout.frame.minX + 1, fixture.chordLayout.frame.midX,
                 fixture.chordLayout.frame.maxX - 1] {

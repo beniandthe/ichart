@@ -384,7 +384,7 @@ private struct IChartHelpArticleSection: Identifiable {
                 "You can switch directly between Write & Render, Free Ink, Measures, and Tools without returning to Select first.",
                 "Tap a chord, barline, text label, marker, or measure with Apple Pencil to show its buttons. Use a finger to scroll.",
                 "In Select, drag a chord with Apple Pencil, then lift to place it. You can start on the chord without selecting it first.",
-                "Tap a chord to show its controls. Tap the red X to delete it, or drag the width handle to change its width.",
+                "Tap a chord to show its controls. Drag a side handle to resize the chord or tap the red X to delete it.",
                 "In either chart style, tap an eligible divider, then its red X or Delete to merge the two measures. Rhythm divider deletion is limited to chord-only measures; notes, attached marks or a merge that could move staff handwriting keep the boundary protected.",
                 "On a Simple Chord Sheet or Rhythm Section Sheet, tap a converted mark to select it. Drag to move it or tap the red X to delete it.",
                 "While you drag, a line points to a nearby chord. On a Rhythm Section Sheet, it can also point to a rhythm note or staff ink. Release to attach when the line is visible.",
@@ -469,7 +469,8 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "In Select, use Apple Pencil to edit items on the chart. Use a finger to scroll.",
             bullets: [
                 "Double-tap a chord in Select to correct it. Tap once to show its controls.",
-                "Drag a chord body to move it, then lift to place it. The width handle changes width; the red X deletes.",
+                "Drag a chord body to move it, then lift to place it. Snap to beat 1 at the first guide, or keep dragging toward the left barline for tighter spacing. Cross the barline to move into the previous measure in the row.",
+                "Drag a side handle to resize the selected chord. Tap the red X to delete it.",
                 "If a selected chord has a custom width, Reset Width returns it to 100% width without changing its placement.",
                 "Tap text or roadmap markers in Select to move, resize, edit, or delete them.",
                 "Cues, endings, and form marks make room for one another. In Select, tap an item and drag Move Up or Down to adjust its height. Reset Position restores automatic spacing.",

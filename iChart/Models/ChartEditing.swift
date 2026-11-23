@@ -1946,6 +1946,7 @@ extension Chart {
             .measures[sourceLocation.measureIndex]
             .chordEvents[sourceLocation.chordIndex]
         chordEvent.manualVisualLaneFraction = nil
+        chordEvent.manualVisualAllowsLeadingInset = nil
 
         if sourceLocation.systemIndex == targetLocation.systemIndex,
            sourceLocation.measureIndex == targetLocation.measureIndex {
@@ -1988,11 +1989,16 @@ extension Chart {
         to targetMeasureID: UUID,
         atFraction fraction: Double?,
         visualFraction: Double? = nil,
-        preserveMusicalPlacement: Bool = false
+        preserveMusicalPlacement: Bool = false,
+        allowsLeadingVisualInset: Bool? = nil
     ) -> Bool {
         guard let visualSourceLocation = chordEventLocation(id: chordEventID),
               let visualTargetLocation = measureLocation(id: targetMeasureID) else { return false }
         let normalizedVisualFraction = visualFraction.map(ChordEvent.clampedManualLaneFraction)
+        let leadingInsetIntent = allowsLeadingVisualInset
+            ?? (systems[visualSourceLocation.systemIndex].measures[visualSourceLocation.measureIndex]
+                .chordEvents[visualSourceLocation.chordIndex].manualVisualAllowsLeadingInset == true)
+        let normalizedLeadingInsetIntent: Bool? = normalizedVisualFraction != nil && leadingInsetIntent ? true : nil
         if preserveMusicalPlacement,
            visualSourceLocation.systemIndex == visualTargetLocation.systemIndex,
            visualSourceLocation.measureIndex == visualTargetLocation.measureIndex {
@@ -2001,6 +2007,10 @@ extension Chart {
                 .measures[visualSourceLocation.measureIndex]
                 .chordEvents[visualSourceLocation.chordIndex]
                 .manualVisualLaneFraction = normalizedVisualFraction
+            systems[visualSourceLocation.systemIndex]
+                .measures[visualSourceLocation.measureIndex]
+                .chordEvents[visualSourceLocation.chordIndex]
+                .manualVisualAllowsLeadingInset = normalizedLeadingInsetIntent
             updatedAt = .now
             return true
         }
@@ -2012,6 +2022,10 @@ extension Chart {
                     .measures[movedLocation.measureIndex]
                     .chordEvents[movedLocation.chordIndex]
                     .manualVisualLaneFraction = normalizedVisualFraction
+                systems[movedLocation.systemIndex]
+                    .measures[movedLocation.measureIndex]
+                    .chordEvents[movedLocation.chordIndex]
+                    .manualVisualAllowsLeadingInset = normalizedLeadingInsetIntent
             }
         }
         guard layoutStyle == .simpleChordSheet,
@@ -2782,6 +2796,7 @@ extension Chart {
                 positioned.mappedRhythmSlotIndex = start.mappedRhythmSlotIndex
                 positioned.manualLaneFraction = nil
                 positioned.manualVisualLaneFraction = nil
+                positioned.manualVisualAllowsLeadingInset = nil
                 systems[systemIndex].measures[measureIndex].chordEvents[0] = positioned
             }
         }

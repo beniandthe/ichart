@@ -32,7 +32,7 @@ final class LeadSheetChordMoveOverlayTests: XCTestCase {
         XCTAssertEqual(glyph.position, CGPoint(x: 240 + 47, y: 330 + 14))
         XCTAssertTrue((glyph.contents as AnyObject?) === (image as AnyObject))
         let selection = try shape("chordMove.selection", in: overlay)
-        XCTAssertEqual(selection.path?.boundingBoxOfPath, CGRect(x: 234, y: 328, width: 106, height: 32))
+        XCTAssertEqual(selection.path?.boundingBoxOfPath, CGRect(x: 238, y: 328, width: 98, height: 32))
         XCTAssertNil(glyph.animationKeys())
         XCTAssertNil(selection.animationKeys())
         XCTAssertFalse(overlay.isUserInteractionEnabled)
@@ -62,17 +62,32 @@ final class LeadSheetChordMoveOverlayTests: XCTestCase {
         XCTAssertEqual(overlay.layer.convert(glyph.position, to: parent.layer), CGPoint(x: 81, y: 112))
         let target = try shape("chordMove.targetGuide", in: overlay)
         let active = try shape("chordMove.activeGuide", in: overlay)
+        let downbeat = try shape("chordMove.downbeatGuide", in: overlay)
+        let beatLabel = try XCTUnwrap(try layer("chordMove.downbeatLabel", in: overlay) as? CATextLayer)
         XCTAssertEqual(target.path?.boundingBoxOfPath, CGRect(x: 46, y: -82, width: 0, height: 64))
         XCTAssertEqual(active.path?.boundingBoxOfPath, CGRect(x: 46, y: -80, width: 0, height: 60))
         XCTAssertEqual(target.lineWidth, 1)
         XCTAssertEqual(active.lineWidth, 0.85)
         XCTAssertEqual(active.lineDashPattern, [2.5, 1] as [NSNumber])
+        XCTAssertEqual(downbeat.path?.boundingBoxOfPath, CGRect(x: -148, y: -80, width: 0, height: 60))
+        XCTAssertEqual(beatLabel.string as? String, "1")
+        XCTAssertEqual(beatLabel.frame.midX, -148)
+        XCTAssertEqual(beatLabel.fontSize, 5.5)
+        XCTAssertFalse(beatLabel.isHidden)
         let targetPoint = target.convert(CGPoint(x: 46, y: -82), to: parent.layer)
         XCTAssertEqual(targetPoint, CGPoint(x: 46, y: -82))
         XCTAssertNil(target.animationKeys())
+        var beatOnePreview = preview
+        beatOnePreview.activeGuideX = -148
+        beatOnePreview.targetX = -148
+        let inactiveLabelColor = beatLabel.foregroundColor
+        overlay.update(frame: chord.frame, positionPreview: beatOnePreview)
+        XCTAssertEqual(active.path?.boundingBoxOfPath, CGRect(x: -148, y: -80, width: 0, height: 60))
+        XCTAssertNotEqual(beatLabel.foregroundColor, inactiveLabelColor)
         overlay.update(frame: chord.frame, positionPreview: nil)
         XCTAssertNil(target.path)
         XCTAssertNil(active.path)
+        XCTAssertTrue(beatLabel.isHidden)
     }
 
     func testEndClearsGlyphAndFeedbackAndAllowsAnotherDrag() throws {

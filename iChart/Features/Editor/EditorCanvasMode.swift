@@ -216,7 +216,7 @@ enum EditorCanvasMode: Hashable {
         case .browse:
             var details = [EditorToolGuidanceSection(
                 title: "Chords and cues",
-                text: "Drag a chord with Apple Pencil, then lift to place it. Beat guides show its destination. Tap a chord to show its controls: tap the red X to delete or drag the width handle to change width. Double-tap a chord to correct it. Tap a measure or cue to see its actions."
+                text: "Drag a chord with Apple Pencil, then lift to place it. Snap to beat 1 at the first guide, or keep dragging toward the left barline for tighter spacing. Cross the barline to move into the previous measure in the row. Tap a chord to show its side handles. Drag a side handle to resize that chord or tap the red X to delete it. Double-tap a chord to correct it. Tap a measure or cue to see its actions."
             ), .init(
                 title: "Space cues, endings, and form marks",
                 text: "Tap the item, then drag Move Up or Down to adjust its height. Reset Position restores automatic spacing. For endings, Move and Lengthen adjust the measures."
@@ -238,7 +238,8 @@ enum EditorCanvasMode: Hashable {
             }
             return .init(
                 title: "Edit items on the chart",
-                steps: ["Use Apple Pencil to select, move, or delete items on the chart. Scroll with a finger."],
+                steps: ["Use Apple Pencil to select, move, or delete items on the chart. Scroll with a finger.",
+                        "Tap a chord for width handles. Drag its body to move it."],
                 detailsTitle: "Select guide",
                 details: details
             )
