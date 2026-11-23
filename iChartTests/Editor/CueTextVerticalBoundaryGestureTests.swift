@@ -12,94 +12,26 @@ final class CueTextVerticalBoundaryGestureTests: XCTestCase {
     private let styles: [ChartLayoutStyle] = [.simpleChordSheet, .rhythmSectionSheet]
     private let positions: [CuePosition] = [.above, .below]
 
-    func testTextBodyVerticalPreviewAndCommitKeepStaffAndPageGeometryFixed() throws {
+    func testDirectAndHeldTextMoveBothWaysWithoutChangingStaffOrPageGeometry() throws {
         for style in styles {
             for position in positions {
-                let fixture = try fixture(style: style, position: position)
-                let mounted = try mount(fixture, route: .body)
-                defer { mounted.close() }
-                let beforeLayout = try cachedLayout(mounted.canvas)
-                let beforeGeometry = Geometry(beforeLayout)
-                let original = try cue(fixture.cueID, in: beforeLayout)
-                let distance: CGFloat = position == .above ? -8 : 8
-                let pan = try begin(mounted, fixture: fixture, route: .body)
-                move(pan, from: mounted.start, by: distance, state: .changed, on: mounted.canvas)
-                let preview = try preview(mounted.canvas, route: .body)
-
-                XCTAssertEqual(mounted.canvas.chart, mounted.baseline)
-                XCTAssertTrue(mounted.writes.isEmpty)
-                XCTAssertEqual(Geometry(try cachedLayout(mounted.canvas)), beforeGeometry)
-                XCTAssertEqual(preview.frame.minX, original.frame.minX, accuracy: 0.001)
-                let achieved = preview.frame.minY - original.frame.minY
-                XCTAssertGreaterThan(achieved * (distance < 0 ? -1 : 1), 0.01,
-                    "\(style) \(position) cue should move where there is room")
-                XCTAssertLessThanOrEqual(abs(achieved), abs(distance) + 0.01,
-                    "The cue may stop at a boundary, but must respond in the requested direction")
-                assertClearsNeighborStaves(preview.frame, cueID: fixture.cueID, in: beforeLayout)
-
-                move(pan, from: mounted.start, by: distance, state: .ended, on: mounted.canvas)
-                try assertOneVerticalCommit(mounted, fixture: fixture, preview: preview,
-                    originalGeometry: beforeGeometry)
-            }
-        }
-    }
-
-    func testMoveUpOrDownHandleClampsAtNeighborStavesWithoutRepackingThePage() throws {
-        for style in styles {
-            for position in positions {
-                let fixture = try fixture(style: style, position: position)
-                let mounted = try mount(fixture, route: .handle)
-                defer { mounted.close() }
-                let before = try cachedLayout(mounted.canvas)
-                let geometry = Geometry(before)
-                let original = try cue(fixture.cueID, in: before)
-                let distance: CGFloat = position == .above ? -140 : 140
-                let pan = try begin(mounted, fixture: fixture, route: .handle)
-                move(pan, from: mounted.start, by: distance, state: .changed, on: mounted.canvas)
-                let preview = try preview(mounted.canvas, route: .handle)
-
-                XCTAssertEqual(mounted.canvas.chart, mounted.baseline)
-                XCTAssertTrue(mounted.writes.isEmpty)
-                XCTAssertEqual(Geometry(try cachedLayout(mounted.canvas)), geometry)
-                XCTAssertEqual(preview.frame.minX, original.frame.minX, accuracy: 0.001)
-                XCTAssertGreaterThan(abs(preview.frame.minY - original.frame.minY), 0.01,
-                    "\(style) \(position) cue should move before reaching its boundary")
-                XCTAssertLessThan(abs(preview.frame.minY - original.frame.minY), abs(distance))
-                assertClearsNeighborStaves(preview.frame, cueID: fixture.cueID, in: before)
-
-                move(pan, from: mounted.start, by: distance, state: .ended, on: mounted.canvas)
-                try assertOneVerticalCommit(mounted, fixture: fixture, preview: preview,
-                    originalGeometry: geometry)
-            }
-        }
-    }
-
-    func testLegacyClampedRequestedOffsetsMoveBackFromTheirVisiblePositionImmediately() throws {
-        for style in styles {
-            for position in positions {
-                let authored: Double = position == .above ? -72 : 72
-                let inward: CGFloat = position == .above ? 8 : -8
-                let fixture = try fixture(style: style, position: position, verticalOffset: authored)
                 for route in Route.allCases {
+                    let fixture = try fixture(style: style, position: position)
                     let mounted = try mount(fixture, route: route)
                     defer { mounted.close() }
-                    let layout = try cachedLayout(mounted.canvas)
-                    let geometry = Geometry(layout)
-                    let original = try cue(fixture.cueID, in: layout)
-                    XCTAssertLessThan(abs(original.verticalOffsetFromDefault), CGFloat(abs(authored)) - 0.01,
-                        "This regression needs an authored offset that is visibly clamped by the staff boundary")
-                    let pan = try begin(mounted, fixture: fixture, route: route)
-                    move(pan, from: mounted.start, by: inward, state: .changed, on: mounted.canvas)
-                    let preview = try preview(mounted.canvas, route: route)
-                    let achieved = preview.frame.minY - original.frame.minY
-                    XCTAssertGreaterThan(achieved * (inward < 0 ? -1 : 1), 0.01,
-                        "Moving inward must respond to the visible clamp immediately, without a hidden offset dead zone")
-                    XCTAssertLessThanOrEqual(abs(achieved), abs(inward) + 0.01,
-                        "An opposite boundary may limit movement, but the visible cue must never jump farther than the Pencil")
-                    XCTAssertEqual(Geometry(try cachedLayout(mounted.canvas)), geometry)
+                    let before = try cachedLayout(mounted.canvas)
+                    let geometry = Geometry(before)
+                    let original = try cue(fixture.cueID, in: before)
+                    let distance: CGFloat = position == .above ? -8 : 8
+                    let gesture = try begin(mounted, fixture: fixture, route: route)
+                    move(gesture, from: mounted.start, by: distance, state: .changed, on: mounted.canvas)
+                    let preview = try preview(mounted.canvas)
                     XCTAssertEqual(mounted.canvas.chart, mounted.baseline)
-                    assertClearsNeighborStaves(preview.frame, cueID: fixture.cueID, in: layout)
-                    move(pan, from: mounted.start, by: inward, state: .ended, on: mounted.canvas)
+                    XCTAssertTrue(mounted.writes.isEmpty)
+                    XCTAssertEqual(Geometry(try cachedLayout(mounted.canvas)), geometry)
+                    XCTAssertEqual(preview.frame.minX, original.frame.minX, accuracy: 0.001)
+                    XCTAssertEqual(preview.frame.minY - original.frame.minY, distance, accuracy: 0.001)
+                    move(gesture, from: mounted.start, by: distance, state: .ended, on: mounted.canvas)
                     try assertOneVerticalCommit(mounted, fixture: fixture, preview: preview,
                         originalGeometry: geometry)
                 }
@@ -107,189 +39,272 @@ final class CueTextVerticalBoundaryGestureTests: XCTestCase {
         }
     }
 
-    func testBlockedOutwardDragPreservesLegacyRequestedOffsetInsteadOfPublishingAnInvisibleEdit() throws {
+    func testHeldTextCanCrossANeighboringStaffWithoutAnArtificialHeightStopOrRepacking() throws {
         for style in styles {
-            for position in positions {
-                let authored: Double = position == .above ? -72 : 72
-                let outward: CGFloat = position == .above ? -8 : 8
-                let fixture = try fixture(style: style, position: position, verticalOffset: authored)
-                for route in Route.allCases {
-                    let mounted = try mount(fixture, route: route)
-                    defer { mounted.close() }
-                    let layout = try cachedLayout(mounted.canvas)
-                    let original = try cue(fixture.cueID, in: layout)
-                    let geometry = Geometry(layout)
-                    let pan = try begin(mounted, fixture: fixture, route: route)
-                    move(pan, from: mounted.start, by: outward, state: .changed, on: mounted.canvas)
-                    let preview = try preview(mounted.canvas, route: route)
-                    assertEqual(preview.frame, original.frame)
-                    move(pan, from: mounted.start, by: outward, state: .ended, on: mounted.canvas)
-                    XCTAssertTrue(mounted.writes.isEmpty)
-                    XCTAssertEqual(mounted.canvas.chart, mounted.baseline)
-                    XCTAssertEqual(mounted.canvas.chart.cueText(id: fixture.cueID)?.verticalOffset, authored)
-                    XCTAssertEqual(Geometry(try cachedLayout(mounted.canvas)), geometry)
-                }
-            }
+            let fixture = try fixture(style: style, position: .below)
+            let mounted = try mount(fixture, route: .hold)
+            defer { mounted.close() }
+            let before = try cachedLayout(mounted.canvas)
+            let geometry = Geometry(before)
+            let original = try cue(fixture.cueID, in: before)
+            let gesture = try begin(mounted, fixture: fixture, route: .hold)
+            move(gesture, from: mounted.start, by: 100, state: .changed, on: mounted.canvas)
+            let preview = try preview(mounted.canvas)
+            XCTAssertEqual(preview.frame.minY - original.frame.minY, 100, accuracy: 0.001)
+            XCTAssertEqual(preview.frame.minX, original.frame.minX, accuracy: 0.001)
+            XCTAssertEqual(Geometry(try cachedLayout(mounted.canvas)), geometry)
+            XCTAssertTrue(mounted.writes.isEmpty)
+            move(gesture, from: mounted.start, by: 100, state: .ended, on: mounted.canvas)
+            XCTAssertGreaterThan(try XCTUnwrap(mounted.canvas.chart.cueText(id: fixture.cueID)?.manualVerticalOffset), 72)
+            try assertOneVerticalCommit(mounted, fixture: fixture, preview: preview, originalGeometry: geometry)
         }
     }
 
-    func testStationaryAndCancelledGesturesDoNotWriteAndResetKeepsItsExistingModelMeaning() throws {
+    func testLegacyVisiblePlacementRespondsImmediatelyAndHugeMovesStayOnTheAttachmentPage() throws {
         for style in styles {
             for position in positions {
-                let fixture = try fixture(style: style, position: position)
-                for route in Route.allCases {
-                    let mounted = try mount(fixture, route: route)
-                    defer { mounted.close() }
-                    let geometry = Geometry(try cachedLayout(mounted.canvas))
-                    let still = try begin(mounted, fixture: fixture, route: route)
-                    move(still, from: mounted.start, by: 0, state: .ended, on: mounted.canvas)
-                    XCTAssertTrue(mounted.writes.isEmpty)
-                    XCTAssertEqual(mounted.canvas.chart, mounted.baseline)
-
-                    for state: UIGestureRecognizer.State in [.cancelled, .failed] {
-                        let pan = try begin(mounted, fixture: fixture, route: route)
-                        move(pan, from: mounted.start, by: position == .above ? -8 : 8,
-                            state: .changed, on: mounted.canvas)
-                        _ = try preview(mounted.canvas, route: route)
-                        move(pan, from: mounted.start, by: position == .above ? -8 : 8,
-                            state: state, on: mounted.canvas)
-                        XCTAssertTrue(mounted.writes.isEmpty)
-                        XCTAssertEqual(mounted.canvas.chart, mounted.baseline)
-                        XCTAssertNil(privateValue("activeCueTextMoveDrag", in: mounted.canvas) as ActiveCueTextMoveDrag?)
-                        XCTAssertNil(privateValue("cueAnnotationPositionPreview", in: mounted.canvas) as LeadSheetCueTextLayout?)
-                        XCTAssertEqual(Geometry(try cachedLayout(mounted.canvas)), geometry)
-                    }
-                }
-
-                let legacy = try self.fixture(style: style, position: position,
+                let fixture = try fixture(style: style, position: position,
                     verticalOffset: position == .above ? -72 : 72)
-                let mounted = try mount(legacy, route: .handle)
-                defer { mounted.close() }
-                let geometry = Geometry(try cachedLayout(mounted.canvas))
-                var reset = mounted.canvas.chart
-                XCTAssertTrue(LeadSheetAnnotationPositionDrag.setOffset(0, for: .cueText(legacy.cueID), in: &reset))
-                XCTAssertEqual(reset.cueText(id: legacy.cueID)?.verticalOffset, 0)
-                assertOnlyVerticalOffsetChanged(from: mounted.baseline, to: reset, cueID: legacy.cueID)
-                mounted.canvas.chart = reset
-                mounted.canvas.layoutIfNeeded()
-                XCTAssertEqual(Geometry(try cachedLayout(mounted.canvas)), geometry)
-                XCTAssertFalse(LeadSheetAnnotationPositionDrag.setOffset(0, for: .cueText(legacy.cueID), in: &reset))
+                for route in Route.allCases {
+                    let mounted = try mount(fixture, route: route)
+                    defer { mounted.close() }
+                    let before = try cachedLayout(mounted.canvas)
+                    let original = try cue(fixture.cueID, in: before)
+                    let geometry = Geometry(before)
+                    let gesture = try begin(mounted, fixture: fixture, route: route)
+                    let inward: CGFloat = position == .above ? 8 : -8
+                    move(gesture, from: mounted.start, by: inward, state: .changed, on: mounted.canvas)
+                    let immediate = try preview(mounted.canvas)
+                    XCTAssertEqual(immediate.frame.minY - original.frame.minY, inward, accuracy: 0.001,
+                        "A cue must follow the displayed starting position without a hidden requested-offset dead zone")
+                    move(gesture, from: mounted.start, by: position == .above ? -100_000 : 100_000,
+                        state: .changed, on: mounted.canvas)
+                    let extreme = try preview(mounted.canvas)
+                    XCTAssertGreaterThanOrEqual(extreme.frame.minY, before.paperFrame.minY)
+                    XCTAssertLessThanOrEqual(extreme.frame.maxY, before.paperFrame.maxY)
+                    XCTAssertEqual(extreme.frame.minX, original.frame.minX, accuracy: 0.001)
+                    XCTAssertEqual(Geometry(try cachedLayout(mounted.canvas)), geometry)
+                    move(gesture, from: mounted.start, by: inward, state: .ended, on: mounted.canvas)
+                    try assertOneVerticalCommit(mounted, fixture: fixture, preview: immediate,
+                        originalGeometry: geometry)
+                }
             }
         }
     }
 
-    func testCueMovementTranslatesOneTextRasterWithoutRedrawingOrChangingParentSelection() throws {
+    func testStationaryCancelledAndStaleHoldsDoNotWriteOrPerformCueActions() throws {
+        for style in styles {
+            let fixture = try fixture(style: style, position: .above)
+            let mounted = try mount(fixture, route: .hold)
+            defer { mounted.close() }
+            clearSelection(mounted.canvas)
+            var selected = 0
+            var edited = 0
+            mounted.canvas.onCueTextSelectedFromCanvas = { _ in selected += 1 }
+            mounted.canvas.onCueTextEditRequested = { _ in edited += 1 }
+            let still = try begin(mounted, fixture: fixture, route: .hold)
+            move(still, from: mounted.start, by: 0, state: .ended, on: mounted.canvas)
+            XCTAssertEqual(mounted.canvas.chart, mounted.baseline)
+            XCTAssertTrue(mounted.writes.isEmpty)
+            let restingCue = try cue(fixture.cueID, in: cachedLayout(mounted.canvas))
+            let touchdown = CGPoint(x: restingCue.frame.midX, y: restingCue.frame.midY)
+            XCTAssertTrue(mounted.canvas.beginCueTextPressTouch(at: touchdown, touchType: .pencil))
+            let drifted = CueBoundaryHoldFixture(point: CGPoint(x: touchdown.x + 5, y: touchdown.y - 3),
+                state: .began)
+            mounted.canvas.handleCueTextPressGesture(drifted)
+            assertEqual(try preview(mounted.canvas).frame, restingCue.frame)
+            drifted.simulatedState = .ended
+            mounted.canvas.handleCueTextPressGesture(drifted)
+            XCTAssertEqual(mounted.canvas.chart, mounted.baseline)
+            XCTAssertTrue(mounted.writes.isEmpty)
+            for state: UIGestureRecognizer.State in [.cancelled, .failed] {
+                let gesture = try begin(mounted, fixture: fixture, route: .hold)
+                move(gesture, from: mounted.start, by: 8, state: .changed, on: mounted.canvas)
+                move(gesture, from: mounted.start, by: 8, state: state, on: mounted.canvas)
+                XCTAssertEqual(mounted.canvas.chart, mounted.baseline)
+                XCTAssertTrue(mounted.writes.isEmpty)
+                XCTAssertNil(privateValue("activeCueTextMoveDrag", in: mounted.canvas) as ActiveCueTextMoveDrag?)
+            }
+            let original = try cue(fixture.cueID, in: cachedLayout(mounted.canvas))
+            let point = CGPoint(x: original.frame.midX, y: original.frame.midY)
+            XCTAssertTrue(mounted.canvas.beginCueTextPressTouch(at: point, touchType: .pencil))
+            var changed = mounted.canvas.chart
+            XCTAssertTrue(changed.updateCueText(fixture.cueID, text: "Changed meanwhile"))
+            mounted.canvas.chart = changed
+            let stale = CueBoundaryHoldFixture(point: point, state: .began)
+            mounted.canvas.handleCueTextPressGesture(stale)
+            stale.simulatedState = .ended
+            mounted.canvas.handleCueTextPressGesture(stale)
+            XCTAssertTrue(mounted.writes.isEmpty)
+            XCTAssertEqual(mounted.canvas.chart, changed)
+            XCTAssertEqual(selected, 0)
+            XCTAssertEqual(edited, 0)
+        }
+    }
+
+    func testCueMovementTranslatesOneRasterWithoutBackingOrParentChangesAndClearsOnCancel() throws {
         for style in styles {
             for route in Route.allCases {
                 let fixture = try fixture(style: style, position: .above)
                 let mounted = try mount(fixture, route: route)
                 defer { mounted.close() }
+                if route == .hold { clearSelection(mounted.canvas) }
                 var selectionChanges = 0
                 var parentSelections = 0
                 mounted.canvas.onCueTextSelectionChanged = { _ in selectionChanges += 1 }
                 mounted.canvas.onCueTextSelectedFromCanvas = { _ in parentSelections += 1 }
-                let pan = try begin(mounted, fixture: fixture, route: route)
+                let gesture = try begin(mounted, fixture: fixture, route: route)
                 let overlay = try XCTUnwrap(mounted.canvas.layer.sublayers?.first { $0.name == "cue-text-drag" })
                 let glyph = try XCTUnwrap(overlay.sublayers?.first { $0.name == "glyph" })
                 let guide = try XCTUnwrap(overlay.sublayers?.first { $0.name == "guide" } as? CAShapeLayer)
                 let anchor = try XCTUnwrap(overlay.sublayers?.first { $0.name == "anchor" } as? CAShapeLayer)
                 let image = try XCTUnwrap(glyph.contents)
-                XCTAssertNotNil(guide.path)
-                XCTAssertNotNil(anchor.path)
-                XCTAssertFalse(guide.isHidden)
                 mounted.canvas.layer.displayIfNeeded()
-                XCTAssertFalse(mounted.canvas.layer.needsDisplay())
-
                 for sample in 1...30 {
-                    move(pan, from: mounted.start, by: -CGFloat(sample) / 5,
+                    move(gesture, from: mounted.start, by: -CGFloat(sample) / 5,
                         state: .changed, on: mounted.canvas)
-                    let current = try preview(mounted.canvas, route: route)
-                    XCTAssertFalse(mounted.canvas.layer.needsDisplay(),
-                        "A Pencil movement sample must translate layers without invalidating the document backing")
-                    XCTAssertTrue((glyph.contents as AnyObject?) === (image as AnyObject),
-                        "Moving unchanged text must reuse its renderer raster")
+                    let current = try preview(mounted.canvas)
+                    XCTAssertFalse(mounted.canvas.layer.needsDisplay(), "A Pencil sample must only translate the cue layers")
+                    XCTAssertTrue((glyph.contents as AnyObject?) === (image as AnyObject))
                     XCTAssertEqual(glyph.position.x, current.frame.midX, accuracy: 0.001)
                     XCTAssertEqual(glyph.position.y, current.frame.midY, accuracy: 0.001)
                     XCTAssertNotNil(guide.path)
                     XCTAssertEqual(mounted.canvas.chart, mounted.baseline)
                     XCTAssertTrue(mounted.writes.isEmpty)
                     XCTAssertEqual(selectionChanges, 0)
-                    XCTAssertEqual(parentSelections, 0,
-                        "A live cue drag must not open a parent editor or resize its tool helper under the Pencil")
+                    XCTAssertEqual(parentSelections, 0)
                 }
-
-                move(pan, from: mounted.start, by: -6, state: .cancelled, on: mounted.canvas)
+                move(gesture, from: mounted.start, by: -6, state: .cancelled, on: mounted.canvas)
                 XCTAssertNil(overlay.superlayer)
                 XCTAssertNil(glyph.contents)
                 XCTAssertNil(guide.path)
                 XCTAssertNil(anchor.path)
-                XCTAssertNil(privateValue("cueTextMoveOverlayCueID", in: mounted.canvas) as UUID?)
                 XCTAssertEqual(selectionChanges, 0)
                 XCTAssertEqual(parentSelections, 0)
                 XCTAssertTrue(mounted.writes.isEmpty)
-                XCTAssertEqual(mounted.canvas.chart, mounted.baseline)
             }
         }
     }
 
-    func testCueVerticalHandleIsCompactWithItsExistingAccessibleActionAndIndependentHitTarget() throws {
+    func testHoldAdmissionUsesTheExactCueBoxAndPreservesControlsAndDeviceTouchRules() throws {
         for style in styles {
             let fixture = try fixture(style: style, position: .above)
-            let mounted = try mount(fixture, route: .handle)
+            let mounted = try mount(fixture, route: .hold, environment: .device)
             defer { mounted.close() }
-            let handle = try XCTUnwrap(mounted.canvas.subviews.compactMap {
-                $0 as? LeadSheetAnnotationPositionHandleView
-            }.first)
-            let original = try cue(fixture.cueID, in: cachedLayout(mounted.canvas))
-            XCTAssertEqual(handle.text, "↕")
-            XCTAssertEqual(handle.accessibilityLabel, "Move Up or Down")
-            XCTAssertEqual(handle.accessibilityIdentifier, "annotation.move-up-or-down")
-            XCTAssertTrue(handle.accessibilityTraits.contains(.adjustable))
-            XCTAssertEqual(handle.frame.width, 44, accuracy: 0.001)
-            XCTAssertEqual(handle.frame.height, 44, accuracy: 0.001)
-            XCTAssertFalse(handle.frame.intersects(original.frame), "The cue body and vertical handle must have separate targets")
-            let pan = try begin(mounted, fixture: fixture, route: .handle)
-            XCTAssertNotNil(privateValue("activeCueAnnotationPositionSource", in: mounted.canvas) as ActiveCueTextMoveDrag?)
-            move(pan, from: mounted.start, by: 0, state: .cancelled, on: mounted.canvas)
+            let cue = try cue(fixture.cueID, in: cachedLayout(mounted.canvas))
+            XCTAssertFalse(mounted.canvas.subviews.contains { $0 is LeadSheetAnnotationPositionHandleView })
+            let control = LeadSheetCueTextEditOverlayGeometry.controlFrames(for: cue)
+            for frame in [control.edit, control.shrink, control.grow, control.delete] {
+                XCTAssertFalse(mounted.canvas.beginCueTextPressTouch(at: CGPoint(x: frame.midX, y: frame.midY), touchType: .pencil))
+            }
+            let selectedBox = LeadSheetCueTextEditOverlayGeometry.editFrame(for: cue)
+            XCTAssertFalse(mounted.canvas.beginCueTextPressTouch(at: CGPoint(x: selectedBox.minX - 1, y: cue.frame.midY), touchType: .pencil))
+            let point = CGPoint(x: cue.frame.midX, y: cue.frame.midY)
+            XCTAssertFalse(mounted.canvas.beginCueTextPressTouch(at: point, touchType: .direct))
+            clearSelection(mounted.canvas)
+            XCTAssertTrue(mounted.canvas.beginCueTextPressTouch(at: point, touchType: .pencil))
+            let installed = try XCTUnwrap(mounted.canvas.gestureRecognizers?.compactMap { $0 as? UILongPressGestureRecognizer }
+                .first { $0.name == "cue-text-press-and-grab" })
+            XCTAssertEqual(installed.minimumPressDuration, 0.28)
+            XCTAssertEqual(installed.numberOfTouchesRequired, 1)
+            var selected = 0
+            var edited = 0
+            mounted.canvas.onCueTextSelectedFromCanvas = { _ in selected += 1 }
+            mounted.canvas.onCueTextEditRequested = { _ in edited += 1 }
+            let gesture = try begin(mounted, fixture: fixture, route: .hold)
+            // A lost competing pan must not cancel an active stationary hold.
+            mounted.canvas.handleRenderedObjectMovePan(CueBoundaryPanFixture(point: point, state: .cancelled))
+            XCTAssertNotNil(privateValue("activeCueTextMoveDrag", in: mounted.canvas) as ActiveCueTextMoveDrag?)
+            move(gesture, from: mounted.start, dx: 28, by: 18, state: .ended, on: mounted.canvas)
+            XCTAssertEqual(mounted.writes.count, 1)
+            let moved = try self.cue(fixture.cueID, in: cachedLayout(mounted.canvas))
+            XCTAssertGreaterThan(moved.frame.minX, cue.frame.minX)
+            XCTAssertGreaterThan(moved.frame.minY, cue.frame.minY)
+            XCTAssertEqual(selected, 0)
+            XCTAssertEqual(edited, 0)
         }
     }
 
-    func testCueAttachmentGuideFollowsTheLiveFrameAndHidesWhenDetachedIntoTheMargin() throws {
+    func testCueAccessibilityMovesTheCueWithoutAddingAVisibleOrInterceptingHandle() throws {
         for style in styles {
             let fixture = try fixture(style: style, position: .above)
-            let mounted = try mount(fixture, route: .body)
+            let mounted = try mount(fixture, route: .hold)
+            defer { mounted.close() }
+            let accessible = try XCTUnwrap(mounted.canvas.subviews.compactMap { $0 as? LeadSheetCueTextAccessibilityView }.first)
+            XCTAssertFalse(accessible.isUserInteractionEnabled)
+            XCTAssertFalse(accessible.isOpaque)
+            XCTAssertTrue(accessible.accessibilityTraits.contains(.adjustable))
+            XCTAssertEqual(accessible.accessibilityCustomActions?.map(\.name), ["Move Left", "Move Right"])
+            XCTAssertTrue(accessible.accessibilityHint?.contains("Press and hold") == true)
+            let before = try cue(fixture.cueID, in: cachedLayout(mounted.canvas))
+            accessible.accessibilityDecrement()
+            XCTAssertEqual(mounted.writes.count, 1)
+            let moved = try cue(fixture.cueID, in: cachedLayout(mounted.canvas))
+            XCTAssertEqual(moved.frame.minX, before.frame.minX, accuracy: 0.001)
+            XCTAssertEqual(moved.frame.minY, before.frame.minY + 8, accuracy: 0.001)
+        }
+    }
+
+    func testSelectedHeldCueUpdatesItsMeasureContextAfterReleaseWithoutOpeningAnEditor() throws {
+        for style in styles {
+            let fixture = try fixture(style: style, position: .above)
+            let mounted = try mount(fixture, route: .hold)
+            defer { mounted.close() }
+            let before = try cachedLayout(mounted.canvas)
+            let original = try cue(fixture.cueID, in: before)
+            let sourceID = try XCTUnwrap(fixture.chart.cueText(id: fixture.cueID)?.anchorMeasureID)
+            let system = try XCTUnwrap(before.systems.first { $0.measures.contains { $0.sourceMeasureID == sourceID } })
+            let destination = try XCTUnwrap(system.measures.last)
+            let destinationID = try XCTUnwrap(destination.sourceMeasureID)
+            XCTAssertNotEqual(destinationID, sourceID)
+            var measureChanges: [UUID?] = []
+            var cueActions = 0
+            mounted.canvas.onMeasureSelectionChanged = { measureChanges.append($0) }
+            mounted.canvas.onCueTextSelectedFromCanvas = { _ in cueActions += 1 }
+            mounted.canvas.onCueTextEditRequested = { _ in cueActions += 1 }
+            let gesture = try begin(mounted, fixture: fixture, route: .hold)
+            let dx = destination.staffFrame.minX + 20 - original.frame.minX
+            move(gesture, from: mounted.start, dx: dx, by: 0, state: .changed, on: mounted.canvas)
+            XCTAssertTrue(measureChanges.isEmpty)
+            XCTAssertEqual(mounted.canvas.selectedMeasureID, sourceID)
+            move(gesture, from: mounted.start, dx: dx, by: 0, state: .ended, on: mounted.canvas)
+            XCTAssertEqual(mounted.canvas.chart.cueText(id: fixture.cueID)?.anchorMeasureID, destinationID)
+            XCTAssertEqual(mounted.canvas.selectedMeasureID, destinationID)
+            XCTAssertEqual(measureChanges, [destinationID])
+            XCTAssertEqual(mounted.writes.count, 1)
+            XCTAssertEqual(cueActions, 0)
+        }
+    }
+
+    func testCueAttachmentGuideDetachesAndReattachesDuringTheHeldGrab() throws {
+        for style in styles {
+            let fixture = try fixture(style: style, position: .above)
+            let mounted = try mount(fixture, route: .hold)
             defer { mounted.close() }
             let layout = try cachedLayout(mounted.canvas)
             let original = try cue(fixture.cueID, in: layout)
-            let pan = try begin(mounted, fixture: fixture, route: .body)
+            let gesture = try begin(mounted, fixture: fixture, route: .hold)
             let overlay = try XCTUnwrap(mounted.canvas.layer.sublayers?.first { $0.name == "cue-text-drag" })
             let guide = try XCTUnwrap(overlay.sublayers?.first { $0.name == "guide" } as? CAShapeLayer)
             let anchor = try XCTUnwrap(overlay.sublayers?.first { $0.name == "anchor" } as? CAShapeLayer)
-            XCTAssertFalse(guide.isHidden)
-
-            pan.point = CGPoint(x: mounted.start.x + layout.paperFrame.minX + 8 - original.frame.minX,
-                y: mounted.start.y)
-            pan.simulatedTranslation = CGPoint(x: pan.point.x - mounted.start.x, y: 0)
-            pan.simulatedState = .changed
-            mounted.canvas.handleRenderedObjectMovePan(pan)
-            let detached = try preview(mounted.canvas, route: .body)
-            XCTAssertLessThan(detached.frame.minX, original.frame.minX)
+            move(gesture, from: mounted.start, dx: layout.paperFrame.minX + 8 - original.frame.minX,
+                by: 0, state: .changed, on: mounted.canvas)
             XCTAssertTrue(guide.isHidden)
             XCTAssertTrue(anchor.isHidden)
-
-            move(pan, from: mounted.start, by: 0, state: .changed, on: mounted.canvas)
+            XCTAssertNil(guide.path)
+            move(gesture, from: mounted.start, by: 0, state: .changed, on: mounted.canvas)
             XCTAssertFalse(guide.isHidden)
             XCTAssertFalse(anchor.isHidden)
             let path = try XCTUnwrap(guide.path)
             XCTAssertEqual(path.currentPoint.x + guide.frame.minX, anchor.position.x, accuracy: 0.001)
             XCTAssertEqual(path.currentPoint.y + guide.frame.minY, anchor.position.y, accuracy: 0.001)
-            move(pan, from: mounted.start, by: 0, state: .cancelled, on: mounted.canvas)
+            move(gesture, from: mounted.start, by: 0, state: .cancelled, on: mounted.canvas)
             XCTAssertNil(overlay.superlayer)
             XCTAssertTrue(mounted.writes.isEmpty)
         }
     }
 
-    private enum Route: CaseIterable { case body, handle }
+    private enum Route: CaseIterable { case body, hold }
 
     private struct Fixture {
         let chart: Chart
@@ -330,6 +345,8 @@ final class CueTextVerticalBoundaryGestureTests: XCTestCase {
             canvas.onChartChanged = nil
             canvas.onCueTextSelectionChanged = nil
             canvas.onCueTextSelectedFromCanvas = nil
+            canvas.onCueTextEditRequested = nil
+            canvas.onMeasureSelectionChanged = nil
             window.isHidden = true
             window.rootViewController = nil
         }
@@ -371,9 +388,11 @@ final class CueTextVerticalBoundaryGestureTests: XCTestCase {
         return Fixture(chart: chart, cueID: cueID)
     }
 
-    private func mount(_ fixture: Fixture, route: Route) throws -> Mounted {
+    private func mount(_ fixture: Fixture, route: Route,
+        environment: LeadSheetLiveInkInputPolicy.RuntimeEnvironment = .simulator) throws -> Mounted {
         let frame = CGRect(origin: .zero, size: pageSize)
-        let canvas = LeadSheetCanvasUIKitView(frame: frame)
+        let canvas = LeadSheetCanvasUIKitView(frame: frame, chordInkRecognizer: ChordInkMaximumTrustRecognizer(),
+            inputEnvironment: environment)
         canvas.chart = fixture.chart
         canvas.interactionMode = route == .body ? .textEdit : .browse
         let controller = UIViewController()
@@ -390,39 +409,47 @@ final class CueTextVerticalBoundaryGestureTests: XCTestCase {
         return mounted
     }
 
-    private func begin(_ mounted: Mounted, fixture: Fixture, route: Route) throws -> CueBoundaryPanFixture {
-        let frame: CGRect
-        switch route {
-        case .body:
-            frame = try cue(fixture.cueID, in: cachedLayout(mounted.canvas)).frame
-        case .handle:
-            let handle = try XCTUnwrap(mounted.canvas.subviews.compactMap { $0 as? LeadSheetAnnotationPositionHandleView }.first)
-            XCTAssertEqual(handle.accessibilityLabel, "Move Up or Down")
-            frame = handle.frame
-        }
+    private func clearSelection(_ canvas: LeadSheetCanvasUIKitView) {
+        canvas.applyParentSelectionState(selectedMeasureID: nil, selectedNoteSelection: nil,
+            selectedChordID: nil, selectedCommittedBarlineMeasureID: nil, selectedCueTextID: nil,
+            selectedRoadmapMarkerID: nil, selectedEndingSpanID: nil)
+    }
+
+    private func begin(_ mounted: Mounted, fixture: Fixture, route: Route) throws -> UIGestureRecognizer {
+        let frame = try cue(fixture.cueID, in: cachedLayout(mounted.canvas)).frame
         mounted.start = CGPoint(x: frame.midX, y: frame.midY)
-        XCTAssertTrue(mounted.canvas.beginRenderedObjectMoveTouch(at: mounted.start, touchType: .pencil))
-        let pan = CueBoundaryPanFixture(point: mounted.start, state: .began)
-        mounted.canvas.handleRenderedObjectMovePan(pan)
-        return pan
-    }
-
-    private func move(_ pan: CueBoundaryPanFixture, from start: CGPoint, by dy: CGFloat,
-        state: UIGestureRecognizer.State, on canvas: LeadSheetCanvasUIKitView) {
-        pan.point = CGPoint(x: start.x, y: start.y + dy)
-        pan.simulatedTranslation = CGPoint(x: 0, y: dy)
-        pan.simulatedState = state
-        canvas.handleRenderedObjectMovePan(pan)
-    }
-
-    private func preview(_ canvas: LeadSheetCanvasUIKitView, route: Route) throws -> LeadSheetCueTextLayout {
         switch route {
         case .body:
-            let drag: ActiveCueTextMoveDrag = try XCTUnwrap(privateValue("activeCueTextMoveDrag", in: canvas))
-            return try XCTUnwrap(drag.currentProjection).cueLayout
-        case .handle:
-            return try XCTUnwrap(privateValue("cueAnnotationPositionPreview", in: canvas))
+            XCTAssertTrue(mounted.canvas.beginRenderedObjectMoveTouch(at: mounted.start, touchType: .pencil))
+            let pan = CueBoundaryPanFixture(point: mounted.start, state: .began)
+            mounted.canvas.handleRenderedObjectMovePan(pan)
+            return pan
+        case .hold:
+            XCTAssertTrue(mounted.canvas.beginCueTextPressTouch(at: mounted.start, touchType: .pencil))
+            let hold = CueBoundaryHoldFixture(point: mounted.start, state: .began)
+            mounted.canvas.handleCueTextPressGesture(hold)
+            return hold
         }
+    }
+
+    private func move(_ gesture: UIGestureRecognizer, from start: CGPoint, dx: CGFloat = 0, by dy: CGFloat,
+        state: UIGestureRecognizer.State, on canvas: LeadSheetCanvasUIKitView) {
+        let point = CGPoint(x: start.x + dx, y: start.y + dy)
+        if let pan = gesture as? CueBoundaryPanFixture {
+            pan.point = point
+            pan.simulatedTranslation = CGPoint(x: dx, y: dy)
+            pan.simulatedState = state
+            canvas.handleRenderedObjectMovePan(pan)
+        } else if let hold = gesture as? CueBoundaryHoldFixture {
+            hold.point = point
+            hold.simulatedState = state
+            canvas.handleCueTextPressGesture(hold)
+        } else { XCTFail("Unexpected mounted gesture fixture") }
+    }
+
+    private func preview(_ canvas: LeadSheetCanvasUIKitView) throws -> LeadSheetCueTextLayout {
+        let drag: ActiveCueTextMoveDrag = try XCTUnwrap(privateValue("activeCueTextMoveDrag", in: canvas))
+        return try XCTUnwrap(drag.currentProjection).cueLayout
     }
 
     private func assertOneVerticalCommit(_ mounted: Mounted, fixture: Fixture,
@@ -451,20 +478,11 @@ final class CueTextVerticalBoundaryGestureTests: XCTestCase {
             return XCTFail("Cue disappeared during vertical movement", file: file, line: line)
         }
         normalized.cueTexts[index].verticalOffset = source.verticalOffset
+        normalized.cueTexts[index].manualVerticalOffset = source.manualVerticalOffset
         normalized.updatedAt = baseline.updatedAt
         XCTAssertEqual(normalized, baseline,
             "Only vertical placement and the edit timestamp may change; anchors, beats, other objects and ink must match",
             file: file, line: line)
-    }
-
-    private func assertClearsNeighborStaves(_ frame: CGRect, cueID: UUID, in layout: LeadSheetPageLayout,
-        file: StaticString = #filePath, line: UInt = #line) {
-        let sourceIndex = layout.systems.firstIndex { $0.measures.flatMap(\.cueTextLayouts).contains { $0.id == cueID } }
-        for (index, system) in layout.systems.enumerated() where index != sourceIndex {
-            for staff in system.measures.map(\.staffFrame) {
-                XCTAssertFalse(frame.intersects(staff), "A cue must stop before a neighboring staff", file: file, line: line)
-            }
-        }
     }
 
     private func cue(_ id: UUID, in layout: LeadSheetPageLayout) throws -> LeadSheetCueTextLayout {
@@ -511,5 +529,21 @@ private final class CueBoundaryPanFixture: UIPanGestureRecognizer {
     override var numberOfTouches: Int { 1 }
     override func location(in view: UIView?) -> CGPoint { point }
     override func translation(in view: UIView?) -> CGPoint { simulatedTranslation }
+}
+@MainActor
+private final class CueBoundaryHoldFixture: UILongPressGestureRecognizer {
+    var point: CGPoint
+    var simulatedState: UIGestureRecognizer.State
+    init(point: CGPoint, state: UIGestureRecognizer.State) {
+        self.point = point
+        simulatedState = state
+        super.init(target: nil, action: nil)
+    }
+    override var state: UIGestureRecognizer.State {
+        get { simulatedState }
+        set { simulatedState = newValue }
+    }
+    override var numberOfTouches: Int { 1 }
+    override func location(in view: UIView?) -> CGPoint { point }
 }
 #endif

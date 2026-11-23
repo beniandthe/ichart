@@ -250,13 +250,11 @@ final class LeadSheetEndingEditInteractionTests: XCTestCase {
         XCTAssertEqual(view.chart.pageHandwrittenChordData, fixture.chart.pageHandwrittenChordData)
     }
 
-    func testSelectedAnnotationsHaveVerticalHandlesThatCommitOnlyVisualPlacement() throws {
+    func testSelectedEndingsAndFormMarksHaveVerticalHandlesThatCommitOnlyVisualPlacement() throws {
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
             let fixture = try fixture()
             var chart = fixture.chart
             chart.layoutStyle = style
-            let cueMeasureID = fixture.ids[3]
-            let cueID = try XCTUnwrap(chart.addCueText("On cue", anchorMeasureID: cueMeasureID, position: .above))
             let markerID = try XCTUnwrap(chart.addPointRoadmapMarker(.segno, anchorMeasureID: fixture.ids[1]))
             let frame = CGRect(x: 0, y: 0, width: 900, height: 1_400)
             let canvas = LeadSheetCanvasUIKitView(frame: frame)
@@ -269,13 +267,13 @@ final class LeadSheetEndingEditInteractionTests: XCTestCase {
             defer { window.isHidden = true }
             canvas.layoutIfNeeded()
 
-            let selections: [RenderedEditObjectID] = [.cueText(cueID), .roadmapMarker(markerID), .endingSpan(fixture.endingID)]
+            let selections: [RenderedEditObjectID] = [.roadmapMarker(markerID), .endingSpan(fixture.endingID)]
             for (index, objectID) in selections.enumerated() {
-                canvas.applyParentSelectionState(selectedMeasureID: index == 0 ? cueMeasureID : fixture.ids[1], selectedNoteSelection: nil,
+                canvas.applyParentSelectionState(selectedMeasureID: fixture.ids[1], selectedNoteSelection: nil,
                     selectedChordID: nil, selectedCommittedBarlineMeasureID: nil,
-                    selectedCueTextID: index == 0 ? cueID : nil,
-                    selectedRoadmapMarkerID: index == 1 ? markerID : nil,
-                    selectedEndingSpanID: index == 2 ? fixture.endingID : nil)
+                    selectedCueTextID: nil,
+                    selectedRoadmapMarkerID: index == 0 ? markerID : nil,
+                    selectedEndingSpanID: index == 1 ? fixture.endingID : nil)
                 let handle = try XCTUnwrap(canvas.subviews.compactMap { $0 as? LeadSheetAnnotationPositionHandleView }.first)
                 XCTAssertEqual(handle.accessibilityLabel, "Move Up or Down")
                 XCTAssertTrue(handle.accessibilityTraits.contains(.adjustable))
@@ -314,7 +312,7 @@ final class LeadSheetEndingEditInteractionTests: XCTestCase {
         }
     }
 
-    func testSelectingCueFromDividerShowsItsVerticalHandle() throws {
+    func testSelectingCueFromDividerSelectsTheCueWithoutAddingAHeightControl() throws {
         let fixture = try fixture()
         var chart = fixture.chart
         let cueID = try XCTUnwrap(chart.addCueText("On cue", anchorMeasureID: fixture.ids[1], position: .above))
@@ -333,7 +331,7 @@ final class LeadSheetEndingEditInteractionTests: XCTestCase {
 
         XCTAssertEqual(canvas.selectedCueTextID, cueID)
         XCTAssertNil(canvas.selectedCommittedBarlineMeasureID)
-        XCTAssertTrue(canvas.subviews.contains { $0 is LeadSheetAnnotationPositionHandleView })
+        XCTAssertFalse(canvas.subviews.contains { $0 is LeadSheetAnnotationPositionHandleView })
     }
 
     func testMoveUpOrDownHandleFollowsHorizontalPreviewsAndRestoresOnCancel() throws {
@@ -341,7 +339,6 @@ final class LeadSheetEndingEditInteractionTests: XCTestCase {
             let fixture = try fixture()
             var chart = fixture.chart
             chart.layoutStyle = style
-            let cueID = try XCTUnwrap(chart.addCueText("On cue", anchorMeasureID: fixture.ids[1], position: .above))
             let markerID = try XCTUnwrap(chart.addPointRoadmapMarker(.segno, anchorMeasureID: fixture.ids[1]))
             XCTAssertTrue(chart.movePointRoadmapMarkerHorizontally(markerID, toNormalizedOffset: 0.35))
             let frame = CGRect(x: 0, y: 0, width: 900, height: 1_400)
@@ -358,7 +355,6 @@ final class LeadSheetEndingEditInteractionTests: XCTestCase {
             let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: frame.size)
             let system = try XCTUnwrap(layout.systems.first)
             let paper = layout.paperFrame(for: system).insetBy(dx: 6, dy: 6)
-            let cue = try XCTUnwrap(system.measures.flatMap(\.cueTextLayouts).first { $0.id == cueID })
             let marker = try XCTUnwrap(system.roadmapMarkerLayouts.first { $0.id == markerID })
             let ending = try XCTUnwrap(system.endingLayouts.first { $0.roadmapObjectID == fixture.endingID })
             let moveEnding = try XCTUnwrap(LeadSheetEndingEditOverlay.controlFrames(for: fixture.endingID, in: layout).first)
@@ -370,10 +366,7 @@ final class LeadSheetEndingEditInteractionTests: XCTestCase {
                 for: fixture.endingID, previewChart: movedEnding, sourceLayout: layout).first)
             let markerPreview = LeadSheetRoadmapMarkerEditOverlayGeometry.clampedFrame(
                 marker.frame.offsetBy(dx: 32, dy: 0), in: marker.movementFrame)
-            let cueTravel: CGFloat = 32
-            XCTAssertLessThan(cue.frame.minX + cueTravel, paper.maxX - 4 - cue.frame.width)
             let interactions: [(RenderedEditObjectID, CGRect, CGFloat, CGFloat)] = [
-                (.cueText(cueID), cue.frame, cueTravel, cueTravel),
                 (.roadmapMarker(markerID), marker.frame, 32, markerPreview.minX - marker.frame.minX),
                 (.endingSpan(fixture.endingID), moveEnding.moveHandle, endingDragDistance,
                     endingPreview.occupiedFrame.maxX - ending.occupiedFrame.maxX)
@@ -383,9 +376,9 @@ final class LeadSheetEndingEditInteractionTests: XCTestCase {
                 let (objectID, grabFrame, penTravel, previewTravel) = interaction
                 canvas.applyParentSelectionState(selectedMeasureID: fixture.ids[1], selectedNoteSelection: nil,
                     selectedChordID: nil, selectedCommittedBarlineMeasureID: nil,
-                    selectedCueTextID: index == 0 ? cueID : nil,
-                    selectedRoadmapMarkerID: index == 1 ? markerID : nil,
-                    selectedEndingSpanID: index == 2 ? fixture.endingID : nil)
+                    selectedCueTextID: nil,
+                    selectedRoadmapMarkerID: index == 0 ? markerID : nil,
+                    selectedEndingSpanID: index == 1 ? fixture.endingID : nil)
                 let handle = try XCTUnwrap(canvas.subviews.compactMap { $0 as? LeadSheetAnnotationPositionHandleView }.first)
                 let restingFrame = handle.frame
                 let expectedX = min(max(restingFrame.minX + previewTravel, paper.minX), paper.maxX - restingFrame.width)

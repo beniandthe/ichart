@@ -48,6 +48,9 @@ struct LeadSheetCueTextMoveProjection {
     var cueLayout: LeadSheetCueTextLayout
     var horizontalPlacement: CueTextHorizontalPlacement? = nil
     var attachmentGuide: CGPoint? = nil
+    // Nil preserves the source archive during a no-op. A body move authors
+    // its achieved page-bounded height without the legacy ±72-point limit.
+    var manualVerticalOffset: Double? = nil
 }
 
 struct LeadSheetCueTextMoveAnchor: Hashable {
@@ -99,14 +102,20 @@ enum LeadSheetCueTextMoveDragPolicy {
         }
         // Jitter protection belongs to vertical movement. A small deliberate
         // horizontal move still follows the Pencil continuously.
-        let keepsVerticalAnchor = abs(dx) * drag.screenPointsPerDisplayedPoint <= 2 && abs(dy) > abs(dx)
+        let horizontalScreenTravel = abs(dx) * drag.screenPointsPerDisplayedPoint
+        let keepsVerticalAnchor = horizontalScreenTravel <= 2 && abs(dy) > abs(dx)
+        // A tall adjustment can include a few points of intentional X motion.
+        // Keep that motion visible while measuring ownership in the source row;
+        // crossing a real barline still changes the owner. Larger diagonals can
+        // deliberately carry the cue to another row or page.
+        let retainsSourceRow = horizontalScreenTravel <= 12 && abs(dy) > abs(dx) * 1.5
         let target: HorizontalTarget
         if keepsVerticalAnchor {
             target = HorizontalTarget(measure: .init(id: drag.sourceCue.anchorMeasureID,
                 staffFrame: drag.sourceMeasure.staffFrame, meter: drag.sourceMeter),
                 fraction: drag.sourceCue.beatFraction,
                 placement: drag.sourceCue.horizontalPlacement)
-        } else if let resolved = horizontalTarget(for: &drag, dx: dx, dy: dy) {
+        } else if let resolved = horizontalTarget(for: &drag, dx: dx, dy: retainsSourceRow ? 0 : dy) {
             target = resolved
         } else {
             drag.currentProjection = nil
@@ -129,7 +138,7 @@ enum LeadSheetCueTextMoveDragPolicy {
         }
         let intendedDY = abs(dy) * drag.screenPointsPerDisplayedPoint <= 1 ? 0 : dy
         let baseY = template.frame.minY - template.verticalOffsetFromDefault
-        let offset = CueText.clampedVerticalOffset(Double(drag.initialFrame.minY + intendedDY - baseY))
+        let offset = Double(drag.initialFrame.minY + intendedDY - baseY)
         let anchor = LeadSheetCueTextMoveAnchor(measureID: measureID, fraction: target.fraction,
             horizontalPlacement: target.placement)
         let key = LeadSheetCueTextMoveProjectionKey(anchor: anchor, verticalOffset: offset)
@@ -138,7 +147,8 @@ enum LeadSheetCueTextMoveDragPolicy {
         guard let layout = LeadSheetPageLayoutEngine.cueTextMovePreview(chart: drag.sourceChart,
             sourcePageLayout: drag.sourcePageLayout, cueID: drag.cueTextID, targetMeasureID: measureID,
             fraction: target.fraction, verticalOffset: offset,
-            horizontalPlacement: target.placement, template: template) else {
+            horizontalPlacement: target.placement, template: template,
+            usesFreeVerticalPlacement: true) else {
             drag.currentProjection = nil
             return
         }
@@ -153,7 +163,8 @@ enum LeadSheetCueTextMoveDragPolicy {
         drag.currentProjection = LeadSheetCueTextMoveProjection(measureID: measureID,
             fraction: target.fraction, verticalOffset: Double(layout.verticalOffsetFromDefault), cueLayout: layout,
             horizontalPlacement: target.placement,
-            attachmentGuide: guide(for: target.placement, measure: target.measure, cueFrame: layout.frame))
+            attachmentGuide: guide(for: target.placement, measure: target.measure),
+            manualVerticalOffset: Double(layout.verticalOffsetFromDefault))
         drag.currentFrame = layout.frame
     }
 
@@ -170,7 +181,10 @@ enum LeadSheetCueTextMoveDragPolicy {
                 let distance = max(row.minimumY - y, y - row.maximumY, 0)
                 if distance < bestDistance { bestIndex = index; bestDistance = distance }
             }
-            guard let found = bestIndex, bestDistance <= CGFloat(CueText.maximumVerticalOffset + 18) else { return nil }
+            // Free vertical placement can end in the whitespace well beyond
+            // a row. Ownership chooses the nearest row; paper bounds, rather
+            // than the old local-offset reach, constrain the displayed cue.
+            guard let found = bestIndex else { return nil }
             rowIndex = found
             drag.ownershipY = y
             drag.ownershipRowIndex = found
@@ -209,10 +223,10 @@ enum LeadSheetCueTextMoveDragPolicy {
         return HorizontalTarget(measure: owner, fraction: legacyFraction, placement: placement)
     }
 
-    private static func guide(for placement: CueTextHorizontalPlacement?, measure: LeadSheetCueTextMoveMeasureGeometry,
-        cueFrame: CGRect) -> CGPoint? {
+    private static func guide(for placement: CueTextHorizontalPlacement?,
+        measure: LeadSheetCueTextMoveMeasureGeometry) -> CGPoint? {
         if let placement, placement.region != .measure { return nil }
-        return CGPoint(x: cueFrame.minX, y: measure.staffFrame.midY)
+        return CGPoint(x: measure.staffFrame.midX, y: measure.staffFrame.midY)
     }
 
     @discardableResult
@@ -222,6 +236,7 @@ enum LeadSheetCueTextMoveDragPolicy {
               target.measureID != drag.sourceCue.anchorMeasureID
                 || target.fraction != drag.sourceCue.beatFraction
                 || target.horizontalPlacement != drag.sourceCue.horizontalPlacement
+                || target.manualVerticalOffset != drag.sourceCue.manualVerticalOffset
                 || abs(target.verticalOffset - drag.sourceCue.verticalOffset) > 1e-9 else { return false }
         return apply(target, drag: drag, to: &chart)
     }
@@ -242,11 +257,12 @@ enum LeadSheetCueTextMoveDragPolicy {
             .first(where: { $0.id == drag.cueTextID }) else { return }
         target.cueLayout = cue
         target.verticalOffset = Double(cue.verticalOffsetFromDefault)
+        target.manualVerticalOffset = Double(cue.verticalOffsetFromDefault)
         if let measure = layout.systems.flatMap(\.measures).first(where: { $0.sourceMeasureID == target.measureID }) {
             target.attachmentGuide = guide(for: target.horizontalPlacement,
                 measure: .init(id: target.measureID, staffFrame: measure.staffFrame,
                     meter: projected.measure(id: target.measureID)?.resolvedMeter(defaultMeter: projected.defaultMeter)
-                        ?? projected.defaultMeter), cueFrame: cue.frame)
+                        ?? projected.defaultMeter))
         }
         drag.currentProjection = target
         drag.currentFrame = cue.frame
@@ -260,11 +276,12 @@ enum LeadSheetCueTextMoveDragPolicy {
            target.horizontalPlacement == drag.sourceCue.horizontalPlacement {
             // Existing archives can contain a non-grid fraction. A vertical
             // adjustment must not silently resnap that horizontal anchor.
-            return chart.updateCueText(drag.cueTextID, verticalOffset: target.verticalOffset)
+            guard let offset = target.manualVerticalOffset else { return false }
+            return chart.setCueTextManualVerticalOffset(drag.cueTextID, to: offset)
         }
         return chart.moveCueText(drag.cueTextID, to: target.measureID,
-            atFraction: target.fraction, verticalOffset: target.verticalOffset,
-            horizontalPlacement: target.horizontalPlacement)
+            atFraction: target.fraction, horizontalPlacement: target.horizontalPlacement,
+            manualVerticalOffset: target.manualVerticalOffset)
     }
 
     private static func restoreInitialProjection(_ drag: inout ActiveCueTextMoveDrag) {
@@ -274,7 +291,8 @@ enum LeadSheetCueTextMoveDragPolicy {
             horizontalPlacement: drag.sourceCue.horizontalPlacement,
             attachmentGuide: guide(for: drag.sourceCue.horizontalPlacement,
                 measure: .init(id: drag.sourceCue.anchorMeasureID, staffFrame: drag.sourceMeasure.staffFrame,
-                    meter: drag.sourceMeter), cueFrame: layout.frame))
+                    meter: drag.sourceMeter)),
+            manualVerticalOffset: drag.sourceCue.manualVerticalOffset)
         drag.currentFrame = drag.initialFrame
         drag.lastProjectionKey = nil
     }

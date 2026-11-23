@@ -21,7 +21,7 @@ final class FinalCueTextExportCompletenessTests: XCTestCase {
         )
     }
 
-    func testPDFKeepsViewedCuePositionsInTheLeadingMarginAndBetweenBeats() async throws {
+    func testPDFKeepsViewedCuePositionsInTheMarginAndBeyondTheOldHeightLimit() async throws {
         NotationFontRegistrar.registerBundledFontsIfNeeded()
         let output = try proofOutputDirectory(label: "horizontal-cue-export")
         defer {
@@ -39,7 +39,7 @@ final class FinalCueTextExportCompletenessTests: XCTestCase {
             XCTAssertTrue(chart.moveCueText(marginCueID, to: firstID, atFraction: 0,
                 horizontalPlacement: .init(region: .leadingMargin, fraction: 0.2)))
             XCTAssertTrue(chart.moveCueText(freeCueID, to: secondID, atFraction: 0.25,
-                horizontalPlacement: .init(region: .measure, fraction: 0.32)))
+                horizontalPlacement: .init(region: .measure, fraction: 0.32), manualVerticalOffset: 150))
 
             let saved = try ChartPersistenceCoders.encoder.encode(chart)
             let reopened = try ChartPersistenceCoders.decoder.decode(Chart.self, from: saved)
@@ -54,6 +54,7 @@ final class FinalCueTextExportCompletenessTests: XCTestCase {
             let freeCue = try XCTUnwrap(second.cueTextLayouts.first { $0.id == freeCueID })
             XCTAssertLessThan(marginCue.frame.minX, first.staffFrame.minX - 4)
             XCTAssertEqual(freeCue.frame.minX, second.staffFrame.minX + 0.32 * second.staffFrame.width, accuracy: 0.01)
+            XCTAssertEqual(freeCue.verticalOffsetFromDefault, 150, accuracy: 0.01)
 
             let export = try await exporter.exportPDF(for: reopened)
             let document = try XCTUnwrap(PDFDocument(url: export.url))

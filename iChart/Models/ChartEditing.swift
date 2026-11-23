@@ -2974,6 +2974,7 @@ extension Chart {
 
         if let verticalOffset {
             cueTexts[cueTextIndex].verticalOffset = CueText.clampedVerticalOffset(verticalOffset)
+            cueTexts[cueTextIndex].manualVerticalOffset = nil
         }
 
         updatedAt = .now
@@ -2998,9 +2999,23 @@ extension Chart {
         }
 
         let clampedOffset = CueText.clampedVerticalOffset(offset)
-        guard cueTexts[index].verticalOffset != clampedOffset else { return false }
+        guard cueTexts[index].verticalOffset != clampedOffset || cueTexts[index].manualVerticalOffset != nil else { return false }
 
         cueTexts[index].verticalOffset = clampedOffset
+        cueTexts[index].manualVerticalOffset = nil
+        updatedAt = .now
+        return true
+    }
+
+    @discardableResult
+    mutating func setCueTextManualVerticalOffset(_ cueTextID: UUID, to offset: Double) -> Bool {
+        guard offset.isFinite,
+              let index = cueTexts.firstIndex(where: { $0.id == cueTextID }),
+              measureLocation(id: cueTexts[index].anchorMeasureID) != nil else { return false }
+        let fallback = CueText.clampedVerticalOffset(offset)
+        guard cueTexts[index].manualVerticalOffset != offset || cueTexts[index].verticalOffset != fallback else { return false }
+        cueTexts[index].manualVerticalOffset = offset
+        cueTexts[index].verticalOffset = fallback
         updatedAt = .now
         return true
     }
@@ -3011,9 +3026,11 @@ extension Chart {
         to targetMeasureID: UUID,
         atFraction fraction: Double?,
         verticalOffset: Double? = nil,
-        horizontalPlacement: CueTextHorizontalPlacement? = nil
+        horizontalPlacement: CueTextHorizontalPlacement? = nil,
+        manualVerticalOffset: Double? = nil
     ) -> Bool {
-        guard let cueTextIndex = cueTexts.firstIndex(where: { $0.id == cueTextID }),
+        guard manualVerticalOffset == nil || manualVerticalOffset?.isFinite == true,
+              let cueTextIndex = cueTexts.firstIndex(where: { $0.id == cueTextID }),
               let targetLocation = measureLocation(id: targetMeasureID) else {
             return false
         }
@@ -3028,8 +3045,12 @@ extension Chart {
         cueTexts[cueTextIndex].anchorMeasureID = targetMeasureID
         cueTexts[cueTextIndex].beatFraction = snappedFraction
         cueTexts[cueTextIndex].horizontalPlacement = horizontalPlacement
-        if let verticalOffset {
+        if let manualVerticalOffset {
+            cueTexts[cueTextIndex].manualVerticalOffset = manualVerticalOffset
+            cueTexts[cueTextIndex].verticalOffset = CueText.clampedVerticalOffset(manualVerticalOffset)
+        } else if let verticalOffset {
             cueTexts[cueTextIndex].verticalOffset = CueText.clampedVerticalOffset(verticalOffset)
+            cueTexts[cueTextIndex].manualVerticalOffset = nil
         }
 
         if previousMeasureID != targetMeasureID {

@@ -61,6 +61,9 @@ struct CueText: Identifiable, Codable, Hashable {
     var verticalOffset: Double
     var rawInput: String?
     var horizontalPlacement: CueTextHorizontalPlacement?
+    /// Explicit displacement from the automatic lane, with verticalOffset
+    /// retained as the constrained fallback for earlier chart readers.
+    var manualVerticalOffset: Double?
 
     init(
         id: UUID,
@@ -72,7 +75,8 @@ struct CueText: Identifiable, Codable, Hashable {
         beatFraction: Double? = nil,
         verticalOffset: Double = 0,
         rawInput: String? = nil,
-        horizontalPlacement: CueTextHorizontalPlacement? = nil
+        horizontalPlacement: CueTextHorizontalPlacement? = nil,
+        manualVerticalOffset: Double? = nil
     ) {
         self.id = id
         self.text = text
@@ -81,7 +85,8 @@ struct CueText: Identifiable, Codable, Hashable {
         self.emphasis = emphasis
         self.scale = Self.clampedScale(scale)
         self.beatFraction = Self.clampedBeatFraction(beatFraction)
-        self.verticalOffset = Self.clampedVerticalOffset(verticalOffset)
+        self.manualVerticalOffset = Self.finiteManualVerticalOffset(manualVerticalOffset)
+        self.verticalOffset = Self.clampedVerticalOffset(self.manualVerticalOffset ?? verticalOffset)
         self.rawInput = rawInput
         self.horizontalPlacement = horizontalPlacement
     }
@@ -97,6 +102,7 @@ struct CueText: Identifiable, Codable, Hashable {
         case verticalOffset
         case rawInput
         case horizontalPlacement
+        case manualVerticalOffset
     }
 
     init(from decoder: Decoder) throws {
@@ -113,6 +119,9 @@ struct CueText: Identifiable, Codable, Hashable {
         )
         rawInput = try container.decodeIfPresent(String.self, forKey: .rawInput)
         horizontalPlacement = try container.decodeIfPresent(CueTextHorizontalPlacement.self, forKey: .horizontalPlacement)
+        manualVerticalOffset = Self.finiteManualVerticalOffset(
+            try container.decodeIfPresent(Double.self, forKey: .manualVerticalOffset)
+        )
     }
 
     static let defaultScale: Double = 1
@@ -145,6 +154,11 @@ struct CueText: Identifiable, Codable, Hashable {
         }
 
         return min(max(offset, minimumVerticalOffset), maximumVerticalOffset)
+    }
+
+    static func finiteManualVerticalOffset(_ offset: Double?) -> Double? {
+        guard let offset, offset.isFinite else { return nil }
+        return offset
     }
 }
 

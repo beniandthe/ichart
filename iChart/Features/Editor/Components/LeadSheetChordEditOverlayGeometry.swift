@@ -380,7 +380,8 @@ struct ActiveCueTextMoveDrag {
             fraction: cue.beatFraction, verticalOffset: cue.verticalOffset, cueLayout: layout,
             horizontalPlacement: cue.horizontalPlacement,
             attachmentGuide: cue.horizontalPlacement.map { $0.region != .measure } == true
-                ? nil : CGPoint(x: layout.frame.minX, y: measure.staffFrame.midY))
+                ? nil : CGPoint(x: measure.staffFrame.midX, y: measure.staffFrame.midY),
+            manualVerticalOffset: cue.manualVerticalOffset)
     }
 }
 

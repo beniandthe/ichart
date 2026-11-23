@@ -727,7 +727,8 @@ enum LeadSheetPageLayoutEngine {
         fraction: Double?,
         verticalOffset: Double,
         horizontalPlacement: CueTextHorizontalPlacement? = nil,
-        template: LeadSheetCueTextMovePreviewTemplate? = nil
+        template: LeadSheetCueTextMovePreviewTemplate? = nil,
+        usesFreeVerticalPlacement: Bool = false
     ) -> LeadSheetCueTextLayout? {
         guard var model = chart.cueText(id: cueID),
               let frozen = template ?? cueTextMovePreviewTemplate(chart: chart,
@@ -738,11 +739,17 @@ enum LeadSheetPageLayoutEngine {
         model.horizontalPlacement = horizontalPlacement ?? model.horizontalPlacement
         var cue = horizontallyPlacedCue(frozen.cueLayout, model: model, measure: frozen.measure,
             system: frozen.system, paperFrame: frozen.paperFrame)
-        let offset = CGFloat(CueText.clampedVerticalOffset(verticalOffset))
-        let y = constrainedCueY(for: cue.frame, offset: offset,
-            rowTop: frozen.rowTop, rowBottom: frozen.rowBottom,
-            paperTop: frozen.paperTop, paperBottom: frozen.paperBottom,
-            otherCues: frozen.otherCueFrames, obstacles: frozen.obstacles)
+        let freePlacement = usesFreeVerticalPlacement || model.manualVerticalOffset != nil
+        let offset = freePlacement
+            ? CGFloat(verticalOffset.isFinite ? verticalOffset : 0)
+            : CGFloat(CueText.clampedVerticalOffset(verticalOffset))
+        let y = freePlacement
+            ? paperClampedCueY(for: cue.frame, offset: offset,
+                paperTop: frozen.paperTop, paperBottom: frozen.paperBottom)
+            : constrainedCueY(for: cue.frame, offset: offset,
+                rowTop: frozen.rowTop, rowBottom: frozen.rowBottom,
+                paperTop: frozen.paperTop, paperBottom: frozen.paperBottom,
+                otherCues: frozen.otherCueFrames, obstacles: frozen.obstacles)
         let dy = y - cue.frame.minY
         cue.frame = cue.frame.offsetBy(dx: 0, dy: dy)
         cue.hitFrame = cue.hitFrame.offsetBy(dx: 0, dy: dy)
@@ -751,17 +758,22 @@ enum LeadSheetPageLayoutEngine {
         return cue
     }
 
-    /// Cue movement consumes existing whitespace, never the space allocated
-    /// to another row. Default cue geometry still participates in planning.
+    /// Default cue geometry participates in planning. Explicit manual Y is
+    /// applied afterward inside the paper body and cannot move any staff.
+    /// Older saved offsets retain their original local-clearance policy.
     private static func applyingCueOffsets(
         to layout: LeadSheetPageLayout,
         chart: Chart
     ) -> LeadSheetPageLayout {
         let offsets = Dictionary(chart.cueTexts.filter { $0.verticalOffset != 0 }
             .map { ($0.id, $0.verticalOffset) }, uniquingKeysWith: { first, _ in first })
+        let freeOffsets = Dictionary(chart.cueTexts.compactMap { cue -> (UUID, Double)? in
+            guard let offset = cue.manualVerticalOffset else { return nil }
+            return (cue.id, offset.isFinite ? offset : 0)
+        }, uniquingKeysWith: { first, _ in first })
         let horizontal = Dictionary(chart.cueTexts.filter { $0.horizontalPlacement != nil }
             .map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        guard !offsets.isEmpty || !horizontal.isEmpty else { return layout }
+        guard !offsets.isEmpty || !freeOffsets.isEmpty || !horizontal.isEmpty else { return layout }
         var result = layout
         let systemIndices = Dictionary(layout.systems.enumerated().map { ($0.element.id, $0.offset) },
             uniquingKeysWith: { first, _ in first })
@@ -797,7 +809,9 @@ enum LeadSheetPageLayoutEngine {
             for (row, index) in indices.enumerated() {
                 let original = layout.systems[index]
                 guard original.measures.contains(where: { measure in
-                          measure.cueTextLayouts.contains { offsets[$0.id] != nil || horizontal[$0.id] != nil }
+                          measure.cueTextLayouts.contains {
+                              offsets[$0.id] != nil || freeOffsets[$0.id] != nil || horizontal[$0.id] != nil
+                          }
                       }) else { continue }
                 let baseline = baselineSystem(at: index)
                 let bounds = baselineBounds(at: index)
@@ -832,14 +846,18 @@ enum LeadSheetPageLayoutEngine {
                     for cueIndex in baseline.measures[measureIndex].cueTextLayouts.indices {
                         let originalCue = baseline.measures[measureIndex].cueTextLayouts[cueIndex]
                         let cue = cues.first { $0.id == originalCue.id } ?? originalCue
-                        let authoredOffset = offsets[cue.id] ?? 0
+                        let manualOffset = freeOffsets[cue.id]
+                        let authoredOffset = manualOffset ?? offsets[cue.id] ?? 0
                         var placed = cue
                         placed.verticalOffset = CGFloat(authoredOffset)
-                        if authoredOffset != 0 {
-                            let y = constrainedCueY(for: cue.frame, offset: CGFloat(authoredOffset),
-                                rowTop: rowTop, rowBottom: rowBottom,
-                                paperTop: paperTop, paperBottom: paperBottom,
-                                otherCues: cues.filter { $0.id != cue.id }.map(\.frame), obstacles: obstacles)
+                        if manualOffset != nil || authoredOffset != 0 {
+                            let y = manualOffset != nil
+                                ? paperClampedCueY(for: cue.frame, offset: CGFloat(authoredOffset),
+                                    paperTop: paperTop, paperBottom: paperBottom)
+                                : constrainedCueY(for: cue.frame, offset: CGFloat(authoredOffset),
+                                    rowTop: rowTop, rowBottom: rowBottom,
+                                    paperTop: paperTop, paperBottom: paperBottom,
+                                    otherCues: cues.filter { $0.id != cue.id }.map(\.frame), obstacles: obstacles)
                             let dy = y - cue.frame.minY
                             placed.frame = cue.frame.offsetBy(dx: 0, dy: dy)
                             placed.hitFrame = cue.hitFrame.offsetBy(dx: 0, dy: dy)
@@ -871,6 +889,13 @@ enum LeadSheetPageLayoutEngine {
         frames += system.endingLayouts.map(\.occupiedFrame)
         frames += system.roadmapMarkerLayouts.map(LeadSheetRoadmapMarkerLabelGeometry.labelFrame)
         return frames
+    }
+
+    private static func paperClampedCueY(
+        for frame: CGRect, offset: CGFloat, paperTop: CGFloat, paperBottom: CGFloat
+    ) -> CGFloat {
+        let maximum = max(paperTop, paperBottom - frame.height)
+        return min(max(frame.minY + offset, paperTop), maximum)
     }
 
     private static func constrainedCueY(

@@ -30,21 +30,8 @@ enum LeadSheetAnnotationPositionEditOverlay {
         let obstacles = LeadSheetEndingOverlayPlacement.notationObstacles(in: pageLayout, scale: scale)
         var reserved: [CGRect] = []
         let annotations: [(LeadSheetSystemLayout, CGRect, CGFloat)]
-        let isCueText: Bool
         switch context.selection.selectedObjectID {
-        case .cueText(let id):
-            isCueText = true
-            annotations = pageLayout.systems.flatMap { system in
-                system.measures.flatMap(\.cueTextLayouts).filter { $0.id == id }.map { cue in
-                    let controls = LeadSheetCueTextEditOverlayGeometry.controlFrames(for: cue)
-                    let outset = LeadSheetCueTextEditOverlayGeometry.controlHitOutset
-                    reserved += [controls.edit, controls.shrink, controls.grow, controls.delete]
-                        .map { $0.insetBy(dx: -outset, dy: -outset) }
-                    return (system, cue.frame, cue.verticalOffsetFromDefault)
-                }
-            }
         case .roadmapMarker(let id):
-            isCueText = false
             annotations = pageLayout.systems.flatMap { system in
                 system.roadmapMarkerLayouts.filter { $0.id == id }.map { marker in
                     let delete = LeadSheetRoadmapMarkerEditOverlayGeometry.controlFrames(for: marker).delete
@@ -55,7 +42,6 @@ enum LeadSheetAnnotationPositionEditOverlay {
                 }
             }
         case .endingSpan(let id):
-            isCueText = false
             reserved = LeadSheetEndingEditOverlay.controlFrames(for: id, in: pageLayout,
                 screenPointsPerDisplayedPoint: scale).flatMap { controls in
                     [controls.moveHandle] + (controls.lengthenHandle.map { [$0] } ?? [])
@@ -70,7 +56,7 @@ enum LeadSheetAnnotationPositionEditOverlay {
         }
         return annotations.compactMap { system, annotationFrame, offsetFromDefault in
             let paper = pageLayout.paperFrame(for: system)
-            let width = min((isCueText ? 44 : 138) / scale, paper.width - 12 / scale)
+            let width = min(138 / scale, paper.width - 12 / scale)
             guard width >= touchHeight else { return nil }
             let preferred = CGPoint(x: annotationFrame.maxX + 8 / scale,
                 y: annotationFrame.midY - touchHeight / 2)
@@ -108,12 +94,10 @@ final class LeadSheetAnnotationPositionHandleView: UILabel {
 
     required init?(coder: NSCoder) { return nil }
 
-    func updateFrame(_ frame: CGRect, scale: CGFloat, modelOffset: Double, isCueText: Bool = false) {
+    func updateFrame(_ frame: CGRect, scale: CGFloat, modelOffset: Double) {
         self.frame = frame
-        text = isCueText ? "↕" : "Move Up or Down"
-        font = .systemFont(ofSize: (isCueText ? 23 : 13) / scale, weight: .semibold)
-        backgroundColor = isCueText ? UIColor.systemBlue.withAlphaComponent(0.08) : .systemBackground
-        layer.cornerRadius = (isCueText ? 12 : 8) / scale
+        font = .systemFont(ofSize: 13 / scale, weight: .semibold)
+        layer.cornerRadius = 8 / scale
         layer.borderWidth = 1 / scale
         clipsToBounds = true
         accessibilityValue = modelOffset == 0 ? "Automatic placement" : "Custom placement"
@@ -121,6 +105,32 @@ final class LeadSheetAnnotationPositionHandleView: UILabel {
 
     override func accessibilityIncrement() { adjustment?(-8) }
     override func accessibilityDecrement() { adjustment?(8) }
+}
+
+/// The cue itself exposes movement to VoiceOver without adding artwork or
+/// intercepting Pencil/finger input above the canvas.
+final class LeadSheetCueTextAccessibilityView: UIView {
+    var adjustment: ((CGFloat, CGFloat) -> Bool)?
+    var activation: (() -> Bool)?
+
+    init() {
+        super.init(frame: .zero)
+        isOpaque = false
+        backgroundColor = .clear
+        isUserInteractionEnabled = false
+        isAccessibilityElement = true
+        accessibilityTraits = .adjustable
+        accessibilityHint = "Press and hold this text, then drag to move it. Swipe up or down to change its height. Use Move Left or Move Right for horizontal placement."
+        accessibilityCustomActions = [
+            UIAccessibilityCustomAction(name: "Move Left") { [weak self] _ in self?.adjustment?(-8, 0) ?? false },
+            UIAccessibilityCustomAction(name: "Move Right") { [weak self] _ in self?.adjustment?(8, 0) ?? false }
+        ]
+    }
+
+    required init?(coder: NSCoder) { return nil }
+    override func accessibilityActivate() -> Bool { activation?() ?? false }
+    override func accessibilityIncrement() { _ = adjustment?(0, -8) }
+    override func accessibilityDecrement() { _ = adjustment?(0, 8) }
 }
 
 /// Tracks a frozen source layout and chart value for one vertical gesture.

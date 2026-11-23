@@ -29,7 +29,7 @@ final class CueTextDragProjectionTests: XCTestCase {
                             XCTAssertEqual(projected.cueLayout.frame.minX, original.frame.minX + distance, accuracy: 0.001)
                             XCTAssertGreaterThan(projected.cueLayout.frame.minX, previousX)
                             XCTAssertEqual(projected.horizontalPlacement?.region, .measure)
-                            XCTAssertNotNil(projected.attachmentGuide)
+                            try assertGuideCenter(projected, in: fixture.layout)
                             XCTAssertEqual(drag.pageLayoutProjectionCount, 0)
                             previousX = projected.cueLayout.frame.minX
                         }
@@ -80,7 +80,7 @@ final class CueTextDragProjectionTests: XCTestCase {
                         let expectedOwner = try XCTUnwrap(row.measures.first { x < $0.staffFrame.maxX }?.sourceMeasureID)
                         XCTAssertEqual(projected.measureID, expectedOwner)
                         XCTAssertEqual(projected.horizontalPlacement?.region, .measure)
-                        XCTAssertNotNil(projected.attachmentGuide)
+                        try assertGuideCenter(projected, in: fixture.layout)
                         owners.insert(projected.measureID)
                     }
                     previousX = projected.cueLayout.frame.minX
@@ -111,7 +111,7 @@ final class CueTextDragProjectionTests: XCTestCase {
                 let projection = try XCTUnwrap(drag.currentProjection)
                 XCTAssertEqual(projection.measureID, delta < 0 ? fixture.measureIDs[0] : fixture.measureIDs[1])
                 XCTAssertEqual(projection.cueLayout.frame.minX, requestedX, accuracy: 0.001)
-                XCTAssertNotNil(projection.attachmentGuide)
+                try assertGuideCenter(projection, in: fixture.layout)
             }
             LeadSheetCueTextMoveDragPolicy.finish(&drag)
             try assertCommitAndReopenMatch(drag, fixture: fixture)
@@ -209,12 +209,120 @@ final class CueTextDragProjectionTests: XCTestCase {
                         XCTAssertEqual(projection.horizontalPlacement, sourceCue.horizontalPlacement)
                         XCTAssertEqual(projection.cueLayout.frame.minX, original.frame.minX, accuracy: 0.001)
                         XCTAssertEqual(projection.attachmentGuide == nil, detached)
+                        XCTAssertGreaterThan(try XCTUnwrap(projection.manualVerticalOffset), 72)
+                        XCTAssertLessThanOrEqual(projection.cueLayout.frame.maxY,
+                            fixture.layout.paperFrame.maxY)
                         LeadSheetCueTextMoveDragPolicy.finish(&drag)
                         XCTAssertEqual(drag.pageLayoutProjectionCount, 0)
                         try assertCommitAndReopenMatch(drag, fixture: fixture)
                     }
                 }
             }
+        }
+    }
+
+    func testTallVerticalDragsKeepTheOriginalRowWhileSmallIntentionalXStillMovesContinuously() throws {
+        for style in styles {
+            for position in positions {
+                let fixture = try fixture(style: style, position: position)
+                let original = try cue(fixture.cueID, in: fixture.layout)
+                let source = try XCTUnwrap(fixture.chart.cueText(id: fixture.cueID))
+                let start = CGPoint(x: original.frame.maxX - 1, y: original.frame.midY)
+                for scale: CGFloat in [0.5, 1, 2.5] {
+                    for horizontalScreenTravel: CGFloat in [-6, 6, 11.9] {
+                        var drag = try makeDrag(fixture, start: start, scale: scale)
+                        let dx = horizontalScreenTravel / scale
+                        LeadSheetCueTextMoveDragPolicy.update(&drag,
+                            at: CGPoint(x: start.x + dx, y: start.y + 360))
+                        let projection = try XCTUnwrap(drag.currentProjection)
+                        XCTAssertEqual(projection.measureID, source.anchorMeasureID)
+                        XCTAssertEqual(projection.cueLayout.frame.minX, original.frame.minX + dx, accuracy: 0.001)
+                        XCTAssertEqual(projection.cueLayout.frame.minY, original.frame.minY + 360, accuracy: 0.001)
+                        XCTAssertGreaterThan(try XCTUnwrap(projection.manualVerticalOffset), 72)
+                        try assertGuideCenter(projection, in: fixture.layout)
+                        XCTAssertEqual(drag.pageLayoutProjectionCount, 0)
+                        LeadSheetCueTextMoveDragPolicy.finish(&drag)
+                        XCTAssertEqual(drag.pageLayoutProjectionCount, 0)
+                        try assertCommitAndReopenMatch(drag, fixture: fixture)
+                    }
+                }
+            }
+        }
+    }
+
+    func testSmallHorizontalBoundaryCrossingDuringTallDragSwitchesOnlyToTheNeighborInTheOriginalRow() throws {
+        for style in styles {
+            let base = try fixture(style: style, position: .above)
+            let source = try measure(base.measureIDs[0], in: base.layout)
+            let boundary = source.staffFrame.maxX
+            var chart = base.chart
+            XCTAssertTrue(chart.moveCueText(base.cueID, to: base.measureIDs[0], atFraction: 0.95,
+                horizontalPlacement: .init(region: .measure,
+                    fraction: Double((boundary - 5 - source.staffFrame.minX) / source.staffFrame.width),
+                    wrapWidth: Double(source.staffFrame.width - 12))))
+            let fixture = Fixture(chart: chart,
+                layout: LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize),
+                cueID: base.cueID, measureIDs: base.measureIDs)
+            let original = try cue(fixture.cueID, in: fixture.layout)
+            let start = CGPoint(x: original.frame.midX, y: original.frame.midY)
+            var drag = try makeDrag(fixture, start: start)
+            for dx: CGFloat in [4.75, 5.25] {
+                LeadSheetCueTextMoveDragPolicy.update(&drag,
+                    at: CGPoint(x: start.x + dx, y: start.y + 360))
+                let projection = try XCTUnwrap(drag.currentProjection)
+                XCTAssertEqual(projection.measureID, dx < 5 ? fixture.measureIDs[0] : fixture.measureIDs[1])
+                XCTAssertEqual(projection.cueLayout.frame.minX, boundary - 5 + dx, accuracy: 0.001)
+                try assertGuideCenter(projection, in: fixture.layout)
+                XCTAssertEqual(drag.pageLayoutProjectionCount, 0)
+            }
+            LeadSheetCueTextMoveDragPolicy.finish(&drag)
+            try assertCommitAndReopenMatch(drag, fixture: fixture)
+        }
+    }
+
+    func testSavedLargeManualHeightRemainsANoOpUntilMovedAndCanImmediatelyMoveBack() throws {
+        for style in styles {
+            let base = try fixture(style: style, position: .below)
+            var chart = base.chart
+            XCTAssertTrue(chart.setCueTextManualVerticalOffset(base.cueID, to: 500))
+            let fixture = Fixture(chart: chart,
+                layout: LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize),
+                cueID: base.cueID, measureIDs: base.measureIDs)
+            let original = try cue(fixture.cueID, in: fixture.layout)
+            let start = CGPoint(x: original.frame.midX, y: original.frame.midY)
+            var drag = try makeDrag(fixture, start: start)
+            LeadSheetCueTextMoveDragPolicy.update(&drag, at: start)
+            var untouched = chart
+            XCTAssertFalse(LeadSheetCueTextMoveDragPolicy.commit(drag, in: &untouched))
+            XCTAssertEqual(try encoded(untouched), try encoded(chart))
+            XCTAssertEqual(drag.currentProjection?.manualVerticalOffset, 500)
+            LeadSheetCueTextMoveDragPolicy.update(&drag,
+                at: CGPoint(x: start.x + 1, y: start.y - 160))
+            let projection = try XCTUnwrap(drag.currentProjection)
+            XCTAssertEqual(projection.cueLayout.frame.minY, original.frame.minY - 160, accuracy: 0.001)
+            XCTAssertEqual(projection.measureID, fixture.measureIDs[0])
+            XCTAssertGreaterThan(try XCTUnwrap(projection.manualVerticalOffset), 72)
+            try assertGuideCenter(projection, in: fixture.layout)
+            try assertCommitAndReopenMatch(drag, fixture: fixture)
+        }
+    }
+
+    func testDeliberateDiagonalIntoPageWhitespaceKeepsAPageBoundedPreview() throws {
+        for style in styles {
+            let fixture = try fixture(style: style, position: .above)
+            let original = try cue(fixture.cueID, in: fixture.layout)
+            let start = CGPoint(x: original.frame.midX, y: original.frame.midY)
+            var drag = try makeDrag(fixture, start: start)
+            LeadSheetCueTextMoveDragPolicy.update(&drag,
+                at: CGPoint(x: start.x + 30, y: start.y + pageSize.height * 3))
+            let projection = try XCTUnwrap(drag.currentProjection)
+            XCTAssertEqual(projection.measureID, fixture.measureIDs[4])
+            XCTAssertGreaterThan(try XCTUnwrap(projection.manualVerticalOffset), 72)
+            XCTAssertLessThanOrEqual(projection.cueLayout.frame.maxY, fixture.layout.paperFrame.maxY)
+            try assertGuideCenter(projection, in: fixture.layout)
+            XCTAssertEqual(drag.pageLayoutProjectionCount, 0)
+            LeadSheetCueTextMoveDragPolicy.finish(&drag)
+            try assertCommitAndReopenMatch(drag, fixture: fixture)
         }
     }
 
@@ -256,7 +364,7 @@ final class CueTextDragProjectionTests: XCTestCase {
                 let destination = try measure(fixture.measureIDs[4], in: fixture.layout)
                 let start = CGPoint(x: original.frame.maxX - 1, y: original.frame.midY)
                 var desiredX = destination.staffFrame.minX + destination.staffFrame.width * 0.371
-                if abs(desiredX - original.frame.minX) <= 2 { desiredX += 3 }
+                if abs(desiredX - original.frame.minX) <= 12 { desiredX = original.frame.minX + 30 }
                 var drag = try makeDrag(fixture, start: start)
                 LeadSheetCueTextMoveDragPolicy.update(&drag, at: CGPoint(
                     x: start.x + desiredX - original.frame.minX,
@@ -342,12 +450,16 @@ final class CueTextDragProjectionTests: XCTestCase {
             XCTAssertEqual(actual.fraction, expected.fraction, accuracy: 1e-12, file: file, line: line)
             XCTAssertEqual(try XCTUnwrap(actual.wrapWidth), try XCTUnwrap(expected.wrapWidth), accuracy: 1e-9, file: file, line: line)
         }
-        XCTAssertEqual(moved.verticalOffset, projection.verticalOffset, accuracy: 1e-9, file: file, line: line)
+        let manualOffset = try XCTUnwrap(projection.manualVerticalOffset, file: file, line: line)
+        XCTAssertEqual(try XCTUnwrap(moved.manualVerticalOffset, file: file, line: line),
+            manualOffset, accuracy: 1e-9, file: file, line: line)
+        XCTAssertEqual(moved.verticalOffset, CueText.clampedVerticalOffset(manualOffset), accuracy: 1e-9, file: file, line: line)
         var expected = try XCTUnwrap(fixture.chart.cueText(id: fixture.cueID))
         expected.anchorMeasureID = projection.measureID
         expected.beatFraction = moved.beatFraction
         expected.horizontalPlacement = moved.horizontalPlacement
         expected.verticalOffset = moved.verticalOffset
+        expected.manualVerticalOffset = moved.manualVerticalOffset
         XCTAssertEqual(moved, expected, file: file, line: line)
         XCTAssertEqual(reopened.cueTexts.filter { $0.id != fixture.cueID }, fixture.chart.cueTexts.filter { $0.id != fixture.cueID }, file: file, line: line)
         XCTAssertEqual(reopened.measures.map(\.id), fixture.chart.measures.map(\.id), file: file, line: line)
@@ -364,6 +476,13 @@ final class CueTextDragProjectionTests: XCTestCase {
     }
     private func measure(_ id: UUID, in layout: LeadSheetPageLayout) throws -> LeadSheetMeasureLayout {
         try XCTUnwrap(layout.systems.flatMap(\.measures).first { $0.sourceMeasureID == id })
+    }
+    private func assertGuideCenter(_ projection: LeadSheetCueTextMoveProjection, in layout: LeadSheetPageLayout,
+        file: StaticString = #filePath, line: UInt = #line) throws {
+        let staff = try measure(projection.measureID, in: layout).staffFrame
+        let guide = try XCTUnwrap(projection.attachmentGuide, file: file, line: line)
+        XCTAssertEqual(guide.x, staff.midX, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(guide.y, staff.midY, accuracy: 0.001, file: file, line: line)
     }
     private func encoded(_ chart: Chart) throws -> Data { try ChartPersistenceCoders.encoder.encode(chart) }
     private func assertEqual(_ actual: CGRect, _ expected: CGRect, file: StaticString = #filePath, line: UInt = #line) {

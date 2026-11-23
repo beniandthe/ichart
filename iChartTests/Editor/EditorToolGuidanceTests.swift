@@ -201,11 +201,11 @@ final class EditorToolGuidanceTests: XCTestCase {
                 manualRenderWithPreview: false)
             XCTAssertTrue(guidance.steps.contains("Tap where the cue should start, then choose Above or Below."))
             XCTAssertTrue(guidance.referenceText.contains("The blue marker shows the cue’s beat."))
-            XCTAssertTrue(guidance.referenceText.contains("lift at the previewed position"))
-            XCTAssertTrue(guidance.referenceText.contains("blue line points to its measure as you cross barlines"))
+            XCTAssertTrue(guidance.referenceText.contains("Press and hold the cue, then drag it in any direction"))
+            XCTAssertTrue(guidance.referenceText.contains("blue line stays at the center of its measure until you cross a barline"))
             XCTAssertTrue(guidance.referenceText.contains("disappears in the row margin"))
-            XCTAssertTrue(guidance.referenceText.contains("staff spacing stays fixed"))
-            XCTAssertTrue(guidance.referenceText.contains("Reset Position restores automatic height."))
+            XCTAssertTrue(guidance.referenceText.contains("Staff spacing stays fixed"))
+            XCTAssertFalse(guidance.referenceText.contains("Reset Position"))
         }
     }
 

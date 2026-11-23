@@ -29,6 +29,7 @@ struct EditorCueTextEntryRequest: Equatable, Identifiable {
     let placement: EditorCueTextPlacementPreview
     let cueTextID: UUID?
     let horizontalRegion: CueTextHorizontalPlacement.Region?
+    let hasManualHeight: Bool
     let callerTool: EditorCueTextCallerTool
     let initialText: String
 
@@ -38,6 +39,7 @@ struct EditorCueTextEntryRequest: Equatable, Identifiable {
               let destination = EditorCueTextPlacementPreview(measureID: placement.measureID,
                   position: position, beatFraction: placement.beatFraction).snapped(in: chart) else { return nil }
         return Self(id: UUID(), chartID: chart.id, placement: destination, cueTextID: nil, horizontalRegion: nil,
+                    hasManualHeight: false,
                     callerTool: callerTool, initialText: "")
     }
 
@@ -48,6 +50,7 @@ struct EditorCueTextEntryRequest: Equatable, Identifiable {
                     placement: EditorCueTextPlacementPreview(measureID: cue.anchorMeasureID,
                         position: cue.position, beatFraction: cue.beatFraction),
                     cueTextID: cue.id, horizontalRegion: cue.horizontalPlacement?.region,
+                    hasManualHeight: cue.manualVerticalOffset != nil,
                     callerTool: callerTool, initialText: cue.text)
     }
 
@@ -55,6 +58,7 @@ struct EditorCueTextEntryRequest: Equatable, Identifiable {
         guard chart.id == chartID, let measure = chart.measure(id: placement.measureID),
               let position = placement.position else { return "Location unavailable" }
         if let margin = horizontalRegion?.marginLabel { return margin }
+        if hasManualHeight { return "Measure \(measure.index)" }
         let lane: String
         switch position {
         case .above: lane = "Above"

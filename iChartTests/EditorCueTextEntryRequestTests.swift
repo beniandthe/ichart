@@ -113,6 +113,20 @@ final class EditorCueTextEntryRequestTests: XCTestCase {
         }
     }
 
+    func testEditLabelsTheMeasureAndPreservesTheFreelyPlacedHeight() throws {
+        for style in styles {
+            var chart = Chart.blank(title: "Cue placement", layoutStyle: style)
+            let measureID = chart.measures[0].id
+            let cueID = try XCTUnwrap(chart.addCueText("Cue", anchorMeasureID: measureID, position: .above))
+            XCTAssertTrue(chart.setCueTextManualVerticalOffset(cueID, to: 160))
+            let request = try XCTUnwrap(EditorCueTextEntryRequest.editing(in: chart, cueTextID: cueID,
+                callerTool: .text))
+            XCTAssertEqual(request.destinationDescription(in: chart), "Measure 1")
+            XCTAssertEqual(request.apply(text: "Edited cue", to: &chart), cueID)
+            XCTAssertEqual(chart.cueText(id: cueID)?.manualVerticalOffset, 160)
+        }
+    }
+
     func testDeletedEditingCueDoesNotCreateAnotherCueAndEmptyApplyIsNonDestructive() throws {
         var chart = Chart.blank(title: "Exact cue ID", measureCount: 2)
         let cueID = try XCTUnwrap(chart.addCueText("Original", anchorMeasureID: chart.measures[1].id))

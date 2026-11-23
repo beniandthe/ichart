@@ -218,8 +218,11 @@ enum EditorCanvasMode: Hashable {
                 title: "Chords and cues",
                 text: "Drag a chord with Apple Pencil, then lift to place it. Snap to beat 1 at the first guide, or keep dragging toward the left barline for tighter spacing. Cross the barline to move into the previous measure in the row. Tap a chord to show its side handles. Drag a side handle to resize that chord or tap the red X to delete it. Double-tap a chord to correct it. Tap a measure or cue to see its actions."
             ), .init(
-                title: "Space cues, endings, and form marks",
-                text: "Tap the item, then drag Move Up or Down to adjust its height. For text cues, use the up/down arrows. Text cues move within the available space and staff spacing stays fixed. Reset Position restores automatic height. For endings, Move and Lengthen adjust the measures."
+                title: "Moving text cues",
+                text: Self.cueMoveGuidance
+            ), .init(
+                title: "Space endings and form marks",
+                text: "Tap the item, then drag Move Up or Down to adjust its height. Reset Position restores automatic height. For endings, Move and Lengthen adjust the measures."
             )]
             if layoutStyle == .simpleChordSheet || layoutStyle == .rhythmSectionSheet {
                 details.append(.init(
@@ -362,11 +365,13 @@ enum EditorCanvasMode: Hashable {
                 details: [
                     .init(title: "Cue placement", text: "The blue marker shows the cue’s beat. Check the measure and placement in the Text panel before tapping Add."),
                     .init(title: "Existing cues", text: "Tap a cue with Apple Pencil, then use Edit, Larger, Smaller or Delete."),
-                    .init(title: "Moving cues", text: "Tap a cue to select it, then drag and lift at the previewed position. The blue line points to its measure as you cross barlines and disappears in the row margin. Vertical moves use the available space and staff spacing stays fixed. In Select, use the up/down arrows to adjust height. Reset Position restores automatic height.")
+                    .init(title: "Moving cues", text: Self.cueMoveGuidance)
                 ]
             )
         }
     }
+
+    private static let cueMoveGuidance = "Press and hold the cue, then drag it in any direction. The blue line stays at the center of its measure until you cross a barline and disappears in the row margin. Lift to place the cue. Staff spacing stays fixed."
 
     private static let rhythmMeasureResizeGuide = EditorToolGuidanceSection(
         title: "Resize a Rhythm row",
