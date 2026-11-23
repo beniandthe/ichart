@@ -195,6 +195,17 @@ final class EditorToolGuidanceTests: XCTestCase {
         XCTAssertEqual(original.withContext("Measure 8 selected").context, "Measure 8 selected")
     }
 
+    func testTextGuideNamesPlacementAndEditingInBothStyles() {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let guidance = EditorCanvasMode.textEdit.toolGuidance(layoutStyle: style,
+                manualRenderWithPreview: false)
+            XCTAssertTrue(guidance.steps.contains("Tap where the cue should start, then choose Above or Below."))
+            XCTAssertTrue(guidance.referenceText.contains("The blue marker shows the cue’s beat."))
+            XCTAssertTrue(guidance.referenceText.contains("lift at the previewed position"))
+            XCTAssertTrue(guidance.referenceText.contains("Reset Position restores automatic spacing."))
+        }
+    }
+
     func testReviewGuideNamesOnlyTheActionsAvailableInItsRenderingMode() throws {
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
             let automatic = EditorCanvasMode.chordEntry.toolGuidance(

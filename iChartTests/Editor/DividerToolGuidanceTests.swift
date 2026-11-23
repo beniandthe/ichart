@@ -29,6 +29,110 @@ final class DividerToolGuidanceTests: XCTestCase {
         try await assertGuidance(style: .rhythmSectionSheet, tool: .measureEdit, hasConvertedMarks: false)
     }
 
+    func testSimpleTextPlacesAtChosenBeatAndEditsWithoutSwitchingTools() async throws {
+        try await assertTextPlacementAndEditing(style: .simpleChordSheet)
+    }
+
+    func testRhythmTextPlacesAtChosenBeatAndEditsWithoutSwitchingTools() async throws {
+        try await assertTextPlacementAndEditing(style: .rhythmSectionSheet)
+    }
+
+    private func assertTextPlacementAndEditing(style: ChartLayoutStyle) async throws {
+        var original = try fixture(style)
+        original.freeInkArticulations = []
+        let measureID = original.measures[1].id
+        let neighborID = try XCTUnwrap(original.addCueText("Hold", anchorMeasureID: measureID, position: .above))
+        let mounted = try await mount(original, initialTool: .textEdit)
+        let guide = EditorCanvasMode.textEdit.toolGuidance(layoutStyle: style, manualRenderWithPreview: false)
+        assertVisible(try await node(guide.steps[0], in: mounted.window), in: mounted.window)
+        let measure = try XCTUnwrap(LeadSheetPageLayoutEngine.pageLayout(for: mounted.canvas.chart,
+            pageSize: mounted.canvas.bounds.size).systems.flatMap(\.measures)
+            .first { $0.sourceMeasureID == measureID })
+        let location = CGPoint(x: measure.staffFrame.minX + 0.53 * measure.staffFrame.width,
+            y: measure.staffFrame.midY)
+        sendEditorTap(at: location, in: mounted.canvas)
+        let below = try await node("Below", in: mounted.window, button: true)
+        let viewport = try await settledCanvasFrame(mounted)
+        try activate(below)
+
+        let field = try await cueInput(in: mounted.window)
+        XCTAssertEqual(mounted.canvas.cueTextPlacementPreview,
+            EditorCueTextPlacementPreview(measureID: measureID, position: .below, beatFraction: 0.5))
+        let destination = try await node("Below measure 2 · beat 3", in: mounted.window)
+        assertVisible(destination, in: mounted.window)
+        let openedViewport = try await settledCanvasFrame(mounted)
+        XCTAssertEqual(openedViewport, viewport)
+        field.requestKeyboard()
+        enterCueText("Basses only", in: field)
+        field.scribbleModeButton.sendActions(for: .touchUpInside)
+        field.prepareScribble()
+        XCTAssertTrue(field.isScribbleEnabled)
+        XCTAssertEqual(field.text, "Basses only")
+        let scribbleViewport = try await settledCanvasFrame(mounted)
+        XCTAssertEqual(scribbleViewport, viewport,
+            "The paper viewport must stay fixed when entering text or switching input modes")
+        XCTAssertEqual(mounted.binding.wrappedValue, original, "The placement preview must not save a cue")
+        try activate(await node("Add", in: mounted.window, button: true))
+        let selectedEdit = try await node("Edit", in: mounted.window, button: true)
+        XCTAssertTrue(selectedEdit.isEnabled)
+        let firstSave = mounted.binding.wrappedValue
+        let placed = try XCTUnwrap(firstSave.cueTexts.first { $0.id != neighborID })
+        XCTAssertEqual(placed.anchorMeasureID, measureID)
+        XCTAssertEqual(placed.position, .below)
+        XCTAssertEqual(placed.beatFraction, 0.5)
+        XCTAssertEqual(firstSave.cueText(id: neighborID), original.cueText(id: neighborID))
+
+        try activate(await node("Select", in: mounted.window, button: true))
+        let cue = try XCTUnwrap(LeadSheetPageLayoutEngine.pageLayout(for: firstSave,
+            pageSize: mounted.canvas.bounds.size).systems.flatMap(\.measures).flatMap(\.cueTextLayouts)
+            .first { $0.id == placed.id })
+        sendEditorTap(at: CGPoint(x: cue.frame.midX, y: cue.frame.midY), in: mounted.canvas)
+        try activate(await node("Edit", in: mounted.window, button: true))
+        let cancelledInput = try await cueInput(in: mounted.window)
+        XCTAssertEqual(cancelledInput.text, "Basses only")
+        XCTAssertEqual(mounted.canvas.interactionMode, .browse)
+        enterCueText("Discard this draft", in: cancelledInput)
+        try activate(await node("Cancel", in: mounted.window, button: true))
+        try activate(await node("Edit", in: mounted.window, button: true))
+        let editInput = try await cueInput(in: mounted.window)
+        XCTAssertEqual(editInput.text, "Basses only", "Cancel leaves the original cue text intact")
+        XCTAssertEqual(mounted.binding.wrappedValue, firstSave)
+        enterCueText("Basses enter", in: editInput)
+        try activate(await node("Apply", in: mounted.window, button: true))
+        _ = try await node("Edit", in: mounted.window, button: true)
+        let final = mounted.binding.wrappedValue
+        var expected = placed
+        expected.text = "Basses enter"
+        expected.rawInput = expected.text
+        XCTAssertEqual(final.cueText(id: placed.id), expected)
+        XCTAssertEqual(final.cueText(id: neighborID), original.cueText(id: neighborID))
+        XCTAssertEqual(final.measures.flatMap(\.chordEvents), original.measures.flatMap(\.chordEvents))
+        XCTAssertEqual(mounted.canvas.interactionMode, .browse)
+        try mounted.repository.saveSnapshot(mounted.store.snapshot)
+        XCTAssertEqual(try mounted.repository.loadSnapshot()?.charts.first { $0.id == original.id }, final)
+    }
+
+    private func cueInput(in window: UIWindow) async throws -> IChartTypedUITextView {
+        for _ in 0..<40 {
+            window.layoutIfNeeded()
+            if let input = Self.descendants(window).compactMap({ $0 as? IChartTypedUITextView }).first(where: {
+                $0.accessibilityIdentifier == "editor-cue-text-entry" && $0.window === window
+            }) { return input }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTFail("The editor did not present the Text entry field")
+        throw GuidanceFailure.missingControl
+    }
+
+    private func enterCueText(_ text: String, in field: IChartTypedUITextView) {
+        field.text = text
+        field.delegate?.textViewDidChange?(field)
+    }
+
+    private func sendEditorTap(at point: CGPoint, in canvas: LeadSheetCanvasUIKitView) {
+        canvas.handleRenderedEditTapGesture(GuidanceTapFixture(point: point, coordinateView: canvas))
+    }
+
     private func assertGuidance(style: ChartLayoutStyle, tool: EditorCanvasMode,
                                 hasConvertedMarks: Bool = true) async throws {
         var chart = try fixture(style)
@@ -130,7 +234,7 @@ final class DividerToolGuidanceTests: XCTestCase {
         attach(mounted.window, name: "\(style.rawValue) \(title) normal entry guidance and controls")
     }
 
-    private func mount(_ chart: Chart) async throws -> Mounted {
+    private func mount(_ chart: Chart, initialTool: EditorCanvasMode = .chordEntry) async throws -> Mounted {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let repository = FileChartRepository(url: directory.appendingPathComponent("library-state.json"))
@@ -140,7 +244,7 @@ final class DividerToolGuidanceTests: XCTestCase {
         let root = NavigationStack {
             EditorView(chart: binding,
                 chordInkUserCorrectionMemoryStore: .init(url: directory.appendingPathComponent("corrections.json")),
-                initialCanvasMode: .chordEntry)
+                initialCanvasMode: initialTool)
         }
         .environmentObject(store)
         .environmentObject(IChartPDFLibraryStore(baseDirectory: directory.appendingPathComponent("PDF Library")))

@@ -355,11 +355,14 @@ enum EditorCanvasMode: Hashable {
             )
         case .textEdit:
             return .init(
-                title: "Add a typed cue beside a measure",
-                steps: ["Tap a measure, then choose Above or Below.",
+                title: "Place or edit a text cue",
+                steps: ["Tap where the cue should start, then choose Above or Below.",
                         "Choose Keyboard or Scribble. For Scribble, tap the field with Apple Pencil before writing. Tap Add or Apply."],
                 detailsTitle: "Text guide",
-                details: [.init(title: "Existing cues", text: "Tap an existing cue with Apple Pencil to edit it, change its size, or delete it. In Select, use Move Up or Down to adjust its height.")]
+                details: [
+                    .init(title: "Cue placement", text: "The blue marker shows the cue’s beat. Check the measure and placement in the Text panel before tapping Add."),
+                    .init(title: "Existing cues", text: "Tap a cue with Apple Pencil, then use Edit, Larger, Smaller or Delete. Drag the cue and lift at the previewed position. In Select, use Move Up or Down to adjust its height. Reset Position restores automatic spacing.")
+                ]
             )
         }
     }

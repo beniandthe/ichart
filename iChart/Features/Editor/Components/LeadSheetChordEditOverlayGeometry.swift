@@ -321,6 +321,40 @@ struct ActiveCueTextMoveDrag {
     var initialFrame: CGRect
     var currentFrame: CGRect
     var startingVerticalOffset: Double
+    var sourceChart: Chart
+    var sourcePageLayout: LeadSheetPageLayout
+    var sourcePageSize: CGSize
+    var sourceCue: CueText
+    var sourceMeasure: LeadSheetMeasureLayout
+    var screenPointsPerDisplayedPoint: CGFloat
+    var currentProjection: LeadSheetCueTextMoveProjection?
+    var anchorLayouts: [LeadSheetCueTextMoveAnchor: LeadSheetCueTextMoveAnchorLayout] = [:]
+    var lastProjectionKey: LeadSheetCueTextMoveProjectionKey?
+    var pageLayoutProjectionCount = 0
+
+    init?(cueTextID: UUID, chart: Chart, pageLayout: LeadSheetPageLayout, pageSize: CGSize,
+        startLocation: CGPoint, screenPointsPerDisplayedPoint: CGFloat = 1) {
+        guard let cue = chart.cueText(id: cueTextID),
+              let measure = pageLayout.systems.flatMap(\.measures).first(where: {
+                  $0.sourceMeasureID == cue.anchorMeasureID
+              }), let layout = measure.cueTextLayouts.first(where: { $0.id == cueTextID }) else { return nil }
+        self.cueTextID = cueTextID
+        self.startLocation = startLocation
+        initialFrame = layout.frame
+        currentFrame = layout.frame
+        startingVerticalOffset = cue.verticalOffset
+        sourceChart = chart
+        sourcePageLayout = pageLayout
+        sourcePageSize = pageSize
+        sourceCue = cue
+        sourceMeasure = measure
+        self.screenPointsPerDisplayedPoint = max(0.0001, screenPointsPerDisplayedPoint)
+        currentProjection = LeadSheetCueTextMoveProjection(measureID: cue.anchorMeasureID,
+            fraction: cue.beatFraction, verticalOffset: cue.verticalOffset, cueLayout: layout)
+        let anchor = LeadSheetCueTextMoveAnchor(measureID: cue.anchorMeasureID, fraction: cue.beatFraction)
+        anchorLayouts[anchor] = LeadSheetCueTextMoveAnchorLayout(pageLayout: pageLayout,
+            verticalOffset: cue.verticalOffset, cueLayout: layout)
+    }
 }
 
 struct LeadSheetCueTextEditControlFrames {
@@ -392,50 +426,67 @@ enum LeadSheetCueTextEditOverlayGeometry {
         )
     }
 
+    static func controlHitFrames(for cueTextLayout: LeadSheetCueTextLayout) -> LeadSheetCueTextEditControlFrames {
+        let controls = controlFrames(for: cueTextLayout)
+        let frames = [controls.edit, controls.shrink, controls.grow, controls.delete]
+        let hits = frames.enumerated().map { index, frame in
+            let padded = frame.insetBy(dx: -controlHitOutset, dy: -controlHitOutset)
+            let minX = index == 0 ? padded.minX : (frames[index - 1].maxX + frame.minX) / 2
+            let maxX = index == frames.count - 1 ? padded.maxX : (frame.maxX + frames[index + 1].minX) / 2
+            return CGRect(x: minX, y: padded.minY, width: maxX - minX, height: padded.height)
+        }
+        return LeadSheetCueTextEditControlFrames(edit: hits[0], shrink: hits[1], grow: hits[2], delete: hits[3])
+    }
+
+    static func bodyHitTarget(
+        at location: CGPoint,
+        in cueTextLayouts: [LeadSheetCueTextLayout]
+    ) -> LeadSheetCueTextLayout? {
+        func nearest(in candidates: [LeadSheetCueTextLayout], frame: (LeadSheetCueTextLayout) -> CGRect) -> LeadSheetCueTextLayout? {
+            candidates.reduce(nil) { best, cue in
+                guard let best else { return cue }
+                let candidate = frame(cue), existing = frame(best)
+                let candidateDistance = hypot(candidate.midX - location.x, candidate.midY - location.y)
+                let existingDistance = hypot(existing.midX - location.x, existing.midY - location.y)
+                return candidateDistance < existingDistance ? cue : best
+            }
+        }
+        let visible = cueTextLayouts.filter { $0.frame.contains(location) }
+        if !visible.isEmpty { return nearest(in: visible, frame: { $0.frame }) }
+        return nearest(in: cueTextLayouts.filter { editHitFrame(for: $0).contains(location) },
+            frame: { editHitFrame(for: $0) })
+    }
+
     static func hitTarget(
         at location: CGPoint,
         in cueTextLayouts: [LeadSheetCueTextLayout],
         selectedCueTextID: UUID?
     ) -> CueTextEditHitTarget? {
-        for cueTextLayout in cueTextLayouts.reversed() {
-            let isSelected = selectedCueTextID == cueTextLayout.id
-            let controlFrames = controlFrames(for: cueTextLayout)
-
-            if isSelected {
-                if controlFrames.delete.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
-                    return CueTextEditHitTarget(cueTextID: cueTextLayout.id, action: .delete)
-                }
-                if controlFrames.edit.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
-                    return CueTextEditHitTarget(cueTextID: cueTextLayout.id, action: .edit)
-                }
-                if controlFrames.shrink.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
-                    return CueTextEditHitTarget(cueTextID: cueTextLayout.id, action: .shrink)
-                }
-                if controlFrames.grow.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
-                    return CueTextEditHitTarget(cueTextID: cueTextLayout.id, action: .grow)
-                }
+        let selected = cueTextLayouts.first { $0.id == selectedCueTextID }
+        func controlTarget(_ controls: LeadSheetCueTextEditControlFrames, cue: LeadSheetCueTextLayout) -> CueTextEditHitTarget? {
+            for (frame, action) in [(controls.edit, CueTextEditHitTarget.Action.edit),
+                (controls.shrink, .shrink), (controls.grow, .grow), (controls.delete, .delete)] {
+                if frame.contains(location) { return CueTextEditHitTarget(cueTextID: cue.id, action: action) }
             }
-
-            if editHitFrame(for: cueTextLayout).contains(location) {
-                return CueTextEditHitTarget(cueTextID: cueTextLayout.id, action: .select)
-            }
+            return nil
         }
-
-        return nil
+        if let selected, let control = controlTarget(controlFrames(for: selected), cue: selected) { return control }
+        if cueTextLayouts.contains(where: { $0.frame.contains(location) }),
+           let cue = bodyHitTarget(at: location, in: cueTextLayouts) {
+            return CueTextEditHitTarget(cueTextID: cue.id, action: .select)
+        }
+        if let selected, let control = controlTarget(controlHitFrames(for: selected), cue: selected) { return control }
+        guard let cue = bodyHitTarget(at: location, in: cueTextLayouts) else { return nil }
+        return CueTextEditHitTarget(cueTextID: cue.id, action: .select)
     }
 
     static func moveHitTarget(
         at location: CGPoint,
         in cueTextLayouts: [LeadSheetCueTextLayout]
     ) -> LeadSheetCueTextLayout? {
-        for cueTextLayout in cueTextLayouts.reversed() {
-            if editFrame(for: cueTextLayout).insetBy(dx: -editFrameHitOutset, dy: -editFrameHitOutset).contains(location) {
-                return cueTextLayout
-            }
-        }
-
-        return nil
+        bodyHitTarget(at: location, in: cueTextLayouts)
     }
+
 }
 
 enum LeadSheetRoadmapMarkerEditOverlayGeometry {

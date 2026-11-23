@@ -369,8 +369,18 @@ final class LeadSheetEndingEditInteractionTests: XCTestCase {
                 for: fixture.endingID, previewChart: movedEnding, sourceLayout: layout).first)
             let markerPreview = LeadSheetRoadmapMarkerEditOverlayGeometry.clampedFrame(
                 marker.frame.offsetBy(dx: 32, dy: 0), in: marker.movementFrame)
+            // The cue handle follows the snapped text preview rather than
+            // the raw pointer delta. Use the committed layout as the oracle.
+            let cueTravel: CGFloat = 32
+            let cueStaff = measures[1].staffFrame
+            let cueFraction = Double((cue.frame.minX + cueTravel - cueStaff.minX) / cueStaff.width)
+            var movedCue = chart
+            XCTAssertTrue(movedCue.moveCueText(cueID, to: fixture.ids[1], atFraction: cueFraction))
+            let cuePreview = try XCTUnwrap(LeadSheetPageLayoutEngine.pageLayout(for: movedCue,
+                pageSize: frame.size).systems.flatMap(\.measures).flatMap(\.cueTextLayouts)
+                .first { $0.id == cueID })
             let interactions: [(RenderedEditObjectID, CGRect, CGFloat, CGFloat)] = [
-                (.cueText(cueID), cue.frame, 32, 32),
+                (.cueText(cueID), cue.frame, cueTravel, cuePreview.frame.minX - cue.frame.minX),
                 (.roadmapMarker(markerID), marker.frame, 32, markerPreview.minX - marker.frame.minX),
                 (.endingSpan(fixture.endingID), moveEnding.moveHandle, endingDragDistance,
                     endingPreview.occupiedFrame.maxX - ending.occupiedFrame.maxX)

@@ -306,7 +306,7 @@ private struct IChartQuickStartStep: Identifiable {
         IChartQuickStartStep(
             id: "cue",
             title: "Add A Cue And Review",
-            detail: "Open Tools > Text, select a measure, then choose Above or Below. Choose Keyboard to type, or choose Scribble and tap the field with Apple Pencil before writing. Tap Add, then tap Done for Select. Use Pencil to select items on the chart."
+            detail: "Open Tools > Text, tap where the cue should start, then choose Above or Below. Check the position in the Text panel. Choose Keyboard to type, or choose Scribble and tap the field with Apple Pencil before writing. Tap Add, then tap Done for Select."
         ),
         IChartQuickStartStep(
             id: "export",
@@ -473,6 +473,7 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Drag a side handle to resize the selected chord. Tap the red X to delete it.",
                 "If a selected chord has a custom width, Reset Width returns it to 100% width without changing its placement.",
                 "Tap text or roadmap markers in Select to move, resize, edit, or delete them.",
+                "Tap a text cue with Apple Pencil, then tap Edit to change its wording. In Tools > Text, drag the cue to move it and lift at the previewed position.",
                 "Cues, endings, and form marks make room for one another. In Select, tap an item and drag Move Up or Down to adjust its height. Reset Position restores automatic spacing.",
                 "For an ending, use Move to shift its measure range or Lengthen to change the last measure.",
                 "To remove an eligible chord-only divider, choose Select, tap the divider, then its red X or Delete. Protected Rhythm boundaries keep their content and remain in place."
@@ -491,7 +492,7 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Open Layout to compare Start New Row, Join Row Above, Move to Row Below, Even Row Widths, and Merge with Next Measure. The sheet explains each action and why an option is unavailable. Tap an available action to apply it.",
                 "Join Row Above moves from the start of the row through your selected measure. Move to Row Below moves from your selection through the end of the row. The rows adjust to fit.",
                 "Tools > Repeats groups Repeat Measures, Add Ending, and Manage. Add Ending offers 1st Ending…, 2nd Ending…, or Custom Ending… with a shared label and range editor.",
-                "Tools > Text uses the selected measure. Choose Above or Below, then choose Keyboard or Scribble. Before writing, tap the cue field with Apple Pencil. Tap Add or Apply.",
+                "In Tools > Text, tap where the cue should start. The blue marker shows the beat. Choose Above or Below and check the destination in the Text panel. Use Keyboard to type, or choose Scribble and tap the cue field with Apple Pencil before writing. Tap Add or Apply.",
                 "Tools > Time Signature uses the selected measure. Tools > Form Markers opens a sheet: check the measure, choose a marker, then tap Add."
             ]
         ),

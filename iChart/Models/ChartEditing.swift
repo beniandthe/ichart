@@ -2888,7 +2888,8 @@ extension Chart {
         _ text: String,
         anchorMeasureID: UUID? = nil,
         position: CuePosition = .below,
-        emphasis: CueEmphasis = .normal
+        emphasis: CueEmphasis = .normal,
+        atFraction fraction: Double? = nil
     ) -> UUID? {
         let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedText.isEmpty else {
@@ -2897,7 +2898,8 @@ extension Chart {
 
         let resolvedMeasureID = anchorMeasureID ?? systems.first?.measures.first?.id
         guard let resolvedMeasureID,
-              measureLocation(id: resolvedMeasureID) != nil else {
+              let measure = measure(id: resolvedMeasureID),
+              fraction == nil || fraction?.isFinite == true else {
             return nil
         }
 
@@ -2907,6 +2909,7 @@ extension Chart {
             anchorMeasureID: resolvedMeasureID,
             position: position,
             emphasis: emphasis,
+            beatFraction: snappedCueTextBeatFraction(CueText.clampedBeatFraction(fraction), in: measure),
             rawInput: normalizedText
         )
 

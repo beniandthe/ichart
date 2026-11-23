@@ -285,6 +285,7 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     var manualRenderWithPreview = ChordInkWorkflowSettings.defaultManualRenderWithPreview
     var chordPreviewState: ChordPreviewState = ChordPreviewState()
     var draftEndingBlockerFocus: ChordDraftEndingBlockerFocus?
+    var cueTextPlacementPreview: EditorCueTextPlacementPreview? = nil
     var onTimeSignatureTargetRequested: ((UUID) -> Void)? = nil
     var onChordInkRecognitionProposal: ((UUID, ChordInkRecognitionResult, Data, Double?, ChordInkRecognitionTiming, ChordInkRecognitionFlow) -> Void)? = nil
     var onChordInkBatchRecognitionProposal: (([ChordInkRecognitionProposalPayload], ChordInkRecognitionFlow) -> Void)? = nil
@@ -297,6 +298,7 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
     var onChordCorrectionRequested: ((UUID) -> Void)? = nil
     var onNoteSelectionChanged: ((LeadSheetNoteSelection?) -> Void)? = nil
     var onMeasureSelectedFromCanvas: ((UUID) -> Void)? = nil
+    var onCueTextPlacementRequested: ((UUID, Double) -> Void)? = nil
     var onChordSelectedFromCanvas: ((UUID) -> Void)? = nil
     var onCueTextSelectedFromCanvas: ((UUID) -> Void)? = nil
     var onCueTextEditRequested: ((UUID) -> Void)? = nil
@@ -433,6 +435,7 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         view.onFreeInkArticulationDeletionAvailabilityChanged = onFreeInkArticulationDeletionAvailabilityChanged
         view.recognizesChordInk = recognizesChordInk
         view.chordPreviewState = chordPreviewState
+        view.cueTextPlacementPreview = cueTextPlacementPreview
         view.restrictsParentScrollToOutsideMargins = interactionMode.restrictsPageScrollToOutsideMargins
         view.onMeasureSelectionChanged = { measureID in
             context.coordinator.selectedMeasureID.wrappedValue = measureID
@@ -470,6 +473,7 @@ struct LeadSheetCanvasHostView: UIViewRepresentable {
         view.onManualChordPreviewReady = onManualChordPreviewReady
         view.onChordCorrectionRequested = onChordCorrectionRequested
         view.onMeasureSelectedFromCanvas = onMeasureSelectedFromCanvas
+        view.onCueTextPlacementRequested = onCueTextPlacementRequested
         view.onChordSelectedFromCanvas = onChordSelectedFromCanvas
         view.onCueTextSelectedFromCanvas = onCueTextSelectedFromCanvas
         view.onCueTextEditRequested = onCueTextEditRequested
@@ -1962,6 +1966,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     var onCueTextSelectionChanged: ((UUID?) -> Void)?
     var onRoadmapMarkerSelectionChanged: ((UUID?) -> Void)?
     var onMeasureSelectedFromCanvas: ((UUID) -> Void)?
+    var onCueTextPlacementRequested: ((UUID, Double) -> Void)?
     var onChordSelectedFromCanvas: ((UUID) -> Void)?
     var onCueTextSelectedFromCanvas: ((UUID) -> Void)?
     var onCueTextEditRequested: ((UUID) -> Void)?
@@ -2009,6 +2014,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private var renderedObjectMoveTouchStart: CGPoint?
     private var renderedObjectMoveAdmittedDrag: RenderedEditDragState?
     private var admittedChordResizeDrag: ActiveChordResizeDrag?
+    private var admittedCueTextMoveDrag: ActiveCueTextMoveDrag?
     private var renderedObjectMoveStartsOnFreeInkArticulation = false
     private var renderedEditTapIntent = RenderedEditTapIntent()
     var chordMovePreviewFrame: CGRect? { activeChordMoveDrag?.currentFrame }
@@ -2240,6 +2246,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private(set) var focusedDraftEndingBlocker: DraftBarline? {
         didSet {
             if oldValue != focusedDraftEndingBlocker { setNeedsDisplay() }
+        }
+    }
+    var cueTextPlacementPreview: EditorCueTextPlacementPreview? {
+        didSet {
+            if oldValue != cueTextPlacementPreview { setNeedsDisplay() }
         }
     }
     var selectedCommittedBarlineMeasureID: UUID? {
@@ -3141,6 +3152,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
             drawSavedMeasureRhythmicNotation(measure, savedRhythmicInk: savedRhythmicInk)
 
+            if let placement = cueTextPlacementPreview, placement.measureID == measure.sourceMeasureID {
+                drawCueTextPlacement(placement, in: measure)
+            }
+
             if let meterChange = measure.meterChange,
                let meterChangeFrame = measure.meterChangeFrame {
                 renderer.drawTimeSignature(meterChange, in: meterChangeFrame)
@@ -3227,6 +3242,31 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         UIColor(red: 0.16, green: 0.38, blue: 0.86, alpha: 0.84).setStroke()
         selectionPath.lineWidth = 1.4
         selectionPath.stroke()
+    }
+
+    private func drawCueTextPlacement(_ placement: EditorCueTextPlacementPreview, in measure: LeadSheetMeasureLayout) {
+        let staff = measure.staffFrame
+        let requestedX = placement.beatFraction.map { staff.minX + CGFloat($0) * staff.width } ?? (staff.minX + 6)
+        let x = min(max(requestedX, staff.minX + 4), max(staff.minX + 4, staff.maxX - 4))
+        let below = placement.position == .below
+        let edgeY = below ? staff.maxY : min(staff.minY, measure.chordBandFrame.minY)
+        let markerY = edgeY + (below ? 9 : -9)
+        let color = UIColor(red: 0.16, green: 0.38, blue: 0.86, alpha: 0.9)
+
+        let line = UIBezierPath()
+        line.move(to: CGPoint(x: x, y: markerY))
+        line.addLine(to: CGPoint(x: x, y: below ? staff.minY : staff.maxY))
+        line.lineWidth = 1.25
+        line.setLineDash([3, 3], count: 2, phase: 0)
+        color.withAlphaComponent(0.55).setStroke()
+        line.stroke()
+
+        let mark = UIBezierPath(ovalIn: CGRect(x: x - 3.5, y: markerY - 3.5, width: 7, height: 7))
+        color.setFill()
+        mark.fill()
+        UIColor.white.setStroke()
+        mark.lineWidth = 1
+        mark.stroke()
     }
 
     private func drawCueTextSelection(_ cueTextLayout: LeadSheetCueTextLayout) {
@@ -3848,6 +3888,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         guard let activeCueTextMoveDrag,
               activeCueTextMoveDrag.cueTextID == cueTextLayout.id else {
             return cueTextLayout
+        }
+
+        if let projection = activeCueTextMoveDrag.currentProjection {
+            return projection.cueLayout
         }
 
         let deltaX = activeCueTextMoveDrag.currentFrame.minX - cueTextLayout.frame.minX
@@ -4638,21 +4682,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func cueTextHitTarget(at location: CGPoint) -> LeadSheetCueTextLayout? {
-        guard let pageLayout else {
-            return nil
-        }
-
-        for system in pageLayout.systems.reversed() {
-            for measure in system.measures.reversed() {
-                for cueTextLayout in measure.cueTextLayouts.reversed() {
-                    if cueTextLayout.hitFrame.contains(location) {
-                        return cueTextLayout
-                    }
-                }
-            }
-        }
-
-        return nil
+        LeadSheetCueTextEditOverlayGeometry.bodyHitTarget(at: location, in: cueTextLayouts())
     }
 
     @discardableResult
@@ -4668,6 +4698,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         renderedObjectMoveTouchStart = location
         renderedObjectMoveAdmittedDrag = drag
         admittedChordResizeDrag = nil
+        admittedCueTextMoveDrag = nil
+        if let target = drag?.target, target.action == .move,
+           case .cueText(let cueID) = target.objectID, let pageLayout {
+            admittedCueTextMoveDrag = ActiveCueTextMoveDrag(cueTextID: cueID,
+                chart: chart, pageLayout: pageLayout, pageSize: bounds.size, startLocation: location,
+                screenPointsPerDisplayedPoint: canvasScreenPointsPerDisplayedPoint())
+        }
         if let target = drag?.target, case .chord(let chordID) = target.objectID,
            target.action == .resizeLeading || target.action == .resizeTrailing,
            let pageLayout, let glyph = chordLayout(for: chordID, in: pageLayout) {
@@ -4688,6 +4725,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         renderedObjectMoveTouchStart = nil
         renderedObjectMoveAdmittedDrag = nil
         admittedChordResizeDrag = nil
+        admittedCueTextMoveDrag = nil
         renderedObjectMoveStartsOnFreeInkArticulation = false
     }
 
@@ -5106,7 +5144,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         if let tappedMeasureID {
-            selectMeasureFromCanvas(tappedMeasureID)
+            selectMeasureFromCanvas(tappedMeasureID, at: location)
         } else {
             selectedEndingSpanID = nil
             applyTapSelection(nil)
@@ -5192,7 +5230,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             guard interactionMode.allowsMeasureSelection else {
                 return
             }
-            selectMeasureFromCanvas(measureID)
+            selectMeasureFromCanvas(measureID, at: location)
         case .repeatSpan(let roadmapObjectID):
             if hitTarget.action == .openInspector {
                 selectRepeatSpanFromCanvas(roadmapObjectID)
@@ -5213,7 +5251,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
     }
 
-    private func selectMeasureFromCanvas(_ measureID: UUID) {
+    private func selectMeasureFromCanvas(_ measureID: UUID, at location: CGPoint? = nil) {
         selectedEndingSpanID = nil
         selectedChordID = nil
         selectedCommittedBarlineMeasureID = nil
@@ -5223,6 +5261,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         applyTapSelection(measureID)
         if interactionMode == .browse {
             onMeasureSelectedFromCanvas?(measureID)
+        } else if interactionMode == .textEdit, let location,
+                  let measure = pageLayout?.systems.lazy.flatMap(\.measures)
+                    .first(where: { $0.sourceMeasureID == measureID }) {
+            let fraction = (location.x - measure.staffFrame.minX) / max(1, measure.staffFrame.width)
+            onCueTextPlacementRequested?(measureID, Double(fraction))
         }
         setNeedsDisplay()
     }
@@ -6489,24 +6532,19 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func handleCueTextMovePan(_ recognizer: UIPanGestureRecognizer) {
         switch recognizer.state {
         case .began:
-            let startLocation = renderedObjectMoveStartLocation(for: recognizer)
             guard let target = renderedObjectMoveAdmittedDrag?.target,
                   case .cueText(let cueTextID) = target.objectID,
-                  let cueTextLayout = cueTextLayouts().first(where: { $0.id == cueTextID }),
-                  let cueText = chart.cueText(id: cueTextLayout.id) else {
+                  var drag = admittedCueTextMoveDrag,
+                  drag.cueTextID == cueTextID,
+                  let cueText = chart.cueText(id: cueTextID), cueText == drag.sourceCue else {
                 activeCueTextMoveDrag = nil
                 setNeedsDisplay()
                 return
             }
 
             selectCueTextFromCanvas(cueText)
-            activeCueTextMoveDrag = ActiveCueTextMoveDrag(
-                cueTextID: cueTextLayout.id,
-                startLocation: startLocation,
-                initialFrame: cueTextLayout.frame,
-                currentFrame: cueTextLayout.frame,
-                startingVerticalOffset: cueText.verticalOffset
-            )
+            LeadSheetCueTextMoveDragPolicy.update(&drag, at: recognizer.location(in: self))
+            activeCueTextMoveDrag = drag
             editorPerformanceMetrics.recordDragState(kind: .cueTextMove, state: recognizer.state)
             lockParentScrollForChordMove()
             setNeedsDisplay()
@@ -6521,32 +6559,18 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
             editorPerformanceMetrics.recordDragState(kind: .cueTextMove, state: recognizer.state)
             let location = recognizer.location(in: self)
-            activeCueTextMoveDrag.currentFrame = activeCueTextMoveDrag.initialFrame.offsetBy(
-                dx: location.x - activeCueTextMoveDrag.startLocation.x,
-                dy: location.y - activeCueTextMoveDrag.startLocation.y
-            )
+            LeadSheetCueTextMoveDragPolicy.update(&activeCueTextMoveDrag, at: location)
             self.activeCueTextMoveDrag = activeCueTextMoveDrag
             setNeedsDisplay()
 
             if recognizer.state == .ended {
+                LeadSheetCueTextMoveDragPolicy.finish(&activeCueTextMoveDrag)
                 self.activeCueTextMoveDrag = nil
-                if let target = LeadSheetCanvasInteractionTargeting.cueTextMoveTarget(
-                    at: location,
-                    in: pageLayout,
-                    chart: chart
-                ) {
-                    var updatedChart = chart
-                    let verticalOffset = activeCueTextMoveDrag.startingVerticalOffset
-                        + Double(location.y - activeCueTextMoveDrag.startLocation.y)
-                    if updatedChart.moveCueText(
-                        activeCueTextMoveDrag.cueTextID,
-                        to: target.measureID,
-                        atFraction: target.fraction,
-                        verticalOffset: verticalOffset
-                    ) {
-                        applyUpdatedChart(updatedChart, reason: .moveCueText)
-                        selectedCueTextID = activeCueTextMoveDrag.cueTextID
-                    }
+                var updatedChart = chart
+                if LeadSheetCueTextMoveDragPolicy.commit(activeCueTextMoveDrag, in: &updatedChart) {
+                    applyUpdatedChart(updatedChart, reason: .moveCueText)
+                    selectedCueTextID = activeCueTextMoveDrag.cueTextID
+                    applyTapSelection(activeCueTextMoveDrag.currentProjection?.measureID)
                 }
                 unlockParentScrollForChordMove()
                 setNeedsDisplay()

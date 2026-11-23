@@ -273,93 +273,102 @@ struct CommittedChordBarlineRenderedEditHitTargetProvider: RenderedEditHitTarget
 
 struct CueTextRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
     func hitTargets(in context: RenderedEditContext) -> [RenderedEditHitTarget] {
-        context.pageLayout.systems.flatMap { system in
-            system.measures.flatMap { measure in
-                measure.cueTextLayouts.flatMap { cueTextLayout in
-                    cueTextTargets(for: cueTextLayout, selection: context.selection)
-                }
-            }
+        let cues = context.pageLayout.systems.flatMap(\.measures).flatMap(\.cueTextLayouts)
+        let glyphIndex = GlyphBandIndex(cues: cues)
+        return cues.flatMap { cue in
+            cueTextTargets(for: cue, selection: context.selection, glyphIndex: glyphIndex)
         }
     }
 
     private func cueTextTargets(
         for cueTextLayout: LeadSheetCueTextLayout,
-        selection: RenderedEditSelectionState
+        selection: RenderedEditSelectionState,
+        glyphIndex: GlyphBandIndex
     ) -> [RenderedEditHitTarget] {
         let objectID = RenderedEditObjectID.cueText(cueTextLayout.id)
+        let isSelected = selection.contains(objectID)
+        let bodyHit = LeadSheetCueTextEditOverlayGeometry.editHitFrame(for: cueTextLayout)
+        let controls = isSelected ? LeadSheetCueTextEditOverlayGeometry.controlFrames(for: cueTextLayout) : nil
+        let hits = isSelected ? LeadSheetCueTextEditOverlayGeometry.controlHitFrames(for: cueTextLayout) : nil
+        let controlHits = hits.map { [$0.edit, $0.shrink, $0.grow, $0.delete] } ?? []
+        let hitBounds = controlHits.reduce(bodyHit) { $0.union($1) }
+        let otherGlyphFrames = glyphIndex.frames(overlapping: hitBounds, excluding: cueTextLayout.id)
         var targets = [
-            RenderedEditHitTarget(
-                objectID: objectID,
-                action: .select,
+            RenderedEditHitTarget(objectID: objectID, action: .select,
                 priority: .objectBodySelect,
-                frame: LeadSheetCueTextEditOverlayGeometry.editHitFrame(for: cueTextLayout),
-                requiresSelection: false,
-                mutationRisk: .nonMutating
-            ),
-            RenderedEditHitTarget(
-                objectID: objectID,
-                action: .move,
+                frame: bodyHit,
+                requiresSelection: false, mutationRisk: .nonMutating,
+                excludedFrames: otherGlyphFrames),
+            // A real glyph remains selectable even where two glyphs overlap;
+            // only another cue's padded body yields to it.
+            RenderedEditHitTarget(objectID: objectID, action: .select,
+                priority: .objectBodySelect, frame: cueTextLayout.frame,
+                requiresSelection: false, mutationRisk: .nonMutating),
+            RenderedEditHitTarget(objectID: objectID, action: .move,
                 priority: .selectedObjectMoveBody,
-                frame: LeadSheetCueTextEditOverlayGeometry.editHitFrame(for: cueTextLayout),
-                requiresSelection: true,
-                mutationRisk: .visual
-            )
+                frame: bodyHit,
+                requiresSelection: true, mutationRisk: .visual,
+                excludedFrames: otherGlyphFrames + controlHits)
         ]
+        guard let controls, let hits else { return targets }
 
-        guard selection.contains(objectID) else {
-            return targets
-        }
-
-        // Preserve an explicit cue selection when its glyphs overlap a nearby
-        // chord's direct-move hit area, as they can in a Simple Chord Sheet.
+        // Retain the selected cue's visible move body over a chord beneath it.
         targets.append(RenderedEditHitTarget(objectID: objectID, action: .move,
             priority: .selectedObjectEditControl, frame: cueTextLayout.frame,
             requiresSelection: true, mutationRisk: .visual))
 
-        let controls = LeadSheetCueTextEditOverlayGeometry.controlFrames(for: cueTextLayout)
-        let controlOutset = LeadSheetCueTextEditOverlayGeometry.controlHitOutset
-        targets.append(
-            RenderedEditHitTarget(
-                objectID: objectID,
-                action: .editText,
-                priority: .selectedObjectEditControl,
-                frame: controls.edit.insetBy(dx: -controlOutset, dy: -controlOutset),
-                requiresSelection: true,
-                mutationRisk: .content
-            )
-        )
-        targets.append(
-            RenderedEditHitTarget(
-                objectID: objectID,
-                action: .shrink,
-                priority: .selectedObjectEditControl,
-                frame: controls.shrink.insetBy(dx: -controlOutset, dy: -controlOutset),
-                requiresSelection: true,
-                mutationRisk: .visual
-            )
-        )
-        targets.append(
-            RenderedEditHitTarget(
-                objectID: objectID,
-                action: .grow,
-                priority: .selectedObjectEditControl,
-                frame: controls.grow.insetBy(dx: -controlOutset, dy: -controlOutset),
-                requiresSelection: true,
-                mutationRisk: .visual
-            )
-        )
-        targets.append(
-            RenderedEditHitTarget(
-                objectID: objectID,
-                action: .delete,
-                priority: .selectedObjectDestructiveControl,
-                frame: controls.delete.insetBy(dx: -controlOutset, dy: -controlOutset),
-                requiresSelection: true,
-                mutationRisk: .destructive
-            )
-        )
-
+        func control(_ visible: CGRect, hit: CGRect, action: RenderedEditAction,
+            priority: RenderedEditHitPriority, risk: RenderedEditMutationRisk) {
+            // Padding yields to a neighboring cue's actual glyph. The visible
+            // button itself keeps its explicit action where artwork overlaps.
+            targets.append(RenderedEditHitTarget(objectID: objectID, action: action,
+                priority: priority, frame: hit, requiresSelection: true,
+                mutationRisk: risk, excludedFrames: otherGlyphFrames))
+            targets.append(RenderedEditHitTarget(objectID: objectID, action: action,
+                priority: priority, frame: visible, requiresSelection: true, mutationRisk: risk))
+        }
+        control(controls.edit, hit: hits.edit, action: .editText,
+            priority: .selectedObjectEditControl, risk: .content)
+        control(controls.shrink, hit: hits.shrink, action: .shrink,
+            priority: .selectedObjectEditControl, risk: .visual)
+        control(controls.grow, hit: hits.grow, action: .grow,
+            priority: .selectedObjectEditControl, risk: .visual)
+        control(controls.delete, hit: hits.delete, action: .delete,
+            priority: .selectedObjectDestructiveControl, risk: .destructive)
         return targets
+    }
+
+    private struct GlyphBandIndex {
+        private struct Glyph {
+            let id: UUID
+            let frame: CGRect
+        }
+        private var bands: [Int: [Glyph]] = [:]
+
+        init(cues: [LeadSheetCueTextLayout]) {
+            for cue in cues {
+                let glyph = Glyph(id: cue.id, frame: cue.frame)
+                for band in Self.bandNumbers(for: cue.frame) {
+                    bands[band, default: []].append(glyph)
+                }
+            }
+        }
+
+        func frames(overlapping bounds: CGRect, excluding id: UUID) -> [CGRect] {
+            var seen = Set<UUID>()
+            return Self.bandNumbers(for: bounds).flatMap { bands[$0] ?? [] }.compactMap { glyph in
+                guard glyph.id != id, seen.insert(glyph.id).inserted,
+                      glyph.frame.intersects(bounds) else { return nil }
+                return glyph.frame
+            }
+        }
+
+        private static func bandNumbers(for frame: CGRect) -> [Int] {
+            guard !frame.isEmpty,
+                  let first = Int(exactly: floor(frame.minY / 96)),
+                  let last = Int(exactly: floor(frame.maxY / 96)), first <= last else { return [] }
+            return Array(first...last)
+        }
     }
 }
 

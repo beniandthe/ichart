@@ -71,6 +71,15 @@ struct LeadSheetSystemLayout: Identifiable, Hashable {
     var endingLayouts: [LeadSheetEndingLayout]
     var measures: [LeadSheetMeasureLayout]
     var reservesAnnotationSpace = false
+    // Frozen, unresolved annotation geometry for a bounded drag projection.
+    // This is view layout data, never part of the saved chart document.
+    var annotationBaseLayout: LeadSheetSystemAnnotationBaseLayout? = nil
+}
+
+struct LeadSheetSystemAnnotationBaseLayout: Hashable {
+    var endingLayouts: [LeadSheetEndingLayout]
+    var roadmapMarkerLayouts: [LeadSheetRoadmapMarkerLayout]
+    var fixedLabelFrames: [CGRect]
 }
 
 struct LeadSheetKeySignatureLayout: Hashable {
@@ -518,6 +527,52 @@ struct LeadSheetSelectableNote: Identifiable, Hashable {
 }
 
 enum LeadSheetPageLayoutEngine {
+    /// Projects one cue against a frozen system using the same typography,
+    /// anchor clamping and annotation collision policy as committed layout.
+    /// The caller refreshes the document plan on discrete destination changes;
+    /// this method never repacks measures or paginates while the pointer moves.
+    static func cueTextMovePreview(
+        chart: Chart,
+        sourcePageLayout: LeadSheetPageLayout,
+        cueID: UUID,
+        targetMeasureID: UUID,
+        fraction: Double?,
+        verticalOffset: Double
+    ) -> LeadSheetCueTextLayout? {
+        guard chart.cueTexts.filter({ $0.id == cueID }).count == 1,
+              let sourceCue = chart.cueText(id: cueID),
+              let system = sourcePageLayout.systems.first(where: { system in
+                  system.measures.contains { $0.sourceMeasureID == targetMeasureID }
+              }), let base = system.annotationBaseLayout else { return nil }
+        var projectedChart = chart
+        let projected: Bool
+        if sourceCue.anchorMeasureID == targetMeasureID, sourceCue.beatFraction == fraction {
+            // Existing documents can contain unsnapped anchors. A vertical
+            // adjustment must not quantize their horizontal position.
+            projected = projectedChart.updateCueText(cueID, verticalOffset: verticalOffset)
+        } else {
+            projected = projectedChart.moveCueText(cueID, to: targetMeasureID,
+                atFraction: fraction, verticalOffset: verticalOffset)
+        }
+        guard projected else { return nil }
+
+        var measures = system.measures
+        for index in measures.indices {
+            guard let measureID = measures[index].sourceMeasureID,
+                  let measure = projectedChart.measure(id: measureID) else { continue }
+            let original = measures[index]
+            measures[index].cueTextLayouts = cueTextLayouts(for: measure, chart: projectedChart,
+                measureFrame: original.frame, chordBandFrame: original.chordBandFrame,
+                staffFrame: original.staffFrame, noteLayouts: original.noteLayouts)
+        }
+        var endings = base.endingLayouts
+        var markers = base.roadmapMarkerLayouts
+        _ = resolveAnnotationPlacement(chart: projectedChart, measures: &measures,
+            endings: &endings, markers: &markers, fixedLabels: base.fixedLabelFrames,
+            appliesManualOffsets: true)
+        return measures.flatMap(\.cueTextLayouts).first { $0.id == cueID }
+    }
+
     /// Predecessors are defined by the saved chart's flattened measure order,
     /// not by the rows or pages that engraving later packs them into.
     struct MeterChangeContext {
@@ -1627,6 +1682,11 @@ enum LeadSheetPageLayoutEngine {
             topOffset: endingTopOffset,
             measureLayouts: measures
         )
+        let annotationBaseLayout = LeadSheetSystemAnnotationBaseLayout(
+            endingLayouts: endingLayouts,
+            roadmapMarkerLayouts: roadmapMarkerLayouts,
+            fixedLabelFrames: [sectionTextFrame, roadmapTextFrame].compactMap { $0 }
+        )
         let annotationPlacement = resolveAnnotationPlacement(
             chart: chart,
             measures: &measures,
@@ -1693,7 +1753,8 @@ enum LeadSheetPageLayoutEngine {
             roadmapMarkerLayouts: roadmapMarkerLayouts,
             endingLayouts: endingLayouts,
             measures: measures,
-            reservesAnnotationSpace: annotationPlacement.reservesSpace
+            reservesAnnotationSpace: annotationPlacement.reservesSpace,
+            annotationBaseLayout: annotationBaseLayout
         )
         return (layout, endingReserve)
     }

@@ -40,6 +40,163 @@ struct ActiveChordResizeDrag {
 
 typealias LeadSheetChordMovePositionGuidePolicy = LeadSheetChordPlacementGuidePolicy
 
+struct LeadSheetCueTextMoveProjection {
+    var measureID: UUID
+    var fraction: Double?
+    var verticalOffset: Double
+    var cueLayout: LeadSheetCueTextLayout
+}
+
+struct LeadSheetCueTextMoveAnchor: Hashable {
+    var measureID: UUID
+    var fraction: Double?
+}
+
+struct LeadSheetCueTextMoveProjectionKey: Equatable {
+    var anchor: LeadSheetCueTextMoveAnchor
+    var verticalOffset: Double
+}
+
+struct LeadSheetCueTextMoveAnchorLayout {
+    var pageLayout: LeadSheetPageLayout
+    var verticalOffset: Double
+    var cueLayout: LeadSheetCueTextLayout
+}
+
+enum LeadSheetCueTextMoveDragPolicy {
+    static func update(_ drag: inout ActiveCueTextMoveDrag, at location: CGPoint) {
+        let dx = location.x - drag.startLocation.x
+        let dy = location.y - drag.startLocation.y
+        guard dx.isFinite, dy.isFinite else { drag.currentProjection = nil; return }
+        if max(abs(dx), abs(dy)) * drag.screenPointsPerDisplayedPoint <= 0.1 {
+            restoreInitialProjection(&drag)
+            return
+        }
+
+        // Preserve the grabbed point. The target follows the translated cue's
+        // leading edge, while vertical row ownership follows its source staff.
+        let anchorPoint = CGPoint(x: drag.initialFrame.minX + dx,
+            y: drag.sourceMeasure.frame.midY + dy)
+        guard let target = LeadSheetCanvasInteractionTargeting.cueTextMoveTarget(
+            at: anchorPoint, in: drag.sourcePageLayout, chart: drag.sourceChart),
+              let destination = drag.sourcePageLayout.systems.flatMap(\.measures)
+                .first(where: { $0.sourceMeasureID == target.measureID }),
+              let sourceModel = drag.sourceChart.measure(id: drag.sourceCue.anchorMeasureID) else {
+            drag.currentProjection = nil
+            drag.currentFrame = drag.initialFrame.offsetBy(dx: dx, dy: dy)
+            return
+        }
+        let sourceMeter = sourceModel.resolvedMeter(defaultMeter: drag.sourceChart.defaultMeter)
+        let originalSlot = MeasurePlacementGrid.snappedFraction(Double(
+            (drag.initialFrame.minX - drag.sourceMeasure.staffFrame.minX)
+                / max(1, drag.sourceMeasure.staffFrame.width)), in: sourceMeter)
+        let sameInitialSlot = target.measureID == drag.sourceCue.anchorMeasureID
+            && abs(target.fraction - originalSlot) < 1e-9
+        let fraction = sameInitialSlot ? drag.sourceCue.beatFraction : target.fraction
+        // Crossing a row moves to that row's cue lane. Only the remaining dy
+        // adjusts its authored offset; the row's full distance is not ±72 ink.
+        let rowDelta = destination.staffFrame.minY - drag.sourceMeasure.staffFrame.minY
+        let residualY = dy - rowDelta
+        let intendedY = abs(residualY) * drag.screenPointsPerDisplayedPoint <= 1 ? 0 : residualY
+        let offset = CueText.clampedVerticalOffset(drag.startingVerticalOffset + Double(intendedY))
+        let anchor = LeadSheetCueTextMoveAnchor(measureID: target.measureID, fraction: fraction)
+        let key = LeadSheetCueTextMoveProjectionKey(anchor: anchor, verticalOffset: offset)
+        guard drag.lastProjectionKey != key else { return }
+        drag.lastProjectionKey = key
+
+        let baseline: LeadSheetCueTextMoveAnchorLayout
+        if let cached = drag.anchorLayouts[anchor] {
+            baseline = cached
+        } else {
+            var projected = drag.sourceChart
+            guard projected.moveCueText(drag.cueTextID, to: target.measureID,
+                atFraction: fraction, verticalOffset: offset) else { drag.currentProjection = nil; return }
+            // Full page packing runs once for each visited snapped anchor, not
+            // each Pencil sample. It accounts for wrapping and row/page shifts.
+            let layout = LeadSheetPageLayoutEngine.pageLayout(for: projected,
+                pageSize: drag.sourcePageSize)
+            guard let cue = layout.systems.flatMap(\.measures).flatMap(\.cueTextLayouts)
+                .first(where: { $0.id == drag.cueTextID }) else { drag.currentProjection = nil; return }
+            baseline = LeadSheetCueTextMoveAnchorLayout(pageLayout: layout, verticalOffset: offset, cueLayout: cue)
+            let sourceAnchor = LeadSheetCueTextMoveAnchor(measureID: drag.sourceCue.anchorMeasureID,
+                fraction: drag.sourceCue.beatFraction)
+            // Keep only the immutable source and this destination. A long drag
+            // must not retain a full document for every visited beat.
+            drag.anchorLayouts = drag.anchorLayouts.filter { $0.key == sourceAnchor }
+            drag.anchorLayouts[anchor] = baseline
+            drag.pageLayoutProjectionCount += 1
+        }
+        let layout: LeadSheetCueTextLayout?
+        if abs(baseline.verticalOffset - offset) < 1e-9 {
+            layout = baseline.cueLayout
+        } else {
+            // Within a snapped anchor, only reproject the affected system's
+            // existing frames/collisions. Never repack the document per raw dy.
+            layout = LeadSheetPageLayoutEngine.cueTextMovePreview(chart: drag.sourceChart,
+                sourcePageLayout: baseline.pageLayout, cueID: drag.cueTextID,
+                targetMeasureID: target.measureID, fraction: fraction, verticalOffset: offset)
+        }
+        guard let layout else { drag.currentProjection = nil; return }
+        if target.measureID == drag.sourceCue.anchorMeasureID,
+           abs(offset - drag.startingVerticalOffset) < 1e-9,
+           abs(layout.frame.minX - drag.initialFrame.minX) < 0.001,
+           abs(layout.frame.minY - drag.initialFrame.minY) < 0.001 {
+            restoreInitialProjection(&drag)
+            return
+        }
+        drag.currentProjection = LeadSheetCueTextMoveProjection(measureID: target.measureID,
+            fraction: fraction, verticalOffset: offset, cueLayout: layout)
+        drag.currentFrame = layout.frame
+    }
+
+    @discardableResult
+    static func commit(_ drag: ActiveCueTextMoveDrag, in chart: inout Chart) -> Bool {
+        guard chart.id == drag.sourceChart.id, chart.cueText(id: drag.cueTextID) == drag.sourceCue,
+              let target = drag.currentProjection,
+              target.measureID != drag.sourceCue.anchorMeasureID
+                || target.fraction != drag.sourceCue.beatFraction
+                || abs(target.verticalOffset - drag.sourceCue.verticalOffset) > 1e-9 else { return false }
+        return apply(target, drag: drag, to: &chart)
+    }
+
+    static func finish(_ drag: inout ActiveCueTextMoveDrag) {
+        guard var target = drag.currentProjection else { return }
+        var projected = drag.sourceChart
+        guard commit(drag, in: &projected) else { return }
+        // One final packing pass handles large vertical overhang/page changes.
+        // It uses the same resolved placement; release never reinterprets the
+        // Pencil endpoint or changes the selected cue's snapped target.
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: projected,
+            pageSize: drag.sourcePageSize)
+        guard let cue = layout.systems.flatMap(\.measures).flatMap(\.cueTextLayouts)
+            .first(where: { $0.id == drag.cueTextID }) else { return }
+        target.cueLayout = cue
+        drag.currentProjection = target
+        drag.currentFrame = cue.frame
+        drag.pageLayoutProjectionCount += 1
+    }
+
+    private static func apply(_ target: LeadSheetCueTextMoveProjection,
+        drag: ActiveCueTextMoveDrag, to chart: inout Chart) -> Bool {
+        if target.measureID == drag.sourceCue.anchorMeasureID,
+           target.fraction == drag.sourceCue.beatFraction {
+            // Existing archives can contain a non-grid fraction. A vertical
+            // adjustment must not silently resnap that horizontal anchor.
+            return chart.updateCueText(drag.cueTextID, verticalOffset: target.verticalOffset)
+        }
+        return chart.moveCueText(drag.cueTextID, to: target.measureID,
+            atFraction: target.fraction, verticalOffset: target.verticalOffset)
+    }
+
+    private static func restoreInitialProjection(_ drag: inout ActiveCueTextMoveDrag) {
+        guard let layout = drag.sourceMeasure.cueTextLayouts.first(where: { $0.id == drag.cueTextID }) else { return }
+        drag.currentProjection = LeadSheetCueTextMoveProjection(measureID: drag.sourceCue.anchorMeasureID,
+            fraction: drag.sourceCue.beatFraction, verticalOffset: drag.startingVerticalOffset, cueLayout: layout)
+        drag.currentFrame = drag.initialFrame
+        drag.lastProjectionKey = nil
+    }
+}
+
 enum LeadSheetChordMoveDragPolicy {
     static func hasMeaningfulTranslation(
         for drag: ActiveChordMoveDrag,

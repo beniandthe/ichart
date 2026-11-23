@@ -328,7 +328,7 @@ enum IChartEditorGuidedTourStep: String, Identifiable {
         case .shapeForm:
             "Tap Measures. Select a measure, then use Add, Layout, or Delete. Try one change, or continue."
         case .addCue:
-            "Open Tools > Text, choose a measure, then Above or Below. Choose Keyboard to type, or choose Scribble and tap the field with Apple Pencil before writing. Tap Add."
+            "Open Tools > Text, tap where the cue should start, then choose Above or Below. Choose Keyboard to type, or choose Scribble and tap the field with Apple Pencil before writing. Tap Add."
         case .review:
             "Tap Done. In Select, use Apple Pencil to select, move, resize, or delete items on the chart."
         case .export:
@@ -583,15 +583,13 @@ struct EditorView: View {
     @State private var pendingEndingStartMeasureID: UUID?
     @State private var pendingEndingType: RoadmapType?
     @State private var pendingMeasureStackInsertion: PendingMeasureStackInsertion?
-    @State private var pendingCueTextMeasureID: UUID?
-    @State private var pendingCueTextPosition: CuePosition?
+    @State private var cueTextPlacement: EditorCueTextPlacementPreview?
+    @State private var cueTextEntryRequest: EditorCueTextEntryRequest?
     @State private var cueTextDraft = ""
-    @State private var showingCueTextEntry = false
     @State private var showingFormMarkerPlacement = false
     @State private var pendingMeasureLayoutRequest: MeasureLayoutSheetRequest?
     @State private var showingToolGuide = false
     @State private var toolGuideResumeSnapshot: ToolGuideResumeSnapshot?
-    @State private var editingCueTextID: UUID?
     @State private var canvasMode: EditorCanvasMode = .browse
     @State private var inkToolMode: EditorInkToolMode = .write
     @State private var freeInkArticulationCoordinator = FreeInkArticulationCoordinator()
@@ -689,6 +687,9 @@ struct EditorView: View {
                 draftEndingBlockerFocus = nil
                 resumeRenderAfterEndingReview = false
                 selectedEndingSpanID = nil
+                cueTextEntryRequest = nil
+                cueTextPlacement = nil
+                cueTextDraft = ""
             }
     }
 
@@ -737,14 +738,16 @@ struct EditorView: View {
             }
         }
         .overlay {
-            if showingCueTextEntry {
+            if let request = cueTextEntryRequest {
                 CueTextEntryPanelView(
                     text: $cueTextDraft,
-                    actionTitle: editingCueTextID == nil ? "Add" : "Apply",
+                    actionTitle: request.cueTextID == nil ? "Add" : "Apply",
+                    destination: request.destinationDescription(in: chart),
                     highlightsAction: editorGuidedTourStep == .addCue,
                     onAdd: handleCueTextEntryAccepted,
                     onCancel: clearPendingCueTextEntry
                 )
+                .id(request.id)
                 .transition(.opacity)
             }
         }
@@ -2157,7 +2160,7 @@ struct EditorView: View {
                 guidance = guidance.replacingNextAction("Tap the last measure, then choose End \(endingToolTitle(for: pendingEndingType)).")
             }
         case .textEdit where selectedCueText != nil:
-            guidance = guidance.replacingNextAction("Use Edit, Larger, Smaller or Delete for the selected cue.")
+            guidance = guidance.replacingNextAction("Use Edit, Larger, Smaller or Delete. Drag the cue to move it, or tap a measure to add another.")
         case .headerEntry where chart.headerInputMode == .typed:
             guidance = guidance.replacingNextAction("Tap Typed to edit the header, or Handwritten to write in the page header.")
         default:
@@ -2172,7 +2175,8 @@ struct EditorView: View {
     private var measureActionContext: String? {
         guard canvasMode != .chordEntry, canvasMode != .freeHand, canvasMode != .headerEntry,
               canvasMode != .browse || selectedMeasureID != nil,
-              let targetID = resolvedMeasureActionTargetID(), let target = chart.measure(id: targetID) else { return nil }
+              let targetID = canvasMode == .textEdit ? selectedTextMeasureID : resolvedMeasureActionTargetID(),
+              let target = chart.measure(id: targetID) else { return nil }
         if let startID = pendingDeleteStartMeasureID, let start = chart.measure(id: startID) {
             return "Delete range: measures \(min(start.index, target.index))–\(max(start.index, target.index))"
         }
@@ -2741,7 +2745,7 @@ struct EditorView: View {
                     title: "Above",
                     systemImage: "text.line.first.and.arrowtriangle.forward",
                     isTourHighlighted: editorGuidedTourStep == .addCue,
-                    isDisabled: resolvedMeasureActionTargetID() == nil
+                    isDisabled: selectedTextMeasureID == nil
                 ) {
                     handleAddCueText(position: .above)
                 }
@@ -2749,7 +2753,7 @@ struct EditorView: View {
                 activeToolButton(
                     title: "Below",
                     systemImage: "text.line.last.and.arrowtriangle.forward",
-                    isDisabled: resolvedMeasureActionTargetID() == nil
+                    isDisabled: selectedTextMeasureID == nil
                 ) {
                     handleAddCueText(position: .below)
                 }
@@ -3076,6 +3080,7 @@ struct EditorView: View {
             manualRenderWithPreview: manualRenderWithPreview,
             chordPreviewState: chordPreviewState,
             draftEndingBlockerFocus: draftEndingBlockerFocus,
+            cueTextPlacementPreview: cueTextPlacementPreview,
             onTimeSignatureTargetRequested: handleTimeSignatureTargetRequested,
             onChordInkRecognitionProposal: handleChordInkRecognitionProposal,
             onChordInkBatchRecognitionProposal: handleChordInkBatchRecognitionProposal,
@@ -3088,6 +3093,7 @@ struct EditorView: View {
             onChordCorrectionRequested: handleChordCorrectionRequested,
             onNoteSelectionChanged: handleNoteSelectionChanged,
             onMeasureSelectedFromCanvas: handleMeasureSelectedFromCanvas,
+            onCueTextPlacementRequested: handleCueTextPlacementRequested,
             onChordSelectedFromCanvas: handleChordSelectedFromCanvas,
             onCueTextSelectedFromCanvas: handleCueTextSelectedFromCanvas,
             onCueTextEditRequested: handleCueTextEditRequestedFromCanvas,
@@ -3490,7 +3496,7 @@ struct EditorView: View {
     }
 
     private var canRemoveCueTextAtSelectedMeasure: Bool {
-        guard let targetMeasureID = resolvedMeasureActionTargetID() else {
+        guard let targetMeasureID = selectedTextMeasureID else {
             return false
         }
 
@@ -3499,6 +3505,21 @@ struct EditorView: View {
 
     private var selectedCueText: CueText? {
         selectedCueTextID.flatMap { chart.cueText(id: $0) }
+    }
+
+    private var showingCueTextEntry: Bool { cueTextEntryRequest != nil }
+
+    private var selectedTextMeasureID: UUID? {
+        selectedMeasureID.flatMap { chart.measure(id: $0)?.id }
+    }
+
+    private var cueTextPlacementPreview: EditorCueTextPlacementPreview? {
+        if let request = cueTextEntryRequest, request.chartID == chart.id, request.cueTextID == nil {
+            return request.placement
+        }
+        guard canvasMode == .textEdit, selectedCueText == nil, let measureID = selectedTextMeasureID else { return nil }
+        if let cueTextPlacement, cueTextPlacement.measureID == measureID { return cueTextPlacement }
+        return EditorCueTextPlacementPreview(measureID: measureID, position: nil, beatFraction: nil)
     }
 
     private var selectedRoadmapMarker: RoadmapObject? {
@@ -4288,70 +4309,44 @@ struct EditorView: View {
     }
 
     private func handleAddCueText(position: CuePosition) {
-        let targetMeasureID = resolvedMeasureActionTargetID()
         guard chart.hasCompletedInitialSetup,
-              let targetMeasureID else {
+              let targetMeasureID = selectedTextMeasureID else {
             if !chart.hasCompletedInitialSetup {
                 showingSetupSheet = true
             }
             return
         }
 
+        let placement = cueTextPlacement.flatMap { $0.measureID == targetMeasureID ? $0 : nil }
+            ?? EditorCueTextPlacementPreview(measureID: targetMeasureID, position: nil, beatFraction: nil)
+        guard let request = EditorCueTextEntryRequest.adding(in: chart, placement: placement,
+            position: position, callerTool: canvasMode == .browse ? .select : .text) else { return }
+
         pendingRepeatStartMeasureID = nil
         pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
-        pendingCueTextMeasureID = targetMeasureID
-        pendingCueTextPosition = position
-        editingCueTextID = nil
-        cueTextDraft = ""
-        canvasMode = .textEdit
-        showingCueTextEntry = true
+        cueTextDraft = request.initialText
+        cueTextEntryRequest = request
     }
 
     private func handleCueTextEntryAccepted() {
-        defer {
-            clearPendingCueTextEntry()
-        }
-
-        if let editingCueTextID {
-            guard chart.updateCueText(editingCueTextID, text: cueTextDraft),
-                  let cueText = chart.cueText(id: editingCueTextID) else {
-                return
-            }
-
-            selectedCueTextID = editingCueTextID
-            selectedMeasureID = cueText.anchorMeasureID
-            selectedRoadmapMarkerID = nil
-            selectedEndingSpanID = nil
-            canvasMode = .textEdit
-            return
-        }
-
-        guard let pendingCueTextMeasureID,
-              let pendingCueTextPosition,
-              let cueTextID = chart.addCueText(
-                cueTextDraft,
-                anchorMeasureID: pendingCueTextMeasureID,
-                position: pendingCueTextPosition
-              ) else {
-            return
-        }
-
-        selectedMeasureID = pendingCueTextMeasureID
+        guard let request = cueTextEntryRequest,
+              let cueTextID = request.apply(text: cueTextDraft, to: &chart),
+              let cue = chart.cueText(id: cueTextID) else { return }
+        selectedMeasureID = cue.anchorMeasureID
         selectedCueTextID = cueTextID
         selectedRoadmapMarkerID = nil
         selectedEndingSpanID = nil
-        canvasMode = .textEdit
-        completeEditorGuidedTourStep(.addCue)
+        if request.cueTextID == nil { completeEditorGuidedTourStep(.addCue) }
+        clearPendingCueTextEntry()
     }
 
     private func handleRemoveCueTextsAtSelectedMeasure() {
-        let targetMeasureID = resolvedMeasureActionTargetID()
         let shouldStayInTextMode = canvasMode == .textEdit
         guard chart.hasCompletedInitialSetup,
-              let targetMeasureID,
+              let targetMeasureID = selectedTextMeasureID,
               chart.deleteCueTexts(attachedTo: targetMeasureID) > 0 else {
             return
         }
@@ -4375,8 +4370,8 @@ struct EditorView: View {
     }
 
     private func beginCueTextEdit(_ cueTextID: UUID) {
-        guard chart.hasCompletedInitialSetup,
-              let cueText = chart.cueText(id: cueTextID) else {
+        guard let request = EditorCueTextEntryRequest.editing(in: chart, cueTextID: cueTextID,
+            callerTool: canvasMode == .browse ? .select : .text) else {
             return
         }
 
@@ -4385,17 +4380,13 @@ struct EditorView: View {
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         pendingMeasureStackInsertion = nil
-        pendingCueTextMeasureID = nil
-        pendingCueTextPosition = nil
         selectedCueTextID = cueTextID
         selectedRoadmapMarkerID = nil
         selectedEndingSpanID = nil
-        selectedMeasureID = cueText.anchorMeasureID
+        selectedMeasureID = request.placement.measureID
         selectedNoteSelection = nil
-        editingCueTextID = cueTextID
-        cueTextDraft = cueText.text
-        canvasMode = .textEdit
-        showingCueTextEntry = true
+        cueTextDraft = request.initialText
+        cueTextEntryRequest = request
     }
 
     private func resizeSelectedCueText(by scaleDelta: Double) {
@@ -4511,11 +4502,10 @@ struct EditorView: View {
     }
 
     private func clearPendingCueTextEntry() {
+        let callerTool = cueTextEntryRequest?.callerTool
         cueTextDraft = ""
-        pendingCueTextMeasureID = nil
-        pendingCueTextPosition = nil
-        editingCueTextID = nil
-        showingCueTextEntry = false
+        cueTextEntryRequest = nil
+        if let callerTool { canvasMode = callerTool == .select ? .browse : .textEdit }
     }
 
     private func clearPendingMeasureStackState() {
@@ -4524,11 +4514,8 @@ struct EditorView: View {
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         pendingMeasureStackInsertion = nil
-        pendingCueTextMeasureID = nil
-        pendingCueTextPosition = nil
-        editingCueTextID = nil
+        cueTextEntryRequest = nil
         cueTextDraft = ""
-        showingCueTextEntry = false
         pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
         selectedNoteSelection = nil
@@ -4559,9 +4546,8 @@ struct EditorView: View {
         pendingMeasureStackInsertion = nil
         clearPendingRepeatState()
         selectedNoteSelection = nil
-        if selectedMeasureID == nil {
-            selectedMeasureID = chart.resolvedAuthoringMeasureID()
-        }
+        selectedMeasureID = selectedTextMeasureID
+        if cueTextPlacement?.measureID != selectedMeasureID { cueTextPlacement = nil }
         canvasMode = .textEdit
     }
 
@@ -4707,6 +4693,16 @@ struct EditorView: View {
         clearPendingRepeatState()
         inkToolMode = .write
         canvasMode = .browse
+    }
+
+    private func handleCueTextPlacementRequested(_ measureID: UUID, _ fraction: Double) {
+        guard chart.hasCompletedInitialSetup, canvasMode == .textEdit, !showingCueTextEntry,
+              let placement = EditorCueTextPlacementPreview(measureID: measureID,
+                  position: nil, beatFraction: fraction).snapped(in: chart) else { return }
+        selectedMeasureID = measureID
+        clearSelectedCanvasObjectIDs()
+        selectedNoteSelection = nil
+        cueTextPlacement = placement
     }
 
     private func handleChordSelectedFromCanvas(_ chordID: UUID) {
@@ -7740,6 +7736,7 @@ enum CueTextEntryPanelGeometry {
 private struct CueTextEntryPanelView: View {
     @Binding var text: String
     let actionTitle: String
+    let destination: String
     var highlightsAction = false
     let onAdd: () -> Void
     let onCancel: () -> Void
@@ -7769,8 +7766,15 @@ private struct CueTextEntryPanelView: View {
 
                         Spacer()
 
-                        Text("Text")
-                            .font(.headline.weight(.semibold))
+                        VStack(spacing: 2) {
+                            Text("Text")
+                                .font(.subheadline.weight(.semibold))
+                            Text(destination)
+                                .font(.caption)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                                .accessibilityIdentifier("editor-cue-text-destination")
+                        }
 
                         Spacer()
 
