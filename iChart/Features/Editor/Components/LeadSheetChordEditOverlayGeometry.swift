@@ -320,21 +320,25 @@ struct ActiveCueTextMoveDrag {
     var startLocation: CGPoint
     var initialFrame: CGRect
     var currentFrame: CGRect
-    var startingVerticalOffset: Double
     var sourceChart: Chart
     var sourcePageLayout: LeadSheetPageLayout
     var sourcePageSize: CGSize
     var sourceCue: CueText
     var sourceMeasure: LeadSheetMeasureLayout
+    var sourceMeter: Meter
     var screenPointsPerDisplayedPoint: CGFloat
     var currentProjection: LeadSheetCueTextMoveProjection?
-    var anchorLayouts: [LeadSheetCueTextMoveAnchor: LeadSheetCueTextMoveAnchorLayout] = [:]
     var lastProjectionKey: LeadSheetCueTextMoveProjectionKey?
     var pageLayoutProjectionCount = 0
+    var previewTemplateKey: LeadSheetCueTextMoveTemplateKey?
+    var previewTemplate: LeadSheetCueTextMovePreviewTemplate?
+    var ownershipRows: [LeadSheetCueTextMoveRowGeometry]
+    var ownershipY: CGFloat?
+    var ownershipRowIndex: Int?
 
     init?(cueTextID: UUID, chart: Chart, pageLayout: LeadSheetPageLayout, pageSize: CGSize,
         startLocation: CGPoint, screenPointsPerDisplayedPoint: CGFloat = 1) {
-        guard let cue = chart.cueText(id: cueTextID),
+        guard let cue = chart.cueText(id: cueTextID), let sourceModel = chart.measure(id: cue.anchorMeasureID),
               let measure = pageLayout.systems.flatMap(\.measures).first(where: {
                   $0.sourceMeasureID == cue.anchorMeasureID
               }), let layout = measure.cueTextLayouts.first(where: { $0.id == cueTextID }) else { return nil }
@@ -342,20 +346,41 @@ struct ActiveCueTextMoveDrag {
         self.startLocation = startLocation
         initialFrame = layout.frame
         currentFrame = layout.frame
-        // Saved requests may exceed the room available in this row. Continue
-        // from the visible cue, so one drag back responds immediately.
-        startingVerticalOffset = Double(layout.verticalOffsetFromDefault)
         sourceChart = chart
         sourcePageLayout = pageLayout
         sourcePageSize = pageSize
         sourceCue = cue
         sourceMeasure = measure
+        sourceMeter = sourceModel.resolvedMeter(defaultMeter: chart.defaultMeter)
         self.screenPointsPerDisplayedPoint = max(0.0001, screenPointsPerDisplayedPoint)
+        let meters = Dictionary(chart.measures.map { ($0.id, $0.resolvedMeter(defaultMeter: chart.defaultMeter)) },
+            uniquingKeysWith: { first, _ in first })
+        let paperBySystem = Dictionary(pageLayout.pages.flatMap { page in
+            page.systemIDs.map { ($0, page.frame) }
+        }, uniquingKeysWith: { first, _ in first })
+        ownershipRows = pageLayout.systems.compactMap { system in
+            let owned = system.measures.filter { $0.sourceMeasureID != nil }
+                .sorted { $0.staffFrame.minX < $1.staffFrame.minX }
+            guard let first = owned.first, let last = owned.last,
+                  let minimumY = owned.map({ $0.frame.minY }).min(),
+                  let maximumY = owned.map({ $0.frame.maxY }).max() else { return nil }
+            let measures = owned.compactMap { measure -> LeadSheetCueTextMoveMeasureGeometry? in
+                guard let id = measure.sourceMeasureID, let meter = meters[id] else { return nil }
+                return LeadSheetCueTextMoveMeasureGeometry(id: id, staffFrame: measure.staffFrame, meter: meter)
+            }
+            let paper = paperBySystem[system.id] ?? pageLayout.paperFrame
+            return LeadSheetCueTextMoveRowGeometry(minimumY: minimumY, maximumY: maximumY,
+                paper: paper, measures: measures,
+                leadingMargin: LeadSheetPageLayoutEngine.cueTextHorizontalOriginRange(for: .leadingMargin,
+                    measure: first, system: system, paperFrame: paper, cueWidth: layout.frame.width),
+                trailingMargin: LeadSheetPageLayoutEngine.cueTextHorizontalOriginRange(for: .trailingMargin,
+                    measure: last, system: system, paperFrame: paper, cueWidth: layout.frame.width))
+        }
         currentProjection = LeadSheetCueTextMoveProjection(measureID: cue.anchorMeasureID,
-            fraction: cue.beatFraction, verticalOffset: cue.verticalOffset, cueLayout: layout)
-        let anchor = LeadSheetCueTextMoveAnchor(measureID: cue.anchorMeasureID, fraction: cue.beatFraction)
-        anchorLayouts[anchor] = LeadSheetCueTextMoveAnchorLayout(pageLayout: pageLayout,
-            verticalOffset: cue.verticalOffset, cueLayout: layout)
+            fraction: cue.beatFraction, verticalOffset: cue.verticalOffset, cueLayout: layout,
+            horizontalPlacement: cue.horizontalPlacement,
+            attachmentGuide: cue.horizontalPlacement.map { $0.region != .measure } == true
+                ? nil : CGPoint(x: layout.frame.minX, y: measure.staffFrame.midY))
     }
 }
 

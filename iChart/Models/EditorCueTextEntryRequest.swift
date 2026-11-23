@@ -28,6 +28,7 @@ struct EditorCueTextEntryRequest: Equatable, Identifiable {
     let chartID: UUID
     let placement: EditorCueTextPlacementPreview
     let cueTextID: UUID?
+    let horizontalRegion: CueTextHorizontalPlacement.Region?
     let callerTool: EditorCueTextCallerTool
     let initialText: String
 
@@ -36,7 +37,7 @@ struct EditorCueTextEntryRequest: Equatable, Identifiable {
         guard chart.hasCompletedInitialSetup,
               let destination = EditorCueTextPlacementPreview(measureID: placement.measureID,
                   position: position, beatFraction: placement.beatFraction).snapped(in: chart) else { return nil }
-        return Self(id: UUID(), chartID: chart.id, placement: destination, cueTextID: nil,
+        return Self(id: UUID(), chartID: chart.id, placement: destination, cueTextID: nil, horizontalRegion: nil,
                     callerTool: callerTool, initialText: "")
     }
 
@@ -46,12 +47,14 @@ struct EditorCueTextEntryRequest: Equatable, Identifiable {
         return Self(id: UUID(), chartID: chart.id,
                     placement: EditorCueTextPlacementPreview(measureID: cue.anchorMeasureID,
                         position: cue.position, beatFraction: cue.beatFraction),
-                    cueTextID: cue.id, callerTool: callerTool, initialText: cue.text)
+                    cueTextID: cue.id, horizontalRegion: cue.horizontalPlacement?.region,
+                    callerTool: callerTool, initialText: cue.text)
     }
 
     func destinationDescription(in chart: Chart) -> String {
         guard chart.id == chartID, let measure = chart.measure(id: placement.measureID),
               let position = placement.position else { return "Location unavailable" }
+        if let margin = horizontalRegion?.marginLabel { return margin }
         let lane: String
         switch position {
         case .above: lane = "Above"
@@ -60,7 +63,7 @@ struct EditorCueTextEntryRequest: Equatable, Identifiable {
         case .trailingEdge: lane = "End of"
         }
         let location = "\(lane) measure \(measure.index)"
-        guard let fraction = placement.beatFraction else { return location }
+        guard horizontalRegion == nil, let fraction = placement.beatFraction else { return location }
         let meter = measure.resolvedMeter(defaultMeter: chart.defaultMeter)
         let beat = MeasurePlacementGrid.beatPosition(for: fraction, in: meter)
         return "\(location) · beat \(beat.displayText)"

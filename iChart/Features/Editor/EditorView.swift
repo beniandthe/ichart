@@ -2142,7 +2142,7 @@ struct EditorView: View {
         var guidance = defaultToolGuidance
         switch canvasMode {
         case .browse where selectedCueText != nil:
-            guidance = guidance.replacingNextAction("Drag Move Up or Down to move the cue within the available space.")
+            guidance = guidance.replacingNextAction("Drag the cue to move it. Use the up/down arrows to adjust its height.")
         case .browse where selectedRoadmapMarker != nil || selectedEndingSpan != nil:
             guidance = guidance.replacingNextAction("Drag Move Up or Down to change the selected item's height.")
         case .chordEntry:
@@ -2162,7 +2162,7 @@ struct EditorView: View {
                 guidance = guidance.replacingNextAction("Tap the last measure, then choose End \(endingToolTitle(for: pendingEndingType)).")
             }
         case .textEdit where selectedCueText != nil:
-            guidance = guidance.replacingNextAction("Use Edit, Larger, Smaller or Delete. Drag the cue to move it, or tap a measure to add another.")
+            guidance = guidance.replacingNextAction("Drag the cue. The blue line shows its measure and disappears in the margin.")
         case .headerEntry where chart.headerInputMode == .typed:
             guidance = guidance.replacingNextAction("Tap Typed to edit the header, or Handwritten to write in the page header.")
         default:
@@ -2175,6 +2175,10 @@ struct EditorView: View {
     }
 
     private var measureActionContext: String? {
+        if canvasMode == .textEdit || canvasMode == .browse,
+           let margin = selectedCueText?.horizontalPlacement?.region.marginLabel {
+            return margin
+        }
         guard canvasMode != .chordEntry, canvasMode != .freeHand, canvasMode != .headerEntry,
               canvasMode != .browse || selectedMeasureID != nil,
               let targetID = canvasMode == .textEdit ? selectedTextMeasureID : resolvedMeasureActionTargetID(),

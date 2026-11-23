@@ -147,7 +147,7 @@ final class EditorToolGuidanceTests: XCTestCase {
             let guide = EditorCanvasMode.browse.toolGuidance(
                 layoutStyle: style, manualRenderWithPreview: false)
             XCTAssertTrue(guide.referenceText.contains("Move Up or Down to adjust its height"))
-            XCTAssertTrue(guide.referenceText.contains("Reset Position returns the item to its automatic position"))
+            XCTAssertTrue(guide.referenceText.contains("Reset Position restores automatic height"))
             XCTAssertTrue(guide.referenceText.contains("Move and Lengthen adjust the measures"))
         }
     }
@@ -202,8 +202,10 @@ final class EditorToolGuidanceTests: XCTestCase {
             XCTAssertTrue(guidance.steps.contains("Tap where the cue should start, then choose Above or Below."))
             XCTAssertTrue(guidance.referenceText.contains("The blue marker shows the cue’s beat."))
             XCTAssertTrue(guidance.referenceText.contains("lift at the previewed position"))
+            XCTAssertTrue(guidance.referenceText.contains("blue line points to its measure as you cross barlines"))
+            XCTAssertTrue(guidance.referenceText.contains("disappears in the row margin"))
             XCTAssertTrue(guidance.referenceText.contains("staff spacing stays fixed"))
-            XCTAssertTrue(guidance.referenceText.contains("Reset Position returns the cue to its automatic position."))
+            XCTAssertTrue(guidance.referenceText.contains("Reset Position restores automatic height."))
         }
     }
 

@@ -4254,29 +4254,28 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
         XCTAssertTrue(LeadSheetCanvasInteractionTargeting.chordWritingBandContains(expandedLanePoint, in: layout))
     }
 
-    func testCueTextMoveTargetSnapsToPlacementSubdivision() throws {
+    func testCueTextInSixEightMovesFreelyWithACompatibleSubdivisionForOlderBuilds() throws {
         var chart = Chart.blank(title: "Cue Move", measureCount: 1, layoutStyle: .rhythmSectionSheet)
         chart.defaultMeter = Meter(numerator: 6, denominator: 8)
-        let layout = LeadSheetPageLayoutEngine.pageLayout(
-            for: chart,
-            pageSize: CGSize(width: 900, height: 1200)
-        )
+        let measureID = chart.measures[0].id
+        let cueID = try XCTUnwrap(chart.addCueText("Cue", anchorMeasureID: measureID))
+        let pageSize = CGSize(width: 900, height: 1200)
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: pageSize)
         let measure = try XCTUnwrap(layout.systems.first?.measures.first)
-        let targetPoint = CGPoint(
-            x: measure.staffFrame.minX + measure.staffFrame.width * 0.10,
-            y: measure.staffFrame.midY
-        )
+        let cue = try XCTUnwrap(measure.cueTextLayouts.first)
+        let start = CGPoint(x: cue.frame.midX, y: cue.frame.midY)
+        let targetX = measure.staffFrame.minX + measure.staffFrame.width * 0.10
+        var drag = try XCTUnwrap(ActiveCueTextMoveDrag(cueTextID: cueID, chart: chart, pageLayout: layout,
+            pageSize: pageSize, startLocation: start))
 
-        let target = try XCTUnwrap(
-            LeadSheetCanvasInteractionTargeting.cueTextMoveTarget(
-                at: targetPoint,
-                in: layout,
-                chart: chart
-            )
-        )
-
-        XCTAssertEqual(target.measureID, chart.measures.first?.id)
-        XCTAssertEqual(target.fraction, 1.0 / 12.0, accuracy: 0.0001)
+        LeadSheetCueTextMoveDragPolicy.update(&drag,
+            at: CGPoint(x: start.x + targetX - cue.frame.minX, y: start.y))
+        let move = try XCTUnwrap(drag.currentProjection)
+        XCTAssertEqual(move.measureID, measureID)
+        XCTAssertEqual(move.cueLayout.frame.minX, targetX, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(move.horizontalPlacement).fraction, 0.10, accuracy: 0.0001)
+        XCTAssertTrue(LeadSheetCueTextMoveDragPolicy.commit(drag, in: &chart))
+        XCTAssertEqual(try XCTUnwrap(chart.cueText(id: cueID)?.beatFraction), 1.0 / 12.0, accuracy: 0.0001)
     }
 
     func testOnlyOutsideChordLaneTapConfirmsWaitingChordInk() {

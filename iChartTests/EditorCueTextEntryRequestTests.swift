@@ -94,6 +94,25 @@ final class EditorCueTextEntryRequestTests: XCTestCase {
         }
     }
 
+    func testEditDescribesAndPreservesContinuousPlacementOrRowMargin() throws {
+        for style in styles {
+            var chart = Chart.blank(title: "Free cue destination", measureCount: 2, layoutStyle: style)
+            let measureID = chart.measures[0].id
+            let cueID = try XCTUnwrap(chart.addCueText("Cue", anchorMeasureID: measureID, position: .above))
+            for (region, expected) in [(CueTextHorizontalPlacement.Region.measure, "Above measure 1"),
+                                       (.leadingMargin, "Left row margin"), (.trailingMargin, "Right row margin")] {
+                let placement = CueTextHorizontalPlacement(region: region, fraction: 0.32, wrapWidth: 120)
+                XCTAssertTrue(chart.moveCueText(cueID, to: measureID, atFraction: 0.375,
+                    horizontalPlacement: placement))
+                let request = try XCTUnwrap(EditorCueTextEntryRequest.editing(in: chart,
+                    cueTextID: cueID, callerTool: .text))
+                XCTAssertEqual(request.destinationDescription(in: chart), expected)
+                XCTAssertEqual(request.apply(text: "Edited text", to: &chart), cueID)
+                XCTAssertEqual(chart.cueText(id: cueID)?.horizontalPlacement, placement)
+            }
+        }
+    }
+
     func testDeletedEditingCueDoesNotCreateAnotherCueAndEmptyApplyIsNonDestructive() throws {
         var chart = Chart.blank(title: "Exact cue ID", measureCount: 2)
         let cueID = try XCTUnwrap(chart.addCueText("Original", anchorMeasureID: chart.measures[1].id))

@@ -1198,6 +1198,18 @@ extension Chart {
             .map { $0.element }
 
         for cueTextIndex in cueTexts.indices {
+            if let placement = cueTexts[cueTextIndex].horizontalPlacement {
+                // Margin placement belongs to the surviving row. It keeps its
+                // margin fraction while the existing reference anchor is joined.
+                guard placement.region == .measure else { continue }
+                if cueTexts[cueTextIndex].anchorMeasureID == leftMeasure.id {
+                    cueTexts[cueTextIndex].horizontalPlacement = CueTextHorizontalPlacement(
+                        region: .measure, fraction: placement.fraction * leftScale, wrapWidth: placement.wrapWidth)
+                } else if cueTexts[cueTextIndex].anchorMeasureID == rightMeasure.id {
+                    cueTexts[cueTextIndex].horizontalPlacement = CueTextHorizontalPlacement(
+                        region: .measure, fraction: leftScale + placement.fraction * rightScale, wrapWidth: placement.wrapWidth)
+                }
+            }
             guard let beatFraction = cueTexts[cueTextIndex].beatFraction else {
                 continue
             }
@@ -1381,6 +1393,9 @@ extension Chart {
             leftMeasure.manualLayoutWidth = Double(max(1, CGFloat(manualLayoutWidth) * CGFloat(splitFraction)))
             rightMeasure.manualLayoutWidth = Double(max(1, CGFloat(manualLayoutWidth) * CGFloat(1 - splitFraction)))
         }
+
+        redistributeExplicitCuePlacementsAcrossSplit(from: originalMeasure.id,
+            fraction: splitFraction, left: &leftMeasure, right: &rightMeasure)
 
         // The following meter still begins after all of the original measure's
         // material. Move its existing receipt before rebuilding meter overrides
@@ -2540,7 +2555,10 @@ extension Chart {
             right.usesDrawnRhythmTailWidth = true
         }
 
-        for index in cueTexts.indices where cueTexts[index].anchorMeasureID == measureID {
+        redistributeExplicitCuePlacementsAcrossSplit(from: measureID,
+            fraction: fraction, left: &left, right: &right)
+        for index in cueTexts.indices where cueTexts[index].anchorMeasureID == measureID
+            && cueTexts[index].horizontalPlacement == nil {
             if cueTexts[index].position == .leadingEdge { continue }
             if cueTexts[index].position == .trailingEdge {
                 cueTexts[index].anchorMeasureID = right.id
@@ -2992,7 +3010,8 @@ extension Chart {
         _ cueTextID: UUID,
         to targetMeasureID: UUID,
         atFraction fraction: Double?,
-        verticalOffset: Double? = nil
+        verticalOffset: Double? = nil,
+        horizontalPlacement: CueTextHorizontalPlacement? = nil
     ) -> Bool {
         guard let cueTextIndex = cueTexts.firstIndex(where: { $0.id == cueTextID }),
               let targetLocation = measureLocation(id: targetMeasureID) else {
@@ -3008,6 +3027,7 @@ extension Chart {
 
         cueTexts[cueTextIndex].anchorMeasureID = targetMeasureID
         cueTexts[cueTextIndex].beatFraction = snappedFraction
+        cueTexts[cueTextIndex].horizontalPlacement = horizontalPlacement
         if let verticalOffset {
             cueTexts[cueTextIndex].verticalOffset = CueText.clampedVerticalOffset(verticalOffset)
         }
@@ -3050,6 +3070,38 @@ extension Chart {
 
         let meter = measure.resolvedMeter(defaultMeter: defaultMeter)
         return MeasurePlacementGrid.snappedFraction(fraction, in: meter)
+    }
+
+    private mutating func redistributeExplicitCuePlacementsAcrossSplit(
+        from measureID: UUID, fraction: Double, left: inout Measure, right: inout Measure
+    ) {
+        for index in cueTexts.indices where cueTexts[index].anchorMeasureID == measureID {
+            guard let placement = cueTexts[index].horizontalPlacement else { continue }
+            let movesRight: Bool
+            switch placement.region {
+            case .leadingMargin:
+                continue
+            case .trailingMargin:
+                movesRight = true
+            case .measure:
+                movesRight = placement.fraction >= fraction
+                let localFraction = movesRight
+                    ? (placement.fraction - fraction) / (1 - fraction)
+                    : placement.fraction / fraction
+                cueTexts[index].horizontalPlacement = CueTextHorizontalPlacement(
+                    region: .measure, fraction: localFraction, wrapWidth: placement.wrapWidth)
+                if let legacyFraction = cueTexts[index].beatFraction {
+                    cueTexts[index].beatFraction = CueText.clampedBeatFraction(movesRight
+                        ? (legacyFraction - fraction) / (1 - fraction)
+                        : legacyFraction / fraction)
+                }
+            }
+            if movesRight {
+                cueTexts[index].anchorMeasureID = right.id
+                left.cueTextIDs.removeAll { $0 == cueTexts[index].id }
+                if !right.cueTextIDs.contains(cueTexts[index].id) { right.cueTextIDs.append(cueTexts[index].id) }
+            }
+        }
     }
 
     @discardableResult

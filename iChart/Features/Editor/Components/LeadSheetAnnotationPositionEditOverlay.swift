@@ -30,8 +30,10 @@ enum LeadSheetAnnotationPositionEditOverlay {
         let obstacles = LeadSheetEndingOverlayPlacement.notationObstacles(in: pageLayout, scale: scale)
         var reserved: [CGRect] = []
         let annotations: [(LeadSheetSystemLayout, CGRect, CGFloat)]
+        let isCueText: Bool
         switch context.selection.selectedObjectID {
         case .cueText(let id):
+            isCueText = true
             annotations = pageLayout.systems.flatMap { system in
                 system.measures.flatMap(\.cueTextLayouts).filter { $0.id == id }.map { cue in
                     let controls = LeadSheetCueTextEditOverlayGeometry.controlFrames(for: cue)
@@ -42,6 +44,7 @@ enum LeadSheetAnnotationPositionEditOverlay {
                 }
             }
         case .roadmapMarker(let id):
+            isCueText = false
             annotations = pageLayout.systems.flatMap { system in
                 system.roadmapMarkerLayouts.filter { $0.id == id }.map { marker in
                     let delete = LeadSheetRoadmapMarkerEditOverlayGeometry.controlFrames(for: marker).delete
@@ -52,6 +55,7 @@ enum LeadSheetAnnotationPositionEditOverlay {
                 }
             }
         case .endingSpan(let id):
+            isCueText = false
             reserved = LeadSheetEndingEditOverlay.controlFrames(for: id, in: pageLayout,
                 screenPointsPerDisplayedPoint: scale).flatMap { controls in
                     [controls.moveHandle] + (controls.lengthenHandle.map { [$0] } ?? [])
@@ -66,7 +70,7 @@ enum LeadSheetAnnotationPositionEditOverlay {
         }
         return annotations.compactMap { system, annotationFrame, offsetFromDefault in
             let paper = pageLayout.paperFrame(for: system)
-            let width = min(138 / scale, paper.width - 12 / scale)
+            let width = min((isCueText ? 44 : 138) / scale, paper.width - 12 / scale)
             guard width >= touchHeight else { return nil }
             let preferred = CGPoint(x: annotationFrame.maxX + 8 / scale,
                 y: annotationFrame.midY - touchHeight / 2)
@@ -104,10 +108,12 @@ final class LeadSheetAnnotationPositionHandleView: UILabel {
 
     required init?(coder: NSCoder) { return nil }
 
-    func updateFrame(_ frame: CGRect, scale: CGFloat, modelOffset: Double) {
+    func updateFrame(_ frame: CGRect, scale: CGFloat, modelOffset: Double, isCueText: Bool = false) {
         self.frame = frame
-        font = .systemFont(ofSize: 13 / scale, weight: .semibold)
-        layer.cornerRadius = 8 / scale
+        text = isCueText ? "↕" : "Move Up or Down"
+        font = .systemFont(ofSize: (isCueText ? 23 : 13) / scale, weight: .semibold)
+        backgroundColor = isCueText ? UIColor.systemBlue.withAlphaComponent(0.08) : .systemBackground
+        layer.cornerRadius = (isCueText ? 12 : 8) / scale
         layer.borderWidth = 1 / scale
         clipsToBounds = true
         accessibilityValue = modelOffset == 0 ? "Automatic placement" : "Custom placement"

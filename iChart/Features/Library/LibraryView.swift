@@ -473,8 +473,8 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Drag a side handle to resize the selected chord. Tap the red X to delete it.",
                 "If a selected chord has a custom width, Reset Width returns it to 100% width without changing its placement.",
                 "Tap text or roadmap markers in Select to move, resize, edit, or delete them.",
-                "Tap a text cue with Apple Pencil, then tap Edit to change its wording. In Tools > Text, drag the cue to move it and lift at the previewed position.",
-                "In Select, tap an item and drag Move Up or Down to adjust its height. Text cues move within the available space and staff spacing stays fixed. Reset Position returns the item to its automatic position.",
+                "Tap a text cue with Apple Pencil, then tap Edit to change its wording. Drag a cue across measures or into the row margin. The blue line shows its measure while you drag and disappears in the margin.",
+                "In Select, drag the up/down arrows beside a text cue to adjust its height. Text cues move within the available space and staff spacing stays fixed. Reset Position restores automatic height. For other marks, drag Move Up or Down.",
                 "For an ending, use Move to shift its measure range or Lengthen to change the last measure.",
                 "To remove an eligible chord-only divider, choose Select, tap the divider, then its red X or Delete. Protected Rhythm boundaries keep their content and remain in place."
             ]

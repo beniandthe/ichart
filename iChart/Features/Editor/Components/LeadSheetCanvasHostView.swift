@@ -2011,6 +2011,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private let freeInkArticulationDragGlyph = CALayer()
     private let freeInkArticulationDragGuide = CAShapeLayer()
     private let freeInkArticulationDragAnchor = CAShapeLayer()
+    private let cueTextMoveOverlay = CALayer()
+    private let cueTextMoveGlyph = CALayer()
+    private let cueTextMoveSelection = CAShapeLayer()
+    private let cueTextMoveGuide = CAShapeLayer()
+    private let cueTextMoveAnchor = CAShapeLayer()
+    private var cueTextMoveOverlayCueID: UUID?
+    private var cueTextMoveRasterLayout: LeadSheetCueTextLayout?
     private var renderedObjectMoveTouchStart: CGPoint?
     private var renderedObjectMoveAdmittedDrag: RenderedEditDragState?
     private var admittedChordResizeDrag: ActiveChordResizeDrag?
@@ -2217,7 +2224,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         didSet { updateAnnotationPositionHandleFrames() }
     }
     private var activeCueTextMoveDrag: ActiveCueTextMoveDrag? {
-        didSet { updateAnnotationPositionHandleFrames() }
+        didSet {
+            if activeCueTextMoveDrag == nil, activeCueAnnotationPositionSource == nil { endCueTextMoveOverlay() }
+            updateAnnotationPositionHandleFrames()
+        }
     }
     private var activeAnnotationPositionDrag: LeadSheetAnnotationPositionDrag?
     private var activeCueAnnotationPositionSource: ActiveCueTextMoveDrag?
@@ -2600,6 +2610,90 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         freeInkArticulationDragAnchor.position = anchor
     }
 
+    private func cueTextAttachmentGuide(for cue: CueText, frame: CGRect,
+        in layout: LeadSheetPageLayout) -> CGPoint? {
+        guard cue.horizontalPlacement == nil || cue.horizontalPlacement?.region == .measure,
+              let measure = layout.systems.flatMap(\.measures).first(where: { $0.sourceMeasureID == cue.anchorMeasureID })
+        else { return nil }
+        return CGPoint(x: min(max(frame.minX, measure.staffFrame.minX), measure.staffFrame.maxX),
+            y: measure.staffFrame.midY)
+    }
+
+    private func updateCueTextMoveOverlay(_ preview: LeadSheetCueTextLayout, attachmentGuide: CGPoint?) {
+        let scale = max(canvasScreenPointsPerDisplayedPoint(), 0.1)
+        var rasterLayout = preview
+        rasterLayout.frame.origin = .zero
+        rasterLayout.hitFrame = .zero
+        rasterLayout.beatFraction = nil
+        rasterLayout.verticalOffset = 0
+        rasterLayout.verticalOffsetFromDefault = 0
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        if cueTextMoveOverlayCueID != preview.id || cueTextMoveRasterLayout != rasterLayout {
+            let format = UIGraphicsImageRendererFormat()
+            format.opaque = false
+            format.scale = min(8, max(1, (window?.screen.scale ?? traitCollection.displayScale) * scale))
+            let imageFrame = rasterLayout.frame.insetBy(dx: -2, dy: -2)
+            let image = UIGraphicsImageRenderer(size: imageFrame.size, format: format).image { context in
+                context.cgContext.translateBy(x: -imageFrame.minX, y: -imageFrame.minY)
+                notationRenderer.drawCueText(rasterLayout)
+            }
+            cueTextMoveGlyph.bounds = CGRect(origin: .zero, size: imageFrame.size)
+            cueTextMoveGlyph.contents = image.cgImage
+            cueTextMoveGlyph.contentsScale = image.scale
+            cueTextMoveRasterLayout = rasterLayout
+        }
+        cueTextMoveOverlayCueID = preview.id
+        cueTextMoveOverlay.frame = bounds
+        cueTextMoveOverlay.bounds = bounds
+        cueTextMoveGlyph.position = CGPoint(x: preview.frame.midX, y: preview.frame.midY)
+        let color = UIColor.systemBlue.resolvedColor(with: traitCollection).cgColor
+        cueTextMoveSelection.frame = preview.frame.insetBy(dx: -4 / scale, dy: -3 / scale)
+        cueTextMoveSelection.path = UIBezierPath(roundedRect: cueTextMoveSelection.bounds,
+            cornerRadius: 5 / scale).cgPath
+        cueTextMoveSelection.fillColor = UIColor.systemBlue.withAlphaComponent(0.06).cgColor
+        cueTextMoveSelection.strokeColor = color
+        cueTextMoveSelection.lineWidth = 1.2 / scale
+        cueTextMoveGuide.isHidden = attachmentGuide == nil
+        cueTextMoveAnchor.isHidden = attachmentGuide == nil
+        if let anchor = attachmentGuide {
+            let origin = CGPoint(x: min(max(anchor.x, preview.frame.minX), preview.frame.maxX),
+                y: anchor.y < preview.frame.midY ? preview.frame.minY : preview.frame.maxY)
+            let segment = CGRect(x: min(origin.x, anchor.x), y: min(origin.y, anchor.y),
+                width: abs(origin.x - anchor.x), height: abs(origin.y - anchor.y)).insetBy(dx: -2 / scale, dy: -2 / scale)
+            let path = CGMutablePath()
+            path.move(to: CGPoint(x: origin.x - segment.minX, y: origin.y - segment.minY))
+            path.addLine(to: CGPoint(x: anchor.x - segment.minX, y: anchor.y - segment.minY))
+            cueTextMoveGuide.frame = segment
+            cueTextMoveGuide.path = path
+            cueTextMoveGuide.fillColor = nil
+            cueTextMoveGuide.strokeColor = color
+            cueTextMoveGuide.lineWidth = 1.2 / scale
+            cueTextMoveGuide.lineCap = .round
+            cueTextMoveAnchor.bounds = CGRect(x: 0, y: 0, width: 6 / scale, height: 6 / scale)
+            cueTextMoveAnchor.position = anchor
+            cueTextMoveAnchor.path = CGPath(ellipseIn: cueTextMoveAnchor.bounds, transform: nil)
+            cueTextMoveAnchor.fillColor = color
+        } else {
+            cueTextMoveGuide.path = nil
+            cueTextMoveAnchor.path = nil
+        }
+        if cueTextMoveOverlay.superlayer == nil { layer.addSublayer(cueTextMoveOverlay) }
+    }
+
+    private func endCueTextMoveOverlay() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        cueTextMoveOverlay.removeFromSuperlayer()
+        cueTextMoveGlyph.contents = nil
+        cueTextMoveGuide.path = nil
+        cueTextMoveAnchor.path = nil
+        cueTextMoveOverlayCueID = nil
+        cueTextMoveRasterLayout = nil
+        CATransaction.commit()
+    }
+
     private func commonInit() {
         isOpaque = false
         backgroundColor = .clear
@@ -2683,6 +2777,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         freeInkArticulationDragOverlay.addSublayer(freeInkArticulationDragGuide)
         freeInkArticulationDragOverlay.addSublayer(freeInkArticulationDragAnchor)
         freeInkArticulationDragOverlay.addSublayer(freeInkArticulationDragGlyph)
+        cueTextMoveOverlay.name = "cue-text-drag"
+        for (name, shape) in [("selection", cueTextMoveSelection), ("guide", cueTextMoveGuide), ("anchor", cueTextMoveAnchor)] {
+            shape.name = name
+            cueTextMoveOverlay.addSublayer(shape)
+        }
+        cueTextMoveGlyph.name = "glyph"
+        cueTextMoveOverlay.addSublayer(cueTextMoveGlyph)
 
         updateInteractionMode()
         NotificationCenter.default.addObserver(
@@ -3145,6 +3246,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
 
             for cueTextLayout in measure.cueTextLayouts {
+                if cueTextMoveOverlayCueID == cueTextLayout.id { continue }
                 let cueTextLayoutForDisplay = displayCueTextLayout(for: cueTextLayout)
                 if cueTextLayoutForDisplay.id == selectedCueTextID {
                     drawCueTextSelection(cueTextLayoutForDisplay)
@@ -6037,7 +6139,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
         switch recognizer.state {
         case .changed:
-            setNeedsDisplay()
+            if activeCueAnnotationPositionSource == nil { setNeedsDisplay() }
         case .ended:
             var updated = chart
             let changed: Bool
@@ -6072,7 +6174,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         activeAnnotationPositionDrag = nil
         activeCueAnnotationPositionSource = nil
         cueAnnotationPositionPreview = nil
-        if hadCuePreview { updateAnnotationPositionHandleFrames() }
+        if hadCuePreview {
+            endCueTextMoveOverlay()
+            updateAnnotationPositionHandleFrames()
+        }
         unlockParentScrollForChordMove()
         setNeedsDisplay()
     }
@@ -6088,11 +6193,24 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func updateCueAnnotationPositionPreview() {
         guard let drag = activeAnnotationPositionDrag, case .cueText(let id) = drag.objectID,
-              let source = activeCueAnnotationPositionSource else { return }
+              var source = activeCueAnnotationPositionSource else { return }
+        if source.previewTemplate == nil {
+            source.previewTemplate = LeadSheetPageLayoutEngine.cueTextMovePreviewTemplate(
+                chart: source.sourceChart, sourcePageLayout: source.sourcePageLayout,
+                cueID: id, targetMeasureID: source.sourceCue.anchorMeasureID,
+                fraction: source.sourceCue.beatFraction, horizontalPlacement: source.sourceCue.horizontalPlacement)
+            activeCueAnnotationPositionSource = source
+        }
         cueAnnotationPositionPreview = LeadSheetPageLayoutEngine.cueTextMovePreview(
             chart: source.sourceChart, sourcePageLayout: source.sourcePageLayout,
             cueID: id, targetMeasureID: source.sourceCue.anchorMeasureID,
-            fraction: source.sourceCue.beatFraction, verticalOffset: drag.offset(at: annotationPositionDragY))
+            fraction: source.sourceCue.beatFraction, verticalOffset: drag.offset(at: annotationPositionDragY),
+            template: source.previewTemplate)
+        if let preview = cueAnnotationPositionPreview {
+            let anchor = cueTextAttachmentGuide(for: source.sourceCue, frame: preview.frame,
+                in: source.sourcePageLayout)
+            updateCueTextMoveOverlay(preview, attachmentGuide: anchor)
+        }
     }
 
     private func updateAnnotationPositionSelection() {
@@ -6129,8 +6247,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             annotationPositionHandleViews.append(view)
             addSubview(view)
         }
+        let isCueText: Bool
+        if case .cueText = objectID { isCueText = true } else { isCueText = false }
         for (view, placement) in zip(annotationPositionHandleViews, placements) {
-            view.updateFrame(placement.frame, scale: scale, modelOffset: modelOffset)
+            view.updateFrame(placement.frame, scale: scale, modelOffset: modelOffset,
+                isCueText: isCueText)
             view.adjustment = { [weak self] movement in
                 guard let self, let objectID, self.renderedEditSelectionState().contains(objectID) else { return }
                 var updated = self.chart
@@ -6169,7 +6290,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                         ?? activeCueTextMoveDrag?.currentProjection?.cueLayout.verticalOffsetFromDefault
                         ?? placements[index].offsetFromDefault
                     view.updateFrame(displayedAnnotationPositionHandles[index].frame, scale: scale,
-                        modelOffset: Double(visibleOffset))
+                        modelOffset: Double(visibleOffset), isCueText: true)
                 } else {
                     view.frame = displayedAnnotationPositionHandles[index].frame
                 }
@@ -6231,6 +6352,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func drawAnnotationPositionFeedback() {
         guard let objectID = annotationPositionHandleID else { return }
+        if case .cueText(let id) = objectID, cueTextMoveOverlayCueID == id { return }
         let scale = max(canvasScreenPointsPerDisplayedPoint(), 0.1)
         let dy = annotationPositionPreviewTranslation(for: objectID)
         for placement in displayedAnnotationPositionHandles {
@@ -6620,9 +6742,11 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 return
             }
 
-            selectCueTextFromCanvas(cueText)
             LeadSheetCueTextMoveDragPolicy.update(&drag, at: recognizer.location(in: self))
             activeCueTextMoveDrag = drag
+            if let projection = drag.currentProjection {
+                updateCueTextMoveOverlay(projection.cueLayout, attachmentGuide: projection.attachmentGuide)
+            }
             editorPerformanceMetrics.recordDragState(kind: .cueTextMove, state: recognizer.state)
             lockParentScrollForChordMove()
             setNeedsDisplay()
@@ -6639,7 +6763,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             let location = recognizer.location(in: self)
             LeadSheetCueTextMoveDragPolicy.update(&activeCueTextMoveDrag, at: location)
             self.activeCueTextMoveDrag = activeCueTextMoveDrag
-            setNeedsDisplay()
+            if let projection = activeCueTextMoveDrag.currentProjection {
+                updateCueTextMoveOverlay(projection.cueLayout, attachmentGuide: projection.attachmentGuide)
+            }
 
             if recognizer.state == .ended {
                 LeadSheetCueTextMoveDragPolicy.finish(&activeCueTextMoveDrag)
@@ -6647,8 +6773,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 var updatedChart = chart
                 if LeadSheetCueTextMoveDragPolicy.commit(activeCueTextMoveDrag, in: &updatedChart) {
                     applyUpdatedChart(updatedChart, reason: .moveCueText)
-                    selectedCueTextID = activeCueTextMoveDrag.cueTextID
-                    applyTapSelection(activeCueTextMoveDrag.currentProjection?.measureID)
+                    if let moved = updatedChart.cueText(id: activeCueTextMoveDrag.cueTextID) {
+                        selectCueTextFromCanvas(moved)
+                    }
                 }
                 unlockParentScrollForChordMove()
                 setNeedsDisplay()
