@@ -42,7 +42,7 @@ final class FormMarkerPlacementUITests: XCTestCase {
                 XCTAssertFalse(writingTool.isSelected, "Each cold chart entry starts in Browse")
 
                 for entry in 1...2 {
-                    writingTool.tap()
+                    writingTool.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
                     let context = app.staticTexts["editor-guidance-context"]
                     XCTAssertTrue(context.waitForExistence(timeout: 10),
                         "Toolbar construction must survive entry \(entry) for \(title), \(manual ? "Manual" : "Automatic")")
@@ -56,8 +56,14 @@ final class FormMarkerPlacementUITests: XCTestCase {
                         XCTAssertTrue(control.waitForExistence(timeout: 5))
                         XCTAssertTrue(control.isHittable, "\(label) stays reachable after toolbar construction")
                     }
+                    let erase = app.buttons["Erase"]
+                    erase.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
+                    XCTAssertTrue(erase.isSelected)
+                    let write = app.buttons["Write"]
+                    write.coordinate(withNormalizedOffset: CGVector(dx: 0.06, dy: 0.5)).tap()
+                    XCTAssertTrue(write.isSelected)
                     attach(app, name: "\(title) \(manual ? "Manual" : "Automatic") cold entry \(entry)")
-                    app.buttons["Done"].tap()
+                    app.buttons["Done"].coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
                     let returnedToBrowse = XCTNSPredicateExpectation(
                         predicate: NSPredicate { _, _ in !writingTool.isSelected }, object: nil)
                     XCTAssertEqual(XCTWaiter.wait(for: [returnedToBrowse], timeout: 5), .completed)

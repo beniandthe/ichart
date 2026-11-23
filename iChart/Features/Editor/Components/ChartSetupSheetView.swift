@@ -99,8 +99,9 @@ struct ChartSetupSheetView: View {
                             onBackToLayout(currentDraftValues)
                         } label: {
                             Label("Back to Layouts", systemImage: "chevron.left")
+                                .frame(minHeight: 44)
+                                .contentShape(Rectangle())
                         }
-                        .frame(minHeight: 44)
                         .accessibilityHint("Choose a different chart layout before creating the chart")
                     }
 
@@ -227,13 +228,12 @@ struct ChartSetupSheetView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Button(action: onSkipTour) {
+            IChartTapFeedbackButton(action: onSkipTour) {
                 Image(systemName: "xmark")
                     .font(.caption.weight(.bold))
                     .frame(width: 30, height: 30)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.iChartTapFeedback)
             .foregroundStyle(IChartTourStyle.navy.opacity(0.72))
             .accessibilityLabel("End Quick Start")
         }
@@ -298,7 +298,7 @@ struct ChartSetupSheetView: View {
 
             VStack(spacing: 0) {
                 ForEach(StylePreset.sheetPresets(for: chart.layoutStyle)) { preset in
-                    Button {
+                    IChartTapFeedbackButton {
                         selectedStylePreset = preset
                     } label: {
                         HStack(alignment: .top, spacing: 12) {
@@ -325,7 +325,6 @@ struct ChartSetupSheetView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(.iChartTapFeedback)
                     .accessibilityLabel(preset.sheetDisplayText(for: chart.layoutStyle))
                     .accessibilityHint(preset.sheetDetailText(for: chart.layoutStyle))
 

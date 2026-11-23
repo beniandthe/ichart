@@ -10,6 +10,39 @@ final class ToolMeasureSelectionUITests: XCTestCase {
     }
 
     @MainActor
+    func testChartTitleAndSubtoolMenusOpenFromTheirVisibleEdgesInBothStyles() throws {
+        let app = try fixtureApplication()
+        app.launch()
+        defer { app.terminate() }
+        for title in fixtureTitles {
+            openFixture(title, in: app)
+            let settings = app.buttons["editor-document-settings"]
+            XCTAssertTrue(settings.waitForExistence(timeout: 5))
+            XCTAssertGreaterThan(settings.frame.width, app.windows.firstMatch.frame.width * 0.25)
+            XCTAssertGreaterThanOrEqual(settings.frame.height, 44)
+            let addPage = app.buttons["Add Page"]
+            for offset in [0.04, 0.96] {
+                tapControlEdge(settings, at: offset)
+                XCTAssertTrue(addPage.waitForExistence(timeout: 5))
+                dismissOpenMenu(in: app)
+                waitForRemoval(addPage, message: "Dismissing document settings leaves its trigger ready")
+            }
+
+            tapControlEdge(app.buttons["Measures"], at: 0.95)
+            let add = app.buttons["Add"]
+            XCTAssertTrue(add.waitForExistence(timeout: 5))
+            XCTAssertGreaterThanOrEqual(add.frame.height, 44)
+            tapControlEdge(add, at: 0.06)
+            let addOne = app.buttons["Add One After"]
+            XCTAssertTrue(addOne.waitForExistence(timeout: 5))
+            dismissOpenMenu(in: app)
+            waitForRemoval(addOne, message: "Dismissing Add returns to the same tool")
+            XCTAssertTrue(add.isHittable)
+            exitChart(in: app)
+        }
+    }
+
+    @MainActor
     func testRepeatStartAndEndRemainSelectableInBothChartStyles() throws {
         let app = try fixtureApplication()
         app.launch()
@@ -25,7 +58,7 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             let start = try waitForDifferentSelectedMeasure(than: end, in: app)
             XCTAssertLessThan(start, end)
 
-            app.buttons["Repeat Measures"].tap()
+            tapControlEdge(app.buttons["Repeat Measures"], at: 0.94)
             let startRepeat = app.buttons["Start Repeat"]
             XCTAssertTrue(startRepeat.waitForExistence(timeout: 5))
             startRepeat.tap()
@@ -37,7 +70,7 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             tapFirstRow(at: 0.47, in: app)
             waitForContext("Start: measure \(start) · Current end: measure \(end)", in: app)
             XCTAssertTrue(app.buttons["End Repeat"].isHittable)
-            app.buttons["End Repeat"].tap()
+            tapControlEdge(app.buttons["End Repeat"], at: 0.06)
             waitForContext("Measure \(end) selected", in: app)
             XCTAssertTrue(app.buttons["Repeat Measures"].waitForExistence(timeout: 5))
             XCTAssertFalse(app.buttons["End Repeat"].exists)
@@ -60,7 +93,7 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             tapFirstRow(at: 0.18, in: app)
             let first = try waitForDifferentSelectedMeasure(than: later, in: app)
 
-            app.buttons["Delete"].tap()
+            tapControlEdge(app.buttons["Delete"], at: 0.92)
             let range = app.buttons["Delete Range…"]
             XCTAssertTrue(range.waitForExistence(timeout: 5))
             range.tap()
@@ -123,7 +156,7 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             tapFirstRow(at: 0.47, in: app)
             let later = try waitForDifferentSelectedMeasure(than: initial, in: app)
             XCTAssertTrue(app.buttons["Above"].isHittable)
-            app.buttons["Above"].tap()
+            tapControlEdge(app.buttons["Above"], at: 0.07)
             let cancel = app.buttons["Cancel"]
             XCTAssertTrue(cancel.waitForExistence(timeout: 5))
             let entry = app.textViews["editor-cue-text-entry"]
@@ -154,7 +187,7 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             XCTAssertTrue(app.buttons["Above"].isHittable)
             XCTAssertTrue(app.buttons["Below"].isHittable)
             waitForContext("Measure \(first) selected", in: app)
-            app.buttons["Below"].tap()
+            tapControlEdge(app.buttons["Below"], at: 0.93)
             XCTAssertTrue(entry.waitForExistence(timeout: 5))
             let add = app.buttons["editor-cue-text-commit"]
             XCTAssertTrue(add.exists)
@@ -278,10 +311,21 @@ final class ToolMeasureSelectionUITests: XCTestCase {
 
     @MainActor
     private func openTool(_ title: String, in app: XCUIApplication) {
-        app.buttons["Tools"].tap()
+        tapControlEdge(app.buttons["Tools"], at: 0.94)
         let entry = app.buttons[title]
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
         entry.tap()
+    }
+
+    @MainActor
+    private func tapControlEdge(_ button: XCUIElement, at horizontalFraction: CGFloat) {
+        XCTAssertTrue(button.isHittable)
+        button.coordinate(withNormalizedOffset: CGVector(dx: horizontalFraction, dy: 0.5)).tap()
+    }
+
+    @MainActor
+    private func dismissOpenMenu(in app: XCUIApplication) {
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.07, dy: 0.86)).tap()
     }
 
     @MainActor

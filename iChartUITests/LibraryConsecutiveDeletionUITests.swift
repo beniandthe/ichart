@@ -68,9 +68,10 @@ final class LibraryConsecutiveDeletionUITests: XCTestCase {
         app.launch()
         let rhythm = chartButton("Rhythm Section UI Fixture", in: app)
         XCTAssertTrue(rhythm.waitForExistence(timeout: 20))
-        rhythm.tap()
+        rhythm.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: 6, dy: 6)).tap()
         let exit = app.buttons["Exit Chart"]
-        XCTAssertTrue(exit.waitForExistence(timeout: 15))
+        XCTAssertTrue(exit.waitForExistence(timeout: 15), "Tapping the card padding opens its chart")
         exit.tap()
         XCTAssertTrue(rhythm.waitForExistence(timeout: 10))
         XCTAssertEqual(app.buttons["Large preview"].value as? String, "Selected")

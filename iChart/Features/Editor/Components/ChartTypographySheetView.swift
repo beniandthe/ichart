@@ -238,7 +238,7 @@ private struct TypographyChoiceRow: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        IChartTapFeedbackButton(action: action) {
             VStack(spacing: 6) {
                 HStack(spacing: 8) {
                     Text(title)
@@ -279,7 +279,6 @@ private struct TypographyChoiceRow: View {
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.iChartTapFeedback)
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
         .accessibilityHint(requiresUpgrade
             ? "Opens Pro font options. The chart keeps its current fonts."

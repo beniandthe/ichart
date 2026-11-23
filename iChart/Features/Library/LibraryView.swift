@@ -1929,7 +1929,9 @@ struct LibraryView: View {
         } label: {
             Label("Sort: \(order.wrappedValue.title)", systemImage: "arrow.up.arrow.down")
                 .frame(minHeight: 44)
+                .contentShape(Rectangle())
         }
+        .iChartMenuTapFeedback()
         .accessibilityLabel("Sort library")
     }
 
@@ -2574,6 +2576,7 @@ private struct NewChartLayoutPickerView: View {
                                     : IChartHomeBrand.paper.opacity(0.82)
                             )
                             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .contentShape(Rectangle())
                         }
                         .buttonStyle(.iChartTapFeedback)
                         .tourActionHighlight(
@@ -3157,7 +3160,7 @@ private struct IChartPDFLibraryRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        ZStack(alignment: .topTrailing) {
             Button(action: onOpen) {
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: "doc.richtext")
@@ -3184,6 +3187,10 @@ private struct IChartPDFLibraryRow: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .frame(minHeight: 44, alignment: .topLeading)
+                .padding(.trailing, 56)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.iChartTapFeedback)
@@ -3197,10 +3204,12 @@ private struct IChartPDFLibraryRow: View {
             } label: {
                 Image(systemName: "ellipsis.circle")
                     .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
             }
+            .iChartMenuTapFeedback()
+            .padding(12)
             .accessibilityLabel("Actions for \(item.displayTitle)")
         }
-        .padding(12)
         .overlay(alignment: .bottom) {
             Divider().overlay(theme.panelBorder.opacity(0.32))
         }
@@ -3837,6 +3846,7 @@ private struct IChartForumTopChartColumn: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(IChartHomeBrand.blue.opacity(theme.isDark ? 0.78 : 0.88))
                 .clipShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
+                .contentShape(Rectangle())
             }
             .buttonStyle(.iChartTapFeedback)
             .disabled(!canExpand)
@@ -3886,6 +3896,7 @@ private struct IChartForumTopChartColumn: View {
                         .padding(.vertical, 7)
                         .background(IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.14 : 0.52))
                         .clipShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.iChartTapFeedback)
                 }
@@ -4141,8 +4152,14 @@ private struct IChartForumEmptyPublishBar: View {
                     }
                 } label: {
                     Label("Submit To Forum", systemImage: "paperplane.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(IChartHomeBrand.blue, in: RoundedRectangle(cornerRadius: 8))
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.borderedProminent)
+                .iChartMenuTapFeedback()
                 .controlSize(.small)
                 .tint(IChartHomeBrand.blue)
             }
@@ -4830,8 +4847,14 @@ private struct IChartForumPostDetailView: View {
                     }
                 } label: {
                     Label("Safety", systemImage: "flag")
+                        .foregroundStyle(isWorking ? theme.panelSecondary : theme.actionText)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(theme.actionText.opacity(isWorking ? 0.04 : 0.10),
+                            in: RoundedRectangle(cornerRadius: 8))
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.bordered)
+                .iChartMenuTapFeedback()
                 .disabled(isWorking)
             }
         }
@@ -5066,7 +5089,9 @@ private struct IChartForumCommentRow: View {
             } label: {
                 Image(systemName: "flag")
                     .frame(width: 30, height: 30)
+                    .contentShape(Rectangle())
             }
+            .iChartMenuTapFeedback()
             .accessibilityLabel("Comment safety options")
         }
         .padding(11)
@@ -5221,6 +5246,7 @@ private struct IChartHomeAppearanceModeSwitch: View {
                         .foregroundStyle(foregroundColor(for: mode))
                         .background(backgroundColor(for: mode))
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.iChartTapFeedback)
                 .accessibilityLabel(mode.accessibilityLabel)
@@ -6250,6 +6276,7 @@ struct IChartAccountSettings: View {
             } label: {
                 Label("Email Didn't Arrive?", systemImage: "questionmark.circle")
                     .font(.caption.weight(.semibold))
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.iChartTapFeedback)
             .foregroundStyle(theme.actionText)
@@ -7636,6 +7663,7 @@ private struct IChartChartsWorkspaceModePicker: View {
                                     .fill(IChartHomeBrand.blue)
                             }
                         }
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.iChartTapFeedback)
                 .accessibilityLabel(mode.title)
@@ -7796,7 +7824,9 @@ private struct IChartProjectCard: View {
                 .font(.title3.weight(.semibold))
                 .foregroundStyle(theme.panelSecondary)
                 .frame(width: 36, height: 36)
+                .contentShape(Rectangle())
         }
+        .iChartMenuTapFeedback()
         .accessibilityLabel("Project actions")
     }
 }
@@ -7811,7 +7841,7 @@ private struct IChartProjectChartRow: View {
     let onRemove: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
+        ZStack(alignment: .trailing) {
             Button(action: onOpen) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(chart.title)
@@ -7825,6 +7855,9 @@ private struct IChartProjectChartRow: View {
 
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minHeight: canManageProject ? 34 : 0, alignment: .leading)
+                .padding(.trailing, canManageProject ? 46 : 0)
+                .padding(12)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.iChartTapFeedback)
@@ -7845,11 +7878,13 @@ private struct IChartProjectChartRow: View {
                         .font(.body.weight(.semibold))
                         .foregroundStyle(theme.panelSecondary)
                         .frame(width: 34, height: 34)
+                        .contentShape(Rectangle())
                 }
+                .iChartMenuTapFeedback()
+                .padding(12)
                 .accessibilityLabel("Project chart actions")
             }
         }
-        .padding(12)
         .overlay(alignment: .bottom) {
             Divider().overlay(theme.panelBorder.opacity(0.25))
         }
@@ -7881,6 +7916,7 @@ private struct IChartPreviewModePicker: View {
                                     .fill(IChartHomeBrand.blue)
                             }
                         }
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.iChartTapFeedback)
                 .accessibilityLabel("\(mode.title) preview")
@@ -8015,7 +8051,7 @@ private struct ProjectRowView: View {
     let onDelete: () -> Void
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
+        ZStack(alignment: .trailing) {
             Button(action: onOpen) {
                 VStack(alignment: .leading, spacing: previewMode == .collapsed ? 3 : 10) {
                     rowText
@@ -8024,16 +8060,20 @@ private struct ProjectRowView: View {
                         IChartLibraryChartPreview(chart: chart, mode: previewMode)
                     }
                 }
-                .contentShape(Rectangle())
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minHeight: 36, alignment: .leading)
+                .padding(.trailing, 48)
+                .padding(.horizontal, 16)
+                .padding(.vertical, previewMode == .collapsed ? 13 : 15)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.iChartTapFeedback)
             .accessibilityHint("Open this saved chart to edit or export it.")
+            .accessibilityIdentifier("chart.library.open.\(chart.id.uuidString)")
 
             rowActionControl
+                .padding(.trailing, 16)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, previewMode == .collapsed ? 13 : 15)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -8094,7 +8134,9 @@ private struct ProjectRowView: View {
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(theme.actionText)
                     .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
             }
+            .iChartMenuTapFeedback()
             .accessibilityLabel("Chart actions")
     }
 

@@ -135,17 +135,16 @@ struct EditorToolGuidanceHeader: View {
     }
 
     private func guideButton(width: CGFloat?) -> some View {
-        Button(action: onOpenGuide) {
+        IChartTapFeedbackButton(action: onOpenGuide) {
             Label("Guide", systemImage: "book")
                 .font(.caption.weight(.medium))
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(width: width)
                 .frame(minWidth: 44, minHeight: 44)
+                .foregroundStyle(.white)
+                .background(IChartInterfaceStyle.actionBlue, in: RoundedRectangle(cornerRadius: 8))
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.iChartTapFeedback)
-        .foregroundStyle(.white)
-        .background(IChartInterfaceStyle.actionBlue, in: RoundedRectangle(cornerRadius: 8))
         .accessibilityLabel(guidance.detailsTitle)
         .accessibilityHint("Open examples and detailed instructions without changing the chart.")
         .accessibilityIdentifier("editor-tool-guide-button")

@@ -194,6 +194,8 @@ private enum EditorToolAccent {
 }
 
 private struct ActiveToolDoneButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.subheadline.weight(.semibold))
@@ -206,14 +208,16 @@ private struct ActiveToolDoneButtonStyle: ButtonStyle {
                     : Color(uiColor: .systemBackground)
             )
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(Rectangle())
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(
                         EditorToolAccent.semanticRead.opacity(configuration.isPressed ? 0 : 0.48),
                         lineWidth: 1.25
                     )
+                    .allowsHitTesting(false)
             )
-            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.08), value: configuration.isPressed)
     }
 }
 
@@ -252,6 +256,7 @@ private struct EditorToolActionButton: View {
                     : Color(uiColor: .tertiarySystemBackground)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .contentShape(Rectangle())
         }
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.45 : 1)
@@ -1192,9 +1197,9 @@ struct EditorView: View {
                         Image(systemName: "chevron.left")
                             .font(.headline)
                             .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.iChartTapFeedback)
-                    .contentShape(Rectangle())
                     .accessibilityLabel("Exit Chart")
 
                     if store.retryableSaveFailureMessage != nil {
@@ -1233,13 +1238,15 @@ struct EditorView: View {
                             .foregroundStyle(.secondary)
                     }
                     .font(.headline.weight(.semibold))
-                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 10)
+                    .frame(width: columnWidth)
                     .frame(minHeight: EditorCommandLayoutPolicy.minimumTapTarget)
+                    .background(Color(uiColor: .tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .iChartMenuTapFeedback()
                 .accessibilityLabel("Document settings for \(chart.title)")
-                .frame(width: columnWidth, alignment: .center)
+                .accessibilityIdentifier("editor-document-settings")
 
                 Button {
                     activateSelectTool(clearsMeasureSelection: true)
@@ -1770,7 +1777,7 @@ struct EditorView: View {
     ) -> some View {
         switch destination {
         case .select:
-            Button {
+            IChartTapFeedbackButton(cornerRadius: 12) {
                 handleActiveToolDoneTapped()
             } label: {
                 EditorMenuTabLabel(
@@ -1779,7 +1786,6 @@ struct EditorView: View {
                     isSelected: canvasMode == .browse
                 )
             }
-            .buttonStyle(.iChartTapFeedback)
             .accessibilityHint(
                 EditorCanvasMode.browse.toolGuidance(
                     layoutStyle: chart.layoutStyle,
@@ -1789,7 +1795,7 @@ struct EditorView: View {
             )
 
         case .chords:
-            Button {
+            IChartTapFeedbackButton(cornerRadius: 12) {
                 handleChordTabTapped()
             } label: {
                 EditorMenuTabLabel(
@@ -1807,11 +1813,10 @@ struct EditorView: View {
                     from: canvasMode
                 )
             )
-            .buttonStyle(.iChartTapFeedback)
             .accessibilityHint("Write with Apple Pencil in the highlighted lanes to render chart notation")
 
         case .ink:
-            Button {
+            IChartTapFeedbackButton(cornerRadius: 12) {
                 selectedMeasureID = nil
                 selectedNoteSelection = nil
                 pendingTimeSignatureSourceMeasureID = nil
@@ -1833,7 +1838,6 @@ struct EditorView: View {
                     from: canvasMode
                 )
             )
-            .buttonStyle(.iChartTapFeedback)
             .accessibilityLabel(EditorCanvasMode.freeHand.activeToolTitle)
             .accessibilityHint(
                 EditorCanvasMode.freeHand.toolGuidance(
@@ -1843,7 +1847,7 @@ struct EditorView: View {
             )
 
         case .measures:
-            Button {
+            IChartTapFeedbackButton(cornerRadius: 12) {
                 handleMeasureEditRequested()
             } label: {
                 EditorMenuTabLabel(
@@ -1860,7 +1864,6 @@ struct EditorView: View {
                     from: canvasMode
                 )
             )
-            .buttonStyle(.iChartTapFeedback)
 
         case .documentSettings, .repeats, .timeSignature, .rhythm, .text, .formMarkers:
             EmptyView()
@@ -1920,7 +1923,7 @@ struct EditorView: View {
                 from: canvasMode
             )
         )
-        .buttonStyle(.plain)
+        .iChartMenuTapFeedback(cornerRadius: 12)
         .accessibilityLabel("Tools")
         .accessibilityHint("Repeats, time signatures, text, and form markers")
     }
@@ -2024,6 +2027,7 @@ struct EditorView: View {
         } label: {
             activeToolMenuLabel(title: manualRenderWithPreview ? "Manual" : "Automatic", systemImage: "slider.horizontal.3")
         }
+        .iChartMenuTapFeedback()
         .accessibilityLabel("Rendering: \(manualRenderWithPreview ? "Manual" : "Automatic")")
         .accessibilityHint("Choose automatic rendering between strokes as you move on, or manual previews and render actions")
         .accessibilityIdentifier("editor-rendering-mode")
@@ -2201,6 +2205,7 @@ struct EditorView: View {
         } label: {
             activeToolMenuLabel(title: "Restore Ink", systemImage: "arrow.uturn.backward")
         }
+        .iChartMenuTapFeedback()
         .accessibilityHint("Bring back the original handwriting for a converted mark")
     }
 
@@ -2508,7 +2513,7 @@ struct EditorView: View {
                         isTourHighlighted: editorGuidedTourStep == .shapeForm
                     )
                 }
-                .buttonStyle(.plain)
+                .iChartMenuTapFeedback()
 
                 measureLayoutButton
 
@@ -2534,7 +2539,7 @@ struct EditorView: View {
                         isTourHighlighted: editorGuidedTourStep == .shapeForm
                     )
                 }
-                .buttonStyle(.plain)
+                .iChartMenuTapFeedback()
             }
         }
     }
@@ -2578,7 +2583,7 @@ struct EditorView: View {
                 } label: {
                     activeToolMenuLabel(title: "Repeat Measures", systemImage: "repeat")
                 }
-                .buttonStyle(.plain)
+                .iChartMenuTapFeedback()
 
                 Menu {
                     Button("1st Ending…") { openEndingPreset(.ending1) }
@@ -2591,7 +2596,7 @@ struct EditorView: View {
                 } label: {
                     activeToolMenuLabel(title: "Add Ending", systemImage: "text.badge.plus")
                 }
-                .buttonStyle(.plain)
+                .iChartMenuTapFeedback()
 
                 Menu {
                     Button(role: .destructive) {
@@ -2628,7 +2633,7 @@ struct EditorView: View {
                         isTourHighlighted: false
                     )
                 }
-                .buttonStyle(.plain)
+                .iChartMenuTapFeedback()
             }
         }
     }
@@ -3020,6 +3025,7 @@ struct EditorView: View {
                     : Color(uiColor: .tertiarySystemBackground)
             )
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(Rectangle())
             .tourActionHighlight(
                 isActive: isTourHighlighted,
                 cornerRadius: 9,

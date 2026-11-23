@@ -37,7 +37,7 @@ struct FormMarkerPlacementSheet: View {
 
                 Section("Marker") {
                     ForEach(RoadmapType.navigationPointMarkerTypes, id: \.self) { type in
-                        Button {
+                        IChartTapFeedbackButton {
                             draft.markerType = type
                         } label: {
                             VStack(spacing: 5) {
@@ -62,7 +62,6 @@ struct FormMarkerPlacementSheet: View {
                             .frame(maxWidth: .infinity, minHeight: 44)
                             .contentShape(Rectangle())
                         }
-                        .buttonStyle(.iChartTapFeedback)
                         .accessibilityAddTraits(draft.markerType == type ? [.isSelected] : [])
                         .accessibilityIdentifier("form-marker-option-\(type.rawValue)")
                     }
