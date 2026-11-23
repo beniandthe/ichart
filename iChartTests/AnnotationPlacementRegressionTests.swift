@@ -155,6 +155,112 @@ final class AnnotationPlacementRegressionTests: XCTestCase {
         }
     }
 
+    func testMovingCueVerticallyKeepsCrowdedStavesAndAnnotationsFixedInBothStyles() throws {
+        for style in Self.styles {
+            for density in StaffSystemDensity.allCases {
+                var chart = chartWithThreeSystems(style: style, density: density)
+                let ids = chart.measures.map(\.id)
+                if style == .rhythmSectionSheet {
+                    for id in ids {
+                        XCTAssertTrue(chart.setMeasureRhythmMap([.quarter, .quarter, .quarter, .quarter], for: id))
+                    }
+                }
+                for id in ids {
+                    _ = try XCTUnwrap(chart.appendRecognizedChordEvent(try ChordSymbolParser.parse("Cmaj7"),
+                        rawInput: "Cmaj7", to: id, atFraction: 0))
+                }
+                let lowerCue = try XCTUnwrap(chart.addCueText("Hold the note\nThen release",
+                    anchorMeasureID: ids[2], position: .below, atFraction: 0.25))
+                let upperCue = try XCTUnwrap(chart.addCueText("Horn cue", anchorMeasureID: ids[4],
+                    position: .above, atFraction: 0.25))
+                let endingID = try XCTUnwrap(chart.addEndingSpan(.ending1, startMeasureID: ids[4], endMeasureID: ids[5]))
+                let markerID = try XCTUnwrap(chart.addPointRoadmapMarker(.fine, anchorMeasureID: ids[2]))
+                XCTAssertTrue(chart.setRoadmapAnnotationVerticalOffset(markerID, to: -8))
+                let before = layout(chart)
+                let original = chart
+                let context = "\(style) \(density)"
+                for cueID in [lowerCue, upperCue] {
+                    let originalFrame = try cueFrame(cueID, in: before)
+                    for offset: Double in [-8, 8] {
+                        var nudged = chart
+                        XCTAssertTrue(nudged.setCueTextVerticalOffset(cueID, to: offset))
+                        let nudge = layout(nudged)
+                        let travel = try cueFrame(cueID, in: nudge).minY - originalFrame.minY
+                        XCTAssertGreaterThanOrEqual(travel * (offset < 0 ? -1 : 1), -0.001, context)
+                        XCTAssertLessThanOrEqual(abs(travel), abs(offset) + 0.001, context)
+                        assertSameGeometry(nudge, before, context: context)
+                    }
+                }
+
+                XCTAssertTrue(chart.setCueTextVerticalOffset(lowerCue, to: CueText.maximumVerticalOffset))
+                XCTAssertTrue(chart.setCueTextVerticalOffset(upperCue, to: CueText.minimumVerticalOffset))
+                let reopened = try ChartPersistenceCoders.decoder.decode(Chart.self,
+                    from: ChartPersistenceCoders.encoder.encode(chart))
+                let after = layout(reopened)
+                assertSameGeometry(after, before, context: context)
+                XCTAssertEqual(after.systems.map(\.staffLineYPositions), before.systems.map(\.staffLineYPositions), context)
+                XCTAssertEqual(after.systems.flatMap(\.measures).flatMap(\.chordLayouts),
+                    before.systems.flatMap(\.measures).flatMap(\.chordLayouts), context)
+                XCTAssertEqual(after.systems.flatMap(\.measures).flatMap(\.noteLayouts).map {
+                    $0.paintedBounds(for: reopened)
+                }, before.systems.flatMap(\.measures).flatMap(\.noteLayouts).map {
+                    $0.paintedBounds(for: original)
+                }, context)
+                XCTAssertEqual(try markerLayout(markerID, in: after), try markerLayout(markerID, in: before), context)
+                XCTAssertEqual(try endingFrame(endingID, in: after), try endingFrame(endingID, in: before), context)
+                XCTAssertEqual(reopened.systems, original.systems, context)
+                XCTAssertEqual(reopened.roadmapObjects, original.roadmapObjects, context)
+                let lower = try cueFrame(lowerCue, in: after)
+                let upper = try cueFrame(upperCue, in: after)
+                XCTAssertFalse(lower.intersects(upper), context)
+                let lowerBaseline = try cueFrame(lowerCue, in: before)
+                let upperBaseline = try cueFrame(upperCue, in: before)
+                XCTAssertGreaterThanOrEqual(lower.minY + 0.001, lowerBaseline.minY, context)
+                XCTAssertLessThanOrEqual(upper.minY, upperBaseline.minY + 0.001, context)
+
+                XCTAssertTrue(chart.setCueTextVerticalOffset(lowerCue, to: 0))
+                XCTAssertTrue(chart.setCueTextVerticalOffset(upperCue, to: 0))
+                let reset = layout(chart)
+                assertSameGeometry(reset, before, context: context)
+                XCTAssertEqual(try cueFrame(lowerCue, in: reset), lowerBaseline, context)
+                XCTAssertEqual(try cueFrame(upperCue, in: reset), upperBaseline, context)
+            }
+        }
+    }
+
+    func testVerticalMoveCannotPushAnExistingSystemToAnotherPage() throws {
+        for style in Self.styles {
+            var fixture = try Self.crowdedChart(style: style, measureCount: 30)
+            let unmodified = layout(fixture.chart)
+            let firstPage = try XCTUnwrap(unmodified.pages.first)
+            let lastSystemID = try XCTUnwrap(firstPage.systemIDs.last)
+            let measureID = try XCTUnwrap(unmodified.systems.first { $0.id == lastSystemID }?
+                .measures.last?.sourceMeasureID)
+            let cueID = try XCTUnwrap(fixture.chart.addCueText("Quietly\nWait for the downbeat",
+                anchorMeasureID: measureID, position: .below, emphasis: .strong))
+            let before = layout(fixture.chart)
+            let owner = try XCTUnwrap(before.systems.first { system in
+                system.measures.contains { $0.sourceMeasureID == measureID }
+            })
+            let paper = try XCTUnwrap(before.pages.first { $0.systemIDs.contains(owner.id) })
+            XCTAssertGreaterThan(before.pages.count, 1)
+            let baseline = try cueFrame(cueID, in: before)
+
+            let requested = CueText.maximumVerticalOffset
+            let preview = try XCTUnwrap(LeadSheetPageLayoutEngine.cueTextMovePreview(chart: fixture.chart,
+                sourcePageLayout: before, cueID: cueID, targetMeasureID: measureID,
+                fraction: nil, verticalOffset: requested))
+            XCTAssertTrue(fixture.chart.setCueTextVerticalOffset(cueID, to: requested))
+            let after = layout(fixture.chart)
+            assertSameGeometry(after, before, context: "\(style) page-end movement")
+            let actual = try cueFrame(cueID, in: after)
+            XCTAssertEqual(actual, preview.frame)
+            XCTAssertTrue(paper.frame.contains(actual))
+            XCTAssertGreaterThanOrEqual(actual.minY + 0.001, baseline.minY)
+            try assertCrowdedAnnotations(fixture, in: after)
+        }
+    }
+
     private func chartWithThreeSystems(style: ChartLayoutStyle, density: StaffSystemDensity) -> Chart {
         var chart = Chart.blank(title: "Annotations between systems", measureCount: 6, layoutStyle: style)
         chart.staffSystemDensity = density
@@ -218,6 +324,7 @@ final class AnnotationPlacementRegressionTests: XCTestCase {
         for style in Self.styles {
             var fixture = try Self.crowdedChart(style: style)
             XCTAssertTrue(fixture.chart.setRoadmapAnnotationVerticalOffset(fixture.markerID, to: -20))
+            XCTAssertTrue(fixture.chart.setCueTextVerticalOffset(fixture.cueID, to: CueText.minimumVerticalOffset))
             let pageLayout = layout(fixture.chart, width: LeadSheetFreeInkDocumentLayoutPolicy.portraitCanvasWidth)
             try assertCrowdedAnnotations(fixture, in: pageLayout)
             let system = try XCTUnwrap(pageLayout.systems.first)

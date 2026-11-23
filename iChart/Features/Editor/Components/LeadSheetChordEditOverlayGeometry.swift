@@ -342,7 +342,9 @@ struct ActiveCueTextMoveDrag {
         self.startLocation = startLocation
         initialFrame = layout.frame
         currentFrame = layout.frame
-        startingVerticalOffset = cue.verticalOffset
+        // Saved requests may exceed the room available in this row. Continue
+        // from the visible cue, so one drag back responds immediately.
+        startingVerticalOffset = Double(layout.verticalOffsetFromDefault)
         sourceChart = chart
         sourcePageLayout = pageLayout
         sourcePageSize = pageSize

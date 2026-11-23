@@ -255,7 +255,8 @@ final class LeadSheetEndingEditInteractionTests: XCTestCase {
             let fixture = try fixture()
             var chart = fixture.chart
             chart.layoutStyle = style
-            let cueID = try XCTUnwrap(chart.addCueText("On cue", anchorMeasureID: fixture.ids[1], position: .above))
+            let cueMeasureID = fixture.ids[3]
+            let cueID = try XCTUnwrap(chart.addCueText("On cue", anchorMeasureID: cueMeasureID, position: .above))
             let markerID = try XCTUnwrap(chart.addPointRoadmapMarker(.segno, anchorMeasureID: fixture.ids[1]))
             let frame = CGRect(x: 0, y: 0, width: 900, height: 1_400)
             let canvas = LeadSheetCanvasUIKitView(frame: frame)
@@ -270,7 +271,7 @@ final class LeadSheetEndingEditInteractionTests: XCTestCase {
 
             let selections: [RenderedEditObjectID] = [.cueText(cueID), .roadmapMarker(markerID), .endingSpan(fixture.endingID)]
             for (index, objectID) in selections.enumerated() {
-                canvas.applyParentSelectionState(selectedMeasureID: fixture.ids[1], selectedNoteSelection: nil,
+                canvas.applyParentSelectionState(selectedMeasureID: index == 0 ? cueMeasureID : fixture.ids[1], selectedNoteSelection: nil,
                     selectedChordID: nil, selectedCommittedBarlineMeasureID: nil,
                     selectedCueTextID: index == 0 ? cueID : nil,
                     selectedRoadmapMarkerID: index == 1 ? markerID : nil,

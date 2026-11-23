@@ -66,7 +66,8 @@ final class FinalCueTextExportCompletenessTests: XCTestCase {
                     let longID = try XCTUnwrap(chart.addCueText("Bring the horns in softly after the guitar solo", anchorMeasureID: stackedMeasureID, position: .below))
                     XCTAssertTrue(chart.updateCueText(longID, scale: 1.25))
                     XCTAssertTrue(chart.moveCueText(longID, to: stackedMeasureID, atFraction: 0.25, verticalOffset: 12))
-                    let shortID = try XCTUnwrap(chart.addCueText("Horns enter", anchorMeasureID: stackedMeasureID, position: .below))
+                    let shortID = try XCTUnwrap(chart.addCueText("Horns enter", anchorMeasureID: stackedMeasureID,
+                        position: .below, atFraction: 0.25))
                     XCTAssertTrue(chart.updateCueText(shortID, scale: 0.75, verticalOffset: 12))
                     _ = try XCTUnwrap(chart.addCueText("Repeat softly, then build into the final chorus", anchorMeasureID: chart.measures[11].id, position: .below))
                     let originalChart = chart
@@ -97,6 +98,7 @@ final class FinalCueTextExportCompletenessTests: XCTestCase {
                     let stackedMeasure = try XCTUnwrap(layout.systems.flatMap(\.measures).first { $0.sourceMeasureID == stackedMeasureID })
                     let longCue = try XCTUnwrap(stackedMeasure.cueTextLayouts.first { $0.id == longID })
                     let shortCue = try XCTUnwrap(stackedMeasure.cueTextLayouts.first { $0.id == shortID })
+                    XCTAssertTrue(longCue.frame.minX < shortCue.frame.maxX && shortCue.frame.minX < longCue.frame.maxX)
                     XCTAssertGreaterThanOrEqual(shortCue.frame.minY - longCue.frame.maxY, 3 - 0.01)
                     XCTAssertEqual(longCue.beatFraction, 0.25)
                     XCTAssertEqual(longCue.verticalOffset, 12)

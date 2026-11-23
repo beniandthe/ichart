@@ -2220,6 +2220,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         didSet { updateAnnotationPositionHandleFrames() }
     }
     private var activeAnnotationPositionDrag: LeadSheetAnnotationPositionDrag?
+    private var activeCueAnnotationPositionSource: ActiveCueTextMoveDrag?
+    private var cueAnnotationPositionPreview: LeadSheetCueTextLayout?
     private var annotationPositionDragY: CGFloat = 0
     private var annotationPositionHandleID: RenderedEditObjectID?
     private var annotationPositionHandlePlacements: [LeadSheetAnnotationPositionEditOverlay.Handle] = []
@@ -6012,6 +6014,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             modelOffset: modelOffset, startingOffsetFromDefault: visualOffset, startY: admitted.startLocation.y,
             screenPointsPerDisplayedPoint: canvasScreenPointsPerDisplayedPoint())
         annotationPositionDragY = point.y
+        activeCueAnnotationPositionSource = nil
+        cueAnnotationPositionPreview = nil
+        if case .cueText(let id) = objectID, let pageLayout {
+            activeCueAnnotationPositionSource = ActiveCueTextMoveDrag(cueTextID: id, chart: chart,
+                pageLayout: pageLayout, pageSize: bounds.size, startLocation: admitted.startLocation,
+                screenPointsPerDisplayedPoint: canvasScreenPointsPerDisplayedPoint())
+            updateCueAnnotationPositionPreview()
+            updateAnnotationPositionHandleFrames()
+        }
         lockParentScrollForChordMove()
         setNeedsDisplay()
         return true
@@ -6020,13 +6031,32 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func handleAnnotationPositionPan(_ recognizer: UIPanGestureRecognizer) {
         guard let drag = activeAnnotationPositionDrag else { return }
         annotationPositionDragY = recognizer.location(in: self).y
+        if case .cueText = drag.objectID {
+            updateCueAnnotationPositionPreview()
+            updateAnnotationPositionHandleFrames()
+        }
         switch recognizer.state {
         case .changed:
             setNeedsDisplay()
         case .ended:
             var updated = chart
-            let changed = drag.commit(in: &updated, selected: renderedEditSelectionState().selectedObjectID,
-                at: annotationPositionDragY)
+            let changed: Bool
+            if case .cueText(let id) = drag.objectID {
+                // Keep the existing two-screen-point admission threshold and
+                // stale-model checks. Commit exactly the constrained preview,
+                // not a hidden request beyond the available staff gap.
+                if let source = activeCueAnnotationPositionSource, let preview = cueAnnotationPositionPreview,
+                   annotationPositionDragY.isFinite,
+                   abs(annotationPositionDragY - drag.startY) * drag.screenPointsPerDisplayedPoint >= 2,
+                   updated.id == drag.chartID, renderedEditSelectionState().contains(drag.objectID),
+                   updated.cueText(id: id) == source.sourceCue,
+                   abs(preview.frame.minY - source.initialFrame.minY) > 0.001 {
+                    changed = updated.setCueTextVerticalOffset(id, to: Double(preview.verticalOffsetFromDefault))
+                } else { changed = false }
+            } else {
+                changed = drag.commit(in: &updated, selected: renderedEditSelectionState().selectedObjectID,
+                    at: annotationPositionDragY)
+            }
             cancelAnnotationPositionDrag()
             if changed { applyUpdatedChart(updated, reason: .adjustAnnotationPosition) }
         case .cancelled, .failed:
@@ -6038,14 +6068,31 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func cancelAnnotationPositionDrag() {
         guard activeAnnotationPositionDrag != nil else { return }
+        let hadCuePreview = activeCueAnnotationPositionSource != nil
         activeAnnotationPositionDrag = nil
+        activeCueAnnotationPositionSource = nil
+        cueAnnotationPositionPreview = nil
+        if hadCuePreview { updateAnnotationPositionHandleFrames() }
         unlockParentScrollForChordMove()
         setNeedsDisplay()
     }
 
     private func annotationPositionPreviewTranslation(for objectID: RenderedEditObjectID) -> CGFloat? {
         guard let drag = activeAnnotationPositionDrag, drag.objectID == objectID else { return nil }
+        if case .cueText = objectID, let source = activeCueAnnotationPositionSource,
+           let preview = cueAnnotationPositionPreview {
+            return preview.frame.minY - source.initialFrame.minY
+        }
         return drag.previewTranslation(at: annotationPositionDragY)
+    }
+
+    private func updateCueAnnotationPositionPreview() {
+        guard let drag = activeAnnotationPositionDrag, case .cueText(let id) = drag.objectID,
+              let source = activeCueAnnotationPositionSource else { return }
+        cueAnnotationPositionPreview = LeadSheetPageLayoutEngine.cueTextMovePreview(
+            chart: source.sourceChart, sourcePageLayout: source.sourcePageLayout,
+            cueID: id, targetMeasureID: source.sourceCue.anchorMeasureID,
+            fraction: source.sourceCue.beatFraction, verticalOffset: drag.offset(at: annotationPositionDragY))
     }
 
     private func updateAnnotationPositionSelection() {
@@ -6068,7 +6115,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 pageLayout: pageLayout, layoutStyle: chart.layoutStyle, selection: selection,
                 screenPointsPerDisplayedPoint: scale))
             objectID = selected
-            modelOffset = offset
+            if case .cueText = selected {
+                modelOffset = Double(placements.first?.offsetFromDefault ?? 0)
+            } else { modelOffset = offset }
         }
         annotationPositionHandleID = objectID
         annotationPositionHandlePlacements = placements
@@ -6086,7 +6135,22 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 guard let self, let objectID, self.renderedEditSelectionState().contains(objectID) else { return }
                 var updated = self.chart
                 let offset = Double(placement.offsetFromDefault + movement / scale)
-                if LeadSheetAnnotationPositionDrag.setOffset(offset, for: objectID, in: &updated) {
+                let changed: Bool
+                if case .cueText(let id) = objectID,
+                   let source = self.chart.cueText(id: id), let pageLayout = self.pageLayout,
+                   let original = pageLayout.systems.flatMap(\.measures).flatMap(\.cueTextLayouts)
+                    .first(where: { $0.id == id }),
+                   let preview = LeadSheetPageLayoutEngine.cueTextMovePreview(chart: self.chart,
+                    sourcePageLayout: pageLayout, cueID: id, targetMeasureID: source.anchorMeasureID,
+                    fraction: source.beatFraction, verticalOffset: offset) {
+                    changed = abs(preview.frame.minY - original.frame.minY) > 0.001
+                        && updated.setCueTextVerticalOffset(id, to: Double(preview.verticalOffsetFromDefault))
+                } else if case .cueText = objectID {
+                    changed = false
+                } else {
+                    changed = LeadSheetAnnotationPositionDrag.setOffset(offset, for: objectID, in: &updated)
+                }
+                if changed {
                     self.applyUpdatedChart(updated, reason: .adjustAnnotationPosition)
                 }
             }
@@ -6100,7 +6164,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         displayedAnnotationPositionHandles = annotationPositionHandlePreview(from: placements, scale: scale)
         for (index, view) in annotationPositionHandleViews.enumerated() {
             if index < displayedAnnotationPositionHandles.count {
-                view.frame = displayedAnnotationPositionHandles[index].frame
+                if case .cueText = annotationPositionHandleID {
+                    let visibleOffset = cueAnnotationPositionPreview?.verticalOffsetFromDefault
+                        ?? activeCueTextMoveDrag?.currentProjection?.cueLayout.verticalOffsetFromDefault
+                        ?? placements[index].offsetFromDefault
+                    view.updateFrame(displayedAnnotationPositionHandles[index].frame, scale: scale,
+                        modelOffset: Double(visibleOffset))
+                } else {
+                    view.frame = displayedAnnotationPositionHandles[index].frame
+                }
                 view.isHidden = false
             } else {
                 view.isHidden = true
@@ -6114,6 +6186,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         let dx: CGFloat
         let dy: CGFloat
         switch annotationPositionHandleID {
+        case .cueText(let id) where activeCueAnnotationPositionSource?.cueTextID == id:
+            guard let source = activeCueAnnotationPositionSource, let preview = cueAnnotationPositionPreview else {
+                return placements
+            }
+            dx = preview.frame.minX - source.initialFrame.minX
+            dy = preview.frame.minY - source.initialFrame.minY
         case .cueText(let id) where activeCueTextMoveDrag?.cueTextID == id:
             guard let drag = activeCueTextMoveDrag else { return placements }
             dx = drag.currentFrame.minX - drag.initialFrame.minX

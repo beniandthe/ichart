@@ -80,6 +80,7 @@ struct LeadSheetSystemAnnotationBaseLayout: Hashable {
     var endingLayouts: [LeadSheetEndingLayout]
     var roadmapMarkerLayouts: [LeadSheetRoadmapMarkerLayout]
     var fixedLabelFrames: [CGRect]
+    var defaultCueLayouts: [LeadSheetCueTextLayout] = []
 }
 
 struct LeadSheetKeySignatureLayout: Hashable {
@@ -570,7 +571,173 @@ enum LeadSheetPageLayoutEngine {
         _ = resolveAnnotationPlacement(chart: projectedChart, measures: &measures,
             endings: &endings, markers: &markers, fixedLabels: base.fixedLabelFrames,
             appliesManualOffsets: true)
-        return measures.flatMap(\.cueTextLayouts).first { $0.id == cueID }
+        var projectedLayout = sourcePageLayout
+        guard let systemIndex = projectedLayout.systems.firstIndex(where: { $0.id == system.id }) else { return nil }
+        projectedLayout.systems[systemIndex].measures = measures
+        projectedLayout.systems[systemIndex].endingLayouts = endings
+        projectedLayout.systems[systemIndex].roadmapMarkerLayouts = markers
+        projectedLayout.systems[systemIndex].annotationBaseLayout?.defaultCueLayouts = measures.flatMap(\.cueTextLayouts)
+        let placed = applyingCueOffsets(to: projectedLayout, chart: projectedChart,
+            systemIDs: [system.id])
+        return placed.systems[systemIndex].measures.flatMap(\.cueTextLayouts).first { $0.id == cueID }
+    }
+
+    /// Cue movement consumes existing whitespace, never the space allocated
+    /// to another row. Default cue geometry still participates in planning.
+    private static func applyingCueOffsets(
+        to layout: LeadSheetPageLayout,
+        chart: Chart,
+        systemIDs: Set<UUID>? = nil
+    ) -> LeadSheetPageLayout {
+        let offsets = Dictionary(chart.cueTexts.filter { $0.verticalOffset != 0 }
+            .map { ($0.id, $0.verticalOffset) }, uniquingKeysWith: { first, _ in first })
+        guard !offsets.isEmpty else { return layout }
+        var result = layout
+        let systemIndices = Dictionary(layout.systems.enumerated().map { ($0.element.id, $0.offset) },
+            uniquingKeysWith: { first, _ in first })
+        var baselineCache: [Int: LeadSheetSystemLayout] = [:]
+        var boundsCache: [Int: CGRect] = [:]
+        func baselineSystem(at index: Int) -> LeadSheetSystemLayout {
+            if let cached = baselineCache[index] { return cached }
+            var system = layout.systems[index]
+            if let defaults = system.annotationBaseLayout?.defaultCueLayouts {
+                let byID = Dictionary(defaults.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                for measureIndex in system.measures.indices {
+                    system.measures[measureIndex].cueTextLayouts = system.measures[measureIndex].cueTextLayouts.map {
+                        byID[$0.id] ?? $0
+                    }
+                }
+            }
+            baselineCache[index] = system
+            return system
+        }
+        func baselineBounds(at index: Int) -> CGRect {
+            if let cached = boundsCache[index] { return cached }
+            let bounds = baselineSystem(at: index).spacingContentBounds(for: chart)
+            boundsCache[index] = bounds
+            return bounds
+        }
+
+        for page in layout.pages {
+            let indices = page.systemIDs.compactMap { systemIndices[$0] }
+            let paperTop = page.includesHeader
+                ? max(page.frame.minY + annotationTopEdgeClearance, layout.header.handwrittenFrame.maxY + annotationTopEdgeClearance)
+                : page.frame.minY + annotationTopEdgeClearance
+            let paperBottom = page.frame.maxY - systemBottomInset
+            for (row, index) in indices.enumerated() {
+                let original = layout.systems[index]
+                guard systemIDs.map({ $0.contains(original.id) }) ?? true,
+                      original.measures.contains(where: { measure in
+                          measure.cueTextLayouts.contains { offsets[$0.id] != nil }
+                      }) else { continue }
+                let baseline = baselineSystem(at: index)
+                let bounds = baselineBounds(at: index)
+                // Split shared whitespace when both rows contain cues.
+                // Otherwise the current row can use all existing clearance.
+                var rowTop = paperTop
+                if row > 0 {
+                    let previous = indices[row - 1]
+                    let previousBottom = baselineBounds(at: previous).maxY
+                    let gap = min(interSystemAnnotationClearance, max(0, bounds.minY - previousBottom))
+                    rowTop = layout.systems[previous].measures.contains { !$0.cueTextLayouts.isEmpty }
+                        ? (previousBottom + bounds.minY + gap) / 2 : previousBottom + gap
+                }
+                var rowBottom = paperBottom
+                if row + 1 < indices.count {
+                    let next = indices[row + 1]
+                    let nextTop = baselineBounds(at: next).minY
+                    let gap = min(interSystemAnnotationClearance, max(0, nextTop - bounds.maxY))
+                    rowBottom = layout.systems[next].measures.contains { !$0.cueTextLayouts.isEmpty }
+                        ? (bounds.maxY + nextTop - gap) / 2 : nextTop - gap
+                }
+                let cues = baseline.measures.flatMap(\.cueTextLayouts)
+                guard !cues.isEmpty else { continue }
+                let obstacles = cueMovementObstacles(in: baseline, chart: chart)
+                for measureIndex in baseline.measures.indices {
+                    for cueIndex in baseline.measures[measureIndex].cueTextLayouts.indices {
+                        let cue = baseline.measures[measureIndex].cueTextLayouts[cueIndex]
+                        let authoredOffset = offsets[cue.id] ?? 0
+                        var placed = cue
+                        placed.verticalOffset = CGFloat(authoredOffset)
+                        if authoredOffset != 0 {
+                            let y = constrainedCueY(for: cue.frame, offset: CGFloat(authoredOffset),
+                                rowTop: rowTop, rowBottom: rowBottom,
+                                paperTop: paperTop, paperBottom: paperBottom,
+                                otherCues: cues.filter { $0.id != cue.id }.map(\.frame), obstacles: obstacles)
+                            let dy = y - cue.frame.minY
+                            placed.frame = cue.frame.offsetBy(dx: 0, dy: dy)
+                            placed.hitFrame = cue.hitFrame.offsetBy(dx: 0, dy: dy)
+                            placed.verticalOffsetFromDefault = dy
+                        } else {
+                            placed.verticalOffsetFromDefault = 0
+                        }
+                        result.systems[index].measures[measureIndex].cueTextLayouts[cueIndex] = placed
+                    }
+                }
+            }
+        }
+        return result
+    }
+
+    private static func cueMovementObstacles(in system: LeadSheetSystemLayout, chart: Chart) -> [CGRect] {
+        var frames: [CGRect] = []
+        let drawsStaff = chart.layoutStyle != .simpleChordSheet
+        for measure in system.measures {
+            frames.append(contentsOf: measure.chordLayouts.map(\.naturalFrame))
+            frames.append(contentsOf: measure.noteLayouts.map { $0.paintedBounds(for: chart) })
+            frames.append(contentsOf: measure.repeatMarkerLayouts.map(\.occupiedFrame))
+            if let meter = measure.meterChangeFrame { frames.append(meter) }
+            if drawsStaff { frames.append(measure.staffFrame) }
+        }
+        frames += [system.clefFrame, system.timeSignatureFrame, system.sectionTextFrame,
+            system.roadmapTextFrame, system.keyTextFrame].compactMap { $0 }
+        frames += system.keySignatureLayouts.map(\.frame)
+        frames += system.endingLayouts.map(\.occupiedFrame)
+        frames += system.roadmapMarkerLayouts.map(LeadSheetRoadmapMarkerLabelGeometry.labelFrame)
+        return frames
+    }
+
+    private static func constrainedCueY(
+        for frame: CGRect, offset: CGFloat,
+        rowTop: CGFloat, rowBottom: CGFloat, paperTop: CGFloat, paperBottom: CGFloat,
+        otherCues: [CGRect], obstacles: [CGRect]
+    ) -> CGFloat {
+        let clearance: CGFloat = 3
+        var minimum = min(frame.minY, max(paperTop, rowTop))
+        var maximum = max(frame.minY, min(paperBottom, rowBottom) - frame.height)
+        // Split shared whitespace between overlapping cue columns as well as
+        // between systems. Moving one cue cannot displace an unrelated cue.
+        for other in otherCues where other.minX < frame.maxX && frame.minX < other.maxX {
+            if other.maxY <= frame.minY {
+                let preservedGap = min(clearance, frame.minY - other.maxY)
+                minimum = max(minimum, (other.maxY + frame.minY) / 2 + preservedGap / 2)
+            } else if frame.maxY <= other.minY {
+                let preservedGap = min(clearance, other.minY - frame.maxY)
+                maximum = min(maximum, (frame.maxY + other.minY) / 2 - preservedGap / 2 - frame.height)
+            }
+        }
+        for obstacle in obstacles where obstacle.minX < frame.maxX && frame.minX < obstacle.maxX {
+            if obstacle.maxY <= frame.minY {
+                let gap = min(clearance, frame.minY - obstacle.maxY)
+                minimum = max(minimum, obstacle.maxY + gap)
+            } else if frame.maxY <= obstacle.minY {
+                let gap = min(clearance, obstacle.minY - frame.maxY)
+                maximum = min(maximum, obstacle.minY - frame.height - gap)
+            } else {
+                let overlap = min(frame.maxY, obstacle.maxY) - max(frame.minY, obstacle.minY)
+                // Some automatic positions already share space with the
+                // notation. A vertical move can clear the existing overlap
+                // without jumping through the obstacle or increasing it.
+                guard overlap < min(frame.height, obstacle.height) - 0.001 else { continue }
+                if frame.midY < obstacle.midY {
+                    maximum = min(maximum, frame.minY)
+                } else {
+                    minimum = max(minimum, frame.minY)
+                }
+            }
+        }
+        guard minimum <= maximum else { return frame.minY }
+        return min(max(frame.minY + offset, minimum), maximum)
     }
 
     /// Predecessors are defined by the saved chart's flattened measure order,
@@ -964,7 +1131,7 @@ enum LeadSheetPageLayoutEngine {
             )
         )
 
-        return LeadSheetPageLayout(
+        let layout = LeadSheetPageLayout(
             pageBounds: pageBounds,
             paperFrame: firstPaperFrame,
             pages: paperPages,
@@ -976,6 +1143,7 @@ enum LeadSheetPageLayoutEngine {
             systems: systemFrames,
             engravingPreset: chart.engravingPreset
         )
+        return applyingCueOffsets(to: layout, chart: chart)
     }
 
     static func estimatedCanvasHeight(for chart: Chart, pageSize: CGSize) -> CGFloat {
@@ -1260,7 +1428,7 @@ enum LeadSheetPageLayoutEngine {
         let movedRoadmapIDs = Set(chart.roadmapObjects.filter {
             ($0.type.isPointMarker || $0.type.isEnding) && $0.resolvedVerticalOffset != 0
         }.map(\.id))
-        let hasManualAnnotations = !movedRoadmapIDs.isEmpty || chart.cueTexts.contains { $0.verticalOffset != 0 }
+        let hasManualAnnotations = !movedRoadmapIDs.isEmpty
 
         // Measure the automatic placement first so a manual adjustment can
         // reuse the row's existing reserve and the space between systems.
@@ -1299,7 +1467,6 @@ enum LeadSheetPageLayoutEngine {
             let automaticBounds = automatic.layout.spacingContentBounds(for: chart)
             let hasMovedAnnotation = automatic.layout.endingLayouts.contains { movedRoadmapIDs.contains($0.roadmapObjectID) }
                 || automatic.layout.roadmapMarkerLayouts.contains { movedRoadmapIDs.contains($0.roadmapObjectID) }
-                || automatic.layout.measures.contains { $0.cueTextLayouts.contains { $0.verticalOffset != 0 } }
             resolvedPlan.defaultEndingReserve = automatic.endingReserve
             let placedBounds: CGRect
             if hasMovedAnnotation {
@@ -1682,7 +1849,7 @@ enum LeadSheetPageLayoutEngine {
             topOffset: endingTopOffset,
             measureLayouts: measures
         )
-        let annotationBaseLayout = LeadSheetSystemAnnotationBaseLayout(
+        var annotationBaseLayout = LeadSheetSystemAnnotationBaseLayout(
             endingLayouts: endingLayouts,
             roadmapMarkerLayouts: roadmapMarkerLayouts,
             fixedLabelFrames: [sectionTextFrame, roadmapTextFrame].compactMap { $0 }
@@ -1695,6 +1862,7 @@ enum LeadSheetPageLayoutEngine {
             fixedLabels: [sectionTextFrame, roadmapTextFrame].compactMap { $0 },
             appliesManualOffsets: appliesManualAnnotationOffsets
         )
+        annotationBaseLayout.defaultCueLayouts = measures.flatMap(\.cueTextLayouts)
 
         let proposedReserve: CGFloat?
         if annotationPlacement.hasManualOffsets {
@@ -1831,7 +1999,7 @@ enum LeadSheetPageLayoutEngine {
                 let cue = measures[measureIndex].cueTextLayouts[cueIndex]
                 annotations.append(SystemAnnotation(target: .cue(measure: measureIndex, index: cueIndex),
                     frame: cue.frame,
-                    preferredOffset: appliesManualOffsets ? cue.verticalOffset : 0,
+                    preferredOffset: 0,
                     stacksDown: cue.position == .below))
             }
         }
@@ -1841,11 +2009,8 @@ enum LeadSheetPageLayoutEngine {
         if moved.isEmpty {
             resolvedOffsets = defaultOffsets
         } else {
-            let notationFrames = measures.flatMap { measure in
-                measure.chordLayouts.map(\.naturalFrame) + measure.noteLayouts.map { $0.paintedBounds(for: chart) }
-            }
             resolvedOffsets = placeAnnotations(annotations, fixedLabels: fixedLabels,
-                defaultOffsets: defaultOffsets, moved: moved, notationFrames: notationFrames)
+                defaultOffsets: defaultOffsets, moved: moved)
         }
 
         var reservesSpace = false
@@ -1872,7 +2037,9 @@ enum LeadSheetPageLayoutEngine {
                 var cue = measures[measure].cueTextLayouts[index]
                 cue.frame = cue.frame.offsetBy(dx: 0, dy: offset)
                 cue.hitFrame = cue.hitFrame.offsetBy(dx: 0, dy: offset)
-                cue.verticalOffsetFromDefault = offsetFromDefault
+                // Authored cue offsets are visual-only and are applied once
+                // after the page/system plan and other annotations are fixed.
+                cue.verticalOffsetFromDefault = 0
                 measures[measure].cueTextLayouts[index] = cue
             }
         }
@@ -1883,8 +2050,7 @@ enum LeadSheetPageLayoutEngine {
         _ annotations: [SystemAnnotation],
         fixedLabels: [CGRect],
         defaultOffsets: [CGFloat]? = nil,
-        moved: [Int] = [],
-        notationFrames: [CGRect] = []
+        moved: [Int] = []
     ) -> [CGFloat] {
         let movedIndexes = Set(moved)
         let order = moved + annotations.indices.filter { !movedIndexes.contains($0) }
@@ -1895,11 +2061,10 @@ enum LeadSheetPageLayoutEngine {
             let annotation = annotations[index]
             let isMoved = movedIndexes.contains(index)
             // Use the automatic placement as the starting point for a drag
-            // so a cue already displaced by a bracket doesn't jump on drop.
+            // so a marker already displaced by another item doesn't jump on drop.
             let preferredOffset = isMoved ? (defaultOffsets?[index] ?? 0) + annotation.preferredOffset : 0
             let preferredFrame = annotation.frame.offsetBy(dx: 0, dy: preferredOffset)
-            let obstacles = isMoved && annotation.isCue ? occupied + notationFrames : occupied
-            let frame = clearAnnotationFrame(preferredFrame, obstacles: obstacles, stacksDown: annotation.stacksDown)
+            let frame = clearAnnotationFrame(preferredFrame, obstacles: occupied, stacksDown: annotation.stacksDown)
             occupied.append(frame)
             offsets[index] = frame.minY - annotation.frame.minY
         }

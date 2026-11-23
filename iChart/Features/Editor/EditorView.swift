@@ -2141,7 +2141,9 @@ struct EditorView: View {
     private var activeToolGuidance: EditorToolGuidance {
         var guidance = defaultToolGuidance
         switch canvasMode {
-        case .browse where selectedCueText != nil || selectedRoadmapMarker != nil || selectedEndingSpan != nil:
+        case .browse where selectedCueText != nil:
+            guidance = guidance.replacingNextAction("Drag Move Up or Down to move the cue within the available space.")
+        case .browse where selectedRoadmapMarker != nil || selectedEndingSpan != nil:
             guidance = guidance.replacingNextAction("Drag Move Up or Down to change the selected item's height.")
         case .chordEntry:
             if let focus = draftEndingBlockerFocus, focus.matches(chart: chart, state: chordPreviewState) {
