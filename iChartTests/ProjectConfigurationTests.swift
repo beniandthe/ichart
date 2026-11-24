@@ -1019,7 +1019,7 @@ final class ProjectConfigurationTests: XCTestCase {
         )
 
         XCTAssertTrue(editorText.contains("if pendingRepeatStartMeasureID != nil"))
-        XCTAssertTrue(editorText.contains("title: \"End Repeat\""))
+        XCTAssertTrue(editorText.contains("?? (\"End Repeat\", \"checkmark.circle\")"))
         XCTAssertTrue(editorText.contains("} else if let pendingEndingType"))
         XCTAssertTrue(editorText.contains("title: \"Delete To\""))
         XCTAssertTrue(editorText.contains("isSelected: true"))
@@ -1316,7 +1316,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("Add > Add One After to insert a measure and give the row even widths"))
         XCTAssertTrue(libraryText.contains("Join Row Above moves from the start of the row through your selected measure."))
         XCTAssertTrue(libraryText.contains("Move to Row Below moves from your selection through the end of the row."))
-        XCTAssertTrue(libraryText.contains("Tools > Repeats groups Repeat Measures, Add Ending, and Manage."))
+        XCTAssertTrue(libraryText.contains("Tools > Repeats shows Start Repeat and Repeat This Measure alongside Add Ending and Manage."))
         XCTAssertTrue(libraryText.contains("In Tools > Text, tap where the cue should start. The blue marker shows the beat."))
         XCTAssertTrue(libraryText.contains("Tools > Time Signature uses the selected measure. Tools > Form Markers opens a sheet: check the measure, choose a marker, then tap Add."))
         XCTAssertTrue(libraryText.contains("Simple And Rhythm Section Sheets"))

@@ -60,7 +60,8 @@ final class ToolMeasureSelectionUITests: XCTestCase {
                 } else {
                     waitForPurpose(destination.purpose, in: app)
                     if destination.title == "Repeats" {
-                        XCTAssertTrue(app.buttons["Repeat Measures"].waitForExistence(timeout: 5))
+                        XCTAssertTrue(app.buttons["Start Repeat"].waitForExistence(timeout: 5))
+                        XCTAssertTrue(app.buttons["Repeat This Measure"].isHittable)
                         XCTAssertTrue(app.buttons["Add Ending"].exists)
                     } else if destination.title == "Text" {
                         tapFirstRow(at: 0.18, in: app)
@@ -212,7 +213,17 @@ final class ToolMeasureSelectionUITests: XCTestCase {
 
     @MainActor
     func testRepeatStartAndEndRemainSelectableInBothChartStyles() throws {
-        let app = try fixtureApplication()
+        try assertDirectRepeatActions(narrow: false)
+    }
+
+    @MainActor
+    func testDirectRepeatActionsStayReachableInNarrowWindowsInBothChartStyles() throws {
+        try assertDirectRepeatActions(narrow: true)
+    }
+
+    @MainActor
+    private func assertDirectRepeatActions(narrow: Bool) throws {
+        let app = try fixtureApplication(narrow: narrow)
         app.launch()
         defer { app.terminate() }
         for title in fixtureTitles {
@@ -226,25 +237,100 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             let start = try waitForDifferentSelectedMeasure(than: end, in: app)
             XCTAssertLessThan(start, end)
 
-            tapControlEdge(app.buttons["Repeat Measures"], at: 0.94)
             let startRepeat = app.buttons["Start Repeat"]
-            XCTAssertTrue(startRepeat.waitForExistence(timeout: 5))
-            tapControlEdge(startRepeat, at: 0.94)
-            waitForContext("Start: measure \(start) · Current end: measure \(start)", in: app)
-            XCTAssertTrue(app.buttons["End Repeat"].isHittable)
+            let repeatThisMeasure = app.buttons["Repeat This Measure"]
+            let endRepeat = app.buttons["End Repeat"]
+            let cancel = app.buttons["Cancel"]
+            XCTAssertFalse(app.buttons["Repeat Measures"].exists)
+            let readyFrames = repeatActionFrames(startRepeat, repeatThisMeasure, in: app)
+            let canvas = try XCTUnwrap(documentViewport(in: app)).frame
+            if narrow {
+                XCTAssertLessThanOrEqual(canvas.width, 360, "The narrow fixture must constrain the editor")
+            } else {
+                XCTAssertGreaterThan(canvas.width, 360, "The standard fixture must exercise the wider editor")
+            }
 
-            // The pending range must survive this canvas tap. A change to
-            // Select or a dropped endpoint is not a successful repeat flow.
+            tapControlEdge(repeatThisMeasure, at: 0.94)
+            waitForContext("Measure \(start) selected", in: app)
+            XCTAssertTrue(startRepeat.isHittable, "A one-measure repeat commits in one tap")
+            XCTAssertFalse(endRepeat.exists)
+            let removeSingleRepeat = openRepeatRemoval(in: app)
+            XCTAssertTrue(removeSingleRepeat.isEnabled, "Repeat This Measure applies to the selected measure")
+            tapControlEdge(removeSingleRepeat, at: 0.94)
+            waitForRemoval(removeSingleRepeat, message: "Remove the one-measure repeat before testing a range")
+
+            tapControlEdge(startRepeat, at: 0.94)
+            waitForContext("Start: \(start) · End: \(start)", in: app)
+            XCTAssertFalse(startRepeat.exists)
+            XCTAssertFalse(repeatThisMeasure.exists)
+            let pendingFrames = repeatActionFrames(endRepeat, cancel, in: app)
+            for (ready, pending) in zip(readyFrames, pendingFrames) {
+                XCTAssertEqual(ready.midX, pending.midX, accuracy: 2)
+                XCTAssertEqual(ready.midY, pending.midY, accuracy: 2)
+            }
+            let pendingCanvas = try XCTUnwrap(documentViewport(in: app)).frame
+            XCTAssertEqual(pendingCanvas.minY, canvas.minY, accuracy: 2,
+                "Starting a repeat keeps the chart in the same place")
+
             tapFirstRow(at: 0.47, in: app)
-            waitForContext("Start: measure \(start) · Current end: measure \(end)", in: app)
-            XCTAssertTrue(app.buttons["End Repeat"].isHittable)
-            tapControlEdge(app.buttons["End Repeat"], at: 0.06)
+            waitForContext("Start: \(start) · End: \(end)", in: app)
+            tapControlEdge(cancel, at: 0.94)
             waitForContext("Measure \(end) selected", in: app)
-            XCTAssertTrue(app.buttons["Repeat Measures"].waitForExistence(timeout: 5))
-            XCTAssertFalse(app.buttons["End Repeat"].exists)
-            attach(app, name: "\(title) repeat completed from measure \(start) through \(end)")
+            XCTAssertTrue(startRepeat.isHittable)
+            XCTAssertTrue(repeatThisMeasure.isHittable)
+            XCTAssertFalse(endRepeat.exists)
+            XCTAssertFalse(cancel.exists)
+            let removeAfterCancel = openRepeatRemoval(in: app)
+            XCTAssertFalse(removeAfterCancel.isEnabled, "Cancel leaves the endpoint without a saved repeat")
+            dismissOpenMenu(in: app)
+            waitForRemoval(removeAfterCancel, message: "Dismissing Manage leaves Repeats available")
+
+            tapFirstRow(at: 0.18, in: app)
+            waitForContext("Measure \(start) selected", in: app)
+            tapControlEdge(startRepeat, at: 0.94)
+            tapFirstRow(at: 0.47, in: app)
+            waitForContext("Start: \(start) · End: \(end)", in: app)
+            tapFirstRow(at: 0.18, in: app)
+            waitForContext("Start: \(start) · End: \(start)", in: app)
+            tapFirstRow(at: 0.47, in: app)
+            waitForContext("Start: \(start) · End: \(end)", in: app)
+            tapControlEdge(endRepeat, at: 0.06)
+            waitForContext("Measure \(end) selected", in: app)
+            XCTAssertTrue(startRepeat.isHittable)
+            XCTAssertTrue(repeatThisMeasure.isHittable)
+            XCTAssertFalse(endRepeat.exists)
+            XCTAssertFalse(cancel.exists)
+            let removeRange = openRepeatRemoval(in: app)
+            XCTAssertTrue(removeRange.isEnabled, "End Repeat commits the final endpoint")
+            dismissOpenMenu(in: app)
+            waitForRemoval(removeRange, message: "Dismissing Manage leaves Repeats available")
+            attach(app, name: "\(title) direct repeat actions at \(narrow ? "narrow" : "standard") width")
             exitChart(in: app)
         }
+    }
+
+    @MainActor
+    private func repeatActionFrames(_ first: XCUIElement, _ second: XCUIElement, in app: XCUIApplication) -> [CGRect] {
+        let frames = [first, second].map { button in
+            XCTAssertTrue(button.waitForExistence(timeout: 5))
+            XCTAssertTrue(button.isHittable)
+            XCTAssertTrue(button.isEnabled)
+            let frame = button.frame
+            XCTAssertGreaterThanOrEqual(frame.height + 0.5, 44)
+            XCTAssertTrue(app.windows.firstMatch.frame.contains(frame))
+            return frame
+        }
+        XCTAssertLessThanOrEqual(frames[0].maxX, frames[1].minX)
+        XCTAssertEqual(frames[0].midY, frames[1].midY, accuracy: 1)
+        return frames
+    }
+
+    @MainActor
+    private func openRepeatRemoval(in app: XCUIApplication) -> XCUIElement {
+        tapControlEdge(app.buttons["Manage"], at: 0.94)
+        let remove = app.buttons["Remove Repeat"]
+        XCTAssertTrue(remove.waitForExistence(timeout: 5))
+        return remove
     }
 
     @MainActor
@@ -448,7 +534,7 @@ final class ToolMeasureSelectionUITests: XCTestCase {
     }
 
     @MainActor
-    private func fixtureApplication() throws -> XCUIApplication {
+    private func fixtureApplication(narrow: Bool = false) throws -> XCUIApplication {
         #if targetEnvironment(simulator)
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
@@ -457,6 +543,7 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             "-iChartChartPreviewMode", "collapsed", "-iChartChartsWorkspaceMode", "charts",
             "-iChartHasSeenAccountLanding", "NO", "-iChartHasSeenGuidedTourOffer", "YES"
         ]
+        if narrow { app.launchArguments.append("-iChartEditorUINarrow") }
         return app
         #else
         throw XCTSkip("Tool selection regression uses disposable Simulator fixtures only.")
@@ -544,28 +631,32 @@ final class ToolMeasureSelectionUITests: XCTestCase {
 
     @MainActor
     private func tapFirstRow(at horizontalFraction: CGFloat, in app: XCUIApplication) {
-        // The blank fixtures use fixed 932-point paper. Their first system
-        // begins at y=186; y=250 lies inside the measure body in both styles.
-        // Fit-width zoom maps logical distances by viewport.width / 932.
-        // Normal UI taps and the visible selected-measure context validate
-        // these coordinates; nothing queries private in-process geometry.
-        let candidates = app.scrollViews.allElementsBoundByIndex.filter {
-            $0.isHittable && $0.frame.width > app.windows.firstMatch.frame.width * 0.7
-                && $0.frame.height > 200
-        }
-        guard let viewport = candidates.max(by: {
-            $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height
-        }) else {
+        // The blank, single-page fixtures use a 932 × 1200 logical document.
+        // At fit width, the scroll view centers the document vertically when
+        // it is shorter than the viewport. Measure body y=250 is inside the
+        // first system in both styles. The visible selection checks the tap.
+        guard let viewport = documentViewport(in: app) else {
             XCTFail("The visible document viewport must be available for a normal canvas tap")
             return
         }
         let frame = viewport.frame
+        let fitScale = frame.width / 932
+        let verticalInset = max(0, (frame.height - 1_200 * fitScale) / 2)
         let point = CGPoint(x: frame.minX + frame.width * horizontalFraction,
-            y: frame.minY + frame.width * (250.0 / 932.0))
+            y: frame.minY + verticalInset + 250 * fitScale)
         XCTAssertTrue(frame.contains(point), "The first-row target is visible inside the canvas")
-        XCTAssertTrue(app.windows.firstMatch.frame.contains(point))
-        app.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: point.x, dy: point.y)).tap()
+        let window = app.windows.firstMatch
+        let windowFrame = window.frame
+        XCTAssertTrue(windowFrame.contains(point))
+        window.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: point.x - windowFrame.minX, dy: point.y - windowFrame.minY)).tap()
+    }
+
+    @MainActor
+    private func documentViewport(in app: XCUIApplication) -> XCUIElement? {
+        app.scrollViews.allElementsBoundByIndex.filter {
+            $0.isHittable && $0.frame.height > 200
+        }.max { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
     }
 
     @MainActor
