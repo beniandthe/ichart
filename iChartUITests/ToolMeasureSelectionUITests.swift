@@ -10,6 +10,117 @@ final class ToolMeasureSelectionUITests: XCTestCase {
     }
 
     @MainActor
+    func testToolsRowsOpenEveryDestinationFromTheirTrailingBlankAreaInBothStyles() throws {
+        let app = try fixtureApplication()
+        app.launch()
+        defer { app.terminate() }
+        let destinations = [
+            (title: "Repeats", purpose: "Repeat measures or add an ending"),
+            (title: "Time Signature", purpose: "Change the meter from a measure"),
+            (title: "Text", purpose: "Place or edit a text cue"),
+            (title: "Form Markers", purpose: "")
+        ]
+        for title in fixtureTitles {
+            openFixture(title, in: app)
+            for (index, destination) in destinations.enumerated() {
+                tapControlEdge(app.buttons["Tools"], at: 0.94)
+                let popover = app.descendants(matching: .any).matching(identifier: "editor-tools-popover").firstMatch
+                XCTAssertTrue(popover.waitForExistence(timeout: 5))
+                let rows = toolsRows(in: app)
+                for row in rows {
+                    XCTAssertTrue(row.waitForExistence(timeout: 5))
+                    XCTAssertTrue(row.isHittable)
+                    XCTAssertTrue(row.isEnabled)
+                    XCTAssertGreaterThanOrEqual(row.frame.height, 44)
+                    XCTAssertGreaterThanOrEqual(row.frame.width, 220,
+                        "Tools must expose the full row, including blank space after short titles")
+                    XCTAssertEqual(row.frame.width, rows[0].frame.width, accuracy: 1)
+                    XCTAssertTrue(popover.frame.insetBy(dx: -1, dy: -1).contains(row.frame),
+                        "Each full-width row must fit inside the Tools accessibility group")
+                    XCTAssertTrue(app.windows.firstMatch.frame.contains(row.frame))
+                }
+                let row = toolsRow(destination.title, in: app)
+                if index.isMultiple(of: 2) {
+                    // Absolute screen coordinates deliberately land beyond the
+                    // icon and title rather than activating the text's center.
+                    let point = CGPoint(x: row.frame.maxX - 24, y: row.frame.midY)
+                    app.coordinate(withNormalizedOffset: .zero)
+                        .withOffset(CGVector(dx: point.x, dy: point.y)).tap()
+                } else {
+                    row.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
+                }
+                waitForRemoval(row, message: "Choosing a Tools row dismisses the popover")
+                if destination.title == "Form Markers" {
+                    let sheet = app.navigationBars["Form Markers"]
+                    XCTAssertTrue(sheet.waitForExistence(timeout: 5))
+                    XCTAssertTrue(app.staticTexts["form-marker-instruction"].exists)
+                    sheet.buttons["Cancel"].tap()
+                    waitForRemoval(sheet, message: "Cancel returns to the chart without adding a form marker")
+                    XCTAssertFalse(app.staticTexts["Marker"].exists)
+                } else {
+                    waitForPurpose(destination.purpose, in: app)
+                    if destination.title == "Repeats" {
+                        XCTAssertTrue(app.buttons["Repeat Measures"].waitForExistence(timeout: 5))
+                        XCTAssertTrue(app.buttons["Add Ending"].exists)
+                    } else if destination.title == "Text" {
+                        tapFirstRow(at: 0.18, in: app)
+                        XCTAssertTrue(app.buttons["Above"].waitForExistence(timeout: 5))
+                        XCTAssertTrue(app.buttons["Below"].isHittable)
+                    }
+                }
+                XCTAssertFalse(app.textViews["editor-cue-text-entry"].exists,
+                    "Entering a tool must not implicitly open its text field")
+                XCTAssertFalse(app.keyboards.firstMatch.exists,
+                    "Choosing or canceling a Tools row must not start text input")
+            }
+            attach(app, name: "\(title) Tools trailing-space rows reach every destination")
+            exitChart(in: app)
+        }
+    }
+
+    @MainActor
+    func testToolsOutsideDismissalPreservesTheCurrentToolAndAllowsImmediateReopenInBothStyles() throws {
+        let app = try fixtureApplication()
+        app.launch()
+        defer { app.terminate() }
+        for title in fixtureTitles {
+            openFixture(title, in: app)
+            let purpose = app.staticTexts["editor-guidance-purpose"]
+            XCTAssertTrue(purpose.waitForExistence(timeout: 5))
+            let originalPurpose = purpose.label
+            let originalPurposeFrame = purpose.frame
+            let context = app.staticTexts["editor-guidance-context"]
+            let originalContext = context.exists ? context.label : nil
+            tapControlEdge(app.buttons["Tools"], at: 0.94)
+            let popover = app.descendants(matching: .any).matching(identifier: "editor-tools-popover").firstMatch
+            XCTAssertTrue(popover.waitForExistence(timeout: 5))
+            let rows = toolsRows(in: app)
+            for row in rows { XCTAssertTrue(row.waitForExistence(timeout: 5)) }
+            let point = CGPoint(x: originalPurposeFrame.minX + 2, y: originalPurposeFrame.midY)
+            XCTAssertTrue(app.windows.firstMatch.frame.contains(point))
+            XCTAssertFalse(popover.frame.contains(point), "Dismissal must tap outside the actual popover")
+            XCTAssertTrue(rows.allSatisfy { !$0.frame.contains(point) },
+                "Dismissal must tap outside every Tools row")
+            app.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: point.x, dy: point.y)).tap()
+            waitForRemoval(popover, message: "A normal outside tap dismisses Tools")
+            XCTAssertTrue(rows.allSatisfy { !$0.exists })
+            XCTAssertEqual(purpose.label, originalPurpose)
+            XCTAssertEqual(context.exists ? context.label : nil, originalContext)
+            XCTAssertFalse(app.keyboards.firstMatch.exists)
+            tapControlEdge(app.buttons["Tools"], at: 0.06)
+            for row in toolsRows(in: app) { XCTAssertTrue(row.waitForExistence(timeout: 5)) }
+            tapControlEdge(toolsRow("Text", in: app), at: 0.94)
+            waitForPurpose("Place or edit a text cue", in: app)
+            waitForRemoval(toolsRow("Text", in: app), message: "Reopened Tools dispatches exactly one row and dismisses")
+            app.buttons["Select"].tap()
+            waitForPurpose(originalPurpose, in: app)
+            attach(app, name: "\(title) Tools dismisses outside and immediately reopens")
+            exitChart(in: app)
+        }
+    }
+
+    @MainActor
     func testChartTitleAndSubtoolMenusOpenFromTheirVisibleEdgesInBothStyles() throws {
         let app = try fixtureApplication()
         app.launch()
@@ -43,6 +154,63 @@ final class ToolMeasureSelectionUITests: XCTestCase {
     }
 
     @MainActor
+    func testAddMultipleAndFirstEndingRowsHandOffToExistingSheetsInBothStyles() throws {
+        let app = try fixtureApplication()
+        app.launch()
+        defer { app.terminate() }
+        for title in fixtureTitles {
+            openFixture(title, in: app)
+            let selectPurpose = app.staticTexts["editor-guidance-purpose"].label
+            app.buttons["Measures"].tap()
+            tapFirstRow(at: 0.18, in: app)
+            let measure = try selectedMeasure(in: app)
+            tapControlEdge(app.buttons["Add"], at: 0.94)
+            let multiple = app.buttons["Add Multiple After…"]
+            XCTAssertTrue(multiple.waitForExistence(timeout: 5))
+            XCTAssertTrue(multiple.isHittable)
+            XCTAssertGreaterThanOrEqual(multiple.frame.height, 44)
+            // This app-owned Button has no long-press action. A brief hold can
+            // expose its pressed outline in an already-running Simulator video;
+            // release still invokes the same single existing sheet handoff.
+            multiple.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5))
+                .press(forDuration: 0.25)
+            let stack = app.navigationBars["Measure Stack"]
+            XCTAssertTrue(stack.waitForExistence(timeout: 5))
+            waitForRemoval(multiple, message: "The Add popover yields to Measure Stack")
+            XCTAssertTrue(stack.buttons["Cancel"].isHittable)
+            XCTAssertTrue(stack.buttons["Add"].isEnabled)
+            XCTAssertFalse(app.keyboards.firstMatch.exists)
+            stack.buttons["Cancel"].tap()
+            waitForRemoval(stack, message: "Cancel closes Measure Stack without inserting measures")
+            waitForContext("Measure \(measure) selected", in: app)
+            XCTAssertTrue(app.buttons["Add"].isHittable)
+
+            openTool("Repeats", in: app)
+            tapFirstRow(at: 0.18, in: app)
+            tapControlEdge(app.buttons["Add Ending"], at: 0.94)
+            let firstEnding = app.buttons["1st Ending…"]
+            XCTAssertTrue(firstEnding.waitForExistence(timeout: 5))
+            tapControlEdge(firstEnding, at: 0.94)
+            let ending = app.navigationBars["Add Ending"]
+            XCTAssertTrue(ending.waitForExistence(timeout: 5))
+            waitForRemoval(firstEnding, message: "The ending popover yields to the existing editor")
+            let cancel = app.buttons["ending-editor-cancel"]
+            let apply = app.buttons["ending-editor-apply"]
+            XCTAssertTrue(cancel.isHittable)
+            XCTAssertTrue(apply.isEnabled)
+            XCTAssertTrue(app.textFields["ending-editor-label"].exists)
+            XCTAssertFalse(app.keyboards.firstMatch.exists)
+            cancel.tap()
+            waitForRemoval(ending, message: "Cancel closes the ending editor without applying its draft")
+            // presentNewEndingEditor deliberately enters Select before opening
+            // the sheet; cancel returns there, rather than restoring Repeats.
+            waitForPurpose(selectPurpose, in: app)
+            attach(app, name: "\(title) Add Multiple and 1st Ending preserve existing sheet handoffs")
+            exitChart(in: app)
+        }
+    }
+
+    @MainActor
     func testRepeatStartAndEndRemainSelectableInBothChartStyles() throws {
         let app = try fixtureApplication()
         app.launch()
@@ -61,7 +229,7 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             tapControlEdge(app.buttons["Repeat Measures"], at: 0.94)
             let startRepeat = app.buttons["Start Repeat"]
             XCTAssertTrue(startRepeat.waitForExistence(timeout: 5))
-            startRepeat.tap()
+            tapControlEdge(startRepeat, at: 0.94)
             waitForContext("Start: measure \(start) · Current end: measure \(start)", in: app)
             XCTAssertTrue(app.buttons["End Repeat"].isHittable)
 
@@ -257,7 +425,7 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             app.buttons["Add"].tap()
             let insert = app.buttons["Add One After"]
             XCTAssertTrue(insert.waitForExistence(timeout: 5))
-            insert.tap()
+            tapControlEdge(insert, at: 0.94)
             waitForContext("Measure \(measure) selected", in: app)
         }
         tapFirstRow(at: 0.18, in: app)
@@ -312,9 +480,36 @@ final class ToolMeasureSelectionUITests: XCTestCase {
     @MainActor
     private func openTool(_ title: String, in app: XCUIApplication) {
         tapControlEdge(app.buttons["Tools"], at: 0.94)
-        let entry = app.buttons[title]
+        let entry = toolsRow(title, in: app)
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
-        entry.tap()
+        tapControlEdge(entry, at: 0.94)
+        waitForRemoval(entry, message: "The chosen Tools row must release the chart for its next action")
+    }
+
+    @MainActor
+    private func toolsRow(_ title: String, in app: XCUIApplication) -> XCUIElement {
+        let ids = ["Repeats": "repeats", "Time Signature": "timeSignature",
+            "Text": "text", "Form Markers": "formMarkers"]
+        guard let id = ids[title] else {
+            XCTFail("Unrecognized Tools test destination: \(title)")
+            return app.buttons[title]
+        }
+        return app.buttons["editor-tools-item-\(id)"]
+    }
+
+    @MainActor
+    private func toolsRows(in app: XCUIApplication) -> [XCUIElement] {
+        ["Repeats", "Time Signature", "Text", "Form Markers"].map { toolsRow($0, in: app) }
+    }
+
+    @MainActor
+    private func waitForPurpose(_ expected: String, in app: XCUIApplication) {
+        let purpose = app.staticTexts["editor-guidance-purpose"]
+        let matches = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            purpose.exists && purpose.label == expected
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [matches], timeout: 5), .completed,
+            "The actual tool destination must be active: \(expected)")
     }
 
     @MainActor

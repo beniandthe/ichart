@@ -1871,42 +1871,25 @@ struct EditorView: View {
     }
 
     private var toolsMenuControl: some View {
-        Menu {
-            Section("Structure") {
-                Button {
-                    handleRepeatToolTapped()
-                } label: {
-                    Label("Repeats", systemImage: "repeat")
-                }
-
-                Button {
-                    handleTimeSignatureTabTapped()
-                } label: {
-                    Label("Time Signature", systemImage: "metronome")
-                }
-
-                if isDedicatedRhythmToolAvailable {
-                    Button {
-                        handleRhythmicNotationTabTapped()
-                    } label: {
-                        Label("Rhythm", systemImage: "music.note")
-                    }
-                }
+        EditorToolActionMenu(cornerRadius: 12, menuIdentifier: "editor-tools-popover") {
+            EditorToolMenuHeading("Structure")
+            EditorToolMenuRow("Repeats", systemImage: "repeat", identifier: "editor-tools-item-repeats",
+                              action: handleRepeatToolTapped)
+            EditorToolMenuRow(
+                "Time Signature", systemImage: "metronome", identifier: "editor-tools-item-timeSignature",
+                action: handleTimeSignatureTabTapped
+            )
+            if isDedicatedRhythmToolAvailable {
+                EditorToolMenuRow("Rhythm", systemImage: "music.note", identifier: "editor-tools-item-rhythm",
+                                  action: handleRhythmicNotationTabTapped)
             }
 
-            Section("Annotate") {
-                Button {
-                    handleTextToolTapped()
-                } label: {
-                    Label("Text", systemImage: "text.bubble")
-                }
-
-                Button {
-                    activateSelectTool()
-                    showingFormMarkerPlacement = true
-                } label: {
-                    Label("Form Markers", systemImage: "signpost.right")
-                }
+            EditorToolMenuHeading("Annotate")
+            EditorToolMenuRow("Text", systemImage: "text.bubble", identifier: "editor-tools-item-text",
+                              action: handleTextToolTapped)
+            EditorToolMenuRow("Form Markers", systemImage: "signpost.right", identifier: "editor-tools-item-formMarkers") {
+                activateSelectTool()
+                showingFormMarkerPlacement = true
             }
         } label: {
             EditorMenuTabLabel(
@@ -1923,7 +1906,6 @@ struct EditorView: View {
                 from: canvasMode
             )
         )
-        .iChartMenuTapFeedback(cornerRadius: 12)
         .accessibilityLabel("Tools")
         .accessibilityHint("Repeats, time signatures, text, and form markers")
     }
@@ -2017,17 +1999,16 @@ struct EditorView: View {
     }
 
     private var renderingModeMenu: some View {
-        Menu {
-            Button { manualRenderWithPreview = false } label: {
-                notationMenuLabel("Automatic — render as you write", isSelected: !manualRenderWithPreview)
+        EditorToolActionMenu(menuIdentifier: "editor-rendering-mode-popover") {
+            EditorToolMenuRow("Automatic — render as you write", isSelected: !manualRenderWithPreview) {
+                manualRenderWithPreview = false
             }
-            Button { manualRenderWithPreview = true } label: {
-                notationMenuLabel("Manual — check previews, then render", isSelected: manualRenderWithPreview)
+            EditorToolMenuRow("Manual — check previews, then render", isSelected: manualRenderWithPreview) {
+                manualRenderWithPreview = true
             }
         } label: {
             activeToolMenuLabel(title: manualRenderWithPreview ? "Manual" : "Automatic", systemImage: "slider.horizontal.3")
         }
-        .iChartMenuTapFeedback()
         .accessibilityLabel("Rendering: \(manualRenderWithPreview ? "Manual" : "Automatic")")
         .accessibilityHint("Choose automatic rendering between strokes as you move on, or manual previews and render actions")
         .accessibilityIdentifier("editor-rendering-mode")
@@ -2196,16 +2177,15 @@ struct EditorView: View {
     }
 
     private var restoreFreeInkMenu: some View {
-        Menu {
+        EditorToolActionMenu(menuIdentifier: "editor-restore-ink-popover") {
             ForEach(chart.freeInkArticulations) { mark in
-                Button(restoreFreeInkLabel(for: mark)) {
+                EditorToolMenuRow(restoreFreeInkLabel(for: mark)) {
                     restoreFreeInkArticulation(mark.id)
                 }
             }
         } label: {
             activeToolMenuLabel(title: "Restore Ink", systemImage: "arrow.uturn.backward")
         }
-        .iChartMenuTapFeedback()
         .accessibilityHint("Bring back the original handwriting for a converted mark")
     }
 
@@ -2482,30 +2462,15 @@ struct EditorView: View {
                     action: clearPendingMeasureDeleteState
                 )
             } else {
-                Menu {
-                    Button {
-                        handleAddMeasureAfterSelected()
-                    } label: {
-                        Label("Add One After", systemImage: "plus.square")
-                    }
-
-                    Button {
-                        handleAddMeasureStackAfterSelectedRequested()
-                    } label: {
-                        Label("Add Multiple After…", systemImage: "square.stack.3d.up")
-                    }
-
-                    Button {
-                        handleAddMeasureAtBeginning()
-                    } label: {
-                        Label("Add at Beginning", systemImage: "backward.end")
-                    }
-
-                    Button {
-                        handleAddDoubleBarlineMeasure()
-                    } label: {
-                        Label("Add Double Barline", systemImage: "pause")
-                    }
+                EditorToolActionMenu(menuIdentifier: "editor-measures-add-popover") {
+                    EditorToolMenuRow("Add One After", systemImage: "plus.square",
+                                      action: handleAddMeasureAfterSelected)
+                    EditorToolMenuRow("Add Multiple After…", systemImage: "square.stack.3d.up",
+                                      action: handleAddMeasureStackAfterSelectedRequested)
+                    EditorToolMenuRow("Add at Beginning", systemImage: "backward.end",
+                                      action: handleAddMeasureAtBeginning)
+                    EditorToolMenuRow("Add Double Barline", systemImage: "pause",
+                                      action: handleAddDoubleBarlineMeasure)
                 } label: {
                     activeToolMenuLabel(
                         title: "Add",
@@ -2513,23 +2478,15 @@ struct EditorView: View {
                         isTourHighlighted: editorGuidedTourStep == .shapeForm
                     )
                 }
-                .iChartMenuTapFeedback()
-
                 measureLayoutButton
 
-                Menu {
-                    Button(role: .destructive) {
-                        handleDeleteSelectedMeasure()
-                    } label: {
-                        Label("Delete Measure", systemImage: "trash")
-                    }
+                EditorToolActionMenu(menuIdentifier: "editor-measures-delete-popover") {
+                    EditorToolMenuRow("Delete Measure", systemImage: "trash", role: .destructive,
+                                      action: handleDeleteSelectedMeasure)
                     .disabled(!canDeleteSelectedMeasure)
 
-                    Button(role: .destructive) {
-                        handleMeasureRangeDeleteTapped()
-                    } label: {
-                        Label("Delete Range…", systemImage: "trash.circle")
-                    }
+                    EditorToolMenuRow("Delete Range…", systemImage: "trash.circle", role: .destructive,
+                                      action: handleMeasureRangeDeleteTapped)
                     .disabled(!canDeleteSelectedMeasure)
                 } label: {
                     activeToolMenuLabel(
@@ -2539,7 +2496,6 @@ struct EditorView: View {
                         isTourHighlighted: editorGuidedTourStep == .shapeForm
                     )
                 }
-                .iChartMenuTapFeedback()
             }
         }
     }
@@ -2576,54 +2532,38 @@ struct EditorView: View {
                     action: clearPendingRepeatState
                 )
             } else {
-                Menu {
-                    if let context = measureActionContext { Text(context) }
-                    Button("Repeat This Measure", action: handleRepeatSelectedMeasure)
-                    Button("Start Repeat", action: handleStartRepeatHere)
+                EditorToolActionMenu(menuIdentifier: "editor-repeat-measures-popover") {
+                    if let context = measureActionContext { EditorToolMenuHeading(context) }
+                    EditorToolMenuRow("Repeat This Measure", action: handleRepeatSelectedMeasure)
+                    EditorToolMenuRow("Start Repeat", action: handleStartRepeatHere)
                 } label: {
                     activeToolMenuLabel(title: "Repeat Measures", systemImage: "repeat")
                 }
-                .iChartMenuTapFeedback()
-
-                Menu {
-                    Button("1st Ending…") { openEndingPreset(.ending1) }
-                    Button("2nd Ending…") { openEndingPreset(.ending2) }
-                    Button("Custom Ending…", action: handleCustomEndingTapped)
-                    Section("Or select a range on the page") {
-                        Button("Start 1st Ending Here") { handleRepeatActiveEndingTapped(.ending1) }
-                        Button("Start 2nd Ending Here") { handleRepeatActiveEndingTapped(.ending2) }
-                    }
+                EditorToolActionMenu(menuIdentifier: "editor-add-ending-popover") {
+                    EditorToolMenuRow("1st Ending…") { openEndingPreset(.ending1) }
+                    EditorToolMenuRow("2nd Ending…") { openEndingPreset(.ending2) }
+                    EditorToolMenuRow("Custom Ending…", action: handleCustomEndingTapped)
+                    EditorToolMenuHeading("Or select a range on the page")
+                    EditorToolMenuRow("Start 1st Ending Here") { handleRepeatActiveEndingTapped(.ending1) }
+                    EditorToolMenuRow("Start 2nd Ending Here") { handleRepeatActiveEndingTapped(.ending2) }
                 } label: {
                     activeToolMenuLabel(title: "Add Ending", systemImage: "text.badge.plus")
                 }
-                .iChartMenuTapFeedback()
-
-                Menu {
-                    Button(role: .destructive) {
-                        handleRemoveRepeatAtSelectedMeasure()
-                    } label: {
-                        Label("Remove Repeat", systemImage: "trash")
-                    }
+                EditorToolActionMenu(menuIdentifier: "editor-manage-repeats-popover") {
+                    EditorToolMenuRow("Remove Repeat", systemImage: "trash", role: .destructive,
+                                      action: handleRemoveRepeatAtSelectedMeasure)
                     .disabled(!canRemoveRepeatAtSelectedMeasure)
 
                     if endingSpansAtSelectedMeasure.count > 1 {
-                        Menu {
-                            ForEach(endingSpansAtSelectedMeasure) { ending in
-                                Button {
-                                    presentEndingEditor(endingID: ending.id)
-                                } label: {
-                                    Text(endingActionTitle(for: ending))
-                                }
+                        EditorToolMenuHeading("Edit or Remove Ending…")
+                        ForEach(endingSpansAtSelectedMeasure) { ending in
+                            EditorToolMenuRow(endingActionTitle(for: ending), systemImage: "pencil") {
+                                presentEndingEditor(endingID: ending.id)
                             }
-                        } label: {
-                            Label("Edit or Remove Ending…", systemImage: "pencil")
                         }
                     } else {
-                        Button {
-                            handleRemoveEndingAtSelectedMeasure()
-                        } label: {
-                            Label("Edit or Remove Ending…", systemImage: "pencil")
-                        }
+                        EditorToolMenuRow("Edit or Remove Ending…", systemImage: "pencil",
+                                          action: handleRemoveEndingAtSelectedMeasure)
                         .disabled(!canRemoveEndingAtSelectedMeasure)
                     }
                 } label: {
@@ -2633,7 +2573,6 @@ struct EditorView: View {
                         isTourHighlighted: false
                     )
                 }
-                .iChartMenuTapFeedback()
             }
         }
     }

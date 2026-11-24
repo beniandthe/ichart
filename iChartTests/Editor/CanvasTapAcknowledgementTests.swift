@@ -7,10 +7,10 @@ import XCTest
 /// Installed UIKit routing plus synthetic Pencil/Finger callbacks. This does
 /// not claim physical Pencil timing or the enclosing SwiftUI tool workflow.
 @MainActor
-final class CanvasTapAcknowledgementTests: XCTestCase {
+final class CanvasTapRoutingWithoutDecorationTests: XCTestCase {
     private let styles: [ChartLayoutStyle] = [.simpleChordSheet, .rhythmSectionSheet]
 
-    func testMeasureTargetsAndTextPlacementAcknowledgeTheirActualCallbacksInBothStyles() throws {
+    func testMeasureTargetsAndTextPlacementKeepCallbacksWithoutCanvasDecorationInBothStyles() throws {
         for style in styles {
             var original = try chart(style)
             let cueID = try XCTUnwrap(original.addCueText("On cue", anchorMeasureID: original.measures[0].id))
@@ -29,12 +29,10 @@ final class CanvasTapAcknowledgementTests: XCTestCase {
                 for (id, touch) in [(ids[0], UITouch.TouchType.pencil), (ids[2], .direct), (ids[2], .pencil)] {
                     let target = try measure(id, in: canvas)
                     let point = CGPoint(x: target.frame.midX, y: target.frame.midY)
-                    let count = canvas.tapAcknowledgementPresentationCount
                     try selectionTap(at: point, type: touch, in: canvas)
                     XCTAssertEqual(canvas.selectedMeasureID, id)
                     XCTAssertEqual(canvas.interactionMode, mode)
-                    XCTAssertEqual(canvas.tapAcknowledgementPresentationCount, count + 1)
-                    XCTAssertEqual(canvas.tapAcknowledgementSnapshot?.center, point)
+                    assertNoCanvasTapDecoration(canvas)
                 }
                 XCTAssertEqual(selected, [ids[0], ids[2], ids[2]])
                 XCTAssertEqual(signatureTargets, mode == .timeSignatureEdit ? [ids[0], ids[2], ids[2]] : [])
@@ -45,25 +43,23 @@ final class CanvasTapAcknowledgementTests: XCTestCase {
             canvas.onCueTextPlacementRequested = { placements.append(($0, $1)) }
             let target = try measure(ids[1], in: canvas)
             let point = CGPoint(x: target.staffFrame.minX + target.staffFrame.width * 0.37, y: target.frame.midY)
-            var count = canvas.tapAcknowledgementPresentationCount
             try renderedTap(at: point, in: canvas)
             XCTAssertEqual(placements.count, 1)
             XCTAssertEqual(placements.first?.0, ids[1])
             XCTAssertEqual(try XCTUnwrap(placements.first?.1), 0.37, accuracy: 0.001)
-            XCTAssertEqual(canvas.tapAcknowledgementPresentationCount, count + 1)
+            assertNoCanvasTapDecoration(canvas)
             let cue = try XCTUnwrap(layout(canvas).systems.flatMap(\.measures).flatMap(\.cueTextLayouts).first { $0.id == cueID })
-            count = canvas.tapAcknowledgementPresentationCount
             try renderedTap(at: CGPoint(x: cue.frame.midX, y: cue.frame.midY), in: canvas)
             XCTAssertEqual(canvas.selectedCueTextID, cueID)
-            XCTAssertEqual(canvas.tapAcknowledgementPresentationCount, count + 1)
+            assertNoCanvasTapDecoration(canvas)
             XCTAssertEqual(placements.count, 1)
             XCTAssertEqual(canvas.chart, original)
             XCTAssertEqual(canvas.gestureRecognizers?.count, recognizerCount,
-                "Feedback must not install recognizers or change routing")
+                "Canvas taps must keep existing recognizers and routing")
         }
     }
 
-    func testRenderedSelectionAndDeletionAcknowledgeOnlyAcceptedIntentInBothStyles() throws {
+    func testRenderedSelectionAndDeletionKeepIntentProtectionWithoutCanvasDecorationInBothStyles() throws {
         for style in styles {
             let original = try chart(style)
             let host = mount(original)
@@ -76,33 +72,30 @@ final class CanvasTapAcknowledgementTests: XCTestCase {
             var inspected: [UUID] = []
             canvas.onChordSelectedFromCanvas = { inspected.append($0) }
             for _ in 0..<2 {
-                let count = canvas.tapAcknowledgementPresentationCount
                 try renderedTap(at: body, in: canvas)
-                XCTAssertEqual(canvas.tapAcknowledgementPresentationCount, count + 1)
+                assertNoCanvasTapDecoration(canvas)
                 XCTAssertEqual(canvas.selectedChordID, chordID)
                 XCTAssertEqual(canvas.chart, original)
             }
             XCTAssertEqual(inspected, [chordID, chordID], "Reselecting an existing chord is still accepted")
             let control = LeadSheetChordEditOverlayGeometry.controlFrames(for: glyph, in: page).delete
             let delete = CGPoint(x: control.midX, y: control.midY)
-            let count = canvas.tapAcknowledgementPresentationCount
             canvas.beginRenderedEditTap(at: delete)
             canvas.handleRenderedEditTapGesture(TapFixture(point: CGPoint(x: delete.x + 8, y: delete.y), view: canvas))
-            XCTAssertEqual(canvas.tapAcknowledgementPresentationCount, count)
+            assertNoCanvasTapDecoration(canvas)
             XCTAssertEqual(canvas.chart, original)
             canvas.beginRenderedEditTap(at: delete)
             canvas.handleRenderedEditTapGesture(TapFixture(point: delete, view: canvas, state: .cancelled))
-            XCTAssertEqual(canvas.tapAcknowledgementPresentationCount, count)
-            XCTAssertNil(canvas.tapAcknowledgementSnapshot)
+            assertNoCanvasTapDecoration(canvas)
             XCTAssertEqual(canvas.chart, original)
             try renderedTap(at: delete, in: canvas)
-            XCTAssertEqual(canvas.tapAcknowledgementPresentationCount, count + 1)
+            assertNoCanvasTapDecoration(canvas)
             XCTAssertNil(canvas.chart.chordEvent(id: chordID))
             XCTAssertEqual(canvas.chart.measures.map(\.id), original.measures.map(\.id))
         }
     }
 
-    func testIgnoredWritingAndDragInputsStaySilentAndClearAnyPreviousReceipt() throws {
+    func testIgnoredWritingAndCancelledDragPreserveInputAndDecorationContract() throws {
         for style in styles {
             let original = try chart(style)
             let host = mount(original)
@@ -110,30 +103,30 @@ final class CanvasTapAcknowledgementTests: XCTestCase {
             let canvas = host.canvas
             let emptyPoint = CGPoint(x: 5, y: canvas.bounds.maxY - 20)
             try sendSelectionAction(at: emptyPoint, in: canvas)
-            XCTAssertEqual(canvas.tapAcknowledgementPresentationCount, 0)
+            assertNoCanvasTapDecoration(canvas)
             canvas.selectedChordID = original.measures[0].chordEvents[0].id
             try sendSelectionAction(at: emptyPoint, in: canvas)
-            XCTAssertEqual(canvas.tapAcknowledgementPresentationCount, 0,
-                "A blank tap that leaves the chord selected has not accepted a deselection")
+            XCTAssertEqual(canvas.selectedChordID, original.measures[0].chordEvents[0].id)
+            assertNoCanvasTapDecoration(canvas)
             canvas.interactionMode = .chordEntry
             let emptyMeasure = try measure(original.measures[2].id, in: canvas)
             let writingPoint = CGPoint(x: emptyMeasure.chordBandFrame.midX, y: emptyMeasure.chordBandFrame.midY)
             try sendSelectionAction(at: writingPoint, in: canvas)
-            XCTAssertEqual(canvas.tapAcknowledgementPresentationCount, 0)
+            assertNoCanvasTapDecoration(canvas)
             canvas.interactionMode = .noteEdit
             try sendSelectionAction(at: writingPoint, in: canvas)
-            XCTAssertEqual(canvas.tapAcknowledgementPresentationCount, 0, "A bare tap is not a completed lasso")
+            XCTAssertNil(canvas.selectedNoteSelection, "A bare tap is not a completed lasso")
+            assertNoCanvasTapDecoration(canvas)
             canvas.interactionMode = .repeatEdit
             let target = try measure(original.measures[1].id, in: canvas)
             try selectionTap(at: CGPoint(x: target.frame.midX, y: target.frame.midY), type: .pencil, in: canvas)
-            XCTAssertNotNil(canvas.tapAcknowledgementSnapshot)
-            let count = canvas.tapAcknowledgementPresentationCount
+            assertNoCanvasTapDecoration(canvas)
             canvas.interactionMode = .freeHand
             let authoring = try XCTUnwrap(canvas.subviews.compactMap { $0 as? PKCanvasView }.last)
             canvas.canvasViewDidBeginUsingTool(authoring)
-            XCTAssertNil(canvas.tapAcknowledgementSnapshot)
+            assertNoCanvasTapDecoration(canvas)
             canvas.canvasViewDidEndUsingTool(authoring)
-            XCTAssertEqual(canvas.tapAcknowledgementPresentationCount, count)
+            assertNoCanvasTapDecoration(canvas)
             canvas.interactionMode = .browse
             let glyph = try XCTUnwrap(layout(canvas).systems.flatMap(\.measures).flatMap(\.chordLayouts).first)
             let body = CGPoint(x: glyph.frame.midX, y: glyph.frame.midY)
@@ -141,44 +134,29 @@ final class CanvasTapAcknowledgementTests: XCTestCase {
             XCTAssertFalse(try receives(overlayTap, at: body, type: .direct, in: canvas),
                 "Device palm/finger protection must stay in force")
             try renderedTap(at: body, in: canvas)
-            let beforeDrag = canvas.tapAcknowledgementPresentationCount
             XCTAssertTrue(canvas.beginRenderedObjectMoveTouch(at: body, touchType: .pencil))
             let pan = PanFixture(point: CGPoint(x: body.x + 20, y: body.y), view: canvas)
             canvas.handleRenderedObjectMovePan(pan)
-            XCTAssertNil(canvas.tapAcknowledgementSnapshot)
+            assertNoCanvasTapDecoration(canvas)
             pan.simulatedState = .cancelled
             canvas.handleRenderedObjectMovePan(pan)
-            XCTAssertEqual(canvas.tapAcknowledgementPresentationCount, beforeDrag)
+            assertNoCanvasTapDecoration(canvas)
             XCTAssertEqual(canvas.chart, original)
         }
     }
 
-    func testLayerReceiptReadsAsAShapeScalesWithZoomAndHonorsReduceMotion() async throws {
-        let feedback = LeadSheetCanvasTapAcknowledgement()
-        let parent = CALayer()
-        let point = CGPoint(x: 40, y: 60)
-        feedback.present(at: point, in: parent, screenPointsPerDisplayedPoint: 2, reducesMotion: true)
-        XCTAssertEqual(feedback.snapshot?.center, point)
-        XCTAssertEqual(feedback.snapshot?.frame.size, CGSize(width: 14, height: 14))
-        XCTAssertTrue(try XCTUnwrap(feedback.snapshot?.reducesMotion))
-        XCTAssertNil(feedback.layer.animationKeys())
-        let shapes = try XCTUnwrap(feedback.layer.sublayers?.compactMap { $0 as? CAShapeLayer })
-        XCTAssertEqual(shapes.count, 4, "Ring and check have separate white contrast edges")
-        XCTAssertTrue(shapes.allSatisfy { $0.path != nil && $0.lineWidth > 0 })
-        XCTAssertEqual(shapes[1].strokeColor, IChartInterfaceStyle.actionUIColor.cgColor)
-        feedback.present(at: point, in: parent, screenPointsPerDisplayedPoint: 1, reducesMotion: false)
-        XCTAssertEqual(parent.sublayers?.count, 1, "Rapid accepted taps reuse one noninteractive layer")
-        XCTAssertEqual(feedback.presentationCount, 2)
-        XCTAssertEqual(feedback.layer.animationKeys(), ["acceptedTapFade"])
-        feedback.present(at: point, in: parent, screenPointsPerDisplayedPoint: 1, reducesMotion: true)
-        XCTAssertNil(feedback.layer.animationKeys())
-        try await Task.sleep(nanoseconds: 500_000_000)
-        XCTAssertNil(feedback.snapshot)
-        XCTAssertNil(feedback.layer.superlayer)
+    private func assertNoCanvasTapDecoration(_ canvas: LeadSheetCanvasUIKitView,
+        file: StaticString = #filePath, line: UInt = #line) {
+        func inspect(_ layer: CALayer) {
+            XCTAssertNotEqual(layer.name, "LeadSheetAcceptedTapAcknowledgement", file: file, line: line)
+            XCTAssertFalse(layer.animationKeys()?.contains("acceptedTapFade") == true, file: file, line: line)
+            layer.sublayers?.forEach(inspect)
+        }
+        inspect(canvas.layer)
     }
 
     private func chart(_ style: ChartLayoutStyle) throws -> Chart {
-        var value = Chart.blank(title: "Tap acknowledgement", measureCount: 4, layoutStyle: style)
+        var value = Chart.blank(title: "Canvas tap routing", measureCount: 4, layoutStyle: style)
         for system in value.systems.indices {
             for measure in value.systems[system].measures.indices {
                 value.systems[system].measures[measure].authoringState = .committed
