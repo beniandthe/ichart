@@ -269,7 +269,7 @@ private enum IChartHelpTopic: String, CaseIterable, Identifiable {
         case .tutorial:
             "One short path to a first Simple Chord Sheet, plus an optional guide on the chart."
         case .howTo:
-            "Simple help for Select, Write & Render, Free Ink, Measures, Tools, and Export PDF."
+            "Simple help for Select, Write & Render, Free Ink, Measures, Repeats, sidebar actions, and Export PDF."
         case .faq:
             "Answers about Forums and why iChart uses accounts."
         case .userPolicy:
@@ -306,7 +306,7 @@ private struct IChartQuickStartStep: Identifiable {
         IChartQuickStartStep(
             id: "cue",
             title: "Add A Cue And Review",
-            detail: "Open Tools > Text, tap where the cue should start, then choose Above or Below. Check the position in the Text panel. Choose Keyboard to type, or choose Scribble and tap the field with Apple Pencil before writing. Tap Add, then tap Done for Select."
+            detail: "Tap Add Text in the sidebar, tap where the cue should start, then choose Above or Below. Check the position in the Text panel. Choose Keyboard to type, or choose Scribble and tap the field with Apple Pencil before writing. Tap Add, then tap Done for Select."
         ),
         IChartQuickStartStep(
             id: "export",
@@ -381,7 +381,7 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Use Select when you want to check the page or change something already on it.",
             bullets: [
                 "Tap Done to leave the current tool and return to Select.",
-                "You can switch directly between Write & Render, Free Ink, Measures, and Tools without returning to Select first.",
+                "You can switch directly between Write & Render, Free Ink, Measures, and Repeats, or choose a sidebar tool.",
                 "Tap a chord, barline, text label, marker, or measure with Apple Pencil to show its buttons. Use a finger to scroll.",
                 "In Select, drag a chord with Apple Pencil, then lift to place it. You can start on the chord without selecting it first.",
                 "Tap a chord to show its controls. Drag a side handle to resize the chord or tap the red X to delete it.",
@@ -401,7 +401,7 @@ private struct IChartHelpArticleSection: Identifiable {
             bullets: [
                 "Use Apple Pencil to write in the highlighted lane above the staff. Keep suffixes close to their roots and leave space between chords.",
                 "Write chord-repeat symbols (%) in the lane alongside chords. Keep separate symbols apart and follow review prompts when offered.",
-                "Add measure repeats and repeat ranges with Tools > Repeats by selecting measures.",
+                "Add measure repeats and repeat ranges with Repeats by selecting measures.",
                 "On a Rhythm Section Sheet, the first chord in each measure renders on beat 1 wherever you write it in that measure.",
                 "In Automatic, keep each chord together and leave clear gaps before the next. Complete chords render between strokes as you move on; pause to finish the last chord. Barlines and ending brackets wait briefly for their own writing to settle while ready chords can render elsewhere.",
                 "If a triangle is unclear, the ink stays on the chart. Tap Review Chord in Automatic, or Review & Render in Manual, to enter the intended chord.",
@@ -422,7 +422,7 @@ private struct IChartHelpArticleSection: Identifiable {
             id: "editor-repeat-tools",
             title: "Chord and Measure Repeats",
             systemImageName: "repeat",
-            body: "Write chord-repeat symbols (%) in Write & Render. Use Tools > Repeats for measure repeats and repeat ranges.",
+            body: "Write chord-repeat symbols (%) in Write & Render. Use Repeats for measure repeats and repeat ranges.",
             bullets: [
                 "Select the first measure and choose Start Repeat. Tap the last measure and check the highlight. Choose End Repeat to apply the range or Cancel to discard it.",
                 "Select a measure and choose Repeat This Measure to repeat it.",
@@ -485,9 +485,9 @@ private struct IChartHelpArticleSection: Identifiable {
         ),
         IChartHelpArticleSection(
             id: "editor-structure-tools",
-            title: "Measures And Tools",
+            title: "Measures, Repeats, And Sidebar",
             systemImageName: "rectangle.split.3x1",
-            body: "Measures stays one tap away; less-frequent structure and annotation commands live under Tools.",
+            body: "Use Measures and Repeats in the toolbar. Start Repeat, Add Text, Form Markers, and Time Signature are in the sidebar.",
             bullets: [
                 "Tap Measures and select a measure. Use Add One After to insert one measure or Add Multiple After… to choose how many. Use Add at Beginning to insert before the first measure or Add Double Barline to add a double boundary.",
                 "Select the last measure of a repeat. Add Inside Repeat includes the new measure in the loop and moves the closing repeat sign. Add After Repeat puts the new measure after the closing sign. If several repeats end there, adding inside extends the outermost repeat.",
@@ -500,9 +500,10 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Layout actions stay visible to the left of the chart, or below the tool controls in narrow windows. Tap a measure in Select or Measures to see which actions are available.",
                 "Start New Row begins a row at the selection. Join Row Above moves from the start of the row through your selected measure. Move to Row Below moves from your selection through the end of the row. The rows adjust to fit.",
                 "Even System Measures gives the measures in the selected row matching widths. Fill Row expands a lone measure on a Simple Chord Sheet. Merge with Next Measure removes an eligible divider.",
-                "Tools > Repeats shows Start Repeat and Repeat This Measure alongside Add Ending. Add Ending offers 1st Ending…, 2nd Ending…, or Custom Ending… with a shared label and range editor.",
-                "In Tools > Text, tap where the cue should start. The blue marker shows the beat. Choose Above or Below and check the destination in the Text panel. Use Keyboard to type, or choose Scribble and tap the cue field with Apple Pencil before writing. Tap Add or Apply.",
-                "Tools > Time Signature uses the selected measure. Tools > Form Markers opens a sheet: check the measure, choose a marker, then tap Add."
+                "Repeats shows Start Repeat and Repeat This Measure alongside Add Ending. Use Start Repeat and End Repeat in the sidebar or in Repeats. Add Ending offers 1st Ending…, 2nd Ending…, or Custom Ending… with a shared label and range editor.",
+                "Tap Add Text in the sidebar, then tap where the cue should start. The blue marker shows the beat. Choose Above or Below and check the destination in the Text panel. Use Keyboard to type, or choose Scribble and tap the cue field with Apple Pencil before writing. Tap Add or Apply.",
+                "Tap Form Markers in the sidebar. Select a measure, then tap a marker above the chart to add it.",
+                "Tap Time Signature in the sidebar and select the starting measure. Choose a preset above the chart or tap Custom… to set the numerator and denominator. Choose how far the change applies."
             ]
         ),
         IChartHelpArticleSection(

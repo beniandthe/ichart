@@ -1,6 +1,6 @@
 import XCTest
 
-/// Uses normal tool menus and real canvas taps in a separate process. These
+/// Uses the editor controls and real canvas taps in a separate process. These
 /// fixtures contain no user charts; no private canvas action is invoked.
 final class ToolMeasureSelectionUITests: XCTestCase {
     private let fixtureTitles = ["Simple Sheet UI Fixture", "Rhythm Section UI Fixture"]
@@ -11,113 +11,70 @@ final class ToolMeasureSelectionUITests: XCTestCase {
     }
 
     @MainActor
-    func testToolsRowsOpenEveryDestinationFromTheirTrailingBlankAreaInBothStyles() throws {
-        let app = try fixtureApplication()
-        app.launch()
-        defer { app.terminate() }
-        let destinations = [
-            (title: "Repeats", purpose: "Repeat measures or add an ending"),
-            (title: "Time Signature", purpose: "Change the meter from a measure"),
-            (title: "Text", purpose: "Place or edit a text cue"),
-            (title: "Form Markers", purpose: "")
-        ]
-        for title in fixtureTitles {
-            openFixture(title, in: app)
-            for (index, destination) in destinations.enumerated() {
-                tapControlEdge(app.buttons["Tools"], at: 0.94)
-                let popover = app.descendants(matching: .any).matching(identifier: "editor-tools-popover").firstMatch
-                XCTAssertTrue(popover.waitForExistence(timeout: 5))
-                let rows = toolsRows(in: app)
-                for row in rows {
-                    XCTAssertTrue(row.waitForExistence(timeout: 5))
-                    XCTAssertTrue(row.isHittable)
-                    XCTAssertTrue(row.isEnabled)
-                    XCTAssertGreaterThanOrEqual(row.frame.height, 44)
-                    XCTAssertGreaterThanOrEqual(row.frame.width, 220,
-                        "Tools must expose the full row, including blank space after short titles")
-                    XCTAssertEqual(row.frame.width, rows[0].frame.width, accuracy: 1)
-                    XCTAssertTrue(popover.frame.insetBy(dx: -1, dy: -1).contains(row.frame),
-                        "Each full-width row must fit inside the Tools accessibility group")
-                    XCTAssertTrue(app.windows.firstMatch.frame.contains(row.frame))
-                }
-                let row = toolsRow(destination.title, in: app)
-                if index.isMultiple(of: 2) {
-                    // Absolute screen coordinates deliberately land beyond the
-                    // icon and title rather than activating the text's center.
-                    let point = CGPoint(x: row.frame.maxX - 24, y: row.frame.midY)
-                    app.coordinate(withNormalizedOffset: .zero)
-                        .withOffset(CGVector(dx: point.x, dy: point.y)).tap()
-                } else {
-                    row.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
-                }
-                waitForRemoval(row, message: "Choosing a Tools row dismisses the popover")
-                if destination.title == "Form Markers" {
-                    let sheet = app.navigationBars["Form Markers"]
-                    XCTAssertTrue(sheet.waitForExistence(timeout: 5))
-                    XCTAssertTrue(app.staticTexts["form-marker-instruction"].exists)
-                    sheet.buttons["Cancel"].tap()
-                    waitForRemoval(sheet, message: "Cancel returns to the chart without adding a form marker")
-                    XCTAssertFalse(app.staticTexts["Marker"].exists)
-                } else {
-                    waitForPurpose(destination.purpose, in: app)
-                    if destination.title == "Repeats" {
-                        XCTAssertTrue(app.buttons["Start Repeat"].waitForExistence(timeout: 5))
-                        XCTAssertTrue(app.buttons["Repeat This Measure"].isHittable)
-                        XCTAssertTrue(app.buttons["Add Ending"].exists)
-                    } else if destination.title == "Text" {
-                        tapFirstRow(at: 0.18, in: app)
-                        XCTAssertTrue(app.buttons["Above"].waitForExistence(timeout: 5))
-                        XCTAssertTrue(app.buttons["Below"].isHittable)
-                    }
-                }
-                XCTAssertFalse(app.textViews["editor-cue-text-entry"].exists,
-                    "Entering a tool must not implicitly open its text field")
-                XCTAssertFalse(app.keyboards.firstMatch.exists,
-                    "Choosing or canceling a Tools row must not start text input")
-            }
-            attach(app, name: "\(title) Tools trailing-space rows reach every destination")
-            exitChart(in: app)
-        }
+    func testSidebarRoutesOpenTopActionsInBothChartStyles() throws {
+        try assertSidebarRoutes(narrow: false)
     }
 
     @MainActor
-    func testToolsOutsideDismissalPreservesTheCurrentToolAndAllowsImmediateReopenInBothStyles() throws {
-        let app = try fixtureApplication()
+    func testSidebarRoutesOpenTopActionsInNarrowWindowsInBothChartStyles() throws {
+        try assertSidebarRoutes(narrow: true)
+    }
+
+    @MainActor
+    private func assertSidebarRoutes(narrow: Bool) throws {
+        let app = try fixtureApplication(narrow: narrow)
         app.launch()
         defer { app.terminate() }
         for title in fixtureTitles {
             openFixture(title, in: app)
-            let purpose = app.staticTexts["editor-guidance-purpose"]
-            XCTAssertTrue(purpose.waitForExistence(timeout: 5))
-            let originalPurpose = purpose.label
-            let originalPurposeFrame = purpose.frame
-            let context = app.staticTexts["editor-guidance-context"]
-            let originalContext = context.exists ? context.label : nil
-            tapControlEdge(app.buttons["Tools"], at: 0.94)
-            let popover = app.descendants(matching: .any).matching(identifier: "editor-tools-popover").firstMatch
-            XCTAssertTrue(popover.waitForExistence(timeout: 5))
-            let rows = toolsRows(in: app)
-            for row in rows { XCTAssertTrue(row.waitForExistence(timeout: 5)) }
-            let point = CGPoint(x: originalPurposeFrame.minX + 2, y: originalPurposeFrame.midY)
-            XCTAssertTrue(app.windows.firstMatch.frame.contains(point))
-            XCTAssertFalse(popover.frame.contains(point), "Dismissal must tap outside the actual popover")
-            XCTAssertTrue(rows.allSatisfy { !$0.frame.contains(point) },
-                "Dismissal must tap outside every Tools row")
-            app.coordinate(withNormalizedOffset: .zero)
-                .withOffset(CGVector(dx: point.x, dy: point.y)).tap()
-            waitForRemoval(popover, message: "A normal outside tap dismisses Tools")
-            XCTAssertTrue(rows.allSatisfy { !$0.exists })
-            XCTAssertEqual(purpose.label, originalPurpose)
-            XCTAssertEqual(context.exists ? context.label : nil, originalContext)
-            XCTAssertFalse(app.keyboards.firstMatch.exists)
-            tapControlEdge(app.buttons["Tools"], at: 0.06)
-            for row in toolsRows(in: app) { XCTAssertTrue(row.waitForExistence(timeout: 5)) }
-            tapControlEdge(toolsRow("Text", in: app), at: 0.94)
+            XCTAssertFalse(app.buttons["Tools"].exists)
+            let canvas = try XCTUnwrap(documentViewport(in: app)).frame
+            let sidebarEntries = ["repeat", "text", "form-markers", "time-signature"]
+            for id in sidebarEntries {
+                let button = app.buttons["editor-sidebar-\(id)"]
+                XCTAssertTrue(button.waitForExistence(timeout: 5), id)
+                XCTAssertTrue(button.isHittable, id)
+                XCTAssertGreaterThanOrEqual(button.frame.height + 0.5, 44, id)
+                XCTAssertTrue(app.windows.firstMatch.frame.insetBy(dx: -1, dy: -1).contains(button.frame), id)
+                if narrow {
+                    XCTAssertLessThanOrEqual(button.frame.maxY, canvas.minY + 1, id)
+                } else {
+                    XCTAssertLessThanOrEqual(button.frame.maxX, canvas.minX + 1, id)
+                }
+            }
+
+            openTool("Repeats", in: app)
+            waitForPurpose("Repeat measures or add an ending", in: app)
+            XCTAssertTrue(topRepeatAction("Start Repeat", in: app).isHittable)
+            XCTAssertTrue(app.buttons["Repeat This Measure"].isHittable)
+            XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "editor-tools-popover").firstMatch.exists)
+
+            openTool("Text", in: app)
             waitForPurpose("Place or edit a text cue", in: app)
-            waitForRemoval(toolsRow("Text", in: app), message: "Reopened Tools dispatches exactly one row and dismisses")
-            app.buttons["Select"].tap()
-            waitForPurpose(originalPurpose, in: app)
-            attach(app, name: "\(title) Tools dismisses outside and immediately reopens")
+            tapFirstRow(at: 0.18, in: app)
+            XCTAssertTrue(app.buttons["Above"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.buttons["Below"].isHittable)
+            XCTAssertFalse(app.textViews["editor-cue-text-entry"].exists,
+                "Opening Add Text leaves input idle while choosing a position")
+            XCTAssertFalse(app.keyboards.firstMatch.exists)
+
+            openTool("Form Markers", in: app)
+            let segno = app.buttons["form-marker-option-segno"]
+            XCTAssertTrue(segno.waitForExistence(timeout: 5))
+            XCTAssertTrue(segno.isHittable, "Form Markers offers direct marker buttons")
+            XCTAssertFalse(app.navigationBars["Form Markers"].exists)
+            tapFirstRow(at: 0.47, in: app)
+            XCTAssertGreaterThan(try selectedMeasure(in: app), 1, "Form Markers can retarget the chart")
+
+            openTool("Time Signature", in: app)
+            waitForPurpose("Change the meter from a measure", in: app)
+            let meter = app.buttons["editor-time-signature-3-4"]
+            XCTAssertTrue(meter.waitForExistence(timeout: 5))
+            XCTAssertTrue(meter.isHittable)
+            XCTAssertTrue(app.buttons["editor-time-signature-custom"].isHittable)
+            XCTAssertFalse(app.navigationBars["Apply 3/4"].exists,
+                "Opening the tool allows target selection before applying a meter")
+            attach(app, name: "\(title) direct sidebar destinations at \(narrow ? "360 points" : "standard width")")
             exitChart(in: app)
         }
     }
@@ -229,9 +186,10 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             let start = try waitForDifferentSelectedMeasure(than: end, in: app)
             XCTAssertLessThan(start, end)
 
-            let startRepeat = app.buttons["Start Repeat"]
+            let startRepeat = topRepeatAction("Start Repeat", in: app)
+            let sidebarRepeat = app.buttons["editor-sidebar-repeat"]
             let repeatThisMeasure = app.buttons["Repeat This Measure"]
-            let endRepeat = app.buttons["End Repeat"]
+            let endRepeat = topRepeatAction("End Repeat", in: app)
             let cancel = app.buttons["Cancel"]
             let removeRepeat = app.buttons["Remove Repeat"]
             let editEnding = app.buttons["Edit Ending…"]
@@ -239,6 +197,7 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             XCTAssertFalse(app.buttons["Repeat Measures"].exists)
             XCTAssertFalse(app.buttons["Manage"].exists)
             let readyFrames = repeatActionFrames(startRepeat, repeatThisMeasure, in: app)
+            XCTAssertEqual(sidebarRepeat.label, "Start Repeat")
             for action in [removeRepeat, editEnding, removeEnding] {
                 XCTAssertTrue(action.exists, "Existing-mark actions are directly available in Repeats")
                 XCTAssertFalse(action.isEnabled, "An empty measure has no mark to edit or remove")
@@ -265,8 +224,13 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             tapControlEdge(removeRepeat, at: 0.94)
             XCTAssertFalse(removeRepeat.isEnabled, "The direct action clears the selected repeat in one tap")
 
-            tapControlEdge(startRepeat, at: 0.94)
+            // Start in Select using the sidebar, then cancel with the existing top controls.
+            app.buttons["Select"].tap()
+            waitForPurpose("Edit items on the chart", in: app)
+            tapControlEdge(sidebarRepeat, at: 0.94)
+            waitForPurpose("Repeat measures or add an ending", in: app)
             waitForContext("Start: \(start) · End: \(start)", in: app)
+            XCTAssertEqual(sidebarRepeat.label, "End Repeat")
             XCTAssertFalse(startRepeat.exists)
             XCTAssertFalse(repeatThisMeasure.exists)
             let pendingFrames = repeatActionFrames(endRepeat, cancel, in: app)
@@ -287,6 +251,7 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             XCTAssertFalse(endRepeat.exists)
             XCTAssertFalse(cancel.exists)
             XCTAssertFalse(removeRepeat.isEnabled, "Cancel leaves the endpoint without a saved repeat")
+            XCTAssertEqual(sidebarRepeat.label, "Start Repeat")
 
             tapFirstRow(at: 0.18, in: app)
             waitForContext("Measure \(start) selected", in: app)
@@ -297,8 +262,10 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             waitForContext("Start: \(start) · End: \(start)", in: app)
             tapFirstRow(at: 0.47, in: app)
             waitForContext("Start: \(start) · End: \(end)", in: app)
-            tapControlEdge(endRepeat, at: 0.06)
+            XCTAssertEqual(sidebarRepeat.label, "End Repeat", "Starting in the top toolbar also updates the sidebar")
+            tapControlEdge(sidebarRepeat, at: 0.06)
             waitForContext("Measure \(end) selected", in: app)
+            XCTAssertEqual(sidebarRepeat.label, "Start Repeat")
             XCTAssertTrue(startRepeat.isHittable)
             XCTAssertTrue(repeatThisMeasure.isHittable)
             XCTAssertFalse(endRepeat.exists)
@@ -738,28 +705,106 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             XCTAssertFalse(app.buttons["Delete To"].exists)
 
             openTool("Time Signature", in: app)
-            tapFirstRow(at: 0.18, in: app)
-            let threeFour = app.buttons["3/4"]
-            XCTAssertTrue(threeFour.waitForExistence(timeout: 5), "The first canvas target opens meter choices")
-            waitForContext("Measure \(first) selected", in: app)
-            cancelMeterChoices(in: app)
-            waitForRemoval(threeFour, message: "Cancel closes the first meter request")
+            waitForPurpose("Change the meter from a measure", in: app)
+            let threeFour = app.buttons["editor-time-signature-3-4"]
+            XCTAssertTrue(threeFour.waitForExistence(timeout: 5), "Meter choices open above the chart")
+            retargetFirstRowMeasure(first, at: 0.18, in: app)
+            XCTAssertTrue(threeFour.isHittable)
+            XCTAssertFalse(app.navigationBars["Apply 3/4"].exists, "Changing the target leaves scope unopened")
 
-            tapFirstRow(at: 0.47, in: app)
-            XCTAssertTrue(threeFour.waitForExistence(timeout: 5), "Another measure can open a fresh meter request")
-            waitForContext("Measure \(later) selected", in: app)
-            threeFour.tap()
+            retargetFirstRowMeasure(later, at: 0.47, in: app)
+            tapControlEdge(threeFour, at: 0.94)
             let scope = app.navigationBars["Apply 3/4"]
             XCTAssertTrue(scope.waitForExistence(timeout: 5))
             scope.buttons["Cancel"].tap()
             waitForRemoval(scope, message: "Cancel closes the scope sheet and releases canvas input")
 
+            retargetFirstRowMeasure(first, at: 0.18, in: app)
+            XCTAssertTrue(threeFour.isHittable, "The canvas remains usable after dismissing scope")
+            attach(app, name: "\(title) Measures range and meter scope cancel without locking selection")
+            exitChart(in: app)
+        }
+    }
+
+    @MainActor
+    func testCustomTimeSignatureAppliesToTheSelectedMeasureInBothChartStyles() throws {
+        let app = try fixtureApplication(narrow: true)
+        app.launch()
+        defer { app.terminate() }
+        for title in fixtureTitles {
+            openFixture(title, in: app)
+            openTool("Time Signature", in: app)
+            waitForPurpose("Change the meter from a measure", in: app)
+            tapFirstRow(at: 0.47, in: app)
+            let measure = try selectedMeasure(in: app)
+            XCTAssertGreaterThan(measure, 1, "Apply a meter change within the chart")
+
+            let custom = app.buttons["editor-time-signature-custom"]
+            XCTAssertTrue(custom.waitForExistence(timeout: 5))
+            tapControlEdge(custom, at: 0.94)
+            let customBar = app.navigationBars["Custom Time Signature"]
+            XCTAssertTrue(customBar.waitForExistence(timeout: 5))
+            let increase = app.buttons["editor-custom-meter-increase"]
+            let eight = app.buttons["editor-custom-meter-denominator-8"]
+            XCTAssertTrue(increase.isHittable)
+            for _ in 0..<7 { increase.tap() }
+            eight.tap()
+            XCTAssertTrue(eight.isSelected)
+            app.buttons["editor-custom-meter-continue"].tap()
+
+            let scope = app.navigationBars["Apply 11/8"]
+            XCTAssertTrue(scope.waitForExistence(timeout: 5))
+            waitForRemoval(customBar, message: "The custom editor advances to the apply scope")
+            app.buttons["To end of piece"].tap()
+            waitForRemoval(scope, message: "Applying a custom meter returns to the chart")
+            waitForContext("Measure \(measure) selected", in: app)
+            XCTAssertTrue(custom.isHittable, "The sidebar tool remains active after applying the meter")
+            tapControlEdge(custom, at: 0.94)
+            XCTAssertTrue(customBar.waitForExistence(timeout: 5))
+            XCTAssertTrue(eight.isSelected, "The selected measure supplies its saved custom denominator")
+            app.buttons["editor-custom-meter-continue"].tap()
+            XCTAssertTrue(scope.waitForExistence(timeout: 5), "The selected measure supplies its saved 11/8")
+            scope.buttons["Cancel"].tap()
+            waitForRemoval(scope, message: "Cancel leaves the applied meter saved")
+            attach(app, name: "\(title) custom time signature applies from the visible selected measure")
+            exitChart(in: app)
+        }
+    }
+
+    @MainActor
+    func testInlineFormMarkerPlacementInBothChartStyles() throws {
+        let app = try fixtureApplication(narrow: true)
+        app.launch()
+        defer { app.terminate() }
+        for title in fixtureTitles {
+            openFixture(title, in: app)
+            openTool("Form Markers", in: app)
+            waitForPurpose("Place a form marker", in: app)
             tapFirstRow(at: 0.18, in: app)
-            XCTAssertTrue(threeFour.waitForExistence(timeout: 5), "The canvas is usable after dismissing the scope sheet")
-            waitForContext("Measure \(first) selected", in: app)
-            cancelMeterChoices(in: app)
-            waitForRemoval(threeFour, message: "The final meter request cancels without changing the chart")
-            attach(app, name: "\(title) Measures range and meter dialogs cancel without locking selection")
+            let first = try selectedMeasure(in: app)
+            let segno = app.buttons["form-marker-option-segno"]
+            XCTAssertTrue(segno.waitForExistence(timeout: 5))
+            XCTAssertTrue(segno.isHittable, "The Segno choice is a direct top action at narrow width")
+            XCTAssertGreaterThanOrEqual(segno.frame.height + 0.5, 44)
+            XCTAssertFalse(app.navigationBars["Form Markers"].exists)
+            app.buttons["Done"].tap()
+            waitForPurpose("Edit items on the chart", in: app)
+            waitForRemoval(segno, message: "Done dismisses the form options without adding a marker")
+            XCTAssertFalse(app.staticTexts["Marker"].exists)
+
+            openTool("Form Markers", in: app)
+            tapFirstRow(at: 0.47, in: app)
+            let later = try waitForDifferentSelectedMeasure(than: first, in: app)
+            XCTAssertGreaterThan(later, first, "The marker uses the latest chart destination")
+            tapControlEdge(segno, at: 0.94)
+            waitForRemoval(segno, message: "The direct choice applies and returns to Select")
+            waitForPurpose("Edit items on the chart", in: app)
+            waitForContext("Measure \(later) selected", in: app)
+            XCTAssertTrue(app.staticTexts["Marker"].exists, "The added marker is selected for editing")
+            for action in ["Larger", "Smaller", "Delete"] {
+                XCTAssertTrue(app.buttons[action].isHittable, action)
+            }
+            attach(app, name: "\(title) direct Segno placement at the selected measure")
             exitChart(in: app)
         }
     }
@@ -964,7 +1009,7 @@ final class ToolMeasureSelectionUITests: XCTestCase {
         let chart = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
         XCTAssertTrue(chart.waitForExistence(timeout: 20))
         chart.tap()
-        XCTAssertTrue(app.buttons["Tools"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["Repeats"].waitForExistence(timeout: 15))
     }
 
     @MainActor
@@ -975,27 +1020,25 @@ final class ToolMeasureSelectionUITests: XCTestCase {
 
     @MainActor
     private func openTool(_ title: String, in app: XCUIApplication) {
-        tapControlEdge(app.buttons["Tools"], at: 0.94)
-        let entry = toolsRow(title, in: app)
+        let id: String
+        switch title {
+        case "Repeats": id = "Repeats"
+        case "Time Signature": id = "editor-sidebar-time-signature"
+        case "Text": id = "editor-sidebar-text"
+        case "Form Markers": id = "editor-sidebar-form-markers"
+        default:
+            XCTFail("Unrecognized editor test destination: \(title)")
+            return
+        }
+        let entry = app.buttons[id]
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
         tapControlEdge(entry, at: 0.94)
-        waitForRemoval(entry, message: "The chosen Tools row must release the chart for its next action")
     }
 
     @MainActor
-    private func toolsRow(_ title: String, in app: XCUIApplication) -> XCUIElement {
-        let ids = ["Repeats": "repeats", "Time Signature": "timeSignature",
-            "Text": "text", "Form Markers": "formMarkers"]
-        guard let id = ids[title] else {
-            XCTFail("Unrecognized Tools test destination: \(title)")
-            return app.buttons[title]
-        }
-        return app.buttons["editor-tools-item-\(id)"]
-    }
-
-    @MainActor
-    private func toolsRows(in app: XCUIApplication) -> [XCUIElement] {
-        ["Repeats", "Time Signature", "Text", "Form Markers"].map { toolsRow($0, in: app) }
+    private func topRepeatAction(_ title: String, in app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label == %@ AND identifier != %@", title,
+            "editor-sidebar-repeat")).firstMatch
     }
 
     @MainActor
@@ -1020,26 +1063,18 @@ final class ToolMeasureSelectionUITests: XCTestCase {
     }
 
     @MainActor
-    private func cancelMeterChoices(in app: XCUIApplication) {
-        let cancel = app.buttons["Cancel"]
-        if cancel.exists && cancel.isHittable {
-            cancel.tap()
-            return
+    private func retargetFirstRowMeasure(_ measure: Int, at horizontalFraction: CGFloat, in app: XCUIApplication) {
+        // Opening a taller tool keeps the paper's prior scroll anchor.
+        // Try the same measure across the possible first-system positions.
+        for documentY: CGFloat in [250, 200, 150, 300, 350] {
+            tapFirstRow(at: horizontalFraction, documentY: documentY, in: app)
+            if (try? selectedMeasure(in: app)) == measure { break }
         }
-
-        // On a regular-width iPad, confirmationDialog is a popover and the
-        // system omits the Cancel-role row. A real tap on the noninteractive
-        // tool-purpose label outside the popover performs its normal dismissal.
-        let purpose = app.staticTexts["editor-guidance-purpose"]
-        XCTAssertTrue(purpose.exists)
-        let point = CGPoint(x: purpose.frame.midX, y: purpose.frame.midY)
-        XCTAssertTrue(app.windows.firstMatch.frame.contains(point))
-        app.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: point.x, dy: point.y)).tap()
+        waitForContext("Measure \(measure) selected", in: app)
     }
 
     @MainActor
-    private func tapFirstRow(at horizontalFraction: CGFloat, in app: XCUIApplication) {
+    private func tapFirstRow(at horizontalFraction: CGFloat, documentY: CGFloat = 250, in app: XCUIApplication) {
         // The blank, single-page fixtures use a 932 × 1200 logical document.
         // At fit width, the scroll view centers the document vertically when
         // it is shorter than the viewport. Measure body y=250 is inside the
@@ -1052,7 +1087,7 @@ final class ToolMeasureSelectionUITests: XCTestCase {
         let fitScale = frame.width / 932
         let verticalInset = max(0, (frame.height - 1_200 * fitScale) / 2)
         let point = CGPoint(x: frame.minX + frame.width * horizontalFraction,
-            y: frame.minY + verticalInset + 250 * fitScale)
+            y: frame.minY + verticalInset + documentY * fitScale)
         XCTAssertTrue(frame.contains(point), "The first-row target is visible inside the canvas")
         let window = app.windows.firstMatch
         let windowFrame = window.frame

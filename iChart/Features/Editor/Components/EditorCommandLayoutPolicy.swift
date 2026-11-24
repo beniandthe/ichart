@@ -30,7 +30,7 @@ enum EditorCommandDestination: String, CaseIterable, Hashable, Identifiable {
 enum EditorCommandPlacement: Hashable {
     case documentMenu
     case primaryBar
-    case toolsMenu
+    case sidebar
 }
 
 struct EditorCommandLayoutPolicy {
@@ -42,20 +42,17 @@ struct EditorCommandLayoutPolicy {
         .select,
         .chords,
         .ink,
-        .measures
+        .measures,
+        .repeats
     ]
 
-    static func toolsDestinations(
+    static func sidebarDestinations(
         includesDedicatedRhythmTool: Bool
     ) -> [EditorCommandDestination] {
-        var destinations: [EditorCommandDestination] = [
-            .repeats,
-            .timeSignature
-        ]
+        var destinations: [EditorCommandDestination] = [.text, .formMarkers, .timeSignature]
         if includesDedicatedRhythmTool {
             destinations.append(.rhythm)
         }
-        destinations.append(contentsOf: [.text, .formMarkers])
         return destinations
     }
 
@@ -65,10 +62,10 @@ struct EditorCommandLayoutPolicy {
         switch destination {
         case .documentSettings:
             return .documentMenu
-        case .select, .chords, .ink, .measures:
+        case .select, .chords, .ink, .measures, .repeats:
             return .primaryBar
-        case .repeats, .timeSignature, .rhythm, .text, .formMarkers:
-            return .toolsMenu
+        case .timeSignature, .rhythm, .text, .formMarkers:
+            return .sidebar
         }
     }
 
@@ -84,17 +81,25 @@ struct EditorCommandLayoutPolicy {
             return .chords
         case .freeHand:
             return .ink
-        case .repeatEdit, .timeSignatureEdit, .rhythmicNotationEdit, .textEdit, .headerEntry:
+        case .repeatEdit:
+            return .repeats
+        case .timeSignatureEdit, .rhythmicNotationEdit, .textEdit, .formMarkerEdit, .headerEntry:
             return nil
         }
     }
 
-    static func isToolsMenuActive(for mode: EditorCanvasMode) -> Bool {
+    static func sidebarDestination(for mode: EditorCanvasMode) -> EditorCommandDestination? {
         switch mode {
-        case .repeatEdit, .timeSignatureEdit, .rhythmicNotationEdit, .textEdit:
-            return true
-        case .browse, .measureEdit, .headerEntry, .chordEntry, .noteEdit, .freeHand:
-            return false
+        case .textEdit:
+            return .text
+        case .formMarkerEdit:
+            return .formMarkers
+        case .timeSignatureEdit:
+            return .timeSignature
+        case .rhythmicNotationEdit:
+            return .rhythm
+        default:
+            return nil
         }
     }
 
@@ -114,7 +119,7 @@ struct EditorCommandLayoutPolicy {
     }
 
     static var primaryControlCount: Int {
-        primaryDestinations.count + 1 // The labeled Tools menu.
+        primaryDestinations.count
     }
 
     static func navigationColumnWidth(for availableWidth: CGFloat) -> CGFloat {

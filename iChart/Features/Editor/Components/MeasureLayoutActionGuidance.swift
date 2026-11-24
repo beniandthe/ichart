@@ -148,10 +148,11 @@ struct MeasureLayoutActionOption: Identifiable {
     var id: MeasureLayoutAction { action }
 }
 
-struct MeasureLayoutActionsView: View {
+struct MeasureLayoutActionsView<SidebarActions: View>: View {
     let options: [MeasureLayoutActionOption]
     let inLeftMargin: Bool
     let onSelect: (MeasureLayoutAction) -> Void
+    @ViewBuilder let sidebarActions: () -> SidebarActions
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.isEnabled) private var isEnabled
@@ -166,6 +167,7 @@ struct MeasureLayoutActionsView: View {
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: dynamicTypeSize.isAccessibilitySize ? 140 : 100),
                     spacing: 5)], spacing: 5) {
+                    sidebarActions()
                     buttons
                 }
             }
@@ -174,6 +176,7 @@ struct MeasureLayoutActionsView: View {
 
     private var railButtons: some View {
         VStack(spacing: 5) {
+            sidebarActions()
             buttons
         }
     }

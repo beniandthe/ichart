@@ -69,6 +69,7 @@ enum EditorCanvasMode: Hashable {
     case noteEdit
     case freeHand
     case textEdit
+    case formMarkerEdit
 
     var telemetryValue: String {
         switch self {
@@ -92,13 +93,15 @@ enum EditorCanvasMode: Hashable {
             return "free_hand"
         case .textEdit:
             return "text_edit"
+        case .formMarkerEdit:
+            return "form_marker_edit"
         }
     }
 
     var freeHandTabSymbol: String {
         switch self {
         case .browse, .measureEdit, .repeatEdit, .timeSignatureEdit, .rhythmicNotationEdit,
-                .headerEntry, .chordEntry, .noteEdit, .freeHand, .textEdit:
+                .headerEntry, .chordEntry, .noteEdit, .freeHand, .textEdit, .formMarkerEdit:
             return "pencil.and.scribble"
         }
     }
@@ -136,6 +139,8 @@ enum EditorCanvasMode: Hashable {
             return "Free Ink"
         case .textEdit:
             return "Text"
+        case .formMarkerEdit:
+            return "Form Markers"
         }
     }
 
@@ -161,6 +166,8 @@ enum EditorCanvasMode: Hashable {
             return "pencil.and.scribble"
         case .textEdit:
             return "text.bubble"
+        case .formMarkerEdit:
+            return "signpost.right"
         }
     }
 
@@ -286,7 +293,7 @@ enum EditorCanvasMode: Hashable {
                 steps: ["Tap a measure, then choose a repeat or ending action."],
                 detailsTitle: "Repeats and endings",
                 details: [
-                    .init(title: "Repeat a range", text: "Select the first measure and choose Start Repeat. Tap the last measure and check the highlight. Choose End Repeat to apply the range or Cancel to discard it."),
+                    .init(title: "Repeat a range", text: "Select the first measure and choose Start Repeat in Repeats or in the sidebar. Tap the last measure and check the highlight. Choose End Repeat in either place to apply the range, or Cancel in Repeats to discard it."),
                     .init(title: "Repeat one measure", text: "Select a measure and choose Repeat This Measure to place repeat boundaries around it. This differs from a % chord-repeat symbol."),
                     .init(title: "Endings", text: "Use Add Ending to choose a 1st, 2nd, or custom ending. Choose the label and first and last measures, then check the right edge and preview before applying. For a range selected on the page, choose Start 1st Ending Here or Start 2nd Ending Here, then tap the last measure and finish the ending."),
                     .init(title: "Remove a repeat", text: "Select the first or last measure of a repeat, then tap Remove Repeat. If repeats share the measure, choose the range to remove."),
@@ -296,9 +303,12 @@ enum EditorCanvasMode: Hashable {
         case .timeSignatureEdit:
             return .init(
                 title: "Change the meter from a measure",
-                steps: ["Tap the starting measure, then choose the meter and how far it applies."],
+                steps: ["Tap the starting measure, then choose a time signature above the chart."],
                 detailsTitle: "Time signature guide",
-                details: [.init(title: "Choose the scope", text: "The time-signature change starts at the selected measure. Check its scope before applying it.")]
+                details: [
+                    .init(title: "Choose a time signature", text: "Choose a preset or tap Custom… to set the numerator and denominator."),
+                    .init(title: "Choose the scope", text: "The time-signature change starts at the selected measure. Check its scope before applying it.")
+                ]
             )
         case .rhythmicNotationEdit:
             return .init(
@@ -377,6 +387,15 @@ enum EditorCanvasMode: Hashable {
                     .init(title: "Moving cues", text: Self.cueMoveGuidance)
                 ]
             )
+        case .formMarkerEdit:
+            return .init(
+                title: "Place a form marker",
+                steps: ["Tap a measure, then choose a form marker."],
+                detailsTitle: "Form Markers guide",
+                details: [
+                    .init(title: "Place and adjust", text: "Tap a marker button to add it to the selected measure and return to Select. In Select, drag the marker to move it, or use its controls to resize or delete it.")
+                ]
+            )
         }
     }
 
@@ -430,7 +449,7 @@ enum EditorCanvasMode: Hashable {
         }
         details.append(.init(
             title: "Measure repeats",
-            text: "Use Tools > Repeats for measure repeats or ranges. Drawn bar-and-dot repeat signs are not recognized."
+            text: "Use Repeats for measure repeats or ranges. Drawn bar-and-dot repeat signs are not recognized."
         ))
         details.append(.init(
             title: "Ending brackets",

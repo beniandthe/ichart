@@ -17,7 +17,7 @@ final class ToolMeasureSelectionRoutingTests: XCTestCase {
             let selectionTap = try selectionRecognizer(in: host.canvas)
             let overlay = try overlay(in: host.canvas)
 
-            for mode in [EditorCanvasMode.repeatEdit, .measureEdit, .timeSignatureEdit, .rhythmicNotationEdit] {
+            for mode in [EditorCanvasMode.repeatEdit, .measureEdit, .timeSignatureEdit, .formMarkerEdit, .rhythmicNotationEdit] {
                 host.canvas.interactionMode = mode
                 host.canvas.layoutIfNeeded()
                 XCTAssertTrue(selectionTap.isEnabled)
@@ -47,7 +47,7 @@ final class ToolMeasureSelectionRoutingTests: XCTestCase {
             defer { host.close() }
             let selectionTap = try selectionRecognizer(in: host.canvas)
             let ids = original.measures.map(\.id)
-            for interveningMode in [EditorCanvasMode.browse, .textEdit, .measureEdit, .timeSignatureEdit] {
+            for interveningMode in [EditorCanvasMode.browse, .textEdit, .measureEdit, .timeSignatureEdit, .formMarkerEdit] {
                 host.canvas.interactionMode = interveningMode
                 host.canvas.interactionMode = .repeatEdit
                 let point = try measurePoint(ids[1], in: host.canvas)

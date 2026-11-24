@@ -413,7 +413,7 @@ enum IChartEditorGuidedTourStep: String, Identifiable {
         case .shapeForm:
             "Tap Measures. Select a measure, then choose Add One After or a row action. Try one change, or continue."
         case .addCue:
-            "Open Tools > Text, tap where the cue should start, then choose Above or Below. Choose Keyboard to type, or choose Scribble and tap the field with Apple Pencil before writing. Tap Add."
+            "Tap Add Text in the sidebar, tap where the cue should start, then choose Above or Below. Choose Keyboard to type, or choose Scribble and tap the field with Apple Pencil before writing. Tap Add."
         case .review:
             "Tap Done. In Select, use Apple Pencil to select, move, resize, or delete items on the chart."
         case .export:
@@ -434,7 +434,7 @@ enum IChartEditorGuidedTourStep: String, Identifiable {
         case .shapeForm:
             "Measures • Add One After / Row Actions"
         case .addCue:
-            "Tools > Text"
+            "Add Text"
         case .review:
             "Done • then Select"
         case .export:
@@ -587,18 +587,7 @@ private struct IChartEditorOperationOverlay: View {
 }
 
 struct EditorView: View {
-    private static let supportedTimeSignatureChoices = [
-        Meter(numerator: 4, denominator: 4),
-        Meter(numerator: 3, denominator: 4),
-        Meter(numerator: 5, denominator: 4),
-        Meter(numerator: 6, denominator: 4),
-        Meter(numerator: 3, denominator: 8),
-        Meter(numerator: 5, denominator: 8),
-        Meter(numerator: 6, denominator: 8),
-        Meter(numerator: 7, denominator: 8),
-        Meter(numerator: 9, denominator: 8),
-        Meter(numerator: 12, denominator: 8)
-    ]
+
     private static let showsChordFixtureCaptureTools = false
 
     @Environment(\.dismiss) private var dismiss
@@ -663,7 +652,6 @@ struct EditorView: View {
     @State private var pendingChordDraftEndingReview: PendingChordDraftEndingReview?
     @State private var draftEndingBlockerFocus: ChordDraftEndingBlockerFocus?
     @State private var resumeRenderAfterEndingReview = false
-    @State private var pendingTimeSignatureSourceMeasureID: UUID?
     @State private var pendingTimeSignaturePlacement: PendingTimeSignaturePlacement?
     @State private var pendingRepeatStartMeasureID: UUID?
     @State private var pendingDeleteStartMeasureID: UUID?
@@ -674,7 +662,6 @@ struct EditorView: View {
     @State private var cueTextPlacement: EditorCueTextPlacementPreview?
     @State private var cueTextEntryRequest: EditorCueTextEntryRequest?
     @State private var cueTextDraft = ""
-    @State private var showingFormMarkerPlacement = false
     @State private var showingToolGuide = false
     @State private var toolGuideResumeSnapshot: ToolGuideResumeSnapshot?
     @State private var canvasMode: EditorCanvasMode = .browse
@@ -913,11 +900,6 @@ struct EditorView: View {
             )
             .id(request.id)
         }
-        .sheet(isPresented: $showingFormMarkerPlacement) {
-            FormMarkerPlacementSheet(chart: chart, initialMeasureID: resolvedMeasureActionTargetID()) { type, measureID in
-                handleAddPointRoadmapMarker(type, at: measureID)
-            }
-        }
         .sheet(isPresented: $showingPersonalHandwriting) {
             if HandwritingPersonalizationProductPolicy.isAvailable {
                 PersonalHandwritingView(chartID: chart.id, layoutStyle: chart.layoutStyle,
@@ -1001,62 +983,17 @@ struct EditorView: View {
                 renderStatus: chordRenderStatus
             )
         }
-        .confirmationDialog(
-            "Change Time Signature",
-            isPresented: Binding(
-                get: { pendingTimeSignatureSourceMeasureID != nil },
-                set: { isPresented in
-                    if !isPresented {
-                        pendingTimeSignatureSourceMeasureID = nil
-                    }
-                }
-            )
-        ) {
-            if let sourceMeasureID = pendingTimeSignatureSourceMeasureID {
-                ForEach(Self.supportedTimeSignatureChoices, id: \.self) { meter in
-                    Button(meter.displayText) {
-                        pendingTimeSignatureSourceMeasureID = nil
-                        pendingTimeSignaturePlacement = PendingTimeSignaturePlacement(
-                            sourceMeasureID: sourceMeasureID,
-                            meter: meter
-                        )
-                    }
-                }
-            }
-
-            Button("Cancel", role: .cancel) {
-                pendingTimeSignatureSourceMeasureID = nil
-                pendingTimeSignaturePlacement = nil
-            }
-        } message: {
-            Text("Apply the new time signature starting at the selected measure.")
-        }
         .sheet(item: $pendingTimeSignaturePlacement) { placement in
-            TimeSignatureScopeSheetView(
-                meter: placement.meter,
-                highlightsApplyActions: false,
-                onApplyCount: { additionalMeasureCount in
-                    handleTimeSignatureSelection(
-                        placement.meter,
-                        startingAt: placement.sourceMeasureID,
-                        scope: .fixedMeasureCount(additionalMeasureCount)
-                    )
-                },
-                onApplyToEndOfPiece: {
-                    handleTimeSignatureSelection(
-                        placement.meter,
-                        startingAt: placement.sourceMeasureID,
-                        scope: .toEndOfPiece
-                    )
-                },
-                onApplyToNextTimeSignature: {
-                    handleTimeSignatureSelection(
-                        placement.meter,
-                        startingAt: placement.sourceMeasureID,
-                        scope: .toNextTimeSignature
-                    )
-                }
-            )
+            TimeSignaturePlacementFlow(initialMeter: placement.meter,
+                startsWithCustomEntry: placement.startsWithCustomEntry) { meter in
+                TimeSignatureScopeSheetView(
+                    meter: meter,
+                    highlightsApplyActions: false,
+                    onApplyCount: { applyTimeSignature(meter, placement: placement, scope: .fixedMeasureCount($0)) },
+                    onApplyToEndOfPiece: { applyTimeSignature(meter, placement: placement, scope: .toEndOfPiece) },
+                    onApplyToNextTimeSignature: { applyTimeSignature(meter, placement: placement, scope: .toNextTimeSignature) }
+                )
+            }
         }
         .alert("Export PDF", isPresented: $showingExportAlert) {
             Button("OK", role: .cancel) {}
@@ -1820,50 +1757,12 @@ struct EditorView: View {
             ?? chart.displayedDocumentKey
     }
 
-    @ViewBuilder
-    private var codaToolMenuContent: some View {
-        if selectedRoadmapMarker != nil {
-            Button {
-                resizeSelectedRoadmapMarker(by: RoadmapObject.scaleStep)
-            } label: {
-                Label("Make Marker Larger", systemImage: "plus.magnifyingglass")
-            }
-            .disabled(!canGrowSelectedRoadmapMarker)
-
-            Button {
-                resizeSelectedRoadmapMarker(by: -RoadmapObject.scaleStep)
-            } label: {
-                Label("Make Marker Smaller", systemImage: "minus.magnifyingglass")
-            }
-            .disabled(!canShrinkSelectedRoadmapMarker)
-
-            Button(role: .destructive) {
-                deleteSelectedRoadmapMarker()
-            } label: {
-                Label("Delete Selected Marker", systemImage: "trash")
-            }
-
-            Divider()
-        }
-
-        ForEach(RoadmapType.navigationPointMarkerTypes, id: \.self) { roadmapType in
-            Button {
-                handleAddPointRoadmapMarker(roadmapType)
-            } label: {
-                Text(roadmapType.editorMenuDisplayText)
-            }
-        }
-    }
-
     private func toolStrip(minWidth: CGFloat) -> some View {
         HStack(spacing: 4) {
             ForEach(EditorCommandLayoutPolicy.primaryDestinations) { destination in
-                primaryToolControl(for: destination)
+                primaryToolControl(for: destination, usesCompactLabel: minWidth < 500)
                     .frame(maxWidth: .infinity)
             }
-
-            toolsMenuControl
-                .frame(maxWidth: .infinity)
         }
         .padding(4)
         .background(.regularMaterial)
@@ -1877,7 +1776,8 @@ struct EditorView: View {
 
     @ViewBuilder
     private func primaryToolControl(
-        for destination: EditorCommandDestination
+        for destination: EditorCommandDestination,
+        usesCompactLabel: Bool
     ) -> some View {
         switch destination {
         case .select:
@@ -1887,7 +1787,8 @@ struct EditorView: View {
                 EditorMenuTabLabel(
                     title: "Select",
                     systemImage: "cursorarrow",
-                    isSelected: canvasMode == .browse
+                    isSelected: canvasMode == .browse,
+                    usesCompactLabel: usesCompactLabel
                 )
             }
             .accessibilityHint(
@@ -1907,7 +1808,8 @@ struct EditorView: View {
                     systemImage: "pencil",
                     isSelected: canvasMode == .chordEntry,
                     selectedColor: EditorToolAccent.semanticRead,
-                    isTourHighlighted: isChordTourSectionActive
+                    isTourHighlighted: isChordTourSectionActive,
+                    usesCompactLabel: usesCompactLabel
                 )
             }
             .disabled(
@@ -1923,7 +1825,6 @@ struct EditorView: View {
             IChartTapFeedbackButton(cornerRadius: 12, isRaised: true) {
                 selectedMeasureID = nil
                 selectedNoteSelection = nil
-                pendingTimeSignatureSourceMeasureID = nil
                 pendingTimeSignaturePlacement = nil
                 toggleFreeHandMode()
             } label: {
@@ -1932,7 +1833,7 @@ struct EditorView: View {
                     systemImage: canvasMode.freeHandTabSymbol,
                     isSelected: canvasMode == .freeHand,
                     selectedColor: EditorToolAccent.persistentInk,
-                    isTourHighlighted: false
+                    usesCompactLabel: usesCompactLabel
                 )
             }
             .disabled(
@@ -1958,7 +1859,8 @@ struct EditorView: View {
                     title: "Measures",
                     systemImage: "rectangle.split.3x1",
                     isSelected: canvasMode == .measureEdit || isMeasureDeleteContinuationActive,
-                    isTourHighlighted: isMeasureTourSectionActive
+                    isTourHighlighted: isMeasureTourSectionActive,
+                    usesCompactLabel: usesCompactLabel
                 )
             }
             .disabled(
@@ -1969,53 +1871,21 @@ struct EditorView: View {
                 )
             )
 
-        case .documentSettings, .repeats, .timeSignature, .rhythm, .text, .formMarkers:
+        case .repeats:
+            IChartTapFeedbackButton(cornerRadius: 12, isRaised: true, action: handleRepeatToolTapped) {
+                EditorMenuTabLabel(
+                    title: "Repeats",
+                    systemImage: "repeat",
+                    isSelected: canvasMode == .repeatEdit,
+                    usesCompactLabel: usesCompactLabel
+                )
+            }
+            .disabled(!chart.hasCompletedInitialSetup)
+            .accessibilityHint("Repeat measures and add endings.")
+
+        case .documentSettings, .timeSignature, .rhythm, .text, .formMarkers:
             EmptyView()
         }
-    }
-
-    private var toolsMenuControl: some View {
-        EditorToolActionMenu(cornerRadius: 12, menuIdentifier: "editor-tools-popover") {
-            EditorToolMenuHeading("Structure")
-            EditorToolMenuRow("Repeats", systemImage: "repeat", identifier: "editor-tools-item-repeats",
-                              action: handleRepeatToolTapped)
-            EditorToolMenuRow(
-                "Time Signature", systemImage: "metronome", identifier: "editor-tools-item-timeSignature",
-                action: handleTimeSignatureTabTapped
-            )
-            if isDedicatedRhythmToolAvailable {
-                EditorToolMenuRow("Rhythm", systemImage: "music.note", identifier: "editor-tools-item-rhythm",
-                                  action: handleRhythmicNotationTabTapped)
-            }
-
-            EditorToolMenuHeading("Annotate")
-            EditorToolMenuRow("Text", systemImage: "text.bubble", identifier: "editor-tools-item-text",
-                              action: handleTextToolTapped)
-            EditorToolMenuRow("Form Markers", systemImage: "signpost.right", identifier: "editor-tools-item-formMarkers") {
-                activateSelectTool()
-                showingFormMarkerPlacement = true
-            }
-        } label: {
-            EditorMenuTabLabel(
-                title: "Tools",
-                systemImage: "ellipsis.circle",
-                isSelected: EditorCommandLayoutPolicy.isToolsMenuActive(for: canvasMode),
-                isTourHighlighted: isToolsMenuTourHighlighted
-            )
-        }
-        .disabled(
-            !EditorCommandLayoutPolicy.canActivate(
-                .repeats,
-                chartIsReady: chart.hasCompletedInitialSetup,
-                from: canvasMode
-            )
-        )
-        .accessibilityLabel("Tools")
-        .accessibilityHint("Repeats, time signatures, text, and form markers")
-    }
-
-    private var isToolsMenuTourHighlighted: Bool {
-        isTextTourSectionActive
     }
 
     @ViewBuilder
@@ -2030,6 +1900,21 @@ struct EditorView: View {
         } else if canvasMode == .measureEdit {
             measureToolControls
                 .frame(maxWidth: minWidth)
+        } else if canvasMode == .formMarkerEdit {
+            FormMarkerToolControls(isEnabled: sidebarMeasureTargetID != nil) { type in
+                guard canvasMode == .formMarkerEdit, let measureID = sidebarMeasureTargetID else { return }
+                handleAddPointRoadmapMarker(type, at: measureID)
+            } done: {
+                activeToolDoneButton
+            }
+            .frame(width: minWidth)
+        } else if canvasMode == .timeSignatureEdit {
+            TimeSignatureToolControls(hasTarget: sidebarMeasureTargetID != nil,
+                onChoosePreset: { requestTimeSignaturePlacement(meter: $0) },
+                onCustom: { requestTimeSignaturePlacement(meter: nil) }) {
+                    activeToolDoneButton
+                }
+                .frame(width: minWidth)
         } else {
             HStack(spacing: 8) {
                 EditorHorizontalToolActions(minWidth: max(1, minWidth - 94)) {
@@ -3333,7 +3218,7 @@ struct EditorView: View {
     private var isPresentingEditorPanel: Bool {
         activeSheet != nil || showingSetupSheet || showingHeaderSheet
             || showingTypographySheet || showingNotationReadabilitySheet || showingPersonalHandwriting
-            || showingToolGuide || showingFormMarkerPlacement
+            || showingToolGuide
             || pendingSingleMeasureDeletion != nil
             || endingEditorRequest != nil
             || showingCueTextEntry || pendingMeasureStackInsertion != nil
@@ -3869,6 +3754,69 @@ struct EditorView: View {
 
         return MeasureLayoutActionsView(options: options, inLeftMargin: inLeftMargin) { action in
             handleMeasureLayoutAction(action, chartID: chartID, measureID: measureID, pageSize: pageSize)
+        } sidebarActions: {
+            sidebarToolActions
+        }
+    }
+
+    private var sidebarMeasureTargetID: UUID? {
+        guard let selectedMeasureID, chart.measure(id: selectedMeasureID) != nil else { return nil }
+        return selectedMeasureID
+    }
+
+    @ViewBuilder
+    private var sidebarToolActions: some View {
+        let isChoosingRepeatEnd = pendingRepeatStartMeasureID != nil
+        let shortcutsDisabled = isPresentingEditorPanel || isMeasureDeleteContinuationActive
+        activeToolButton(
+            title: isChoosingRepeatEnd ? "End Repeat" : "Start Repeat",
+            systemImage: nil,
+            isSelected: isChoosingRepeatEnd,
+            isDisabled: shortcutsDisabled || pendingEndingType != nil || resolvedMeasureActionTargetID() == nil,
+            sizingLabel: (isChoosingRepeatEnd ? "Start Repeat" : "End Repeat", nil),
+            fillsAvailableWidth: true
+        ) {
+            if pendingRepeatStartMeasureID != nil {
+                handleEndRepeatHere()
+            } else {
+                handleStartRepeatHere()
+            }
+        }
+        .accessibilityHint(isChoosingRepeatEnd
+            ? "Finish the repeat at the selected measure."
+            : "Start a repeat at the selected measure.")
+        .accessibilityIdentifier("editor-sidebar-repeat")
+
+        ForEach(EditorCommandLayoutPolicy.sidebarDestinations(
+            includesDedicatedRhythmTool: isDedicatedRhythmToolAvailable
+        )) { destination in
+            sidebarToolButton(for: destination, isDisabled: shortcutsDisabled)
+        }
+    }
+
+    @ViewBuilder
+    private func sidebarToolButton(for destination: EditorCommandDestination, isDisabled: Bool) -> some View {
+        let isSelected = EditorCommandLayoutPolicy.sidebarDestination(for: canvasMode) == destination
+        switch destination {
+        case .text:
+            activeToolButton(title: "Add Text", systemImage: nil, isSelected: isSelected,
+                isTourHighlighted: isTextTourSectionActive, isDisabled: isDisabled,
+                fillsAvailableWidth: true, action: handleTextToolTapped)
+                .accessibilityIdentifier("editor-sidebar-text")
+        case .formMarkers:
+            activeToolButton(title: "Form Markers", systemImage: nil, isSelected: isSelected,
+                isDisabled: isDisabled, fillsAvailableWidth: true, action: handleFormMarkerToolTapped)
+                .accessibilityIdentifier("editor-sidebar-form-markers")
+        case .timeSignature:
+            activeToolButton(title: "Time Signature", systemImage: nil, isSelected: isSelected,
+                isDisabled: isDisabled, fillsAvailableWidth: true, action: handleTimeSignatureTabTapped)
+                .accessibilityIdentifier("editor-sidebar-time-signature")
+        case .rhythm:
+            activeToolButton(title: "Rhythm", systemImage: nil, isSelected: isSelected,
+                isDisabled: isDisabled, fillsAvailableWidth: true, action: handleRhythmicNotationTabTapped)
+                .accessibilityIdentifier("editor-sidebar-rhythm")
+        default:
+            EmptyView()
         }
     }
 
@@ -3912,7 +3860,6 @@ struct EditorView: View {
         }
 
         selectedNoteSelection = nil
-        pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
         clearPendingRepeatState()
         if selectedMeasureID == nil {
@@ -3967,7 +3914,6 @@ struct EditorView: View {
         }
 
         selectedNoteSelection = nil
-        pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
         pendingDeleteStartMeasureID = nil
         pendingMeasureStackInsertion = nil
@@ -4616,7 +4562,6 @@ struct EditorView: View {
         pendingMeasureStackInsertion = nil
         cueTextEntryRequest = nil
         cueTextDraft = ""
-        pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
         selectedNoteSelection = nil
     }
@@ -4640,34 +4585,34 @@ struct EditorView: View {
             return
         }
 
-        pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
         pendingDeleteStartMeasureID = nil
         pendingMeasureStackInsertion = nil
         clearPendingRepeatState()
         selectedNoteSelection = nil
         selectedMeasureID = selectedTextMeasureID
+        clearSelectedCanvasObjectIDs()
         if cueTextPlacement?.measureID != selectedMeasureID { cueTextPlacement = nil }
         canvasMode = .textEdit
     }
 
+    private func handleFormMarkerToolTapped() {
+        let target = resolvedMeasureActionTargetID()
+        let wasActive = canvasMode == .formMarkerEdit
+        activateSelectTool()
+        guard !wasActive else { return }
+
+        selectedMeasureID = target
+        canvasMode = .formMarkerEdit
+    }
+
     private func handleTimeSignatureTabTapped() {
-        guard chart.hasCompletedInitialSetup else {
-            showingSetupSheet = true
-            return
-        }
+        let target = resolvedMeasureActionTargetID()
+        let wasActive = canvasMode == .timeSignatureEdit
+        activateSelectTool()
+        guard !wasActive else { return }
 
-        if canvasMode == .timeSignatureEdit {
-            activateSelectTool()
-            return
-        }
-
-        pendingTimeSignatureSourceMeasureID = nil
-        pendingTimeSignaturePlacement = nil
-        pendingDeleteStartMeasureID = nil
-        pendingMeasureStackInsertion = nil
-        clearPendingRepeatState()
-        selectedNoteSelection = nil
+        selectedMeasureID = target
         canvasMode = .timeSignatureEdit
     }
 
@@ -4681,7 +4626,6 @@ struct EditorView: View {
             return
         }
 
-        pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
         pendingDeleteStartMeasureID = nil
         pendingMeasureStackInsertion = nil
@@ -4744,7 +4688,6 @@ struct EditorView: View {
     private func activateFreeHandForRetiredRhythmTool() {
         selectedMeasureID = nil
         selectedNoteSelection = nil
-        pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
         pendingDeleteStartMeasureID = nil
         pendingMeasureStackInsertion = nil
@@ -4762,7 +4705,6 @@ struct EditorView: View {
         }
         clearSelectedCanvasObjectIDs()
         selectedNoteSelection = nil
-        pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
         pendingRepeatStartMeasureID = nil
         pendingDeleteStartMeasureID = nil
@@ -4786,7 +4728,6 @@ struct EditorView: View {
         selectedMeasureID = measureID
         clearSelectedCanvasObjectIDs()
         selectedNoteSelection = nil
-        pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
         pendingDeleteStartMeasureID = nil
         pendingMeasureStackInsertion = nil
@@ -4819,7 +4760,6 @@ struct EditorView: View {
         selectedEndingSpanID = nil
         selectedMeasureID = nil
         selectedNoteSelection = nil
-        pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
         pendingDeleteStartMeasureID = nil
         pendingMeasureStackInsertion = nil
@@ -4843,7 +4783,6 @@ struct EditorView: View {
         selectedEndingSpanID = nil
         selectedMeasureID = cueText.anchorMeasureID
         selectedNoteSelection = nil
-        pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
         pendingDeleteStartMeasureID = nil
         pendingMeasureStackInsertion = nil
@@ -4865,7 +4804,6 @@ struct EditorView: View {
         selectedCueTextID = nil
         selectedMeasureID = marker.startMeasureID
         selectedNoteSelection = nil
-        pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
         pendingDeleteStartMeasureID = nil
         pendingMeasureStackInsertion = nil
@@ -4883,7 +4821,6 @@ struct EditorView: View {
         selectedMeasureID = repeatSpan.startMeasureID
         clearSelectedCanvasObjectIDs()
         selectedNoteSelection = nil
-        pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
         pendingDeleteStartMeasureID = nil
         pendingMeasureStackInsertion = nil
@@ -4903,7 +4840,6 @@ struct EditorView: View {
         selectedMeasureID = endingSpan.startMeasureID
         selectedNoteSelection = nil
         selectedEndingSpanID = endingSpan.id
-        pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
         pendingDeleteStartMeasureID = nil
         pendingMeasureStackInsertion = nil
@@ -4930,7 +4866,6 @@ struct EditorView: View {
         clearPendingRepeatState()
         canvasMode = .timeSignatureEdit
         pendingTimeSignaturePlacement = nil
-        pendingTimeSignatureSourceMeasureID = measureID
     }
 
     private func resolvedMeasureActionTargetID() -> UUID? {
@@ -4994,7 +4929,6 @@ struct EditorView: View {
 
     private func toggleFreeHandMode() {
         if canvasMode == .freeHand {
-            pendingTimeSignatureSourceMeasureID = nil
             pendingTimeSignaturePlacement = nil
             activateSelectTool()
             return
@@ -5006,7 +4940,6 @@ struct EditorView: View {
             }
             return
         }
-        pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
         pendingDeleteStartMeasureID = nil
         pendingMeasureStackInsertion = nil
@@ -5026,7 +4959,6 @@ struct EditorView: View {
         selectedMeasureID = nil
         selectedNoteSelection = nil
         clearSelectedCanvasObjectIDs()
-        pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
         pendingRepeatStartMeasureID = nil
         pendingDeleteStartMeasureID = nil
@@ -5052,7 +4984,6 @@ struct EditorView: View {
 
         selectedMeasureID = nil
         selectedNoteSelection = nil
-        pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
         pendingDeleteStartMeasureID = nil
         pendingMeasureStackInsertion = nil
@@ -5079,7 +5010,6 @@ struct EditorView: View {
         }
 
         selectedMeasureID = nil
-        pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
         pendingDeleteStartMeasureID = nil
         pendingMeasureStackInsertion = nil
@@ -5103,7 +5033,26 @@ struct EditorView: View {
         selectedNoteSelection = nil
         selectedMeasureID = measureID
         pendingTimeSignaturePlacement = nil
-        pendingTimeSignatureSourceMeasureID = measureID
+    }
+
+    private func requestTimeSignaturePlacement(meter: Meter?) {
+        guard canvasMode == .timeSignatureEdit, let sourceMeasureID = sidebarMeasureTargetID else { return }
+        pendingTimeSignaturePlacement = PendingTimeSignaturePlacement(
+            chartID: chart.id, sourceMeasureID: sourceMeasureID,
+            meter: meter ?? chart.measure(id: sourceMeasureID)?.resolvedMeter(defaultMeter: chart.defaultMeter)
+                ?? chart.defaultMeter,
+            startsWithCustomEntry: meter == nil
+        )
+    }
+
+    private func applyTimeSignature(
+        _ meter: Meter,
+        placement: PendingTimeSignaturePlacement,
+        scope: TimeSignatureApplicationScope
+    ) {
+        guard chart.id == placement.chartID, canvasMode == .timeSignatureEdit,
+              chart.measure(id: placement.sourceMeasureID) != nil else { return }
+        handleTimeSignatureSelection(meter, startingAt: placement.sourceMeasureID, scope: scope)
     }
 
     private func handleTimeSignatureSelection(
@@ -5114,7 +5063,6 @@ struct EditorView: View {
         let appliedMeasureID = chart.applyMeterChange(meter, startingAt: sourceMeasureID, scope: scope)
         selectedMeasureID = appliedMeasureID ?? sourceMeasureID
         selectedNoteSelection = nil
-        pendingTimeSignatureSourceMeasureID = nil
         pendingTimeSignaturePlacement = nil
 
         if appliedMeasureID == nil {
@@ -7706,8 +7654,10 @@ private struct RhythmDiagnosticTieOverlay: View {
 
 private struct PendingTimeSignaturePlacement: Identifiable {
     let id = UUID()
+    let chartID: UUID
     let sourceMeasureID: UUID
     let meter: Meter
+    let startsWithCustomEntry: Bool
 }
 
 private enum NoteEditMenuStage: Hashable {

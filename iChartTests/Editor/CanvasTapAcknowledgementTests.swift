@@ -19,7 +19,7 @@ final class CanvasTapRoutingWithoutDecorationTests: XCTestCase {
             let canvas = host.canvas
             let ids = original.measures.map(\.id)
             let recognizerCount = canvas.gestureRecognizers?.count
-            for mode in [EditorCanvasMode.repeatEdit, .measureEdit, .timeSignatureEdit] {
+            for mode in [EditorCanvasMode.repeatEdit, .measureEdit, .timeSignatureEdit, .formMarkerEdit] {
                 canvas.interactionMode = mode
                 var selected: [UUID?] = []
                 var signatureTargets: [UUID] = []

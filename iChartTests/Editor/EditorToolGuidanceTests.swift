@@ -28,7 +28,7 @@ final class EditorToolGuidanceTests: XCTestCase {
                 // the canvas, but must remain available from the same tool.
                 XCTAssertFalse(guidance.accessibilitySummary.contains("bar-and-dot"))
                 XCTAssertTrue(guidance.referenceText.contains("chord-repeat symbols (%)"))
-                XCTAssertTrue(guidance.referenceText.contains("Use Tools > Repeats for measure repeats or ranges."))
+                XCTAssertTrue(guidance.referenceText.contains("Use Repeats for measure repeats or ranges."))
                 XCTAssertTrue(guidance.referenceText.contains("Drawn bar-and-dot repeat signs are not recognized."))
                 XCTAssertTrue(guidance.referenceText.contains("Unplaced ink stays on the page."))
             }
@@ -225,6 +225,20 @@ final class EditorToolGuidanceTests: XCTestCase {
         XCTAssertEqual(recovered.steps, ["Erase the highlighted barline, then redraw it."])
         XCTAssertEqual(original.steps.count, 2)
         XCTAssertEqual(original.withContext("Measure 8 selected").context, "Measure 8 selected")
+    }
+
+    func testFormAndMeterGuidesNameTheirDirectControlsInBothStyles() {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let form = EditorCanvasMode.formMarkerEdit.toolGuidance(
+                layoutStyle: style, manualRenderWithPreview: false)
+            XCTAssertEqual(form.steps, ["Tap a measure, then choose a form marker."])
+            XCTAssertTrue(form.referenceText.contains("Tap a marker button to add it to the selected measure"))
+            let meter = EditorCanvasMode.timeSignatureEdit.toolGuidance(
+                layoutStyle: style, manualRenderWithPreview: false)
+            XCTAssertTrue(meter.steps.contains("Tap the starting measure, then choose a time signature above the chart."))
+            XCTAssertTrue(meter.referenceText.contains("tap Custom… to set the numerator and denominator."))
+            XCTAssertTrue(meter.referenceText.contains("Check its scope before applying it."))
+        }
     }
 
     func testTextGuideNamesPlacementAndEditingInBothStyles() {

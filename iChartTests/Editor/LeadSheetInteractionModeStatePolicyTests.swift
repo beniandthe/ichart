@@ -4456,7 +4456,7 @@ final class LeadSheetInteractionModeStatePolicyTests: XCTestCase {
                 let reference = guidance.referenceText
                 XCTAssertEqual(EditorCanvasMode.chordEntry.activeToolInstruction(
                     layoutStyle: style, manualRenderWithPreview: manual), reference)
-                XCTAssertTrue(reference.contains("Use Tools > Repeats for measure repeats or ranges."))
+                XCTAssertTrue(reference.contains("Use Repeats for measure repeats or ranges."))
                 XCTAssertTrue(reference.contains("chord-repeat symbols (%)"))
                 XCTAssertTrue(reference.contains("Drawn bar-and-dot repeat signs are not recognized."))
                 XCTAssertFalse(reference.contains("stacked dots beside the middle"))
