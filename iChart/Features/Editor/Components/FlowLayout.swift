@@ -3,6 +3,7 @@ import SwiftUI
 struct FlowLayout: Layout {
     var spacing: CGFloat = 8
     var rowSpacing: CGFloat = 8
+    var centersRows = false
 
     func sizeThatFits(
         proposal: ProposedViewSize,
@@ -22,7 +23,7 @@ struct FlowLayout: Layout {
         var y = bounds.minY
 
         for row in rows {
-            var x = bounds.minX
+            var x = centersRows ? bounds.midX - row.width / 2 : bounds.minX
             for item in row.items {
                 item.subview.place(
                     at: CGPoint(x: x, y: y),

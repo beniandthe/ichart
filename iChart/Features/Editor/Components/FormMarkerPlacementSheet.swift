@@ -9,7 +9,7 @@ struct FormMarkerToolControls<Done: View>: View {
     @ScaledMetric(relativeTo: .caption) private var buttonWidth: CGFloat = 76
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: minimumButtonWidth), spacing: 5)], spacing: 5) {
+        FlowLayout(spacing: 5, rowSpacing: 5, centersRows: true) {
             ForEach(RoadmapType.navigationPointMarkerTypes, id: \.self) { type in
                 IChartTapFeedbackButton(isRaised: true) {
                     onSelect(type)
@@ -21,7 +21,7 @@ struct FormMarkerToolControls<Done: View>: View {
                         .foregroundStyle(isEnabled ? Color.primary : Color.secondary)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 5)
-                        .frame(maxWidth: .infinity, minHeight: EditorCommandLayoutPolicy.minimumTapTarget)
+                        .frame(minWidth: minimumButtonWidth, minHeight: EditorCommandLayoutPolicy.minimumTapTarget)
                 }
                 .disabled(!isEnabled)
                 .accessibilityLabel(type.editorMenuDisplayText)

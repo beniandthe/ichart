@@ -293,7 +293,7 @@ enum EditorCanvasMode: Hashable {
                 steps: ["Tap a measure, then choose a repeat or ending action."],
                 detailsTitle: "Repeats and endings",
                 details: [
-                    .init(title: "Repeat a range", text: "Select the first measure and choose Start Repeat in Repeats or in the sidebar. Tap the last measure and check the highlight. Choose End Repeat in either place to apply the range, or Cancel in Repeats to discard it."),
+                    .init(title: "Repeat a range", text: "Select the first measure and tap Start Repeat in Quick Actions or Repeats. Tap the last measure and check the highlight. Tap End Repeat where you started. If Quick Actions is hidden, finish with End Repeat in Repeats. Tap Cancel in Repeats to discard the range."),
                     .init(title: "Repeat one measure", text: "Select a measure and choose Repeat This Measure to place repeat boundaries around it. This differs from a % chord-repeat symbol."),
                     .init(title: "Endings", text: "Use Add Ending to choose a 1st, 2nd, or custom ending. Choose the label and first and last measures, then check the right edge and preview before applying. For a range selected on the page, choose Start 1st Ending Here or Start 2nd Ending Here, then tap the last measure and finish the ending."),
                     .init(title: "Remove a repeat", text: "Select the first or last measure of a repeat, then tap Remove Repeat. If repeats share the measure, choose the range to remove."),
@@ -403,7 +403,7 @@ enum EditorCanvasMode: Hashable {
 
     private static let layoutPlacementGuide = EditorToolGuidanceSection(
         title: "Layout actions",
-        text: "Layout actions stay visible to the left of the chart, or below the tool controls in narrow windows. Tap a measure in Select or Measures to see which actions are available."
+        text: "Quick Actions holds the Layout controls to the left of the chart, or below the tool controls in narrow windows. Tap Hide to give the chart more room or Open to bring back the controls. Tap a measure in Select or Measures to see which actions are available."
     )
 
     private static func measureRowActionsGuide(layoutStyle: ChartLayoutStyle) -> EditorToolGuidanceSection {

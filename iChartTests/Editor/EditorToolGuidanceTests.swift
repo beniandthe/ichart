@@ -126,7 +126,8 @@ final class EditorToolGuidanceTests: XCTestCase {
             XCTAssertEqual(guidance.steps, ["Tap a measure, then choose an action."])
             XCTAssertTrue(guidance.referenceText.contains("tap Delete Measure…, and confirm the measure shown."))
             XCTAssertTrue(guidance.referenceText.contains("tap Delete Range… to start. Tap the last measure"))
-            XCTAssertTrue(guidance.referenceText.contains("Layout actions stay visible to the left of the chart, or below the tool controls in narrow windows."))
+            XCTAssertTrue(guidance.referenceText.contains("Quick Actions holds the Layout controls to the left of the chart, or below the tool controls in narrow windows."))
+            XCTAssertTrue(guidance.referenceText.contains("Tap Hide to give the chart more room or Open to bring back the controls."))
             XCTAssertTrue(guidance.referenceText.contains("Tap a measure in Select or Measures to see which actions are available."))
             XCTAssertTrue(guidance.referenceText.contains("Even System Measures"))
             XCTAssertTrue(guidance.referenceText.contains("Merge with Next Measure removes an eligible divider."))
@@ -171,6 +172,17 @@ final class EditorToolGuidanceTests: XCTestCase {
             XCTAssertTrue(closingRepeat.referenceText.contains("Add After Repeat puts the new measure after the closing sign."))
             XCTAssertTrue(closingRepeat.referenceText.contains("adding inside extends the outermost repeat."))
             XCTAssertTrue(closingRepeat.referenceText.contains("After Repeat is selected when the sheet opens."))
+        }
+    }
+
+    func testRepeatGuideExplainsWhereToFinishOrCancelAfterHidingQuickActions() {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let guide = EditorCanvasMode.repeatEdit.toolGuidance(
+                layoutStyle: style, manualRenderWithPreview: false)
+            XCTAssertTrue(guide.referenceText.contains("tap Start Repeat in Quick Actions or Repeats"))
+            XCTAssertTrue(guide.referenceText.contains("Tap End Repeat where you started."))
+            XCTAssertTrue(guide.referenceText.contains("If Quick Actions is hidden, finish with End Repeat in Repeats."))
+            XCTAssertTrue(guide.referenceText.contains("Tap Cancel in Repeats to discard the range."))
         }
     }
 

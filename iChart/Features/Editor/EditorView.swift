@@ -413,7 +413,7 @@ enum IChartEditorGuidedTourStep: String, Identifiable {
         case .shapeForm:
             "Tap Measures. Select a measure, then choose Add One After or a row action. Try one change, or continue."
         case .addCue:
-            "Tap Add Text in the sidebar, tap where the cue should start, then choose Above or Below. Choose Keyboard to type, or choose Scribble and tap the field with Apple Pencil before writing. Tap Add."
+            "Tap Add Text in Quick Actions, tap where the cue should start, then choose Above or Below. Choose Keyboard to type, or choose Scribble and tap the field with Apple Pencil before writing. Tap Add."
         case .review:
             "Tap Done. In Select, use Apple Pencil to select, move, resize, or delete items on the chart."
         case .export:
@@ -653,7 +653,8 @@ struct EditorView: View {
     @State private var draftEndingBlockerFocus: ChordDraftEndingBlockerFocus?
     @State private var resumeRenderAfterEndingReview = false
     @State private var pendingTimeSignaturePlacement: PendingTimeSignaturePlacement?
-    @State private var pendingRepeatStartMeasureID: UUID?
+    @State private var pendingRepeatStart: PendingRepeatStart?
+    @State private var isQuickActionsOpen = true
     @State private var pendingDeleteStartMeasureID: UUID?
     @State private var pendingSingleMeasureDeletion: MeasureDeletionRequest?
     @State private var pendingEndingStartMeasureID: UUID?
@@ -1356,25 +1357,36 @@ struct EditorView: View {
         let documentSize = CGSize(width: logicalContentSize.width,
             height: canvasHeight(for: logicalContentSize))
 
-        let showsMeasureLayoutActions = chart.hasCompletedInitialSetup
-        let showsLayoutInLeftMargin = showsMeasureLayoutActions && contentSize.width >= 600
+        let hasQuickActions = chart.hasCompletedInitialSetup
+        let showsQuickActionsInLeftMargin = hasQuickActions && isQuickActionsOpen && contentSize.width >= 600
+        let quickActionsWidth: CGFloat = 120
+        let canvasSpacing: CGFloat = 8
+        let canvasLeadingInset = showsQuickActionsInLeftMargin ? quickActionsWidth + canvasSpacing : 0
 
         VStack(spacing: 0) {
-            editorToolChrome(minWidth: contentSize.width)
+            editorToolChrome(minWidth: contentSize.width, canvasLeadingInset: canvasLeadingInset)
                 .padding(.horizontal, horizontalPadding)
                 .padding(.top, 10)
                 .padding(.bottom, 12)
 
-            if showsMeasureLayoutActions && !showsLayoutInLeftMargin {
-                measureLayoutActions(pageSize: documentSize, inLeftMargin: false)
-                    .padding(.horizontal, horizontalPadding)
-                    .padding(.bottom, 8)
+            if hasQuickActions && !showsQuickActionsInLeftMargin {
+                VStack(alignment: .leading, spacing: 5) {
+                    quickActionsHeader
+                    if isQuickActionsOpen {
+                        measureLayoutActions(pageSize: documentSize, inLeftMargin: false)
+                    }
+                }
+                .padding(.horizontal, horizontalPadding)
+                .padding(.bottom, 8)
             }
 
-            HStack(alignment: .top, spacing: 8) {
-                if showsLayoutInLeftMargin {
-                    measureLayoutActions(pageSize: documentSize, inLeftMargin: true)
-                        .frame(width: 120)
+            HStack(alignment: .top, spacing: canvasSpacing) {
+                if showsQuickActionsInLeftMargin {
+                    VStack(alignment: .leading, spacing: 5) {
+                        quickActionsHeader
+                        measureLayoutActions(pageSize: documentSize, inLeftMargin: true)
+                    }
+                    .frame(width: quickActionsWidth)
                 }
 
                 canvasView(documentSize: documentSize)
@@ -1394,6 +1406,47 @@ struct EditorView: View {
         }
     }
 
+    private var quickActionsHeader: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 4) {
+                quickActionsTitle
+                    .fixedSize()
+                quickActionsToggle
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                quickActionsTitle
+                quickActionsToggle
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var quickActionsTitle: some View {
+        Text("Quick Actions")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier("editor-quick-actions-title")
+    }
+
+    private var quickActionsToggle: some View {
+        IChartTapFeedbackButton(isRaised: true) {
+            isQuickActionsOpen.toggle()
+        } label: {
+            Text(isQuickActionsOpen ? "Hide" : "Open")
+                .font(.caption2.weight(.semibold))
+                .padding(.horizontal, 5)
+                .frame(minWidth: EditorCommandLayoutPolicy.minimumTapTarget,
+                       minHeight: EditorCommandLayoutPolicy.minimumTapTarget)
+        }
+        .accessibilityValue(isQuickActionsOpen ? "Open" : "Hidden")
+        .accessibilityHint(isQuickActionsOpen
+            ? "Hide Quick Actions and give the chart more room."
+            : "Show Quick Actions.")
+        .accessibilityIdentifier("editor-quick-actions-toggle")
+    }
+
     private func retainFreeInkDocumentWidth(_ width: CGFloat? = nil) {
         guard freeInkDocumentCanvasWidth == nil else { return }
         freeInkDocumentCanvasWidth = LeadSheetFreeInkDocumentLayoutPolicy.canvasWidthToRetain(
@@ -1402,7 +1455,7 @@ struct EditorView: View {
         )
     }
 
-    private func editorToolChrome(minWidth: CGFloat) -> some View {
+    private func editorToolChrome(minWidth: CGFloat, canvasLeadingInset: CGFloat) -> some View {
         VStack(alignment: .center, spacing: 8) {
             toolStrip(minWidth: minWidth)
                 .frame(maxWidth: .infinity, alignment: .center)
@@ -1419,7 +1472,7 @@ struct EditorView: View {
 
             Group {
                 if showsActiveToolControls {
-                    activeToolControls(minWidth: minWidth)
+                    activeToolControls(minWidth: minWidth, canvasLeadingInset: canvasLeadingInset)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
@@ -1889,7 +1942,7 @@ struct EditorView: View {
     }
 
     @ViewBuilder
-    private func activeToolControls(minWidth: CGFloat) -> some View {
+    private func activeToolControls(minWidth: CGFloat, canvasLeadingInset: CGFloat) -> some View {
         if canvasMode == .chordEntry, !manualRenderWithPreview {
             automaticChordToolControls(minWidth: minWidth)
         } else if canvasMode == .chordEntry {
@@ -1907,14 +1960,16 @@ struct EditorView: View {
             } done: {
                 activeToolDoneButton
             }
-            .frame(width: minWidth)
+            .frame(width: max(1, minWidth - canvasLeadingInset))
+            .padding(.leading, canvasLeadingInset)
         } else if canvasMode == .timeSignatureEdit {
             TimeSignatureToolControls(hasTarget: sidebarMeasureTargetID != nil,
                 onChoosePreset: { requestTimeSignaturePlacement(meter: $0) },
                 onCustom: { requestTimeSignaturePlacement(meter: nil) }) {
                     activeToolDoneButton
                 }
-                .frame(width: minWidth)
+                .frame(width: max(1, minWidth - canvasLeadingInset))
+                .padding(.leading, canvasLeadingInset)
         } else {
             HStack(spacing: 8) {
                 EditorHorizontalToolActions(minWidth: max(1, minWidth - 94)) {
@@ -2075,7 +2130,7 @@ struct EditorView: View {
             manualRenderWithPreview: manualRenderWithPreview,
             hasFreeInkArticulations: !chart.freeInkArticulations.isEmpty,
             isClosingRepeatSelected: canvasMode == .measureEdit && closingRepeatForMeasureInsertion != nil,
-            isLayoutMeasureSelected: canvasMode == .browse && measureLayoutTargetID != nil)
+            isLayoutMeasureSelected: isQuickActionsOpen && canvasMode == .browse && measureLayoutTargetID != nil)
     }
 
     private func handleToolGuidePresentationChanged(_ isPresented: Bool) {
@@ -2128,8 +2183,10 @@ struct EditorView: View {
                 guidance = guidance.replacingNextAction("Choose a measure action. If a converted mark blocks an edit, use Restore Ink in Free Ink first.")
             }
         case .repeatEdit:
-            if pendingRepeatStartMeasureID != nil {
-                guidance = guidance.replacingNextAction("Tap the last measure, then choose End Repeat.")
+            if pendingRepeatStart != nil {
+                guidance = guidance.replacingNextAction(usesQuickActionsForRepeatEnd
+                    ? "Tap the last measure, then choose End Repeat in Quick Actions."
+                    : "Tap the last measure, then choose End Repeat.")
             } else if let pendingEndingType {
                 guidance = guidance.replacingNextAction("Tap the last measure, then choose End \(endingToolTitle(for: pendingEndingType)).")
             }
@@ -2156,7 +2213,7 @@ struct EditorView: View {
         if let startID = pendingDeleteStartMeasureID, let start = chart.measure(id: startID) {
             return "Delete range: measures \(min(start.index, target.index))–\(max(start.index, target.index))"
         }
-        if let startID = pendingRepeatStartMeasureID, let start = chart.measure(id: startID) {
+        if let startID = pendingRepeatStart?.measureID, let start = chart.measure(id: startID) {
             return "Start: \(start.index) · End: \(target.index)"
         }
         if let startID = pendingEndingStartMeasureID, let start = chart.measure(id: startID) {
@@ -2588,7 +2645,11 @@ struct EditorView: View {
     }
 
     private var isPlacingRepeatBoundary: Bool {
-        pendingRepeatStartMeasureID != nil || pendingEndingType != nil
+        pendingRepeatStart != nil || pendingEndingType != nil
+    }
+
+    private var usesQuickActionsForRepeatEnd: Bool {
+        isQuickActionsOpen && pendingRepeatStart?.fromQuickActions == true
     }
 
     private func repeatSpanActions(compact: Bool) -> some View {
@@ -2614,23 +2675,26 @@ struct EditorView: View {
         let singleMeasureLabel = ("Repeat This Measure", compact ? nil : "repeat.1")
         let cancelLabel = ("Cancel", compact ? nil : "xmark.circle")
 
-        activeToolButton(
-            title: isPlacingBoundary ? endLabel.0 : startLabel.0,
-            systemImage: isPlacingBoundary ? endLabel.1 : startLabel.1,
-            isSelected: isPlacingBoundary,
-            sizingLabel: isPlacingBoundary ? startLabel : endLabel
-        ) {
-            if let pendingEndingType {
-                handleRepeatActiveEndingTapped(pendingEndingType)
-            } else if pendingRepeatStartMeasureID != nil {
-                handleEndRepeatHere()
-            } else {
-                handleStartRepeatHere()
+        if !usesQuickActionsForRepeatEnd {
+            activeToolButton(
+                title: isPlacingBoundary ? endLabel.0 : startLabel.0,
+                systemImage: isPlacingBoundary ? endLabel.1 : startLabel.1,
+                isSelected: isPlacingBoundary,
+                sizingLabel: isPlacingBoundary ? startLabel : endLabel
+            ) {
+                if let pendingEndingType {
+                    handleRepeatActiveEndingTapped(pendingEndingType)
+                } else if pendingRepeatStart != nil {
+                    handleEndRepeatHere()
+                } else {
+                    handleStartRepeatHere(fromQuickActions: false)
+                }
             }
+            .accessibilityHint(isPlacingBoundary
+                ? "Apply the range through the selected measure."
+                : "Use the selected measure as the start of a repeat.")
+            .accessibilityIdentifier("editor-repeat-top-boundary")
         }
-        .accessibilityHint(isPlacingBoundary
-            ? "Apply the range through the selected measure."
-            : "Use the selected measure as the start of a repeat.")
 
         activeToolButton(
             title: isPlacingBoundary ? cancelLabel.0 : singleMeasureLabel.0,
@@ -3118,7 +3182,7 @@ struct EditorView: View {
     }
 
     private var isRepeatContinuationActive: Bool {
-        pendingRepeatStartMeasureID != nil || pendingEndingStartMeasureID != nil
+        pendingRepeatStart != nil || pendingEndingStartMeasureID != nil
     }
 
     private func pendingEndingButtonTitle(for type: RoadmapType) -> String {
@@ -3766,20 +3830,21 @@ struct EditorView: View {
 
     @ViewBuilder
     private var sidebarToolActions: some View {
-        let isChoosingRepeatEnd = pendingRepeatStartMeasureID != nil
+        let isChoosingRepeatEnd = usesQuickActionsForRepeatEnd
         let shortcutsDisabled = isPresentingEditorPanel || isMeasureDeleteContinuationActive
         activeToolButton(
             title: isChoosingRepeatEnd ? "End Repeat" : "Start Repeat",
             systemImage: nil,
             isSelected: isChoosingRepeatEnd,
-            isDisabled: shortcutsDisabled || pendingEndingType != nil || resolvedMeasureActionTargetID() == nil,
+            isDisabled: shortcutsDisabled || pendingEndingType != nil
+                || (pendingRepeatStart != nil && !isChoosingRepeatEnd) || resolvedMeasureActionTargetID() == nil,
             sizingLabel: (isChoosingRepeatEnd ? "Start Repeat" : "End Repeat", nil),
             fillsAvailableWidth: true
         ) {
-            if pendingRepeatStartMeasureID != nil {
+            if isChoosingRepeatEnd {
                 handleEndRepeatHere()
             } else {
-                handleStartRepeatHere()
+                handleStartRepeatHere(fromQuickActions: true)
             }
         }
         .accessibilityHint(isChoosingRepeatEnd
@@ -3939,7 +4004,7 @@ struct EditorView: View {
             return
         }
 
-        pendingRepeatStartMeasureID = nil
+        pendingRepeatStart = nil
         pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
@@ -3972,7 +4037,7 @@ struct EditorView: View {
             return
         }
 
-        pendingRepeatStartMeasureID = nil
+        pendingRepeatStart = nil
         pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
@@ -4011,7 +4076,7 @@ struct EditorView: View {
             return
         }
 
-        pendingRepeatStartMeasureID = nil
+        pendingRepeatStart = nil
         pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
@@ -4075,7 +4140,7 @@ struct EditorView: View {
             return
         }
 
-        pendingRepeatStartMeasureID = nil
+        pendingRepeatStart = nil
         pendingDeleteStartMeasureID = targetMeasureID
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
@@ -4125,21 +4190,21 @@ struct EditorView: View {
             return
         }
 
-        pendingRepeatStartMeasureID = nil
+        pendingRepeatStart = nil
         pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
     }
 
-    private func handleStartRepeatHere() {
+    private func handleStartRepeatHere(fromQuickActions: Bool) {
         let targetMeasureID = resolvedMeasureActionTargetID()
         guard enterRepeatEditMode(),
               let targetMeasureID else {
             return
         }
 
-        pendingRepeatStartMeasureID = targetMeasureID
+        pendingRepeatStart = PendingRepeatStart(measureID: targetMeasureID, fromQuickActions: fromQuickActions)
         pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
@@ -4149,7 +4214,7 @@ struct EditorView: View {
     private func handleEndRepeatHere() {
         let targetMeasureID = resolvedMeasureActionTargetID()
         guard enterRepeatEditMode(),
-              let repeatStartMeasureID = pendingRepeatStartMeasureID,
+              let repeatStartMeasureID = pendingRepeatStart?.measureID,
               let targetMeasureID,
               let orderedBoundaryIDs = orderedRepeatBoundaryIDs(
                 startMeasureID: repeatStartMeasureID,
@@ -4162,7 +4227,7 @@ struct EditorView: View {
             return
         }
 
-        pendingRepeatStartMeasureID = nil
+        pendingRepeatStart = nil
         pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
@@ -4218,7 +4283,7 @@ struct EditorView: View {
     }
 
     private func clearPendingRepeatState() {
-        pendingRepeatStartMeasureID = nil
+        pendingRepeatStart = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
     }
@@ -4231,7 +4296,7 @@ struct EditorView: View {
             return
         }
 
-        pendingRepeatStartMeasureID = nil
+        pendingRepeatStart = nil
         pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
@@ -4247,7 +4312,7 @@ struct EditorView: View {
             return
         }
 
-        pendingRepeatStartMeasureID = nil
+        pendingRepeatStart = nil
         pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = targetMeasureID
         pendingEndingType = type
@@ -4267,7 +4332,7 @@ struct EditorView: View {
             return
         }
 
-        pendingRepeatStartMeasureID = nil
+        pendingRepeatStart = nil
         pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         self.pendingEndingType = nil
@@ -4343,7 +4408,7 @@ struct EditorView: View {
             return
         }
 
-        pendingRepeatStartMeasureID = nil
+        pendingRepeatStart = nil
         pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
@@ -4368,7 +4433,7 @@ struct EditorView: View {
         guard let request = EditorCueTextEntryRequest.adding(in: chart, placement: placement,
             position: position, callerTool: canvasMode == .browse ? .select : .text) else { return }
 
-        pendingRepeatStartMeasureID = nil
+        pendingRepeatStart = nil
         pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
@@ -4421,7 +4486,7 @@ struct EditorView: View {
             return
         }
 
-        pendingRepeatStartMeasureID = nil
+        pendingRepeatStart = nil
         pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
@@ -4555,7 +4620,7 @@ struct EditorView: View {
     }
 
     private func clearPendingMeasureStackState() {
-        pendingRepeatStartMeasureID = nil
+        pendingRepeatStart = nil
         pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
@@ -4706,7 +4771,7 @@ struct EditorView: View {
         clearSelectedCanvasObjectIDs()
         selectedNoteSelection = nil
         pendingTimeSignaturePlacement = nil
-        pendingRepeatStartMeasureID = nil
+        pendingRepeatStart = nil
         pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
@@ -4960,7 +5025,7 @@ struct EditorView: View {
         selectedNoteSelection = nil
         clearSelectedCanvasObjectIDs()
         pendingTimeSignaturePlacement = nil
-        pendingRepeatStartMeasureID = nil
+        pendingRepeatStart = nil
         pendingDeleteStartMeasureID = nil
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
@@ -7650,6 +7715,11 @@ private struct RhythmDiagnosticTieOverlay: View {
             ? RhythmDiagnosticPreviewMetrics.glyphWidth + 6
             : RhythmDiagnosticPreviewMetrics.glyphWidth
     }
+}
+
+private struct PendingRepeatStart {
+    let measureID: UUID
+    let fromQuickActions: Bool
 }
 
 private struct PendingTimeSignaturePlacement: Identifiable {

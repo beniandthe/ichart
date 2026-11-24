@@ -21,6 +21,96 @@ final class ToolMeasureSelectionUITests: XCTestCase {
     }
 
     @MainActor
+    func testQuickActionsHideAndOpenInBothChartStyles() throws {
+        try assertQuickActionsVisibility(narrow: false)
+    }
+
+    @MainActor
+    func testQuickActionsHideAndOpenInNarrowWindowsInBothChartStyles() throws {
+        try assertQuickActionsVisibility(narrow: true)
+    }
+
+    @MainActor
+    private func assertQuickActionsVisibility(narrow: Bool) throws {
+        let app = try fixtureApplication(narrow: narrow)
+        app.launch()
+        defer { app.terminate() }
+        for title in fixtureTitles {
+            openFixture(title, in: app)
+            let quickActionsTitle = app.staticTexts["editor-quick-actions-title"]
+            let toggle = app.buttons["editor-quick-actions-toggle"]
+            let sidebarRepeat = app.buttons["editor-sidebar-repeat"]
+            let layoutAction = app.buttons["measure-layout-action-evenRowWidths"]
+            XCTAssertTrue(quickActionsTitle.waitForExistence(timeout: 5))
+            XCTAssertEqual(quickActionsTitle.label, "Quick Actions")
+            XCTAssertEqual(toggle.label, "Hide")
+            XCTAssertEqual(toggle.value as? String, "Open")
+            XCTAssertTrue(sidebarRepeat.isHittable)
+            XCTAssertTrue(layoutAction.exists)
+
+            let openCanvas = try XCTUnwrap(documentViewport(in: app)).frame
+            tapControlEdge(toggle, at: 0.75)
+            XCTAssertEqual(toggle.label, "Open")
+            XCTAssertEqual(toggle.value as? String, "Hidden")
+            XCTAssertFalse(sidebarRepeat.exists)
+            XCTAssertFalse(layoutAction.exists)
+            let hiddenCanvas = try XCTUnwrap(documentViewport(in: app)).frame
+            if narrow {
+                XCTAssertEqual(hiddenCanvas.width, openCanvas.width, accuracy: 2)
+                XCTAssertLessThan(hiddenCanvas.minY, openCanvas.minY - 16)
+                XCTAssertGreaterThan(hiddenCanvas.height, openCanvas.height + 16)
+            } else {
+                XCTAssertLessThan(hiddenCanvas.minX, openCanvas.minX - 16)
+                XCTAssertGreaterThan(hiddenCanvas.width, openCanvas.width + 16)
+            }
+            attach(app, name: "\(title) with Quick Actions hidden at \(narrow ? "360 points" : "standard width")")
+
+            tapControlEdge(toggle, at: 0.75)
+            XCTAssertEqual(toggle.label, "Hide")
+            XCTAssertTrue(sidebarRepeat.isHittable)
+            XCTAssertTrue(layoutAction.exists)
+            let restoredCanvas = try XCTUnwrap(documentViewport(in: app)).frame
+            XCTAssertEqual(restoredCanvas.minX, openCanvas.minX, accuracy: 2)
+            XCTAssertEqual(restoredCanvas.minY, openCanvas.minY, accuracy: 2)
+            XCTAssertEqual(restoredCanvas.width, openCanvas.width, accuracy: 2)
+
+            // Toggling the rail while placing a repeat keeps the in-flight range.
+            tapFirstRow(at: 0.47, in: app)
+            let end = try selectedMeasure(in: app)
+            tapFirstRow(at: 0.18, in: app)
+            let start = try waitForDifferentSelectedMeasure(than: end, in: app)
+            XCTAssertLessThan(start, end)
+            tapControlEdge(sidebarRepeat, at: 0.94)
+            waitForContext("Start: \(start) · End: \(start)", in: app)
+            let topEnd = topRepeatAction("End Repeat", in: app)
+            XCTAssertFalse(topEnd.exists)
+            XCTAssertEqual(sidebarRepeat.label, "End Repeat")
+            let cancel = app.buttons["Cancel"]
+            XCTAssertTrue(cancel.isHittable)
+            tapFirstRow(at: 0.47, in: app)
+            waitForContext("Start: \(start) · End: \(end)", in: app)
+
+            tapControlEdge(toggle, at: 0.75)
+            waitForContext("Start: \(start) · End: \(end)", in: app)
+            XCTAssertTrue(topEnd.waitForExistence(timeout: 5), "A hidden rail leaves a way to finish")
+            XCTAssertTrue(topEnd.isHittable)
+            XCTAssertTrue(cancel.isHittable)
+            XCTAssertFalse(sidebarRepeat.exists)
+
+            tapControlEdge(toggle, at: 0.75)
+            waitForContext("Start: \(start) · End: \(end)", in: app)
+            XCTAssertFalse(topEnd.exists)
+            XCTAssertEqual(sidebarRepeat.label, "End Repeat")
+            XCTAssertTrue(cancel.isHittable)
+            tapControlEdge(sidebarRepeat, at: 0.06)
+            waitForContext("Measure \(end) selected", in: app)
+            XCTAssertEqual(sidebarRepeat.label, "Start Repeat")
+            XCTAssertTrue(app.buttons["Remove Repeat"].isEnabled, "The sidebar commits the retained range")
+            exitChart(in: app)
+        }
+    }
+
+    @MainActor
     private func assertSidebarRoutes(narrow: Bool) throws {
         let app = try fixtureApplication(narrow: narrow)
         app.launch()
@@ -63,6 +153,8 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             XCTAssertTrue(segno.waitForExistence(timeout: 5))
             XCTAssertTrue(segno.isHittable, "Form Markers offers direct marker buttons")
             XCTAssertFalse(app.navigationBars["Form Markers"].exists)
+            try assertPickerRowsCentered("form-marker-option-", in: app)
+            attach(app, name: "\(title) centered Form Markers at \(narrow ? "360 points" : "standard width")")
             tapFirstRow(at: 0.47, in: app)
             XCTAssertGreaterThan(try selectedMeasure(in: app), 1, "Form Markers can retarget the chart")
 
@@ -74,8 +166,31 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             XCTAssertTrue(app.buttons["editor-time-signature-custom"].isHittable)
             XCTAssertFalse(app.navigationBars["Apply 3/4"].exists,
                 "Opening the tool allows target selection before applying a meter")
-            attach(app, name: "\(title) direct sidebar destinations at \(narrow ? "360 points" : "standard width")")
+            try assertPickerRowsCentered("editor-time-signature-", in: app)
+            attach(app, name: "\(title) centered Time Signature at \(narrow ? "360 points" : "standard width")")
             exitChart(in: app)
+        }
+    }
+
+    @MainActor
+    private func assertPickerRowsCentered(_ identifierPrefix: String, in app: XCUIApplication) throws {
+        let canvas = try XCTUnwrap(documentViewport(in: app)).frame
+        let choices = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", identifierPrefix))
+        XCTAssertGreaterThan(choices.count, 1)
+        let done = app.buttons["Done"].firstMatch
+        XCTAssertTrue(done.isHittable)
+        let frames = (choices.allElementsBoundByIndex + [done]).map(\.frame).sorted { $0.minY < $1.minY }
+        var rows: [CGRect] = []
+        for frame in frames {
+            XCTAssertLessThanOrEqual(frame.maxY, canvas.minY + 1, "Picker buttons are above the chart")
+            if let last = rows.last, frame.minY < last.maxY - 2 {
+                rows[rows.count - 1] = last.union(frame)
+            } else {
+                rows.append(frame)
+            }
+        }
+        for row in rows {
+            XCTAssertEqual(row.midX, canvas.midX, accuracy: 4, "Each picker row centers over the chart")
         }
     }
 
@@ -224,7 +339,7 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             tapControlEdge(removeRepeat, at: 0.94)
             XCTAssertFalse(removeRepeat.isEnabled, "The direct action clears the selected repeat in one tap")
 
-            // Start in Select using the sidebar, then cancel with the existing top controls.
+            // Start in Select using the sidebar, then cancel with the top action.
             app.buttons["Select"].tap()
             waitForPurpose("Edit items on the chart", in: app)
             tapControlEdge(sidebarRepeat, at: 0.94)
@@ -233,14 +348,8 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             XCTAssertEqual(sidebarRepeat.label, "End Repeat")
             XCTAssertFalse(startRepeat.exists)
             XCTAssertFalse(repeatThisMeasure.exists)
-            let pendingFrames = repeatActionFrames(endRepeat, cancel, in: app)
-            for (ready, pending) in zip(readyFrames, pendingFrames) {
-                XCTAssertEqual(ready.midX, pending.midX, accuracy: 2)
-                XCTAssertEqual(ready.midY, pending.midY, accuracy: 2)
-            }
-            let pendingCanvas = try XCTUnwrap(documentViewport(in: app)).frame
-            XCTAssertEqual(pendingCanvas.minY, canvas.minY, accuracy: 2,
-                "Starting a repeat keeps the chart in the same place")
+            XCTAssertFalse(endRepeat.exists, "Sidebar placement has just one End Repeat action")
+            XCTAssertTrue(cancel.isHittable)
 
             tapFirstRow(at: 0.47, in: app)
             waitForContext("Start: \(start) · End: \(end)", in: app)
@@ -256,14 +365,20 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             tapFirstRow(at: 0.18, in: app)
             waitForContext("Measure \(start) selected", in: app)
             tapControlEdge(startRepeat, at: 0.94)
+            let pendingFrames = repeatActionFrames(endRepeat, cancel, in: app)
+            for (ready, pending) in zip(readyFrames, pendingFrames) {
+                XCTAssertEqual(ready.midX, pending.midX, accuracy: 2)
+                XCTAssertEqual(ready.midY, pending.midY, accuracy: 2)
+            }
             tapFirstRow(at: 0.47, in: app)
             waitForContext("Start: \(start) · End: \(end)", in: app)
             tapFirstRow(at: 0.18, in: app)
             waitForContext("Start: \(start) · End: \(start)", in: app)
             tapFirstRow(at: 0.47, in: app)
             waitForContext("Start: \(start) · End: \(end)", in: app)
-            XCTAssertEqual(sidebarRepeat.label, "End Repeat", "Starting in the top toolbar also updates the sidebar")
-            tapControlEdge(sidebarRepeat, at: 0.06)
+            XCTAssertEqual(sidebarRepeat.label, "Start Repeat")
+            XCTAssertFalse(sidebarRepeat.isEnabled, "Toolbar placement has no second active repeat control")
+            tapControlEdge(endRepeat, at: 0.06)
             waitForContext("Measure \(end) selected", in: app)
             XCTAssertEqual(sidebarRepeat.label, "Start Repeat")
             XCTAssertTrue(startRepeat.isHittable)

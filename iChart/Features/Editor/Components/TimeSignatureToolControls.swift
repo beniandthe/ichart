@@ -23,7 +23,7 @@ struct TimeSignatureToolControls<Done: View>: View {
     @ScaledMetric(relativeTo: .caption) private var buttonWidth: CGFloat = 72
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: buttonWidth), spacing: 5)], spacing: 5) {
+        FlowLayout(spacing: 5, rowSpacing: 5, centersRows: true) {
             ForEach(timeSignaturePresets, id: \.self) { meter in
                 action(meter.displayText) { onChoosePreset(meter) }
                     .accessibilityIdentifier("editor-time-signature-\(meter.numerator)-\(meter.denominator)")
@@ -45,7 +45,7 @@ struct TimeSignatureToolControls<Done: View>: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 4)
                 .padding(.vertical, 5)
-                .frame(maxWidth: .infinity, minHeight: EditorCommandLayoutPolicy.minimumTapTarget)
+                .frame(minWidth: buttonWidth, minHeight: EditorCommandLayoutPolicy.minimumTapTarget)
         }
         .disabled(!hasTarget)
     }
