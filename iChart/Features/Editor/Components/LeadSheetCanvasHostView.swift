@@ -3271,34 +3271,32 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 renderer.drawTimeSignature(meterChange, in: meterChangeFrame)
             }
 
-            if measure.isOpen && chart.layoutStyle != .simpleChordSheet {
-                renderer.drawOpenMeasureHint(measure)
-            } else {
-                let nextMeasureIndex = measureIndex + 1
-                let nextMeasure = system.measures.indices.contains(nextMeasureIndex)
-                    ? system.measures[nextMeasureIndex]
-                    : nil
-                let boundary = LeadSheetSimpleChordTerminalBarlineGeometry.renderedBoundary(
-                    after: measure,
-                    before: nextMeasure,
-                    excludingRepeatMarkerIDs: drawnRepeatMarkerIDs,
-                    in: system,
-                    paperFrame: paperFrame,
-                    layoutStyle: chart.layoutStyle
-                )
+            let nextMeasureIndex = measureIndex + 1
+            let nextMeasure = system.measures.indices.contains(nextMeasureIndex)
+                ? system.measures[nextMeasureIndex]
+                : nil
+            let boundary = LeadSheetSimpleChordTerminalBarlineGeometry.renderedBoundary(
+                after: measure,
+                before: nextMeasure,
+                excludingRepeatMarkerIDs: drawnRepeatMarkerIDs,
+                in: system,
+                paperFrame: paperFrame,
+                layoutStyle: chart.layoutStyle
+            )
 
-                switch boundary {
-                case .repeatBoundary(let repeatBoundaryMarkers, let terminalTrailingLineX):
-                    drawRepeatMarkers(
-                        repeatBoundaryMarkers,
-                        terminalTrailingLineX: terminalTrailingLineX,
-                        using: renderer
-                    )
-                    drawnRepeatMarkerIDs.formUnion(LeadSheetRepeatBoundaryPolicy.markerIDs(repeatBoundaryMarkers))
-                case .normalBarline(let barline, let frame):
-                    renderer.drawBarline(barline, in: frame)
-                case .none:
-                    break
+            switch boundary {
+            case .repeatBoundary(let repeatBoundaryMarkers, let trailingLineX):
+                drawRepeatMarkers(
+                    repeatBoundaryMarkers,
+                    trailingLineX: trailingLineX,
+                    using: renderer
+                )
+                drawnRepeatMarkerIDs.formUnion(LeadSheetRepeatBoundaryPolicy.markerIDs(repeatBoundaryMarkers))
+            case .normalBarline(let barline, let frame):
+                renderer.drawBarline(barline, in: frame)
+            case .none:
+                if measure.isOpen && chart.layoutStyle != .simpleChordSheet {
+                    renderer.drawOpenMeasureHint(measure)
                 }
             }
         }
@@ -3314,7 +3312,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func drawRepeatMarkers(
         _ repeatMarkers: [LeadSheetRepeatMarkerLayout],
-        terminalTrailingLineX: CGFloat? = nil,
+        trailingLineX: CGFloat? = nil,
         using renderer: LeadSheetNotationRenderer
     ) {
         guard !repeatMarkers.isEmpty else {
@@ -3323,7 +3321,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         renderer.drawRepeatBoundary(
             repeatMarkers,
-            terminalTrailingLineX: terminalTrailingLineX
+            trailingLineX: trailingLineX
         )
     }
 

@@ -433,6 +433,80 @@ final class ToolMeasureSelectionUITests: XCTestCase {
     }
 
     @MainActor
+    func testRepeatInsertionPlacementInBothChartStyles() throws {
+        try assertRepeatInsertionPlacement(narrow: false)
+    }
+
+    @MainActor
+    func testRepeatInsertionPlacementInNarrowWindowsInBothChartStyles() throws {
+        try assertRepeatInsertionPlacement(narrow: true)
+    }
+
+    @MainActor
+    private func assertRepeatInsertionPlacement(narrow: Bool) throws {
+        let app = try fixtureApplication(narrow: narrow)
+        app.launch()
+        defer { app.terminate() }
+        for title in fixtureTitles {
+            openFixture(title, in: app)
+            openTool("Repeats", in: app)
+            tapFirstRow(at: 0.18, in: app)
+            waitForContext("Measure 1 selected", in: app)
+            tapControlEdge(app.buttons["Repeat This Measure"], at: 0.94)
+            let removeRepeat = app.buttons["Remove Repeat"]
+            XCTAssertTrue(removeRepeat.isEnabled, "The fixture now has a repeat around measure 1")
+
+            app.buttons["Measures"].tap()
+            waitForContext("Measure 1 selected", in: app)
+            let addInside = app.buttons["Add Inside Repeat"]
+            let addAfter = app.buttons["Add After Repeat"]
+            let addMultiple = app.buttons["Add Multiple…"]
+            for action in [addInside, addAfter, addMultiple] {
+                XCTAssertTrue(action.exists && action.isHittable, "Repeat insertions are direct actions")
+                XCTAssertGreaterThanOrEqual(action.frame.height, 44)
+                XCTAssertTrue(app.windows.firstMatch.frame.insetBy(dx: -1, dy: -1).contains(action.frame))
+            }
+            XCTAssertFalse(app.buttons["Add One After"].exists, "A repeat close gives a placement choice")
+            attach(app, name: "\(title) repeat insertion controls at \(narrow ? "narrow" : "standard") width")
+
+            tapControlEdge(addAfter, at: 0.94)
+            waitForContext("Measure 2 selected", in: app)
+            XCTAssertTrue(app.buttons["Add One After"].exists)
+            XCTAssertFalse(addInside.exists, "The new measure is outside the repeat")
+            openTool("Repeats", in: app)
+            XCTAssertFalse(removeRepeat.isEnabled, "After Repeat leaves the old closing boundary in place")
+
+            // Test the inside action on a second repeat using the current
+            // selection. This avoids guessing the first bar's frame after reflow.
+            tapControlEdge(app.buttons["Repeat This Measure"], at: 0.94)
+            XCTAssertTrue(removeRepeat.isEnabled)
+            app.buttons["Measures"].tap()
+            XCTAssertTrue(addInside.waitForExistence(timeout: 5))
+            tapControlEdge(addInside, at: 0.94)
+            waitForContext("Measure 3 selected", in: app)
+            XCTAssertTrue(addAfter.isHittable, "The new measure owns the closing repeat after an inside insert")
+            openTool("Repeats", in: app)
+            XCTAssertTrue(removeRepeat.isEnabled, "Inside Repeat moves the closing repeat to the inserted measure")
+
+            app.buttons["Measures"].tap()
+            tapControlEdge(addMultiple, at: 0.94)
+            let stack = app.navigationBars["Measure Stack"]
+            XCTAssertTrue(stack.waitForExistence(timeout: 5))
+            let outside = app.segmentedControls.buttons["After Repeat"]
+            let inside = app.segmentedControls.buttons["Inside Repeat"]
+            XCTAssertTrue(outside.isSelected, "The stack defaults to adding after the repeat")
+            inside.tap()
+            XCTAssertTrue(inside.isSelected)
+            app.buttons["2"].tap()
+            stack.buttons["Add"].tap()
+            waitForRemoval(stack, message: "Adding two inside measures dismisses Measure Stack")
+            waitForContext("Measure 5 selected", in: app)
+            XCTAssertTrue(addAfter.isHittable, "The last added measure owns the repeat's closing barline")
+            exitChart(in: app)
+        }
+    }
+
+    @MainActor
     func testDirectMeasureActionsRetargetInBothChartStyles() throws {
         try assertDirectMeasureActions(narrow: false)
     }

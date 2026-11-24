@@ -134,13 +134,29 @@ final class EditorToolGuidanceTests: XCTestCase {
             let selectGuide = EditorCanvasMode.browse.toolGuidance(
                 layoutStyle: style, manualRenderWithPreview: false)
             if style == .rhythmSectionSheet {
-                XCTAssertTrue(guidance.referenceText.contains("Add One After fits the new measure in the row"))
+                XCTAssertTrue(guidance.referenceText.contains("Adding one measure fits it in the row"))
                 XCTAssertTrue(guidance.referenceText.contains("When you release, a lone measure on the next row moves up if its full width fits."))
                 XCTAssertTrue(selectGuide.referenceText.contains("Manual row or page breaks and key changes keep their boundaries."))
             } else {
                 XCTAssertFalse(guidance.referenceText.contains("lone measure on the next row"))
                 XCTAssertFalse(selectGuide.referenceText.contains("lone measure on the next row"))
             }
+        }
+    }
+
+    func testMeasuresGuideNamesRepeatChoicesForAClosingRepeat() {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let ordinary = EditorCanvasMode.measureEdit.toolGuidance(
+                layoutStyle: style, manualRenderWithPreview: false)
+            let closingRepeat = EditorCanvasMode.measureEdit.toolGuidance(
+                layoutStyle: style, manualRenderWithPreview: false, isClosingRepeatSelected: true)
+
+            XCTAssertFalse(ordinary.accessibilitySummary.contains("Add Inside Repeat"))
+            XCTAssertEqual(closingRepeat.steps, ["Choose Add Inside Repeat or Add After Repeat."])
+            XCTAssertTrue(closingRepeat.referenceText.contains("Add Inside Repeat includes the new measure in the loop"))
+            XCTAssertTrue(closingRepeat.referenceText.contains("Add After Repeat puts the new measure after the closing sign."))
+            XCTAssertTrue(closingRepeat.referenceText.contains("adding inside extends the outermost repeat."))
+            XCTAssertTrue(closingRepeat.referenceText.contains("After Repeat is selected when the sheet opens."))
         }
     }
 

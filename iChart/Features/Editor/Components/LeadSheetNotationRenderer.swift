@@ -1535,7 +1535,7 @@ struct LeadSheetNotationRenderer {
 
     func drawRepeatBoundary(
         _ markers: [LeadSheetRepeatMarkerLayout],
-        terminalTrailingLineX: CGFloat? = nil
+        trailingLineX overrideX: CGFloat? = nil
     ) {
         guard let firstMarker = markers.first else {
             return
@@ -1553,8 +1553,8 @@ struct LeadSheetNotationRenderer {
         let dotRadius = metrics.dotRadius
         let dotOffset = metrics.dotOffset
         let centerX = firstMarker.frame.midX
-        let trailingLineX = terminalTrailingLineX ?? centerX + separation / 2
-        let leadingLineX = terminalTrailingLineX.map { $0 - separation }
+        let trailingLineX = overrideX ?? centerX + separation / 2
+        let leadingLineX = overrideX.map { $0 - separation }
             ?? centerX - separation / 2
         let edges = Set(markers.map(\.edge))
 

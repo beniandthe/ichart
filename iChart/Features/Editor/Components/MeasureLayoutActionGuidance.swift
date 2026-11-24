@@ -181,7 +181,7 @@ struct MeasureLayoutActionsView: View {
     private var buttons: some View {
         ForEach(options) { option in
             let title = option.action.title(isOnlyMeasureInRow: option.isOnlyMeasureInRow)
-            IChartTapFeedbackButton {
+            IChartTapFeedbackButton(isRaised: true) {
                 onSelect(option.action)
             } label: {
                 Text(title)
@@ -192,7 +192,6 @@ struct MeasureLayoutActionsView: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 5)
                     .frame(maxWidth: .infinity, minHeight: EditorCommandLayoutPolicy.minimumTapTarget)
-                    .background(Color(uiColor: .tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
             }
             .disabled(!option.availability.isEnabled)
             .accessibilityLabel(title)

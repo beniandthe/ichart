@@ -185,7 +185,14 @@ struct ChordInkReviewEditCache {
 
 private struct PendingMeasureStackInsertion: Identifiable {
     let id = UUID()
+    let chartID: UUID
     let anchorMeasureID: UUID
+    let closingRepeatID: UUID?
+}
+
+private enum MeasureStackPlacement: String, Hashable {
+    case afterRepeat = "After Repeat"
+    case insideRepeat = "Inside Repeat"
 }
 
 private struct MeasureDeletionRequest {
@@ -905,8 +912,9 @@ struct EditorView: View {
         .sheet(item: $pendingMeasureStackInsertion) { insertion in
             MeasureStackInsertionSheetView(
                 highlightsAddAction: editorGuidedTourStep == .shapeForm,
-                onAdd: { measureCount in
-                    handleMeasureStackInsertionAccepted(measureCount, insertion: insertion)
+                offersRepeatPlacement: insertion.closingRepeatID != nil,
+                onAdd: { measureCount, placement in
+                    handleMeasureStackInsertionAccepted(measureCount, placement: placement, insertion: insertion)
                 },
                 onCancel: {
                     pendingMeasureStackInsertion = nil
@@ -2168,7 +2176,8 @@ struct EditorView: View {
     private var defaultToolGuidance: EditorToolGuidance {
         canvasMode.toolGuidance(layoutStyle: chart.layoutStyle,
             manualRenderWithPreview: manualRenderWithPreview,
-            hasFreeInkArticulations: !chart.freeInkArticulations.isEmpty)
+            hasFreeInkArticulations: !chart.freeInkArticulations.isEmpty,
+            isClosingRepeatSelected: canvasMode == .measureEdit && closingRepeatForMeasureInsertion != nil)
     }
 
     private func handleToolGuidePresentationChanged(_ isPresented: Bool) {
@@ -2552,12 +2561,29 @@ struct EditorView: View {
         .onDisappear { pendingSingleMeasureDeletion = nil }
     }
 
+    private var closingRepeatForMeasureInsertion: RoadmapObject? {
+        guard let target = pendingDeleteStartMeasureID ?? resolvedMeasureActionTargetID() else { return nil }
+        return chart.closingRepeatSpans(at: target).first
+    }
+
     private func measureInsertionActions(compact: Bool) -> some View {
-        HStack(spacing: 5) {
-            measureInsertionButton("Add One After", symbol: "plus.square", compact: compact,
-                action: handleAddMeasureAfterSelected)
-            measureInsertionButton("Add Multiple After…", symbol: "square.stack.3d.up", compact: compact,
-                action: handleAddMeasureStackAfterSelectedRequested)
+        let repeatEnd = closingRepeatForMeasureInsertion
+
+        return HStack(spacing: 5) {
+            if let repeatEnd {
+                measureInsertionButton("Add Inside Repeat", symbol: "repeat", compact: compact) {
+                    handleAddMeasureAfterSelected(barlineAfter: .single, extendingRepeat: repeatEnd.id)
+                }
+                .accessibilityHint("Insert one measure and move the end of the repeat to include it.")
+                measureInsertionButton("Add After Repeat", symbol: "plus.square", compact: compact,
+                    action: handleAddMeasureAfterSelected)
+                    .accessibilityHint("Insert one measure immediately after the repeat ends.")
+            } else {
+                measureInsertionButton("Add One After", symbol: "plus.square", compact: compact,
+                    action: handleAddMeasureAfterSelected)
+            }
+            measureInsertionButton(repeatEnd == nil ? "Add Multiple After…" : "Add Multiple…",
+                symbol: "square.stack.3d.up", compact: compact, action: handleAddMeasureStackAfterSelectedRequested)
             measureInsertionButton("Add at Beginning", symbol: "backward.end", compact: compact,
                 action: handleAddMeasureAtBeginning)
             measureInsertionButton("Add Double Barline", symbol: "pause", compact: compact,
@@ -4080,36 +4106,26 @@ struct EditorView: View {
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         selectedMeasureID = targetMeasureID
-        pendingMeasureStackInsertion = PendingMeasureStackInsertion(anchorMeasureID: targetMeasureID)
+        pendingMeasureStackInsertion = PendingMeasureStackInsertion(
+            chartID: chart.id, anchorMeasureID: targetMeasureID,
+            closingRepeatID: chart.closingRepeatSpans(at: targetMeasureID).first?.id)
     }
 
     private func handleMeasureStackInsertionAccepted(
         _ measureCount: Int,
+        placement: MeasureStackPlacement,
         insertion: PendingMeasureStackInsertion
     ) {
-        let normalizedMeasureCount = min(max(measureCount, 1), 64)
-        guard enterMeasureEditMode(),
-              chart.measure(id: insertion.anchorMeasureID) != nil else {
-            pendingMeasureStackInsertion = nil
-            return
-        }
-
-        pendingRepeatStartMeasureID = nil
-        pendingDeleteStartMeasureID = nil
-        pendingEndingStartMeasureID = nil
-        pendingEndingType = nil
-        if chart.measure(id: insertion.anchorMeasureID)?.authoringState == .open {
-            _ = chart.commitOpenMeasure()
-        }
-        guard let insertedMeasureIDs = chart.insertMeasures(
-            after: insertion.anchorMeasureID,
-            count: normalizedMeasureCount
-        ) else {
-            pendingMeasureStackInsertion = nil
-            return
-        }
-
         pendingMeasureStackInsertion = nil
+        guard chart.id == insertion.chartID,
+              chart.closingRepeatSpans(at: insertion.anchorMeasureID).first?.id == insertion.closingRepeatID,
+              let insertedMeasureIDs = chart.insertMeasureStackAfterForEditing(
+                insertion.anchorMeasureID, count: measureCount,
+                extendingRepeat: placement == .insideRepeat ? insertion.closingRepeatID : nil
+              ) else {
+            return
+        }
+
         selectedMeasureID = insertedMeasureIDs.last ?? insertion.anchorMeasureID
         completeEditorGuidedTourStep(.shapeForm)
     }
@@ -4118,7 +4134,7 @@ struct EditorView: View {
         handleAddMeasureAfterSelected(barlineAfter: .double)
     }
 
-    private func handleAddMeasureAfterSelected(barlineAfter: BarlineType) {
+    private func handleAddMeasureAfterSelected(barlineAfter: BarlineType, extendingRepeat repeatID: UUID? = nil) {
         let targetMeasureID = resolvedMeasureActionTargetID()
         guard enterMeasureEditMode() else {
             return
@@ -4129,18 +4145,17 @@ struct EditorView: View {
         pendingEndingStartMeasureID = nil
         pendingEndingType = nil
         guard let targetMeasureID else {
-            selectedMeasureID = chart.appendMeasure(barlineAfter: barlineAfter)
+            if repeatID == nil {
+                selectedMeasureID = chart.appendMeasure(barlineAfter: barlineAfter)
+            }
             return
         }
 
-        if let row = rhythmRowLayout(containing: targetMeasureID) {
-            selectedMeasureID = chart.insertMeasure(inRhythmRow: row.measureIDs,
-                availableWidth: row.availableWidth, after: targetMeasureID, barlineAfter: barlineAfter)
-        } else if chart.measure(id: targetMeasureID)?.authoringState == .open {
-            selectedMeasureID = chart.commitOpenMeasure(barlineAfter: barlineAfter, explicitlyAddsNextMeasure: true)
-        } else {
-            selectedMeasureID = chart.insertMeasure(after: targetMeasureID, barlineAfter: barlineAfter)
-        }
+        guard let insertedMeasureID = chart.insertOneMeasureAfterForEditing(
+            targetMeasureID, barlineAfter: barlineAfter, extendingRepeat: repeatID,
+            rhythmRow: rhythmRowLayout(containing: targetMeasureID)
+        ) else { return }
+        selectedMeasureID = insertedMeasureID
 
         switch barlineAfter {
         case .single:
@@ -8059,14 +8074,26 @@ private struct CueTextEntryPanelView: View {
 private struct MeasureStackInsertionSheetView: View {
     @Environment(\.dismiss) private var dismiss
     var highlightsAddAction = false
-    let onAdd: (Int) -> Void
+    let offersRepeatPlacement: Bool
+    let onAdd: (Int, MeasureStackPlacement) -> Void
     let onCancel: () -> Void
 
     @State private var measureCount = 4
+    @State private var placement = MeasureStackPlacement.afterRepeat
 
     var body: some View {
         NavigationStack {
             Form {
+                if offersRepeatPlacement {
+                    Section("Placement") {
+                        Picker("Placement", selection: $placement) {
+                            Text(MeasureStackPlacement.afterRepeat.rawValue).tag(MeasureStackPlacement.afterRepeat)
+                            Text(MeasureStackPlacement.insideRepeat.rawValue).tag(MeasureStackPlacement.insideRepeat)
+                        }
+                        .pickerStyle(.segmented)
+                    }
+                }
+
                 Section("Measures") {
                     Stepper(value: $measureCount, in: 1...64) {
                         HStack {
@@ -8102,7 +8129,7 @@ private struct MeasureStackInsertionSheetView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Add") {
-                        onAdd(measureCount)
+                        onAdd(measureCount, placement)
                         dismiss()
                     }
                     .tourActionHighlight(
@@ -8112,7 +8139,7 @@ private struct MeasureStackInsertionSheetView: View {
                 }
             }
         }
-        .presentationDetents([.height(260), .medium])
+        .presentationDetents(offersRepeatPlacement ? [.medium, .large] : [.height(260), .medium])
     }
 }
 

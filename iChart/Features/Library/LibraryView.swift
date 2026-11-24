@@ -489,9 +489,11 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Measures stays one tap away; less-frequent structure and annotation commands live under Tools.",
             bullets: [
                 "Tap Measures and select a measure. Use Add One After to insert one measure or Add Multiple After… to choose how many. Use Add at Beginning to insert before the first measure or Add Double Barline to add a double boundary.",
+                "Select the last measure of a repeat. Add Inside Repeat includes the new measure in the loop and moves the closing repeat sign. Add After Repeat puts the new measure after the closing sign. If several repeats end there, adding inside extends the outermost repeat.",
+                "To add several measures at the end of a repeat, tap Add Multiple…, set the count, and choose Inside Repeat or After Repeat. The sheet opens with After Repeat selected.",
                 "Tap Delete Measure… and confirm the measure shown. When the first measure shows Reset Barline…, you can restore its right barline to a single line.",
                 "To delete a range, select the first measure and tap Delete Range… to start. Tap the last measure and check the highlighted range before choosing Delete To or Cancel.",
-                "On a Rhythm Section Sheet, choose Add One After to insert a measure and give the row even widths, including when it’s already full.",
+                "On a Rhythm Section Sheet, adding one measure gives the row even widths, including when it’s already full.",
                 "On a Rhythm Section Sheet, select a measure to show its arrow handles. Use Apple Pencil to drag an inside handle to adjust the two neighboring widths, or drag the last measure’s right arrow left to shorten the row.",
                 "When you release, a lone measure on the next row moves up if its full width fits. Manual row or page breaks and key changes keep their boundaries.",
                 "Row actions sit to the left of the chart. In narrow windows, they appear below the other Measures controls. The selected measure determines which actions are available.",

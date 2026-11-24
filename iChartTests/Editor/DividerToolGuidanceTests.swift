@@ -29,12 +29,41 @@ final class DividerToolGuidanceTests: XCTestCase {
         try await assertGuidance(style: .rhythmSectionSheet, tool: .measureEdit, hasConvertedMarks: false)
     }
 
+    func testSimpleMeasuresShowsDirectChoicesAtAClosingRepeat() async throws {
+        try await assertRepeatInsertionGuidance(style: .simpleChordSheet)
+    }
+
+    func testRhythmMeasuresShowsDirectChoicesAtAClosingRepeat() async throws {
+        try await assertRepeatInsertionGuidance(style: .rhythmSectionSheet)
+    }
+
     func testSimpleTextPlacesAtChosenBeatAndEditsWithoutSwitchingTools() async throws {
         try await assertTextPlacementAndEditing(style: .simpleChordSheet)
     }
 
     func testRhythmTextPlacesAtChosenBeatAndEditsWithoutSwitchingTools() async throws {
         try await assertTextPlacementAndEditing(style: .rhythmSectionSheet)
+    }
+
+    private func assertRepeatInsertionGuidance(style: ChartLayoutStyle) async throws {
+        var chart = try fixture(style)
+        chart.freeInkArticulations = []
+        let lastMeasure = try XCTUnwrap(chart.measures.last)
+        _ = try XCTUnwrap(chart.addRepeatSpan(startMeasureID: lastMeasure.id, endMeasureID: lastMeasure.id))
+        let mounted = try await mount(chart)
+        try activate(await node("Measures", in: mounted.window, button: true))
+
+        let prompt = try await node("Choose Add Inside Repeat or Add After Repeat.", in: mounted.window)
+        assertVisible(prompt, in: mounted.window)
+        for label in ["Add Inside Repeat", "Add After Repeat", "Add Multiple…"] {
+            let action = try await node(label, in: mounted.window, button: true)
+            assertVisible(action, in: mounted.window)
+            XCTAssertTrue(action.isEnabled)
+            XCTAssertGreaterThanOrEqual(action.frame(in: mounted.window).height, 44)
+        }
+        XCTAssertTrue(try NativeAccessibilityLookup.matching(
+            "Add One After", in: mounted.window, buttonsOnly: true).isEmpty)
+        XCTAssertEqual(mounted.binding.wrappedValue, chart, "Showing insertion choices must leave the chart unchanged")
     }
 
     private func assertTextPlacementAndEditing(style: ChartLayoutStyle) async throws {

@@ -759,6 +759,67 @@ extension Chart {
     }
 
     @discardableResult
+    mutating func insertOneMeasureAfterForEditing(
+        _ measureID: UUID,
+        barlineAfter: BarlineType = .single,
+        extendingRepeat repeatID: UUID? = nil,
+        rhythmRow: (measureIDs: [UUID], availableWidth: CGFloat)? = nil
+    ) -> UUID? {
+        guard let target = measure(id: measureID) else { return nil }
+        var candidate = self
+        let insertedID: UUID?
+        if let rhythmRow, layoutStyle == .rhythmSectionSheet {
+            insertedID = candidate.insertMeasure(inRhythmRow: rhythmRow.measureIDs,
+                availableWidth: rhythmRow.availableWidth, after: measureID, barlineAfter: barlineAfter)
+        } else if target.authoringState == .open {
+            insertedID = candidate.commitOpenMeasure(
+                barlineAfter: barlineAfter, explicitlyAddsNextMeasure: true)
+        } else {
+            insertedID = candidate.insertMeasure(after: measureID, barlineAfter: barlineAfter)
+        }
+        guard let insertedID,
+              candidate.extendClosingRepeat(repeatID, from: measureID, through: insertedID) else {
+            return nil
+        }
+        self = candidate
+        return insertedID
+    }
+
+    @discardableResult
+    mutating func insertMeasureStackAfterForEditing(
+        _ measureID: UUID,
+        count: Int,
+        extendingRepeat repeatID: UUID? = nil
+    ) -> [UUID]? {
+        guard count > 0, let target = measure(id: measureID) else { return nil }
+        var candidate = self
+        if target.authoringState == .open, candidate.commitOpenMeasure() == nil {
+            return nil
+        }
+        guard let insertedIDs = candidate.insertMeasures(after: measureID, count: count),
+              let lastID = insertedIDs.last,
+              candidate.extendClosingRepeat(repeatID, from: measureID, through: lastID) else {
+            return nil
+        }
+        self = candidate
+        return insertedIDs
+    }
+
+    // Moving an inner endpoint past an outer repeat would make the ranges cross.
+    // When several repeats share this boundary, only the outermost can extend alone.
+    private mutating func extendClosingRepeat(
+        _ repeatID: UUID?,
+        from oldEnd: UUID,
+        through newEnd: UUID
+    ) -> Bool {
+        guard let repeatID else { return true }
+        guard let outermost = closingRepeatSpans(at: oldEnd).first, outermost.id == repeatID else {
+            return false
+        }
+        return updateRepeatSpan(repeatID, startMeasureID: outermost.startMeasureID, endMeasureID: newEnd)
+    }
+
+    @discardableResult
     mutating func insertMeasureAtBeginning(
         authoringState: MeasureAuthoringState = .committed,
         barlineAfter: BarlineType = .single
@@ -3621,6 +3682,18 @@ extension Chart {
         roadmapObjects[roadmapObjectIndex].scale = clampedScale
         updatedAt = .now
         return true
+    }
+
+    func closingRepeatSpans(at measureID: UUID) -> [RoadmapObject] {
+        guard let endIndex = flattenedMeasureIndex(id: measureID) else { return [] }
+        return roadmapObjects.compactMap { object -> (span: RoadmapObject, startIndex: Int)? in
+            guard object.type == .repeatSpan, object.endMeasureID == measureID,
+                  let startIndex = flattenedMeasureIndex(id: object.startMeasureID),
+                  startIndex <= endIndex else { return nil }
+            return (object, startIndex)
+        }.sorted {
+            ($0.startIndex, $0.span.id.uuidString) < ($1.startIndex, $1.span.id.uuidString)
+        }.map(\.span)
     }
 
     func repeatSpanIDs(attachedTo measureID: UUID) -> [UUID] {

@@ -1279,7 +1279,7 @@ final class LeadSheetPageLayoutTests: XCTestCase {
                 XCTAssertEqual(markers.count, 1)
                 XCTAssertEqual(close.roadmapObjectID, repeatID)
                 XCTAssertEqual(close.edge, .trailing)
-                XCTAssertNil(terminalX)
+                XCTAssertEqual(try XCTUnwrap(terminalX), following.leadingBarlineX, accuracy: 0.001)
                 XCTAssertEqual(close.frame.midX, following.leadingBarlineX, accuracy: 0.001)
                 XCTAssertLessThan(close.frame.maxX, following.trailingBarlineFrame.midX)
             }

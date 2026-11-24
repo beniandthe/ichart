@@ -109,7 +109,7 @@ struct LeadSheetMeasureLayout: Identifiable, Hashable {
     var meterChangeFrame: CGRect?
     var trailingBarlineFrame: CGRect
     var isOpen: Bool
-    var isExplicitlyAddedOpenMeasure = false
+    var preservesOpenMeasureBoundary = false
 }
 
 extension LeadSheetMeasureLayout {
@@ -3287,7 +3287,7 @@ enum LeadSheetPageLayoutEngine {
             meterChangeFrame: meterChangeFrame,
             trailingBarlineFrame: trailingBarlineFrame,
             isOpen: measure.authoringState == .open,
-            isExplicitlyAddedOpenMeasure: measure.isExplicitlyAddedOpenMeasure
+            preservesOpenMeasureBoundary: measure.isExplicitlyAddedOpenMeasure || measure.manualLayoutWidth != nil
         )
     }
 

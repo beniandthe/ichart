@@ -26,6 +26,121 @@ final class WriteRepeatFeedbackReplayTests: XCTestCase {
         XCTAssertEqual(chart, original)
     }
 
+    func testSavedManualWidthTailKeepsItsLeftBarlineInEditorAndPDF() async throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            var chart = Chart.blank(title: "Sized blank outside a repeat", measureCount: 14, layoutStyle: style)
+            let ids = chart.measures.map(\.id)
+            chart.systems = [0..<4, 4..<8, 8..<14].enumerated().map { index, range in
+                ChartSystem(id: UUID(), index: index, spacingMode: .automatic, lineBreakRule: .forced,
+                    measures: range.map { offset in
+                        var measure = chart.measures[offset]
+                        measure.manualLayoutWidth = 96
+                        measure.authoringState = offset == ids.index(before: ids.endIndex) ? .open : .committed
+                        return measure
+                    })
+            }
+            let endID = ids[12]
+            let followingID = ids[13]
+            for (offset, chord) in [(0.05, "C"), (0.55, "F")] {
+                XCTAssertTrue(chart.appendRecognizedChord(try ChordSymbolParser.parse(chord), rawInput: chord,
+                    to: endID, atFraction: offset))
+            }
+            let repeatID = try XCTUnwrap(chart.addRepeatSpan(startMeasureID: endID, endMeasureID: endID))
+            let reopened = try ChartPersistenceCoders.decoder.decode(Chart.self,
+                from: ChartPersistenceCoders.encoder.encode(chart))
+            let following = try XCTUnwrap(reopened.measure(id: followingID))
+            XCTAssertTrue(following.chordEvents.isEmpty)
+            XCTAssertFalse(following.isExplicitlyAddedOpenMeasure)
+            XCTAssertEqual(reopened.roadmapObject(id: repeatID)?.endMeasureID, endID)
+            try await assertBarlineInEditorAndPDF(reopened, measureID: followingID, edge: .leading)
+        }
+    }
+
+    func testInsideInsertionShowsClosingRepeatOnTheOpenMeasureInEditorAndPDF() async throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            var chart = Chart.draft(title: "Open measure inside a repeat", layoutStyle: style)
+            chart.completeInitialSetup(title: chart.title, key: .cMajor,
+                meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine,
+                startingMeasureCount: 2)
+            let endID = try XCTUnwrap(chart.measures.last?.id)
+            let repeatID = try XCTUnwrap(chart.addRepeatSpan(startMeasureID: endID, endMeasureID: endID))
+            let insertedID = try XCTUnwrap(chart.insertOneMeasureAfterForEditing(endID, extendingRepeat: repeatID))
+            let reopened = try ChartPersistenceCoders.decoder.decode(Chart.self,
+                from: ChartPersistenceCoders.encoder.encode(chart))
+            XCTAssertEqual(reopened.measure(id: insertedID)?.authoringState, .open)
+            XCTAssertEqual(reopened.roadmapObject(id: repeatID)?.endMeasureID, insertedID)
+            try await assertBarlineInEditorAndPDF(reopened, measureID: insertedID, edge: .leading)
+            try await assertBarlineInEditorAndPDF(reopened, measureID: insertedID, edge: .trailing)
+        }
+    }
+
+    func testMeasureOutsideARepeatKeepsItsLeftBarlineWhenMovedToTheNextRow() async throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            var chart = Chart.blank(title: "Repeat at the previous row", measureCount: 3, layoutStyle: style)
+            let endID = chart.measures[2].id
+            _ = try XCTUnwrap(chart.addRepeatSpan(startMeasureID: endID, endMeasureID: endID))
+            let insertedID = try XCTUnwrap(chart.insertOneMeasureAfterForEditing(endID))
+            XCTAssertTrue(chart.insertSystemBreak(before: insertedID))
+            let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: editorPageSize)
+            let lastRow = try XCTUnwrap(layout.systems.last)
+            XCTAssertEqual(lastRow.measures.first?.sourceMeasureID, insertedID)
+            try await assertBarlineInEditorAndPDF(chart, measureID: insertedID, edge: .leading)
+        }
+    }
+
+    private func assertBarlineInEditorAndPDF(
+        _ chart: Chart,
+        measureID: UUID,
+        edge: LeadSheetRepeatMarkerLayout.Edge
+    ) async throws {
+        func target(in layout: LeadSheetPageLayout) throws -> (LeadSheetSystemLayout, LeadSheetMeasureLayout) {
+            let system = try XCTUnwrap(layout.systems.first { $0.measures.contains { $0.sourceMeasureID == measureID } })
+            return (system, try XCTUnwrap(system.measures.first { $0.sourceMeasureID == measureID }))
+        }
+
+        func assertBarline(in image: UIImage, layout: LeadSheetPageLayout, offset: CGPoint = .zero) throws {
+            let (system, measure) = try target(in: layout)
+            let x: CGFloat
+            switch edge {
+            case .leading:
+                x = measure.leadingBarlineX
+            case .trailing:
+                let marker = try XCTUnwrap(measure.repeatMarkerLayouts.first { $0.edge == .trailing })
+                let metrics = LeadSheetRepeatReadabilityMetrics(chart: chart, staffHeight: marker.frame.height)
+                x = LeadSheetSimpleChordTerminalBarlineGeometry.terminalTrailingRepeatLineX(
+                    after: measure, in: system, paperFrame: layout.paperFrame(for: system), layoutStyle: chart.layoutStyle
+                ) ?? marker.frame.midX + metrics.separation / 2
+            }
+            let strip = CGRect(
+                x: x + offset.x - 1,
+                y: measure.staffFrame.minY + offset.y + 3,
+                width: 2,
+                height: measure.staffFrame.height - 6
+            )
+            let pixels = try darkPixelCount(image, in: strip)
+            XCTAssertGreaterThan(pixels, Int(strip.height * image.scale),
+                "The barline must be drawn at the expected \(edge) boundary in \(chart.layoutStyle)")
+        }
+
+        NotationFontRegistrar.registerBundledFontsIfNeeded()
+        let editorLayout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: editorPageSize)
+        let native = nativeCanvasImage(chart: chart, size: editorPageSize, mode: .measureEdit, scale: 2)
+        try assertBarline(in: native, layout: editorLayout)
+
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let exported = try await PDFChartExporter(exportDirectory: directory).exportPDF(for: chart)
+        let document = try XCTUnwrap(PDFDocument(url: exported.url))
+        let pdfWidth = LeadSheetFreeInkDocumentLayoutPolicy.savedCanvasWidth(for: chart) ?? pdfPageSize.width
+        let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart,
+            pageSize: CGSize(width: pdfWidth, height: pdfPageSize.height))
+        let (system, _) = try target(in: layout)
+        let pageLayout = try XCTUnwrap(layout.pages.first { $0.systemIDs.contains(system.id) })
+        let page = try XCTUnwrap(document.page(at: pageLayout.index))
+        try assertBarline(in: pdfPageImage(page, scale: 2), layout: layout,
+            offset: CGPoint(x: -pageLayout.frame.minX, y: -pageLayout.frame.minY))
+    }
+
     func testProvidedSavedChartKeepsItsFollowingOpenMeasureOutsideRepeat() async throws {
         guard let path = environment("ICHART_REPEAT_FEEDBACK_CHART_PATH") else {
             throw XCTSkip("Provide a local authorized saved Chart JSON through ICHART_REPEAT_FEEDBACK_CHART_PATH")
@@ -43,7 +158,9 @@ final class WriteRepeatFeedbackReplayTests: XCTestCase {
                   let endPosition = chart.measures.firstIndex(where: { $0.id == endID }),
                   chart.measures.indices.contains(endPosition + 1) else { return false }
             let following = chart.measures[endPosition + 1]
-            return following.authoringState == .open && !following.chordEvents.isEmpty
+            return following.authoringState == .open
+                && (!following.chordEvents.isEmpty || following.manualLayoutWidth != nil
+                    || following.isExplicitlyAddedOpenMeasure)
         })
         let start = try XCTUnwrap(chart.measure(id: repeatObject.startMeasureID))
         let end = try XCTUnwrap(repeatObject.endMeasureID.flatMap { chart.measure(id: $0) })
@@ -54,11 +171,15 @@ final class WriteRepeatFeedbackReplayTests: XCTestCase {
         XCTAssertEqual(following.index, try expectedIndex("ICHART_REPEAT_FEEDBACK_FOLLOWING_INDEX", fallback: 7))
         XCTAssertNotEqual(repeatObject.endMeasureID, following.id)
         let original = chart
-        let proof = try assertClosingRepeatExcludesPopulatedOpenTail(chart, repeatObject: repeatObject,
-            pageSize: editorPageSize)
-        _ = try assertClosingRepeatExcludesPopulatedOpenTail(chart, repeatObject: repeatObject,
-            pageSize: pdfPageSize)
-        try await retainProofs(chart: chart, proof: proof, label: "provided-repeat-open-tail")
+        if following.chordEvents.isEmpty {
+            try await assertBarlineInEditorAndPDF(chart, measureID: following.id, edge: .leading)
+        } else {
+            let proof = try assertClosingRepeatExcludesPopulatedOpenTail(chart, repeatObject: repeatObject,
+                pageSize: editorPageSize)
+            _ = try assertClosingRepeatExcludesPopulatedOpenTail(chart, repeatObject: repeatObject,
+                pageSize: pdfPageSize)
+            try await retainProofs(chart: chart, proof: proof, label: "provided-repeat-open-tail")
+        }
         XCTAssertEqual(chart, original, "Only value rendering is authorized for the provided chart")
     }
 
@@ -92,18 +213,23 @@ final class WriteRepeatFeedbackReplayTests: XCTestCase {
         let boundary = LeadSheetSimpleChordTerminalBarlineGeometry.renderedBoundary(after: end,
             before: following, excludingRepeatMarkerIDs: [], in: system, paperFrame: paper,
             layoutStyle: chart.layoutStyle)
-        guard case .repeatBoundary(let renderedMarkers, let terminalLineX) = boundary else {
+        guard case .repeatBoundary(let renderedMarkers, let trailingLineX) = boundary else {
             XCTFail("The interior close must use the repeat boundary renderer")
             return BoundaryProof(layout: layout, system: system, end: end, following: following, markerFrame: .zero)
         }
         XCTAssertTrue(renderedMarkers.contains { $0.id == marker.id })
-        XCTAssertNil(terminalLineX, "A populated following open measure must not relocate this close to the row edge")
+        if following.preservesOpenMeasureBoundary {
+            XCTAssertEqual(try XCTUnwrap(trailingLineX), following.leadingBarlineX, accuracy: 0.001)
+        } else {
+            XCTAssertNil(trailingLineX)
+        }
         XCTAssertNil(LeadSheetSimpleChordTerminalBarlineGeometry.terminalTrailingRepeatLineX(after: end,
             in: system, paperFrame: paper, layoutStyle: chart.layoutStyle))
         let markerFrame = LeadSheetSimpleChordTerminalBarlineGeometry.renderedRepeatMarkerFrame(marker,
             after: end, in: system, paperFrame: paper, layoutStyle: chart.layoutStyle)
-        XCTAssertEqual(markerFrame, marker.occupiedFrame)
-        XCTAssertEqual(markerFrame.midX, end.staffFrame.maxX, accuracy: 0.001)
+        let metrics = LeadSheetRepeatReadabilityMetrics(chart: chart, staffHeight: marker.frame.height)
+        let expectedMarkerCenter = trailingLineX.map { $0 - metrics.separation / 2 } ?? end.staffFrame.maxX
+        XCTAssertEqual(markerFrame.midX, expectedMarkerCenter, accuracy: 0.001)
         let followingChord = try XCTUnwrap(following.chordLayouts.first)
         XCTAssertLessThan(markerFrame.maxX, followingChord.frame.minX,
             "The closing repeat must precede the following chord")
@@ -112,7 +238,7 @@ final class WriteRepeatFeedbackReplayTests: XCTestCase {
         let closingTarget = try XCTUnwrap(targets.first {
             $0.objectID == .repeatSpan(repeatObject.id) && $0.frame.contains(markerFrame)
         })
-        XCTAssertEqual(closingTarget.frame.midX, end.staffFrame.maxX, accuracy: 0.001)
+        XCTAssertEqual(closingTarget.frame.midX, markerFrame.midX, accuracy: 0.001)
         XCTAssertLessThan(closingTarget.frame.maxX, followingChord.frame.midX,
             "The repeat inspector target must stay on the interior boundary")
         return BoundaryProof(layout: layout, system: system, end: end, following: following, markerFrame: markerFrame)
@@ -178,16 +304,18 @@ final class WriteRepeatFeedbackReplayTests: XCTestCase {
         }
     }
 
-    private func nativeCanvasImage(chart: Chart, size: CGSize) -> UIImage {
+    private func nativeCanvasImage(
+        chart: Chart, size: CGSize, mode: EditorCanvasMode = .browse, scale: CGFloat = 1
+    ) -> UIImage {
         let view = LeadSheetCanvasUIKitView(frame: CGRect(origin: .zero, size: size))
         view.recognizesChordInk = false
         view.chart = chart
-        view.interactionMode = .browse
+        view.interactionMode = mode
         view.overrideUserInterfaceStyle = .light
         view.setNeedsLayout()
         view.layoutIfNeeded()
         let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
+        format.scale = scale
         format.opaque = true
         return UIGraphicsImageRenderer(size: size, format: format).image { context in
             UIColor.white.setFill()
@@ -196,10 +324,10 @@ final class WriteRepeatFeedbackReplayTests: XCTestCase {
         }
     }
 
-    private func pdfPageImage(_ page: PDFPage) -> UIImage {
+    private func pdfPageImage(_ page: PDFPage, scale: CGFloat = 1) -> UIImage {
         let bounds = page.bounds(for: .mediaBox)
         let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
+        format.scale = scale
         format.opaque = true
         return UIGraphicsImageRenderer(size: bounds.size, format: format).image { context in
             UIColor.white.setFill()
@@ -211,7 +339,8 @@ final class WriteRepeatFeedbackReplayTests: XCTestCase {
     }
 
     private func darkPixelCount(_ image: UIImage, in region: CGRect) throws -> Int {
-        let cropped = try XCTUnwrap(image.cgImage?.cropping(to: region.integral))
+        let scaledRegion = region.applying(CGAffineTransform(scaleX: image.scale, y: image.scale))
+        let cropped = try XCTUnwrap(image.cgImage?.cropping(to: scaledRegion.integral))
         var pixels = [UInt8](repeating: 255, count: cropped.width * cropped.height)
         let drew = pixels.withUnsafeMutableBytes { bytes -> Bool in
             guard let context = CGContext(data: bytes.baseAddress, width: cropped.width, height: cropped.height,

@@ -210,7 +210,8 @@ enum EditorCanvasMode: Hashable {
     func toolGuidance(
         layoutStyle: ChartLayoutStyle,
         manualRenderWithPreview: Bool,
-        hasFreeInkArticulations: Bool = false
+        hasFreeInkArticulations: Bool = false,
+        isClosingRepeatSelected: Bool = false
     ) -> EditorToolGuidance {
         switch self {
         case .browse:
@@ -262,13 +263,19 @@ enum EditorCanvasMode: Hashable {
             if layoutStyle == .rhythmSectionSheet {
                 details[0] = .init(
                     title: "Add measures",
-                    text: "Add One After fits the new measure in the row and evens the measure widths, including when the row is full. Add Multiple After… can extend the chart across rows. Add at Beginning inserts before the first measure. Add Double Barline adds a double boundary."
+                    text: "Adding one measure fits it in the row and evens the measure widths, including when the row is full. Add Multiple After… can extend the chart across rows. Add at Beginning inserts before the first measure. Add Double Barline adds a double boundary."
                 )
                 details.insert(Self.rhythmMeasureResizeGuide, at: 1)
             }
+            details.insert(.init(
+                title: "Add at the end of a repeat",
+                text: "Select the last measure of a repeat. Add Inside Repeat includes the new measure in the loop and moves the closing repeat sign. Add After Repeat puts the new measure after the closing sign. If several repeats end there, adding inside extends the outermost repeat. For several measures at the end of a repeat, tap Add Multiple… and choose the count and placement. After Repeat is selected when the sheet opens."
+            ), at: 1)
             return .init(
                 title: "Change measures and rows",
-                steps: ["Tap a measure, then choose an action."],
+                steps: [isClosingRepeatSelected
+                    ? "Choose Add Inside Repeat or Add After Repeat."
+                    : "Tap a measure, then choose an action."],
                 detailsTitle: "Measures guide",
                 details: details
             )
