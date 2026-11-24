@@ -69,6 +69,28 @@ struct LeadSheetFreeInkChordAttachmentPolicy {
         return movement(from: chord, to: target)
     }
 
+    func rhythmMeasureForInkBelowChord(
+        _ bounds: CGRect
+    ) -> (id: UUID, staffFrame: CGRect)? {
+        var owner: (id: UUID, staffFrame: CGRect)?
+        for chord in sourceChords {
+            guard let staff = sourceMeasures[chord.measureID]?.staffFrame?.rect,
+                  bounds.maxY <= staff.minY,
+                  bounds.minX >= staff.minX - 6, bounds.maxX <= staff.maxX + 6 else { continue }
+
+            let frame = chord.frame.rect
+            let horizontalReach = min(36, staff.height * 0.8)
+            // An adjacent mark can belong to the measure without aligning
+            // closely enough with the chord to follow an independent drag.
+            guard bounds.minY >= frame.midY - 4, bounds.maxY >= frame.maxY - 2,
+                  bounds.midX >= frame.minX - horizontalReach,
+                  bounds.midX <= frame.maxX + horizontalReach else { continue }
+            if let owner, owner.id != chord.measureID { return nil }
+            owner = (chord.measureID, staff)
+        }
+        return owner
+    }
+
     private func isDirectlyBelow(_ bounds: CGRect, chord: PersistentInkChordAnchor) -> Bool {
         let frame = chord.frame.rect
         let measure = sourceMeasures[chord.measureID]
@@ -77,10 +99,14 @@ struct LeadSheetFreeInkChordAttachmentPolicy {
         guard bounds.midY <= reach else { return false }
         if bounds.minY >= frame.maxY - 2 { return true }
 
+        guard bounds.midY >= frame.maxY else { return false }
+        if let staff, bounds.maxY <= staff.minY {
+            return bounds.minY >= frame.maxY - min(12, frame.height * 0.45)
+        }
+
         // Simple centers the glyphs inside a taller chord band. Ink under the
         // glyphs can reach into the bottom padding while sitting below the band.
-        guard usesStafflessTargetGeometry, measure != nil, staff == nil,
-              bounds.midY >= frame.maxY else { return false }
+        guard usesStafflessTargetGeometry, measure != nil, staff == nil else { return false }
         let bottomBandPadding = min(16, frame.height / 5)
         return bounds.minY >= frame.maxY - bottomBandPadding
     }

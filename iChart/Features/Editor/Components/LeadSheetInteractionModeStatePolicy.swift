@@ -494,6 +494,10 @@ enum LeadSheetPersistentInkCoordinateSpacePolicy {
                 in: rows, engravingChanged: engravingChanged && usesStaffFrames) {
                 transform = transforms[index] ?? measureTransform(for: bounds,
                     in: rows[index], targetFrames: targetFrames)
+            } else if hasMeasureGeometry,
+                      let owner = chordAttachments.rhythmMeasureForInkBelowChord(bounds),
+                      let destination = targetFrames[owner.id] {
+                transform = frameTransform(from: owner.staffFrame, to: destination)
             } else {
                 transform = nil
             }
