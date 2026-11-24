@@ -23,14 +23,26 @@ final class ToolMeasureSelectionUITests: XCTestCase {
     @MainActor
     private func assertQuickMeasureAndRepeatActions(orientation: UIDeviceOrientation) throws {
         let app = try fixtureApplication()
-        XCUIDevice.shared.orientation = orientation
+        if orientation.isLandscape {
+            app.launchArguments.append("-iChartEditorUILandscape")
+        }
         app.launch()
         defer {
             app.terminate()
             XCUIDevice.shared.orientation = .portrait
         }
+        let window = app.windows.firstMatch
+        let expectedOrientation = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            guard window.exists else { return false }
+            let size = window.frame.size
+            return orientation.isLandscape ? size.width > size.height : size.height > size.width
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [expectedOrientation], timeout: 10), .completed,
+            "The app window must match the requested orientation before testing the gutter")
         for title in fixtureTitles {
             openFixture(title, in: app)
+            let size = window.frame.size
+            XCTAssertEqual(size.width > size.height, orientation.isLandscape)
             let group = app.descendants(matching: .any).matching(identifier: "editor-quick-actions").firstMatch
             let measures = app.buttons["editor-quick-measures"]
             let start = app.buttons["editor-quick-start-repeat"]
@@ -135,9 +147,12 @@ final class ToolMeasureSelectionUITests: XCTestCase {
         XCTAssertLessThanOrEqual(group.frame.width, 80)
         XCTAssertTrue(app.windows.firstMatch.frame.contains(group.frame))
         XCTAssertFalse(group.frame.intersects(viewport.frame), "The gutter must never cover the writing canvas")
+        // A landscape scene can be fitted into a portrait Simulator display.
+        // Its full-width rail supplies the scale from app points to screen points.
+        let screenScale = min(1, group.frame.width / 72)
         for button in buttons {
             XCTAssertTrue(button.exists)
-            XCTAssertGreaterThanOrEqual(button.frame.height, 44)
+            XCTAssertGreaterThanOrEqual(button.frame.height + 0.5, 44 * screenScale)
             XCTAssertTrue(group.frame.insetBy(dx: -1, dy: -1).contains(button.frame))
             XCTAssertFalse(button.frame.intersects(viewport.frame))
         }
@@ -683,9 +698,7 @@ final class ToolMeasureSelectionUITests: XCTestCase {
         let purpose = app.staticTexts["editor-guidance-purpose"]
         XCTAssertTrue(purpose.exists)
         let point = CGPoint(x: purpose.frame.midX, y: purpose.frame.midY)
-        XCTAssertTrue(app.windows.firstMatch.frame.contains(point))
-        app.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: point.x, dy: point.y)).tap()
+        tapWindow(at: point, in: app)
     }
 
     @MainActor
@@ -709,9 +722,16 @@ final class ToolMeasureSelectionUITests: XCTestCase {
         let point = CGPoint(x: frame.minX + frame.width * horizontalFraction,
             y: frame.minY + frame.width * (250.0 / 932.0))
         XCTAssertTrue(frame.contains(point), "The first-row target is visible inside the canvas")
-        XCTAssertTrue(app.windows.firstMatch.frame.contains(point))
-        app.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: point.x, dy: point.y)).tap()
+        tapWindow(at: point, in: app)
+    }
+
+    @MainActor
+    private func tapWindow(at point: CGPoint, in app: XCUIApplication) {
+        let window = app.windows.firstMatch
+        let frame = window.frame
+        XCTAssertTrue(frame.contains(point))
+        window.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: point.x - frame.minX, dy: point.y - frame.minY)).tap()
     }
 
     @MainActor

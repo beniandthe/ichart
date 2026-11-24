@@ -135,6 +135,7 @@ struct IChartApp: App {
                     guard scenePhase == .active else {
                         return
                     }
+                    IChartSimulatorPreviewLaunch.applyEditorFixtureOrientation()
                     synchronizeBetaAccess(authStore.state)
                     await retryBetaAccess()
                     if IChartProductAccessPolicy.current.offersPaidPurchases,
