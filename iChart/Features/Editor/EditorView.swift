@@ -721,7 +721,6 @@ struct EditorView: View {
             GeometryReader { proxy in
                 editorSurface(availableSize: proxy.size)
             }
-            .frame(maxWidth: IChartSimulatorPreviewLaunch.editorWidthLimit)
         }
         // Keep the paper viewport fixed under text entry. The inline cue
         // panel sits at the top so a docked keyboard leaves it reachable.
@@ -1322,9 +1321,6 @@ struct EditorView: View {
             width: max(1, availableSize.width - horizontalPadding * 2),
             height: max(1, availableSize.height - verticalPadding * 2)
         )
-        let showsToolsRail = chart.hasCompletedInitialSetup && editorGuidedTourStep == nil
-            && contentSize.width >= 640
-            && !dynamicTypeSize.isAccessibilitySize
         let logicalContentSize = CGSize(
             width: LeadSheetFreeInkDocumentLayoutPolicy.resolvedCanvasWidth(
                 retainedWidth: freeInkDocumentCanvasWidth,
@@ -1337,27 +1333,15 @@ struct EditorView: View {
             height: canvasHeight(for: logicalContentSize))
 
         VStack(spacing: 0) {
-            editorToolChrome(minWidth: contentSize.width, showsToolsMenu: !showsToolsRail)
+            editorToolChrome(minWidth: contentSize.width)
                 .padding(.horizontal, horizontalPadding)
                 .padding(.top, 10)
                 .padding(.bottom, 12)
 
-            if !showsToolsRail, let repeatAction = repeatQuickAction {
-                EditorQuickActions(tools: [], repeatAction: repeatAction)
-                    .padding(.horizontal, horizontalPadding)
-                    .padding(.bottom, 8)
-            }
-
-            HStack(alignment: .top, spacing: 8) {
-                if showsToolsRail {
-                    leftToolsRail
-                }
-
-                canvasView(documentSize: documentSize)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .padding(.horizontal, horizontalPadding)
-            .padding(.bottom, verticalPadding)
+            canvasView(documentSize: documentSize)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, horizontalPadding)
+                .padding(.bottom, verticalPadding)
         }
         .onAppear {
             latestEditorContentSize = documentSize
@@ -1370,59 +1354,6 @@ struct EditorView: View {
         }
     }
 
-    private var isQuickActionMode: Bool {
-        canvasMode == .browse || canvasMode == .measureEdit || canvasMode == .repeatEdit
-    }
-
-    private var showsRepeatQuickAction: Bool {
-        chart.hasCompletedInitialSetup && editorGuidedTourStep == nil
-            && isQuickActionMode && pendingDeleteStartMeasureID == nil
-            && pendingEndingType == nil && pendingEndingStartMeasureID == nil
-            && !isPresentingEditorPanel
-            && (canUseQuickRepeat || pendingRepeatStartMeasureID != nil)
-    }
-
-    private var canUseQuickRepeat: Bool {
-        guard let selectedMeasureID, chart.measure(id: selectedMeasureID) != nil else { return false }
-        guard let pendingRepeatStartMeasureID else { return true }
-        return canvasMode == .repeatEdit && chart.measure(id: pendingRepeatStartMeasureID) != nil
-    }
-
-    private var repeatQuickAction: EditorQuickRepeatAction? {
-        guard showsRepeatQuickAction else { return nil }
-        return EditorQuickRepeatAction(
-            isInProgress: pendingRepeatStartMeasureID != nil,
-            canUseRepeat: canUseQuickRepeat,
-            onRepeat: {
-                guard showsRepeatQuickAction, canUseQuickRepeat else { return }
-                if pendingRepeatStartMeasureID == nil {
-                    handleStartRepeatHere()
-                } else {
-                    handleEndRepeatHere()
-                }
-            },
-            onCancelRepeat: {
-                guard showsRepeatQuickAction, pendingRepeatStartMeasureID != nil else { return }
-                clearPendingRepeatState()
-            }
-        )
-    }
-
-    private var leftToolsRail: some View {
-        // The canvas has its own viewport. Leave its width steady as the
-        // user switches tools or chooses the endpoints of a repeat.
-        ScrollView(.vertical) {
-            EditorQuickActions(
-                tools: editorToolActions(),
-                repeatAction: repeatQuickAction
-            )
-        }
-        .scrollIndicators(.hidden)
-        .frame(width: 72)
-        .allowsHitTesting(!isPresentingEditorPanel)
-        .accessibilityHidden(isPresentingEditorPanel)
-    }
-
     private func retainFreeInkDocumentWidth(_ width: CGFloat? = nil) {
         guard freeInkDocumentCanvasWidth == nil else { return }
         freeInkDocumentCanvasWidth = LeadSheetFreeInkDocumentLayoutPolicy.canvasWidthToRetain(
@@ -1431,9 +1362,9 @@ struct EditorView: View {
         )
     }
 
-    private func editorToolChrome(minWidth: CGFloat, showsToolsMenu: Bool) -> some View {
+    private func editorToolChrome(minWidth: CGFloat) -> some View {
         VStack(alignment: .center, spacing: 8) {
-            toolStrip(minWidth: minWidth, showsToolsMenu: showsToolsMenu)
+            toolStrip(minWidth: minWidth)
                 .frame(maxWidth: .infinity, alignment: .center)
 
             if chart.hasCompletedInitialSetup {
@@ -1823,17 +1754,15 @@ struct EditorView: View {
         }
     }
 
-    private func toolStrip(minWidth: CGFloat, showsToolsMenu: Bool) -> some View {
+    private func toolStrip(minWidth: CGFloat) -> some View {
         HStack(spacing: 4) {
             ForEach(EditorCommandLayoutPolicy.primaryDestinations) { destination in
                 primaryToolControl(for: destination)
                     .frame(maxWidth: .infinity)
             }
 
-            if showsToolsMenu {
-                toolsMenuControl
-                    .frame(maxWidth: .infinity)
-            }
+            toolsMenuControl
+                .frame(maxWidth: .infinity)
         }
         .padding(4)
         .background(.regularMaterial)
@@ -1938,7 +1867,6 @@ struct EditorView: View {
                     from: canvasMode
                 )
             )
-            .accessibilityIdentifier("editor-tool-measures")
 
         case .documentSettings, .repeats, .timeSignature, .rhythm, .text, .formMarkers:
             EmptyView()
@@ -1946,16 +1874,25 @@ struct EditorView: View {
     }
 
     private var toolsMenuControl: some View {
-        let actions = editorToolActions()
-        return EditorToolActionMenu(cornerRadius: 12, menuIdentifier: "editor-tools-popover") {
+        EditorToolActionMenu(cornerRadius: 12, menuIdentifier: "editor-tools-popover") {
             EditorToolMenuHeading("Structure")
-            ForEach(actions.filter { $0.destination != .text && $0.destination != .formMarkers }) { action in
-                toolMenuRow(for: action)
+            EditorToolMenuRow("Repeats", systemImage: "repeat", identifier: "editor-tools-item-repeats",
+                              action: handleRepeatToolTapped)
+            EditorToolMenuRow(
+                "Time Signature", systemImage: "metronome", identifier: "editor-tools-item-timeSignature",
+                action: handleTimeSignatureTabTapped
+            )
+            if isDedicatedRhythmToolAvailable {
+                EditorToolMenuRow("Rhythm", systemImage: "music.note", identifier: "editor-tools-item-rhythm",
+                                  action: handleRhythmicNotationTabTapped)
             }
 
             EditorToolMenuHeading("Annotate")
-            ForEach(actions.filter { $0.destination == .text || $0.destination == .formMarkers }) { action in
-                toolMenuRow(for: action)
+            EditorToolMenuRow("Text", systemImage: "text.bubble", identifier: "editor-tools-item-text",
+                              action: handleTextToolTapped)
+            EditorToolMenuRow("Form Markers", systemImage: "signpost.right", identifier: "editor-tools-item-formMarkers") {
+                activateSelectTool()
+                showingFormMarkerPlacement = true
             }
         } label: {
             EditorMenuTabLabel(
@@ -1974,57 +1911,6 @@ struct EditorView: View {
         )
         .accessibilityLabel("Tools")
         .accessibilityHint("Repeats, time signatures, text, and form markers")
-    }
-
-    private func toolMenuRow(for action: EditorQuickToolAction) -> some View {
-        EditorToolMenuRow(
-            action.title,
-            systemImage: action.systemImage,
-            identifier: "editor-tools-item-\(action.destination.rawValue)",
-            action: action.action
-        )
-            .disabled(action.disabled)
-    }
-
-    private func editorToolActions() -> [EditorQuickToolAction] {
-        EditorCommandLayoutPolicy.toolsDestinations(includesDedicatedRhythmTool: isDedicatedRhythmToolAvailable)
-            .compactMap { destination in
-                let item: (title: String, systemImage: String, selected: Bool, action: () -> Void)
-                switch destination {
-                case .repeats:
-                    item = ("Repeats", "repeat",
-                        canvasMode == .repeatEdit, handleRepeatToolTapped)
-                case .timeSignature:
-                    item = ("Time Signature", "metronome",
-                        canvasMode == .timeSignatureEdit, handleTimeSignatureTabTapped)
-                case .rhythm:
-                    item = ("Rhythm", "music.note",
-                        canvasMode == .rhythmicNotationEdit, handleRhythmicNotationTabTapped)
-                case .text:
-                    item = ("Text", "text.bubble",
-                        canvasMode == .textEdit, handleTextToolTapped)
-                case .formMarkers:
-                    item = ("Form Markers", "signpost.right",
-                        showingFormMarkerPlacement, openFormMarkerPlacement)
-                case .documentSettings, .select, .chords, .ink, .measures:
-                    return nil
-                }
-                return EditorQuickToolAction(
-                    destination: destination,
-                    title: item.title,
-                    systemImage: item.systemImage,
-                    selected: item.selected,
-                    disabled: !EditorCommandLayoutPolicy.canActivate(
-                        destination, chartIsReady: chart.hasCompletedInitialSetup, from: canvasMode
-                    ),
-                    action: item.action
-                )
-            }
-    }
-
-    private func openFormMarkerPlacement() {
-        activateSelectTool()
-        showingFormMarkerPlacement = true
     }
 
     private var isToolsMenuTourHighlighted: Bool {
@@ -2247,9 +2133,6 @@ struct EditorView: View {
             guidance = guidance.replacingNextAction("Hold the cue, then drag it to move it.")
         case .browse where selectedRoadmapMarker != nil || selectedEndingSpan != nil:
             guidance = guidance.replacingNextAction("Drag Move Up or Down to change the selected item's height.")
-        case .browse where selectedChordID == nil && selectedCommittedBarlineMeasureID == nil
-            && canUseQuickRepeat && showsRepeatQuickAction:
-            guidance = guidance.replacingNextAction("Choose Measures or Start Repeat for the selected measure.")
         case .chordEntry:
             if let focus = draftEndingBlockerFocus, focus.matches(chart: chart, state: chordPreviewState) {
                 guidance = guidance.replacingNextAction("Use Erase on the highlighted barline. Switch to Write to redraw it, then review the ending again.")
@@ -2265,8 +2148,6 @@ struct EditorView: View {
                 guidance = guidance.replacingNextAction("Tap the last measure. Check the highlighted measure, then choose End Repeat.")
             } else if let pendingEndingType {
                 guidance = guidance.replacingNextAction("Tap the last measure, then choose End \(endingToolTitle(for: pendingEndingType)).")
-            } else if canUseQuickRepeat && showsRepeatQuickAction {
-                guidance = guidance.replacingNextAction("Choose Start Repeat or Add Ending for the selected measure.")
             }
         case .headerEntry where chart.headerInputMode == .typed:
             guidance = guidance.replacingNextAction("Tap Typed to edit the header, or Handwritten to write in the page header.")

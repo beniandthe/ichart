@@ -28,7 +28,7 @@ final class EditorToolGuidanceTests: XCTestCase {
                 // the canvas, but must remain available from the same tool.
                 XCTAssertFalse(guidance.accessibilitySummary.contains("bar-and-dot"))
                 XCTAssertTrue(guidance.referenceText.contains("chord-repeat symbols (%)"))
-                XCTAssertTrue(guidance.referenceText.contains("Choose Repeats beside the chart or from Tools for measure repeats and ranges."))
+                XCTAssertTrue(guidance.referenceText.contains("Use Tools > Repeats for measure repeats or ranges."))
                 XCTAssertTrue(guidance.referenceText.contains("Drawn bar-and-dot repeat signs are not recognized."))
                 XCTAssertTrue(guidance.referenceText.contains("Unplaced ink stays on the page."))
             }

@@ -317,8 +317,7 @@ final class FormMarkerPlacementUITests: XCTestCase {
     func testFormMarkerPlacementInBothLayouts() throws {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
-        app.launchArguments = ["-iChartEditorUIPreview", "-iChartEditorUINarrow",
-            "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchArguments = ["-iChartEditorUIPreview", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
 
         for title in ["Simple Sheet UI Fixture", "Rhythm Section UI Fixture"] {

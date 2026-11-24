@@ -1,4 +1,3 @@
-import UIKit
 import XCTest
 
 /// Uses normal tool menus and real canvas taps in a separate process. These
@@ -8,229 +7,6 @@ final class ToolMeasureSelectionUITests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-    }
-
-    @MainActor
-    func testQuickMeasureAndRepeatActionsInPortraitAcrossBothStyles() throws {
-        try assertQuickMeasureAndRepeatActions(orientation: .portrait)
-    }
-
-    @MainActor
-    func testQuickMeasureAndRepeatActionsInLandscapeAcrossBothStyles() throws {
-        try assertQuickMeasureAndRepeatActions(orientation: .landscapeLeft)
-    }
-
-    @MainActor
-    private func assertQuickMeasureAndRepeatActions(orientation: UIDeviceOrientation) throws {
-        let app = try fixtureApplication(narrow: false)
-        if orientation.isLandscape {
-            app.launchArguments.append("-iChartEditorUILandscape")
-        }
-        app.launch()
-        defer {
-            app.terminate()
-            XCUIDevice.shared.orientation = .portrait
-        }
-        let window = app.windows.firstMatch
-        let expectedOrientation = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            guard window.exists else { return false }
-            let size = window.frame.size
-            return orientation.isLandscape ? size.width > size.height : size.height > size.width
-        }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [expectedOrientation], timeout: 10), .completed,
-            "The app window must match the requested orientation before testing the gutter")
-        for title in fixtureTitles {
-            openFixture(title, in: app)
-            let size = window.frame.size
-            XCTAssertEqual(size.width > size.height, orientation.isLandscape)
-            let group = app.descendants(matching: .any).matching(identifier: "editor-quick-actions").firstMatch
-            let measures = app.buttons["editor-tool-measures"]
-            let toolButtons = railTools(in: app)
-            let start = app.buttons["editor-quick-start-repeat"]
-            let end = app.buttons["editor-quick-end-repeat"]
-            let cancel = app.buttons["editor-quick-cancel-repeat"]
-            XCTAssertTrue(group.waitForExistence(timeout: 5))
-            XCTAssertTrue(measures.isHittable)
-            XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label == %@", "Measures")).count, 1,
-                "The wide editor keeps Measures in its existing top location")
-            XCTAssertFalse(app.buttons["editor-quick-measures"].exists)
-            XCTAssertFalse(app.buttons["Tools"].exists)
-            XCTAssertFalse(start.exists, "Select must not offer a repeat destination before a real measure tap")
-            let originalViewport = try assertQuickActionsOutsideCanvas(group, buttons: toolButtons, in: app)
-
-            tapFirstRow(at: 0.18, in: app)
-            let first = try selectedMeasure(in: app)
-            XCTAssertTrue(start.isEnabled)
-            tapFirstRow(at: 0.47, in: app)
-            let last = try waitForDifferentSelectedMeasure(than: first, in: app)
-            XCTAssertLessThan(first, last)
-            tapFirstRow(at: 0.18, in: app)
-            waitForContext("Measure \(first) selected", in: app)
-            tapControlEdge(measures, at: 0.92)
-            waitForPurpose("Change measures and rows", in: app)
-            XCTAssertTrue(app.buttons["Add"].waitForExistence(timeout: 5))
-            XCTAssertTrue(app.buttons["measure-layout-open"].isHittable)
-            XCTAssertTrue(app.buttons["Delete"].isHittable)
-            waitForContext("Measure \(first) selected", in: app)
-
-            tapControlEdge(start, at: 0.92)
-            waitForPurpose("Repeat measures or add an ending", in: app)
-            waitForContext("Start: measure \(first) · Current end: measure \(first)", in: app)
-            XCTAssertTrue(end.waitForExistence(timeout: 5))
-            XCTAssertTrue(end.isHittable)
-            XCTAssertTrue(cancel.isHittable)
-            XCTAssertFalse(start.exists)
-            let pendingViewport = try assertQuickActionsOutsideCanvas(group, buttons: toolButtons + [end, cancel], in: app)
-            XCTAssertEqual(pendingViewport.minX, originalViewport.minX, accuracy: 1)
-            XCTAssertEqual(pendingViewport.width, originalViewport.width, accuracy: 1)
-            tapFirstRow(at: 0.47, in: app)
-            waitForContext("Start: measure \(first) · Current end: measure \(last)", in: app)
-            tapControlEdge(cancel, at: 0.92)
-            XCTAssertTrue(start.waitForExistence(timeout: 5))
-            XCTAssertTrue(start.isEnabled)
-            XCTAssertFalse(end.exists)
-            XCTAssertFalse(cancel.exists)
-            XCTAssertTrue(measures.isEnabled)
-            XCTAssertTrue(toolButtons.allSatisfy(\.isEnabled))
-            waitForPurpose("Repeat measures or add an ending", in: app)
-            waitForContext("Measure \(last) selected", in: app)
-            assertRepeatRemovalIsEnabled(false, in: app)
-            tapFirstRow(at: 0.18, in: app)
-            waitForContext("Measure \(first) selected", in: app)
-            assertRepeatRemovalIsEnabled(false, in: app)
-
-            tapControlEdge(start, at: 0.08)
-            waitForContext("Start: measure \(first) · Current end: measure \(first)", in: app)
-            tapFirstRow(at: 0.47, in: app)
-            waitForContext("Start: measure \(first) · Current end: measure \(last)", in: app)
-            tapControlEdge(end, at: 0.08)
-            waitForContext("Measure \(last) selected", in: app)
-            XCTAssertTrue(start.waitForExistence(timeout: 5))
-            XCTAssertFalse(end.exists)
-            XCTAssertFalse(cancel.exists)
-            XCTAssertTrue(measures.isEnabled)
-            assertRepeatRemovalIsEnabled(true, in: app)
-            app.buttons["Select"].tap()
-            XCTAssertTrue(group.waitForExistence(timeout: 5))
-            _ = try assertQuickActionsOutsideCanvas(group, buttons: toolButtons + [start], in: app)
-            app.buttons["Write & Render"].tap()
-            XCTAssertTrue(app.buttons["editor-rendering-mode"].waitForExistence(timeout: 5))
-            XCTAssertTrue(group.exists, "The left tool destinations remain reachable while writing")
-            _ = try assertQuickActionsOutsideCanvas(group, buttons: toolButtons, in: app)
-            for identifier in ["editor-quick-measures", "editor-quick-start-repeat",
-                "editor-quick-end-repeat", "editor-quick-cancel-repeat"] {
-                XCTAssertFalse(app.buttons[identifier].exists)
-            }
-            app.buttons["Select"].tap()
-            XCTAssertTrue(group.waitForExistence(timeout: 5))
-            XCTAssertFalse(start.exists, "Returning from writing must not invent a selected measure")
-            _ = try assertQuickActionsOutsideCanvas(group, buttons: toolButtons, in: app)
-            tapFirstRow(at: 0.18, in: app)
-            XCTAssertTrue(start.waitForExistence(timeout: 5))
-            _ = try assertQuickActionsOutsideCanvas(group, buttons: toolButtons + [start], in: app)
-            if orientation == .portrait {
-                let viewport = try quickActionDocumentViewport(in: app)
-                viewport.pinch(withScale: 1.25, velocity: 1)
-                viewport.swipeUp(velocity: .slow)
-                _ = try assertQuickActionsOutsideCanvas(group, buttons: toolButtons + [start], in: app)
-                tapControlEdge(measures, at: 0.92)
-                waitForPurpose("Change measures and rows", in: app)
-            }
-            attach(app, name: "\(title) quick action gutter \(orientation.rawValue)")
-            exitChart(in: app)
-        }
-    }
-
-    @MainActor
-    private func quickActionDocumentViewport(in app: XCUIApplication) throws -> XCUIElement {
-        try XCTUnwrap(app.scrollViews.allElementsBoundByIndex.filter {
-            $0.isHittable && $0.frame.width > app.windows.firstMatch.frame.width * 0.7 && $0.frame.height > 200
-        }.max { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height })
-    }
-
-    @MainActor
-    @discardableResult
-    private func assertQuickActionsOutsideCanvas(_ group: XCUIElement, buttons: [XCUIElement],
-        in app: XCUIApplication) throws -> CGRect {
-        let viewport = try quickActionDocumentViewport(in: app)
-        XCTAssertFalse(group.frame.isEmpty)
-        XCTAssertLessThanOrEqual(group.frame.width, 80)
-        XCTAssertTrue(app.windows.firstMatch.frame.contains(group.frame))
-        XCTAssertLessThanOrEqual(group.frame.maxX, viewport.frame.minX + 1,
-            "The tool rail sits to the left of the writing canvas")
-        // A landscape scene can be fitted into a portrait Simulator display.
-        // Its full-width rail supplies the scale from app points to screen points.
-        let screenScale = min(1, group.frame.width / 72)
-        for button in buttons {
-            XCTAssertTrue(button.exists)
-            XCTAssertGreaterThanOrEqual(button.frame.height + 0.5, 44 * screenScale)
-            XCTAssertTrue(group.frame.insetBy(dx: -1, dy: -1).contains(button.frame))
-            XCTAssertFalse(button.frame.intersects(viewport.frame))
-        }
-        return viewport.frame
-    }
-
-    @MainActor
-    private func assertRepeatRemovalIsEnabled(_ expected: Bool, in app: XCUIApplication) {
-        app.buttons["Manage"].tap()
-        let remove = app.buttons["Remove Repeat"]
-        XCTAssertTrue(remove.waitForExistence(timeout: 5))
-        XCTAssertEqual(remove.isEnabled, expected,
-            expected ? "End Repeat must commit the targeted range" : "Cancel must leave no repeat at either endpoint")
-        dismissOpenMenu(in: app)
-        waitForRemoval(remove, message: "Inspecting repeat availability leaves the current tool usable")
-    }
-
-    @MainActor
-    func testLeftToolRailOpensEveryDestinationFromItsVisibleEdgesInBothStyles() throws {
-        let app = try fixtureApplication(narrow: false)
-        app.launch()
-        defer { app.terminate() }
-        let destinations = [
-            (title: "Repeats", purpose: "Repeat measures or add an ending"),
-            (title: "Time Signature", purpose: "Change the meter from a measure"),
-            (title: "Text", purpose: "Place or edit a text cue"),
-            (title: "Form Markers", purpose: "")
-        ]
-        for title in fixtureTitles {
-            openFixture(title, in: app)
-            let group = app.descendants(matching: .any).matching(identifier: "editor-quick-actions").firstMatch
-            XCTAssertTrue(group.waitForExistence(timeout: 5))
-            XCTAssertFalse(app.buttons["Tools"].exists)
-            XCTAssertFalse(app.buttons["editor-quick-start-repeat"].exists)
-            _ = try assertQuickActionsOutsideCanvas(group, buttons: railTools(in: app), in: app)
-            for (index, destination) in destinations.enumerated() {
-                let entry = railTool(destination.title, in: app)
-                XCTAssertTrue(entry.isEnabled)
-                tapControlEdge(entry, at: index.isMultiple(of: 2) ? 0.94 : 0.06)
-                if destination.title == "Form Markers" {
-                    let sheet = app.navigationBars["Form Markers"]
-                    XCTAssertTrue(sheet.waitForExistence(timeout: 5))
-                    XCTAssertTrue(app.staticTexts["form-marker-instruction"].exists)
-                    sheet.buttons["Cancel"].tap()
-                    waitForRemoval(sheet, message: "Cancel returns to the chart without adding a marker")
-                    XCTAssertFalse(app.staticTexts["Marker"].exists)
-                } else {
-                    waitForPurpose(destination.purpose, in: app)
-                    XCTAssertTrue(entry.isSelected, "The rail identifies the active tool")
-                    if destination.title == "Repeats" {
-                        XCTAssertTrue(app.buttons["Repeat Measures"].isHittable)
-                        XCTAssertTrue(app.buttons["Add Ending"].isHittable)
-                    } else if destination.title == "Text" {
-                        tapFirstRow(at: 0.18, in: app)
-                        XCTAssertTrue(app.buttons["Above"].waitForExistence(timeout: 5))
-                        XCTAssertTrue(app.buttons["Below"].isHittable)
-                    }
-                }
-                XCTAssertFalse(app.buttons["Tools"].exists)
-                XCTAssertFalse(app.textViews["editor-cue-text-entry"].exists)
-                XCTAssertFalse(app.keyboards.firstMatch.exists,
-                    "A tool destination must not implicitly begin text input")
-                _ = try assertQuickActionsOutsideCanvas(group, buttons: railTools(in: app), in: app)
-            }
-            attach(app, name: "\(title) wide left tool rail reaches every destination")
-            exitChart(in: app)
-        }
     }
 
     @MainActor
@@ -246,10 +22,6 @@ final class ToolMeasureSelectionUITests: XCTestCase {
         ]
         for title in fixtureTitles {
             openFixture(title, in: app)
-            XCTAssertTrue(app.buttons["Tools"].isHittable)
-            XCTAssertTrue(railTools(in: app).allSatisfy { !$0.exists },
-                "A narrow editor uses the Tools dropdown instead of the left rail")
-            XCTAssertLessThanOrEqual(try quickActionDocumentViewport(in: app).frame.width, 620)
             for (index, destination) in destinations.enumerated() {
                 tapControlEdge(app.buttons["Tools"], at: 0.94)
                 let popover = app.descendants(matching: .any).matching(identifier: "editor-tools-popover").firstMatch
@@ -445,12 +217,9 @@ final class ToolMeasureSelectionUITests: XCTestCase {
         defer { app.terminate() }
         for title in fixtureTitles {
             openFixture(title, in: app)
-            XCTAssertFalse(app.buttons["editor-quick-start-repeat"].exists)
             openTool("Repeats", in: app)
 
             let initial = try selectedMeasure(in: app)
-            XCTAssertTrue(app.buttons["editor-quick-start-repeat"].isHittable)
-            XCTAssertTrue(railTools(in: app).allSatisfy { !$0.exists })
             tapFirstRow(at: 0.47, in: app)
             let end = try waitForDifferentSelectedMeasure(than: initial, in: app)
             tapFirstRow(at: 0.18, in: app)
@@ -463,8 +232,6 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             tapControlEdge(startRepeat, at: 0.94)
             waitForContext("Start: measure \(start) · Current end: measure \(start)", in: app)
             XCTAssertTrue(app.buttons["End Repeat"].isHittable)
-            XCTAssertTrue(app.buttons["editor-quick-end-repeat"].isHittable)
-            XCTAssertTrue(app.buttons["editor-quick-cancel-repeat"].isHittable)
 
             // The pending range must survive this canvas tap. A change to
             // Select or a dropped endpoint is not a successful repeat flow.
@@ -681,7 +448,7 @@ final class ToolMeasureSelectionUITests: XCTestCase {
     }
 
     @MainActor
-    private func fixtureApplication(narrow: Bool = true) throws -> XCUIApplication {
+    private func fixtureApplication() throws -> XCUIApplication {
         #if targetEnvironment(simulator)
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
@@ -690,7 +457,6 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             "-iChartChartPreviewMode", "collapsed", "-iChartChartsWorkspaceMode", "charts",
             "-iChartHasSeenAccountLanding", "NO", "-iChartHasSeenGuidedTourOffer", "YES"
         ]
-        if narrow { app.launchArguments.append("-iChartEditorUINarrow") }
         return app
         #else
         throw XCTSkip("Tool selection regression uses disposable Simulator fixtures only.")
@@ -702,7 +468,7 @@ final class ToolMeasureSelectionUITests: XCTestCase {
         let chart = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
         XCTAssertTrue(chart.waitForExistence(timeout: 20))
         chart.tap()
-        XCTAssertTrue(app.buttons["Measures"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["Tools"].waitForExistence(timeout: 15))
     }
 
     @MainActor
@@ -734,22 +500,6 @@ final class ToolMeasureSelectionUITests: XCTestCase {
     @MainActor
     private func toolsRows(in app: XCUIApplication) -> [XCUIElement] {
         ["Repeats", "Time Signature", "Text", "Form Markers"].map { toolsRow($0, in: app) }
-    }
-
-    @MainActor
-    private func railTool(_ title: String, in app: XCUIApplication) -> XCUIElement {
-        let ids = ["Repeats": "repeats", "Time Signature": "timeSignature",
-            "Text": "text", "Form Markers": "formMarkers"]
-        guard let id = ids[title] else {
-            XCTFail("Unrecognized rail test destination: \(title)")
-            return app.buttons[title]
-        }
-        return app.buttons["editor-quick-tool-\(id)"]
-    }
-
-    @MainActor
-    private func railTools(in app: XCUIApplication) -> [XCUIElement] {
-        ["Repeats", "Time Signature", "Text", "Form Markers"].map { railTool($0, in: app) }
     }
 
     @MainActor
@@ -787,7 +537,9 @@ final class ToolMeasureSelectionUITests: XCTestCase {
         let purpose = app.staticTexts["editor-guidance-purpose"]
         XCTAssertTrue(purpose.exists)
         let point = CGPoint(x: purpose.frame.midX, y: purpose.frame.midY)
-        tapWindow(at: point, in: app)
+        XCTAssertTrue(app.windows.firstMatch.frame.contains(point))
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: point.x, dy: point.y)).tap()
     }
 
     @MainActor
@@ -811,16 +563,9 @@ final class ToolMeasureSelectionUITests: XCTestCase {
         let point = CGPoint(x: frame.minX + frame.width * horizontalFraction,
             y: frame.minY + frame.width * (250.0 / 932.0))
         XCTAssertTrue(frame.contains(point), "The first-row target is visible inside the canvas")
-        tapWindow(at: point, in: app)
-    }
-
-    @MainActor
-    private func tapWindow(at point: CGPoint, in app: XCUIApplication) {
-        let window = app.windows.firstMatch
-        let frame = window.frame
-        XCTAssertTrue(frame.contains(point))
-        window.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: point.x - frame.minX, dy: point.y - frame.minY)).tap()
+        XCTAssertTrue(app.windows.firstMatch.frame.contains(point))
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: point.x, dy: point.y)).tap()
     }
 
     @MainActor
