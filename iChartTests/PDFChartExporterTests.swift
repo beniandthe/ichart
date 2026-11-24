@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import Foundation
 import PDFKit
+import PencilKit
 import UIKit
 import XCTest
 @testable import iChart
@@ -560,6 +561,208 @@ final class PDFChartExporterTests: XCTestCase {
         XCTAssertTrue(documentText.contains("Creator: Beni Rossman"))
         XCTAssertTrue(documentText.contains(postID.uuidString))
         XCTAssertTrue(documentText.contains("Exported: 2026-06-13"))
+    }
+
+    func testPersonalPDFCreditUsesPaidBasicWithoutWatermarkingEitherBetaOrLocalPro() {
+        for policy in [IChartProductAccessPolicy.paidSubscription, .freeAllFeatures, .betaBasic] {
+            for status in IChartSubscriptionStatus.allCases {
+                let entitlements = AppEntitlements(subscription: .init(status: status), accessPolicy: policy)
+                let expected = policy == .paidSubscription && [.basic, .proExpired, .unavailable].contains(status)
+                let context = ChartPDFExportContext.personalChart(entitlements: entitlements)
+                XCTAssertEqual(context.showsIChartCredit, expected, "\(policy), \(status)")
+                XCTAssertNil(context.forumCredit)
+            }
+        }
+        XCTAssertFalse(ChartPDFExportContext.standard.showsIChartCredit)
+    }
+
+    @MainActor
+    func testPaidBasicCreditFitsDenseFirstPageAndBottomInkWithoutChangingLaterPagesInBothStyles() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let exporter = PDFChartExporter(exportDirectory: directory)
+        let basic = ChartPDFExportContext.personalChart(entitlements:
+            AppEntitlements(subscription: .basic, accessPolicy: .paidSubscription))
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            for hasSavedCoordinates in [false, true] {
+                let fixture = try creditProofChart(style: style, hasSavedCoordinates: hasSavedCoordinates)
+                let plain = try await exporter.exportPDF(for: fixture.chart)
+                let credited = try await exporter.exportPDF(for: fixture.chart, context: basic)
+                let original = try XCTUnwrap(PDFDocument(url: plain.url))
+                let result = try XCTUnwrap(PDFDocument(url: credited.url))
+                XCTAssertGreaterThanOrEqual(original.pageCount, 2)
+                XCTAssertEqual(result.pageCount, original.pageCount)
+                let first = try XCTUnwrap(result.page(at: 0))
+                let originalFirst = try XCTUnwrap(original.page(at: 0))
+                let paper = first.bounds(for: .mediaBox)
+                let scale = (paper.height - 28) / paper.height
+                let inset = paper.width * (1 - scale) / 2
+                let credit = try selection("Made with iChart", in: result, page: first)
+                XCTAssertGreaterThanOrEqual(credit.minY, 0)
+                XCTAssertLessThan(credit.maxY, 28, "The credit belongs below all fitted musical content")
+                let before = try selection("Preserve this header", in: original, page: originalFirst)
+                let after = try selection("Preserve this header", in: result, page: first)
+                XCTAssertEqual(after.minX, inset + before.minX * scale, accuracy: 0.6)
+                XCTAssertEqual(after.minY, paper.height - (paper.height - before.minY) * scale, accuracy: 0.6)
+                XCTAssertEqual(after.width, before.width * scale, accuracy: 0.6)
+                let image = renderCreditPage(first)
+                let fittedInk = CGRect(x: inset + fixture.inkROI.minX * scale,
+                    y: fixture.inkROI.minY * scale, width: fixture.inkROI.width * scale,
+                    height: fixture.inkROI.height * scale)
+                XCTAssertGreaterThan(try darkPixelCount(renderCreditPage(originalFirst), in: fixture.inkROI), 25,
+                    "The source fixture must actually place ink near the bottom")
+                XCTAssertGreaterThan(try darkPixelCount(image, in: fittedInk), 25,
+                    "Both raw and coordinate-backed ink must move with the chart instead of being clipped")
+                XCTAssertLessThan(try darkPixelCount(image, in: fixture.inkROI), 5,
+                    "Ink must leave the reserved footer strip")
+                for index in 0..<result.pageCount {
+                    let page = try XCTUnwrap(result.page(at: index))
+                    let baseline = try XCTUnwrap(original.page(at: index))
+                    XCTAssertEqual(page.bounds(for: .mediaBox), baseline.bounds(for: .mediaBox))
+                    if index > 0 {
+                        XCTAssertFalse(page.string?.contains("Made with iChart") == true)
+                        XCTAssertEqual(try XCTUnwrap(renderCreditPage(page).pngData()),
+                            try XCTUnwrap(renderCreditPage(baseline).pngData()), "Later pages must render unchanged")
+                    }
+                }
+                if hasSavedCoordinates {
+                    let attachment = XCTAttachment(contentsOfFile: credited.url)
+                    attachment.name = "Basic-credit-\(style.rawValue)-dense-bottom-ink.pdf"
+                    attachment.lifetime = .keepAlways
+                    add(attachment)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testLaterPlanChangesLeaveExistingExportAndImportedPDFBytesUntouched() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let exporter = PDFChartExporter(exportDirectory: directory.appendingPathComponent("Exports"))
+        let chart = Chart.blank(title: "Retained older export", layoutStyle: .simpleChordSheet)
+        let old = try await exporter.exportPDF(for: chart)
+        let oldBytes = try Data(contentsOf: old.url)
+        let store = IChartPDFLibraryStore(baseDirectory: directory.appendingPathComponent("Library"))
+        let saved = try store.save(old, source: .chartExport)
+        let imported = try await store.importPDF(from: old.url, title: "Unmodified customer PDF")
+        let importedURL = try XCTUnwrap(store.exportedPDF(for: imported)).url
+        var plan = AppEntitlements(subscription: .basic, accessPolicy: .paidSubscription)
+        let basic = try await exporter.exportPDF(for: chart, context: .personalChart(entitlements: plan))
+        let basicBytes = try Data(contentsOf: basic.url)
+        XCTAssertTrue(PDFDocument(data: basicBytes)?.string?.contains("Made with iChart") == true)
+        plan.applySubscription(.activePro())
+        let pro = try await exporter.exportPDF(for: chart, context: .personalChart(entitlements: plan))
+        XCTAssertFalse(PDFDocument(url: pro.url)?.string?.contains("Made with iChart") == true)
+        store.reload()
+        XCTAssertEqual(store.items.count, 2)
+        for url in [old.url, saved.url, importedURL] { XCTAssertEqual(try Data(contentsOf: url), oldBytes) }
+        XCTAssertEqual(try Data(contentsOf: basic.url), basicBytes)
+    }
+
+    @MainActor
+    func testForumFooterRemainsIndependentOfPersonalCreditAndFirstPageFitting() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let exporter = PDFChartExporter(exportDirectory: directory)
+        let forum = ForumPDFCredit(creatorDisplayName: "Synthetic Publisher", forumPostID: UUID(),
+            exportedAt: Date(timeIntervalSince1970: 1_781_308_800))
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            var chart = Chart.blank(title: "Independent Forum credit", measureCount: 4, layoutStyle: style)
+            chart.composerCredit = "Preserve this header"
+            let original = try await exporter.exportPDF(for: chart, context: .init(forumCredit: forum))
+            var mixed = ChartPDFExportContext.personalChart(entitlements:
+                AppEntitlements(subscription: .basic, accessPolicy: .paidSubscription))
+            mixed.forumCredit = forum
+            let result = try await exporter.exportPDF(for: chart, context: mixed)
+            let before = try XCTUnwrap(PDFDocument(url: original.url))
+            let after = try XCTUnwrap(PDFDocument(url: result.url))
+            XCTAssertTrue(after.string?.contains(forum.footerText) == true)
+            XCTAssertFalse(after.string?.contains("Made with iChart") == true)
+            let first = try XCTUnwrap(after.page(at: 0))
+            let originalFirst = try XCTUnwrap(before.page(at: 0))
+            XCTAssertEqual(try selection("Preserve this header", in: after, page: first),
+                try selection("Preserve this header", in: before, page: originalFirst))
+            XCTAssertEqual(try XCTUnwrap(renderCreditPage(first).pngData()),
+                try XCTUnwrap(renderCreditPage(originalFirst).pngData()))
+        }
+    }
+
+    @MainActor
+    private func creditProofChart(style: ChartLayoutStyle, hasSavedCoordinates: Bool) throws -> (chart: Chart, inkROI: CGRect) {
+        var chart = Chart.blank(title: "Basic PDF credit proof", measureCount: 12, layoutStyle: style)
+        chart.composerCredit = "Preserve this header"
+        chart.stylePreset = .plainWhite
+        chart.setStaffSystemDensity(.dense)
+        let measures = chart.measures
+        chart.systems = stride(from: 0, to: measures.count, by: 2).enumerated().map { index, start in
+            ChartSystem(id: UUID(), index: index, spacingMode: .automatic, lineBreakRule: .forced,
+                measures: Array(measures[start..<min(start + 2, measures.count)]))
+        }
+        for (index, measure) in chart.measures.enumerated() {
+            try appendChord(["Bbmaj7", "Dm7", "G7", "Cmaj7"][index % 4], to: measure.id,
+                in: &chart, atFraction: 0.05)
+        }
+        let second = try XCTUnwrap(chart.appendPage())
+        _ = try XCTUnwrap(chart.addCueText("Later page stays unchanged", anchorMeasureID: second, position: .above))
+        let page = LeadSheetPageLayoutEngine.pageLayout(for: chart,
+            pageSize: CGSize(width: LeadSheetFreeInkDocumentLayoutPolicy.portraitCanvasWidth, height: 1100))
+        let paper = page.paperFrame
+        let writing = LeadSheetActiveInkScope.pageWritingFrame(for: page)
+        let origin = CGPoint(x: paper.minX + 90 - writing.minX, y: paper.maxY - 14 - writing.minY)
+        let points = [origin, CGPoint(x: origin.x + 20, y: origin.y),
+            CGPoint(x: origin.x + 20, y: origin.y + 5)].enumerated().map { index, point in
+                PKStrokePoint(location: point, timeOffset: Double(index) * 0.1,
+                    size: CGSize(width: 4, height: 4), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+            }
+        let stroke = PKStroke(ink: PKInk(.pen, color: LeadSheetPersistentInkColorPolicy.inkColor),
+            path: PKStrokePath(controlPoints: points, creationDate: Date(timeIntervalSinceReferenceDate: 40)),
+            transform: .identity, mask: nil, randomSeed: 40)
+        chart.pageHandwrittenNotationData = PKDrawing(strokes: [stroke]).dataRepresentation()
+        if hasSavedCoordinates {
+            chart.pageHandwrittenNotationCoordinateSpace = LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(
+                for: page, relativeTo: writing)
+        }
+        return (chart, CGRect(x: 80, y: paper.height - 24, width: 50, height: 21))
+    }
+
+    private func selection(_ text: String, in document: PDFDocument, page: PDFPage) throws -> CGRect {
+        let selection = try XCTUnwrap(document.findString(text, withOptions: []).first)
+        return selection.bounds(for: page)
+    }
+
+    @MainActor
+    private func renderCreditPage(_ page: PDFPage) -> UIImage {
+        let bounds = page.bounds(for: .mediaBox)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: bounds.size, format: format).image { renderer in
+            UIColor.white.setFill()
+            renderer.fill(CGRect(origin: .zero, size: bounds.size))
+            renderer.cgContext.translateBy(x: 0, y: bounds.height)
+            renderer.cgContext.scaleBy(x: 1, y: -1)
+            page.draw(with: .mediaBox, to: renderer.cgContext)
+        }
+    }
+
+    private func darkPixelCount(_ image: UIImage, in rect: CGRect) throws -> Int {
+        let crop = try XCTUnwrap(image.cgImage?.cropping(to: rect.integral))
+        let width = crop.width, height = crop.height
+        var pixels = [UInt8](repeating: 255, count: width * height * 4)
+        let drawn = pixels.withUnsafeMutableBytes { bytes -> Bool in
+            guard let context = CGContext(data: bytes.baseAddress, width: width, height: height,
+                bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            context.setFillColor(UIColor.white.cgColor)
+            context.fill(CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
+            context.draw(crop, in: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
+            return true
+        }
+        XCTAssertTrue(drawn)
+        return stride(from: 0, to: pixels.count, by: 4).filter {
+            pixels[$0] < 80 && pixels[$0 + 1] < 80 && pixels[$0 + 2] < 80 && pixels[$0 + 3] > 200
+        }.count
     }
 
     private func makeSimpleChordSheetExportProofChart() throws -> Chart {

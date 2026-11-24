@@ -1267,6 +1267,9 @@ struct EditorView: View {
                 }
                 .disabled(isExporting || !chart.hasCompletedInitialSetup || !canvasMode.allowsTopBarExport)
                 .accessibilityLabel(isExporting ? "Exporting PDF" : exportButtonTitle)
+                .accessibilityHint(personalPDFExportContext.showsIChartCredit
+                    ? "Includes a small Made with iChart credit on the first page."
+                    : "")
                 .tourActionHighlight(
                     isActive: editorGuidedTourStep == .export,
                     cornerRadius: 10,
@@ -3328,14 +3331,19 @@ struct EditorView: View {
         }
     }
 
+    private var personalPDFExportContext: ChartPDFExportContext {
+        .personalChart(entitlements: store.entitlements)
+    }
+
     private func handleExportTapped() {
         let chartToExport = chart
+        let exportContext = personalPDFExportContext
         isExporting = true
         let exportStartedAt = Date()
 
         Task {
             do {
-                let exportedPDF = try await exporter.exportPDF(for: chartToExport)
+                let exportedPDF = try await exporter.exportPDF(for: chartToExport, context: exportContext)
                 try await MainActor.run {
                     let libraryPDF = try pdfLibraryStore.save(exportedPDF, source: .chartExport)
                     activeSheet = .export(libraryPDF)

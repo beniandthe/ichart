@@ -537,7 +537,9 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Export PDF creates the finished file. Your editable chart stays in Charts.",
                 "Personal PDF exports include rendered notation and saved Free Ink. Unresolved Write & Render ink stays in the editable chart.",
                 "If Export PDF is unavailable, tap Done and finish setup first."
-            ]
+            ] + (IChartProductAccessPolicy.current.offersPaidPurchases ? [
+                "Basic adds a small Made with iChart credit to the first page of each new chart PDF. Share and Print use that same PDF."
+            ] : [])
         ),
         IChartHelpArticleSection(
             id: "pdf-import", title: "Import a PDF", systemImageName: "square.and.arrow.down",
