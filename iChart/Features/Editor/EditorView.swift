@@ -242,17 +242,31 @@ private struct ActiveToolDoneButtonStyle: ButtonStyle {
     }
 }
 
+private struct EditorActionLabel: View {
+    let title: String
+    let systemImage: String?
+
+    var body: some View {
+        if let systemImage {
+            Label(title, systemImage: systemImage)
+                .labelStyle(.titleAndIcon)
+        } else {
+            Text(title)
+        }
+    }
+}
+
 /// A concrete boundary keeps a button's nested style metadata out of the
 /// editor toolbar's conditional generic types. Resolving the combined type
 /// overflowed the physical iPad's stack when entering Write & Render.
 private struct EditorToolActionButton: View {
     let title: String
-    let systemImage: String
+    let systemImage: String?
     let isSelected: Bool
     let isDestructive: Bool
     let isTourHighlighted: Bool
     let isDisabled: Bool
-    var sizingLabel: (title: String, systemImage: String)?
+    var sizingLabel: (title: String, systemImage: String?)?
     var fillsAvailableWidth = false
     let action: () -> Void
 
@@ -265,14 +279,13 @@ private struct EditorToolActionButton: View {
         return IChartTapFeedbackButton(action: action) {
             ZStack {
                 if let sizingLabel {
-                    Label(sizingLabel.title, systemImage: sizingLabel.systemImage)
+                    EditorActionLabel(title: sizingLabel.title, systemImage: sizingLabel.systemImage)
                         .hidden()
                         .accessibilityHidden(true)
                 }
-                Label(title, systemImage: systemImage)
+                EditorActionLabel(title: title, systemImage: systemImage)
             }
             .font(.caption.weight(.semibold))
-            .labelStyle(.titleAndIcon)
             .lineLimit(expandsActionLabel ? nil : 1)
             .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: expandsActionLabel)
@@ -2549,14 +2562,14 @@ struct EditorView: View {
     private var repeatToolControls: some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 12) {
-                repeatSpanActions.fixedSize(horizontal: true, vertical: false)
-                repeatEndingActions.fixedSize(horizontal: true, vertical: false)
+                repeatSpanActions(compact: false).fixedSize(horizontal: true, vertical: false)
+                repeatEndingActions(compact: false).fixedSize(horizontal: true, vertical: false)
                 activeToolDoneButton
             }
             VStack(spacing: 6) {
-                repeatSpanActions
+                repeatSpanActions(compact: true)
                 HStack(spacing: 8) {
-                    repeatEndingActions
+                    repeatEndingActions(compact: true)
                     activeToolDoneButton
                 }
             }
@@ -2602,12 +2615,12 @@ struct EditorView: View {
         pendingRepeatStartMeasureID != nil || pendingEndingType != nil
     }
 
-    private var repeatSpanActions: some View {
+    private func repeatSpanActions(compact: Bool) -> some View {
         HStack(spacing: 5) {
-            repeatPrimaryActions
+            repeatPrimaryActions(compact: compact)
             repeatSecondaryButton(
                 title: "Remove Repeat",
-                systemImage: "trash",
+                systemImage: compact ? nil : "trash",
                 operation: .removeRepeat,
                 hasTarget: !repeatSpansAtSelectedBoundary.isEmpty
             )
@@ -2616,14 +2629,14 @@ struct EditorView: View {
     }
 
     @ViewBuilder
-    private var repeatPrimaryActions: some View {
+    private func repeatPrimaryActions(compact: Bool) -> some View {
         let isPlacingBoundary = isPlacingRepeatBoundary
-        let startLabel = ("Start Repeat", "repeat")
-        let endLabel = pendingEndingType.map {
-            ("End \(endingToolTitle(for: $0))", $0 == .ending1 ? "1.circle" : "2.circle")
-        } ?? ("End Repeat", "checkmark.circle")
-        let singleMeasureLabel = ("Repeat This Measure", "repeat.1")
-        let cancelLabel = ("Cancel", "xmark.circle")
+        let startLabel = ("Start Repeat", compact ? nil : "repeat")
+        let endTitle = pendingEndingType.map { "End \(endingToolTitle(for: $0))" } ?? "End Repeat"
+        let endSymbol = pendingEndingType.map { $0 == .ending1 ? "1.circle" : "2.circle" } ?? "checkmark.circle"
+        let endLabel = (endTitle, compact ? nil : endSymbol)
+        let singleMeasureLabel = ("Repeat This Measure", compact ? nil : "repeat.1")
+        let cancelLabel = ("Cancel", compact ? nil : "xmark.circle")
 
         activeToolButton(
             title: isPlacingBoundary ? endLabel.0 : startLabel.0,
@@ -2659,7 +2672,7 @@ struct EditorView: View {
             : "Place a repeat around the selected measure.")
     }
 
-    private var repeatEndingActions: some View {
+    private func repeatEndingActions(compact: Bool) -> some View {
         let hasEnding = !endingSpansAtSelectedMeasure.isEmpty
         return HStack(spacing: 5) {
             EditorToolActionMenu(menuIdentifier: "editor-add-ending-popover") {
@@ -2670,7 +2683,11 @@ struct EditorView: View {
                 EditorToolMenuRow("Start 1st Ending Here") { handleRepeatActiveEndingTapped(.ending1) }
                 EditorToolMenuRow("Start 2nd Ending Here") { handleRepeatActiveEndingTapped(.ending2) }
             } label: {
-                activeToolMenuLabel(title: "Add Ending", systemImage: "text.badge.plus", fillsAvailableWidth: true)
+                activeToolMenuLabel(
+                    title: "Add Ending",
+                    systemImage: compact ? nil : "text.badge.plus",
+                    fillsAvailableWidth: true
+                )
             }
             .disabled(isPlacingRepeatBoundary)
             .opacity(isPlacingRepeatBoundary ? 0 : 1)
@@ -2678,7 +2695,7 @@ struct EditorView: View {
 
             repeatSecondaryButton(
                 title: "Edit Ending…",
-                systemImage: "pencil",
+                systemImage: compact ? nil : "pencil",
                 operation: .editEnding,
                 hasTarget: hasEnding
             )
@@ -2686,7 +2703,7 @@ struct EditorView: View {
 
             repeatSecondaryButton(
                 title: "Remove Ending",
-                systemImage: "trash",
+                systemImage: compact ? nil : "trash",
                 operation: .removeEnding,
                 hasTarget: hasEnding
             )
@@ -2698,7 +2715,7 @@ struct EditorView: View {
     /// range is pending; other actions cannot change the pending range.
     private func repeatSecondaryButton(
         title: String,
-        systemImage: String,
+        systemImage: String?,
         operation: RepeatTargetOperation,
         hasTarget: Bool
     ) -> some View {
@@ -3056,12 +3073,12 @@ struct EditorView: View {
 
     private func activeToolButton(
         title: String,
-        systemImage: String,
+        systemImage: String?,
         isSelected: Bool = false,
         isDestructive: Bool = false,
         isTourHighlighted: Bool = false,
         isDisabled: Bool = false,
-        sizingLabel: (title: String, systemImage: String)? = nil,
+        sizingLabel: (title: String, systemImage: String?)? = nil,
         fillsAvailableWidth: Bool = false,
         action: @escaping () -> Void
     ) -> EditorToolActionButton {
@@ -3080,7 +3097,7 @@ struct EditorView: View {
 
     private func activeToolMenuLabel(
         title: String,
-        systemImage: String,
+        systemImage: String?,
         isSelected: Bool = false,
         isDestructive: Bool = false,
         isTourHighlighted: Bool = false,
@@ -3090,9 +3107,8 @@ struct EditorView: View {
             ? Color.red
             : Color(red: 0.16, green: 0.38, blue: 0.82)
 
-        return Label(title, systemImage: systemImage)
+        return EditorActionLabel(title: title, systemImage: systemImage)
             .font(.caption.weight(.semibold))
-            .labelStyle(.titleAndIcon)
             .lineLimit(fillsAvailableWidth ? nil : 1)
             .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: fillsAvailableWidth)

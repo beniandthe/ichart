@@ -1019,7 +1019,7 @@ final class ProjectConfigurationTests: XCTestCase {
         )
 
         XCTAssertTrue(editorText.contains("if pendingRepeatStartMeasureID != nil"))
-        XCTAssertTrue(editorText.contains("?? (\"End Repeat\", \"checkmark.circle\")"))
+        XCTAssertTrue(editorText.contains("?? \"End Repeat\""))
         XCTAssertTrue(editorText.contains("} else if let pendingEndingType"))
         XCTAssertTrue(editorText.contains("title: \"Delete To\""))
         XCTAssertTrue(editorText.contains("isSelected: true"))
