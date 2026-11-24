@@ -721,6 +721,7 @@ struct EditorView: View {
             GeometryReader { proxy in
                 editorSurface(availableSize: proxy.size)
             }
+            .frame(maxWidth: IChartSimulatorPreviewLaunch.editorWidthLimit)
         }
         // Keep the paper viewport fixed under text entry. The inline cue
         // panel sits at the top so a docked keyboard leaves it reachable.
@@ -1321,8 +1322,8 @@ struct EditorView: View {
             width: max(1, availableSize.width - horizontalPadding * 2),
             height: max(1, availableSize.height - verticalPadding * 2)
         )
-        let hasQuickActionSpace = chart.hasCompletedInitialSetup && editorGuidedTourStep == nil
-        let reservesQuickActionGutter = hasQuickActionSpace && contentSize.width >= 640
+        let showsToolsRail = chart.hasCompletedInitialSetup && editorGuidedTourStep == nil
+            && contentSize.width >= 640
             && !dynamicTypeSize.isAccessibilitySize
         let logicalContentSize = CGSize(
             width: LeadSheetFreeInkDocumentLayoutPolicy.resolvedCanvasWidth(
@@ -1336,33 +1337,24 @@ struct EditorView: View {
             height: canvasHeight(for: logicalContentSize))
 
         VStack(spacing: 0) {
-            editorToolChrome(minWidth: contentSize.width)
+            editorToolChrome(minWidth: contentSize.width, showsToolsMenu: !showsToolsRail)
                 .padding(.horizontal, horizontalPadding)
                 .padding(.top, 10)
                 .padding(.bottom, 12)
 
-            if hasQuickActionSpace && !reservesQuickActionGutter && isQuickActionMode {
-                quickActionButtons(isVertical: false)
+            if !showsToolsRail, let repeatAction = repeatQuickAction {
+                EditorQuickActions(tools: [], repeatAction: repeatAction)
                     .padding(.horizontal, horizontalPadding)
                     .padding(.bottom, 8)
             }
 
             HStack(alignment: .top, spacing: 8) {
+                if showsToolsRail {
+                    leftToolsRail
+                }
+
                 canvasView(documentSize: documentSize)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                if reservesQuickActionGutter {
-                    // Keep the viewport width stable as the editor changes tools.
-                    ScrollView(.vertical) {
-                        if isQuickActionMode {
-                            quickActionButtons(isVertical: true)
-                        }
-                    }
-                    .scrollIndicators(.hidden)
-                    .frame(width: 72)
-                    .allowsHitTesting(showsQuickActionButtons)
-                    .accessibilityHidden(!showsQuickActionButtons)
-                }
             }
             .padding(.horizontal, horizontalPadding)
             .padding(.bottom, verticalPadding)
@@ -1382,11 +1374,12 @@ struct EditorView: View {
         canvasMode == .browse || canvasMode == .measureEdit || canvasMode == .repeatEdit
     }
 
-    private var showsQuickActionButtons: Bool {
+    private var showsRepeatQuickAction: Bool {
         chart.hasCompletedInitialSetup && editorGuidedTourStep == nil
             && isQuickActionMode && pendingDeleteStartMeasureID == nil
             && pendingEndingType == nil && pendingEndingStartMeasureID == nil
             && !isPresentingEditorPanel
+            && (canUseQuickRepeat || pendingRepeatStartMeasureID != nil)
     }
 
     private var canUseQuickRepeat: Bool {
@@ -1395,18 +1388,13 @@ struct EditorView: View {
         return canvasMode == .repeatEdit && chart.measure(id: pendingRepeatStartMeasureID) != nil
     }
 
-    private func quickActionButtons(isVertical: Bool) -> some View {
-        EditorQuickActions(
-            isVertical: isVertical,
-            isMeasuresSelected: canvasMode == .measureEdit,
-            isRepeatInProgress: pendingRepeatStartMeasureID != nil,
+    private var repeatQuickAction: EditorQuickRepeatAction? {
+        guard showsRepeatQuickAction else { return nil }
+        return EditorQuickRepeatAction(
+            isInProgress: pendingRepeatStartMeasureID != nil,
             canUseRepeat: canUseQuickRepeat,
-            onMeasures: {
-                guard showsQuickActionButtons, pendingRepeatStartMeasureID == nil else { return }
-                handleMeasureEditRequested()
-            },
             onRepeat: {
-                guard showsQuickActionButtons, canUseQuickRepeat else { return }
+                guard showsRepeatQuickAction, canUseQuickRepeat else { return }
                 if pendingRepeatStartMeasureID == nil {
                     handleStartRepeatHere()
                 } else {
@@ -1414,13 +1402,25 @@ struct EditorView: View {
                 }
             },
             onCancelRepeat: {
-                guard showsQuickActionButtons, pendingRepeatStartMeasureID != nil else { return }
+                guard showsRepeatQuickAction, pendingRepeatStartMeasureID != nil else { return }
                 clearPendingRepeatState()
             }
         )
-        .opacity(showsQuickActionButtons ? 1 : 0)
-        .allowsHitTesting(showsQuickActionButtons)
-        .accessibilityHidden(!showsQuickActionButtons)
+    }
+
+    private var leftToolsRail: some View {
+        // The canvas has its own viewport. Leave its width steady as the
+        // user switches tools or chooses the endpoints of a repeat.
+        ScrollView(.vertical) {
+            EditorQuickActions(
+                tools: editorToolActions(),
+                repeatAction: repeatQuickAction
+            )
+        }
+        .scrollIndicators(.hidden)
+        .frame(width: 72)
+        .allowsHitTesting(!isPresentingEditorPanel)
+        .accessibilityHidden(isPresentingEditorPanel)
     }
 
     private func retainFreeInkDocumentWidth(_ width: CGFloat? = nil) {
@@ -1431,9 +1431,9 @@ struct EditorView: View {
         )
     }
 
-    private func editorToolChrome(minWidth: CGFloat) -> some View {
+    private func editorToolChrome(minWidth: CGFloat, showsToolsMenu: Bool) -> some View {
         VStack(alignment: .center, spacing: 8) {
-            toolStrip(minWidth: minWidth)
+            toolStrip(minWidth: minWidth, showsToolsMenu: showsToolsMenu)
                 .frame(maxWidth: .infinity, alignment: .center)
 
             if chart.hasCompletedInitialSetup {
@@ -1823,15 +1823,17 @@ struct EditorView: View {
         }
     }
 
-    private func toolStrip(minWidth: CGFloat) -> some View {
+    private func toolStrip(minWidth: CGFloat, showsToolsMenu: Bool) -> some View {
         HStack(spacing: 4) {
             ForEach(EditorCommandLayoutPolicy.primaryDestinations) { destination in
                 primaryToolControl(for: destination)
                     .frame(maxWidth: .infinity)
             }
 
-            toolsMenuControl
-                .frame(maxWidth: .infinity)
+            if showsToolsMenu {
+                toolsMenuControl
+                    .frame(maxWidth: .infinity)
+            }
         }
         .padding(4)
         .background(.regularMaterial)
@@ -1936,6 +1938,7 @@ struct EditorView: View {
                     from: canvasMode
                 )
             )
+            .accessibilityIdentifier("editor-tool-measures")
 
         case .documentSettings, .repeats, .timeSignature, .rhythm, .text, .formMarkers:
             EmptyView()
@@ -1943,25 +1946,16 @@ struct EditorView: View {
     }
 
     private var toolsMenuControl: some View {
-        EditorToolActionMenu(cornerRadius: 12, menuIdentifier: "editor-tools-popover") {
+        let actions = editorToolActions()
+        return EditorToolActionMenu(cornerRadius: 12, menuIdentifier: "editor-tools-popover") {
             EditorToolMenuHeading("Structure")
-            EditorToolMenuRow("Repeats", systemImage: "repeat", identifier: "editor-tools-item-repeats",
-                              action: handleRepeatToolTapped)
-            EditorToolMenuRow(
-                "Time Signature", systemImage: "metronome", identifier: "editor-tools-item-timeSignature",
-                action: handleTimeSignatureTabTapped
-            )
-            if isDedicatedRhythmToolAvailable {
-                EditorToolMenuRow("Rhythm", systemImage: "music.note", identifier: "editor-tools-item-rhythm",
-                                  action: handleRhythmicNotationTabTapped)
+            ForEach(actions.filter { $0.destination != .text && $0.destination != .formMarkers }) { action in
+                toolMenuRow(for: action)
             }
 
             EditorToolMenuHeading("Annotate")
-            EditorToolMenuRow("Text", systemImage: "text.bubble", identifier: "editor-tools-item-text",
-                              action: handleTextToolTapped)
-            EditorToolMenuRow("Form Markers", systemImage: "signpost.right", identifier: "editor-tools-item-formMarkers") {
-                activateSelectTool()
-                showingFormMarkerPlacement = true
+            ForEach(actions.filter { $0.destination == .text || $0.destination == .formMarkers }) { action in
+                toolMenuRow(for: action)
             }
         } label: {
             EditorMenuTabLabel(
@@ -1980,6 +1974,57 @@ struct EditorView: View {
         )
         .accessibilityLabel("Tools")
         .accessibilityHint("Repeats, time signatures, text, and form markers")
+    }
+
+    private func toolMenuRow(for action: EditorQuickToolAction) -> some View {
+        EditorToolMenuRow(
+            action.title,
+            systemImage: action.systemImage,
+            identifier: "editor-tools-item-\(action.destination.rawValue)",
+            action: action.action
+        )
+            .disabled(action.disabled)
+    }
+
+    private func editorToolActions() -> [EditorQuickToolAction] {
+        EditorCommandLayoutPolicy.toolsDestinations(includesDedicatedRhythmTool: isDedicatedRhythmToolAvailable)
+            .compactMap { destination in
+                let item: (title: String, systemImage: String, selected: Bool, action: () -> Void)
+                switch destination {
+                case .repeats:
+                    item = ("Repeats", "repeat",
+                        canvasMode == .repeatEdit, handleRepeatToolTapped)
+                case .timeSignature:
+                    item = ("Time Signature", "metronome",
+                        canvasMode == .timeSignatureEdit, handleTimeSignatureTabTapped)
+                case .rhythm:
+                    item = ("Rhythm", "music.note",
+                        canvasMode == .rhythmicNotationEdit, handleRhythmicNotationTabTapped)
+                case .text:
+                    item = ("Text", "text.bubble",
+                        canvasMode == .textEdit, handleTextToolTapped)
+                case .formMarkers:
+                    item = ("Form Markers", "signpost.right",
+                        showingFormMarkerPlacement, openFormMarkerPlacement)
+                case .documentSettings, .select, .chords, .ink, .measures:
+                    return nil
+                }
+                return EditorQuickToolAction(
+                    destination: destination,
+                    title: item.title,
+                    systemImage: item.systemImage,
+                    selected: item.selected,
+                    disabled: !EditorCommandLayoutPolicy.canActivate(
+                        destination, chartIsReady: chart.hasCompletedInitialSetup, from: canvasMode
+                    ),
+                    action: item.action
+                )
+            }
+    }
+
+    private func openFormMarkerPlacement() {
+        activateSelectTool()
+        showingFormMarkerPlacement = true
     }
 
     private var isToolsMenuTourHighlighted: Bool {
@@ -2203,7 +2248,7 @@ struct EditorView: View {
         case .browse where selectedRoadmapMarker != nil || selectedEndingSpan != nil:
             guidance = guidance.replacingNextAction("Drag Move Up or Down to change the selected item's height.")
         case .browse where selectedChordID == nil && selectedCommittedBarlineMeasureID == nil
-            && canUseQuickRepeat && showsQuickActionButtons:
+            && canUseQuickRepeat && showsRepeatQuickAction:
             guidance = guidance.replacingNextAction("Choose Measures or Start Repeat for the selected measure.")
         case .chordEntry:
             if let focus = draftEndingBlockerFocus, focus.matches(chart: chart, state: chordPreviewState) {
@@ -2220,7 +2265,7 @@ struct EditorView: View {
                 guidance = guidance.replacingNextAction("Tap the last measure. Check the highlighted measure, then choose End Repeat.")
             } else if let pendingEndingType {
                 guidance = guidance.replacingNextAction("Tap the last measure, then choose End \(endingToolTitle(for: pendingEndingType)).")
-            } else if canUseQuickRepeat && showsQuickActionButtons {
+            } else if canUseQuickRepeat && showsRepeatQuickAction {
                 guidance = guidance.replacingNextAction("Choose Start Repeat or Add Ending for the selected measure.")
             }
         case .headerEntry where chart.headerInputMode == .typed:

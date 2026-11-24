@@ -255,7 +255,7 @@ enum EditorCanvasMode: Hashable {
                 .init(title: "Add measures", text: "Use Add to extend the chart beside the selected measure or onto another row."),
                 .init(title: "Change the layout", text: "Open Layout to compare each action and read why an option is unavailable. Tap an available action to apply it. Merge with Next Measure is available when the boundary can be removed safely."),
                 .init(title: "Delete a range", text: "Choose the first measure and start the range. Tap the last measure, then choose Delete To. Review the range before deleting."),
-                .init(title: "Start a repeat", text: "Select the first measure and choose Start Repeat from the quick actions.")
+                .init(title: "Start a repeat", text: "Select the first measure and choose Start Repeat. Tap the last measure, then choose End Repeat or Cancel Repeat.")
             ]
             if layoutStyle == .simpleChordSheet || layoutStyle == .rhythmSectionSheet {
                 details.insert(.init(
@@ -283,7 +283,7 @@ enum EditorCanvasMode: Hashable {
                 steps: ["Select a measure, then choose Repeat Measures or Add Ending."],
                 detailsTitle: "Repeats and endings",
                 details: [
-                    .init(title: "Repeat a range", text: "Select the first measure and choose Start Repeat from the quick actions or Repeat Measures > Start Repeat. Tap the last measure and check the highlighted measure before choosing End Repeat. Choose Cancel Repeat, or Cancel in the Repeats controls, to clear the range."),
+                    .init(title: "Repeat a range", text: "Select the first measure and choose Start Repeat beside or above the chart, or use Repeat Measures > Start Repeat. Tap the last measure and check the highlighted measure before choosing End Repeat. Choose Cancel Repeat, or Cancel in the Repeats controls, to clear the range."),
                     .init(title: "Repeat one measure", text: "Choose Repeat Measures > Repeat This Measure to place repeat boundaries around the selected measure. This differs from a % chord-repeat symbol."),
                     .init(title: "Endings", text: "Use Add Ending to choose a 1st, 2nd, or custom ending. Choose the label and first and last measures, then check the right edge and preview before applying. For a range selected on the page, choose Start 1st Ending Here or Start 2nd Ending Here, then tap the last measure and finish the ending."),
                     .init(title: "Existing marks", text: "Use Manage to remove repeats or edit and remove endings.")
@@ -414,7 +414,7 @@ enum EditorCanvasMode: Hashable {
         }
         details.append(.init(
             title: "Measure repeats",
-            text: "Use Tools > Repeats for measure repeats or ranges. Drawn bar-and-dot repeat signs are not recognized."
+            text: "Choose Repeats beside the chart or from Tools for measure repeats and ranges. Drawn bar-and-dot repeat signs are not recognized."
         ))
         details.append(.init(
             title: "Ending brackets",

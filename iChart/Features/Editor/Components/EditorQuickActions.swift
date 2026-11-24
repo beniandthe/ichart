@@ -1,37 +1,61 @@
 import SwiftUI
 
-/// Existing editor commands beside the viewport, or in a compact row. The
-/// parent owns placement so these buttons never overlay the score.
-struct EditorQuickActions: View {
-    let isVertical: Bool
-    let isMeasuresSelected: Bool
-    let isRepeatInProgress: Bool
+struct EditorQuickToolAction: Identifiable {
+    let destination: EditorCommandDestination
+    let title: String
+    let systemImage: String
+    let selected: Bool
+    let disabled: Bool
+    let action: () -> Void
+
+    var id: EditorCommandDestination { destination }
+}
+
+struct EditorQuickRepeatAction {
+    let isInProgress: Bool
     let canUseRepeat: Bool
-    let onMeasures: () -> Void
     let onRepeat: () -> Void
     let onCancelRepeat: () -> Void
+}
+
+/// The parent reserves space outside the score. An empty tool list selects
+/// the compact, repeat-only row without creating a second command surface.
+struct EditorQuickActions: View {
+    let tools: [EditorQuickToolAction]
+    let repeatAction: EditorQuickRepeatAction?
 
     @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
         Group {
-            if isVertical {
-                VStack(spacing: 8) {
-                    measuresButton
-                    repeatButton
-                    if isRepeatInProgress { cancelRepeatButton }
+            if tools.isEmpty {
+                if let repeatAction {
+                    HStack(alignment: .center, spacing: 6) {
+                        repeatButton(repeatAction, isVertical: false)
+                        if repeatAction.isInProgress {
+                            cancelRepeatButton(repeatAction, isVertical: false)
+                        } else {
+                            cancelRepeatButton(repeatAction, isVertical: false)
+                                .hidden()
+                                .accessibilityHidden(true)
+                                .allowsHitTesting(false)
+                        }
+                    }
                 }
             } else {
-                HStack(alignment: .center, spacing: 6) {
-                    measuresButton
-                    repeatButton
-                    if isRepeatInProgress {
-                        cancelRepeatButton
-                    } else {
-                        cancelRepeatButton
-                            .hidden()
-                            .accessibilityHidden(true)
-                            .allowsHitTesting(false)
+                VStack(spacing: 8) {
+                    ForEach(tools) { tool in
+                        actionButton(title: tool.title, systemImage: tool.systemImage,
+                            identifier: "editor-quick-tool-\(tool.destination.rawValue)",
+                            selected: tool.selected, disabled: tool.disabled, isVertical: true,
+                            hint: "Open \(tool.title).", action: tool.action)
+                    }
+                    if let repeatAction {
+                        Divider().accessibilityHidden(true)
+                        repeatButton(repeatAction, isVertical: true)
+                        if repeatAction.isInProgress {
+                            cancelRepeatButton(repeatAction, isVertical: true)
+                        }
                     }
                 }
             }
@@ -40,35 +64,25 @@ struct EditorQuickActions: View {
         .accessibilityIdentifier("editor-quick-actions")
     }
 
-    private var measuresButton: some View {
-        actionButton(title: "Measures", systemImage: "rectangle.split.3x1",
-            identifier: "editor-quick-measures", selected: isMeasuresSelected,
-            disabled: isRepeatInProgress,
-            hint: isRepeatInProgress
-                ? "Finish or cancel the repeat before opening Measures."
-                : "Open the measure controls.",
-            action: onMeasures)
-    }
-
-    private var repeatButton: some View {
-        actionButton(title: isRepeatInProgress ? "End Repeat" : "Start Repeat",
-            systemImage: isRepeatInProgress ? "checkmark.circle" : "repeat",
-            identifier: isRepeatInProgress ? "editor-quick-end-repeat" : "editor-quick-start-repeat",
-            selected: isRepeatInProgress, disabled: !canUseRepeat,
-            hint: isRepeatInProgress
+    private func repeatButton(_ repeatAction: EditorQuickRepeatAction, isVertical: Bool) -> some View {
+        actionButton(title: repeatAction.isInProgress ? "End Repeat" : "Start Repeat",
+            systemImage: repeatAction.isInProgress ? "checkmark.circle" : "repeat",
+            identifier: repeatAction.isInProgress ? "editor-quick-end-repeat" : "editor-quick-start-repeat",
+            selected: repeatAction.isInProgress, disabled: !repeatAction.canUseRepeat, isVertical: isVertical,
+            hint: repeatAction.isInProgress
                 ? "Use the selected measure as the end of this repeat."
                 : "Set the selected measure as the start of a repeat.",
-            action: onRepeat)
+            action: repeatAction.onRepeat)
     }
 
-    private var cancelRepeatButton: some View {
+    private func cancelRepeatButton(_ repeatAction: EditorQuickRepeatAction, isVertical: Bool) -> some View {
         actionButton(title: "Cancel Repeat", systemImage: "xmark.circle",
-            identifier: "editor-quick-cancel-repeat", selected: false, disabled: false,
-            hint: "Cancel repeat placement without changing the chart.", action: onCancelRepeat)
+            identifier: "editor-quick-cancel-repeat", selected: false, disabled: false, isVertical: isVertical,
+            hint: "Cancel repeat placement without changing the chart.", action: repeatAction.onCancelRepeat)
     }
 
     private func actionButton(title: String, systemImage: String, identifier: String,
-        selected: Bool, disabled: Bool, hint: String, action: @escaping () -> Void) -> some View {
+        selected: Bool, disabled: Bool, isVertical: Bool, hint: String, action: @escaping () -> Void) -> some View {
         let enabled = isEnabled && !disabled
         return IChartTapFeedbackButton(cornerRadius: 10, action: action) {
             Group {

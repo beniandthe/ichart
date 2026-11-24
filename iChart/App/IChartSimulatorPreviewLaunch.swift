@@ -12,6 +12,15 @@ enum IChartSimulatorPreviewLaunch {
         #endif
     }
 
+    static var editorWidthLimit: CGFloat? {
+        #if DEBUG && targetEnvironment(simulator)
+        if showsEditorUIFixture, ProcessInfo.processInfo.arguments.contains("-iChartEditorUINarrow") {
+            return 620
+        }
+        #endif
+        return nil
+    }
+
     @MainActor
     static func applyEditorFixtureOrientation() {
         #if DEBUG && targetEnvironment(simulator)
