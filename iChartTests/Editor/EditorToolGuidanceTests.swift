@@ -127,7 +127,7 @@ final class EditorToolGuidanceTests: XCTestCase {
             XCTAssertTrue(guidance.referenceText.contains("tap Delete Measure…, and confirm the measure shown."))
             XCTAssertTrue(guidance.referenceText.contains("tap Delete Range… to start. Tap the last measure"))
             XCTAssertTrue(guidance.referenceText.contains("Quick Actions holds the Layout controls to the left of the chart, or below the tool controls in narrow windows."))
-            XCTAssertTrue(guidance.referenceText.contains("Tap Hide to give the chart more room or Open to bring back the controls."))
+            XCTAssertTrue(guidance.referenceText.contains("Tap the left-pointing chevron beside Quick Actions to give the chart more room. Tap the right-pointing chevron to show the controls again."))
             XCTAssertTrue(guidance.referenceText.contains("Tap a measure in Select or Measures to see which actions are available."))
             XCTAssertTrue(guidance.referenceText.contains("Even System Measures"))
             XCTAssertTrue(guidance.referenceText.contains("Merge with Next Measure removes an eligible divider."))

@@ -1317,7 +1317,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(libraryText.contains("select the first measure and tap Delete Range… to start."))
         XCTAssertTrue(libraryText.contains("When you release, a lone measure on the next row moves up if its full width fits."))
         XCTAssertTrue(libraryText.contains("Quick Actions holds the Layout controls to the left of the chart, or below the tool controls in narrow windows."))
-        XCTAssertTrue(libraryText.contains("Tap Hide to give the chart more room or Open to bring back the controls."))
+        XCTAssertTrue(libraryText.contains("Tap the left-pointing chevron beside Quick Actions to give the chart more room. Tap the right-pointing chevron to show the controls again."))
         XCTAssertTrue(libraryText.contains("Tap a measure in Select or Measures to see which actions are available."))
         XCTAssertTrue(libraryText.contains("Even System Measures gives the measures in the selected row matching widths."))
         XCTAssertTrue(libraryText.contains("adding one measure gives the row even widths"))

@@ -43,19 +43,22 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             let layoutAction = app.buttons["measure-layout-action-evenRowWidths"]
             XCTAssertTrue(quickActionsTitle.waitForExistence(timeout: 5))
             XCTAssertEqual(quickActionsTitle.label, "Quick Actions")
-            XCTAssertEqual(toggle.label, "Hide")
+            XCTAssertEqual(toggle.label, "Collapse Quick Actions")
             XCTAssertEqual(toggle.value as? String, "Open")
             XCTAssertTrue(sidebarRepeat.isHittable)
             XCTAssertTrue(layoutAction.exists)
+            assertQuickActionsTitleCentered(quickActionsTitle, in: app)
+            attach(app, name: "\(title) with Quick Actions open at \(narrow ? "360 points" : "standard width")")
 
             let openCanvas = try XCTUnwrap(documentViewport(in: app)).frame
             tapControlEdge(toggle, at: 0.75)
-            XCTAssertEqual(toggle.label, "Open")
+            XCTAssertEqual(toggle.label, "Open Quick Actions")
             XCTAssertEqual(toggle.value as? String, "Hidden")
             XCTAssertFalse(sidebarRepeat.exists)
             XCTAssertFalse(layoutAction.exists)
             let hiddenCanvas = try XCTUnwrap(documentViewport(in: app)).frame
             if narrow {
+                XCTAssertTrue(quickActionsTitle.exists)
                 XCTAssertEqual(hiddenCanvas.width, openCanvas.width, accuracy: 2)
                 XCTAssertLessThan(hiddenCanvas.minY, openCanvas.minY - 16)
                 XCTAssertGreaterThan(hiddenCanvas.height, openCanvas.height + 16)
@@ -66,7 +69,8 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             attach(app, name: "\(title) with Quick Actions hidden at \(narrow ? "360 points" : "standard width")")
 
             tapControlEdge(toggle, at: 0.75)
-            XCTAssertEqual(toggle.label, "Hide")
+            XCTAssertEqual(toggle.label, "Collapse Quick Actions")
+            XCTAssertEqual(toggle.value as? String, "Open")
             XCTAssertTrue(sidebarRepeat.isHittable)
             XCTAssertTrue(layoutAction.exists)
             let restoredCanvas = try XCTUnwrap(documentViewport(in: app)).frame
@@ -108,6 +112,21 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             XCTAssertTrue(app.buttons["Remove Repeat"].isEnabled, "The sidebar commits the retained range")
             exitChart(in: app)
         }
+    }
+
+    @MainActor
+    private func assertQuickActionsTitleCentered(_ title: XCUIElement, in app: XCUIApplication) {
+        let toolIDs = ["repeat", "text", "form-markers", "time-signature"].map { "editor-sidebar-\($0)" }
+        let layoutIDs = layoutActionIDs.map { "measure-layout-action-\($0)" }
+        let buttonFrames = (toolIDs + layoutIDs).map { id in
+            let button = app.buttons[id]
+            XCTAssertTrue(button.exists, id)
+            return button.frame
+        }
+        let buttonBounds = buttonFrames.reduce(CGRect.null) { $0.union($1) }
+        XCTAssertEqual(title.frame.midX, buttonBounds.midX, accuracy: 2,
+                       "Quick Actions centers over the full button area")
+        XCTAssertLessThanOrEqual(title.frame.maxY, buttonBounds.minY + 1)
     }
 
     @MainActor

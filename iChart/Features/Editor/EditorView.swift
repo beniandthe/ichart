@@ -1406,40 +1406,53 @@ struct EditorView: View {
         }
     }
 
+    @ViewBuilder
     private var quickActionsHeader: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 4) {
+        if isQuickActionsOpen {
+            let tapTarget = EditorCommandLayoutPolicy.minimumTapTarget
+            ViewThatFits(in: .horizontal) {
                 quickActionsTitle
-                    .fixedSize()
-                quickActionsToggle
-            }
+                    .fixedSize(horizontal: true, vertical: false)
+                    .padding(.horizontal, tapTarget)
+                    .frame(maxWidth: .infinity, minHeight: tapTarget)
+                    .overlay(alignment: .trailing) {
+                        quickActionsToggle
+                    }
 
-            VStack(alignment: .leading, spacing: 2) {
-                quickActionsTitle
-                quickActionsToggle
+                VStack(spacing: 0) {
+                    quickActionsToggle.frame(maxWidth: .infinity, alignment: .trailing)
+                    quickActionsTitle.frame(maxWidth: .infinity)
+                }
             }
+        } else {
+            HStack(spacing: 0) {
+                quickActionsToggle
+                quickActionsTitle
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var quickActionsTitle: some View {
         Text("Quick Actions")
             .font(.caption2.weight(.semibold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(IChartInterfaceStyle.actionText)
+            .multilineTextAlignment(.center)
             .accessibilityAddTraits(.isHeader)
             .accessibilityIdentifier("editor-quick-actions-title")
     }
 
     private var quickActionsToggle: some View {
-        IChartTapFeedbackButton(isRaised: true) {
+        let tapTarget = EditorCommandLayoutPolicy.minimumTapTarget
+        return IChartTapFeedbackButton {
             isQuickActionsOpen.toggle()
         } label: {
-            Text(isQuickActionsOpen ? "Hide" : "Open")
-                .font(.caption2.weight(.semibold))
-                .padding(.horizontal, 5)
-                .frame(minWidth: EditorCommandLayoutPolicy.minimumTapTarget,
-                       minHeight: EditorCommandLayoutPolicy.minimumTapTarget)
+            Image(systemName: isQuickActionsOpen ? "chevron.left" : "chevron.right")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.secondary)
+                .frame(width: tapTarget, height: tapTarget)
         }
+        .accessibilityLabel(isQuickActionsOpen ? "Collapse Quick Actions" : "Open Quick Actions")
         .accessibilityValue(isQuickActionsOpen ? "Open" : "Hidden")
         .accessibilityHint(isQuickActionsOpen
             ? "Hide Quick Actions and give the chart more room."

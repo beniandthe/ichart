@@ -403,7 +403,7 @@ enum EditorCanvasMode: Hashable {
 
     private static let layoutPlacementGuide = EditorToolGuidanceSection(
         title: "Layout actions",
-        text: "Quick Actions holds the Layout controls to the left of the chart, or below the tool controls in narrow windows. Tap Hide to give the chart more room or Open to bring back the controls. Tap a measure in Select or Measures to see which actions are available."
+        text: "Quick Actions holds the Layout controls to the left of the chart, or below the tool controls in narrow windows. Tap the left-pointing chevron beside Quick Actions to give the chart more room. Tap the right-pointing chevron to show the controls again. Tap a measure in Select or Measures to see which actions are available."
     )
 
     private static func measureRowActionsGuide(layoutStyle: ChartLayoutStyle) -> EditorToolGuidanceSection {
