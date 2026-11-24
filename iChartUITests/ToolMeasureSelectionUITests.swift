@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 
 /// Uses normal tool menus and real canvas taps in a separate process. These
@@ -7,6 +8,151 @@ final class ToolMeasureSelectionUITests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
+    }
+
+    @MainActor
+    func testQuickMeasureAndRepeatActionsInPortraitAcrossBothStyles() throws {
+        try assertQuickMeasureAndRepeatActions(orientation: .portrait)
+    }
+
+    @MainActor
+    func testQuickMeasureAndRepeatActionsInLandscapeAcrossBothStyles() throws {
+        try assertQuickMeasureAndRepeatActions(orientation: .landscapeLeft)
+    }
+
+    @MainActor
+    private func assertQuickMeasureAndRepeatActions(orientation: UIDeviceOrientation) throws {
+        let app = try fixtureApplication()
+        XCUIDevice.shared.orientation = orientation
+        app.launch()
+        defer {
+            app.terminate()
+            XCUIDevice.shared.orientation = .portrait
+        }
+        for title in fixtureTitles {
+            openFixture(title, in: app)
+            let group = app.descendants(matching: .any).matching(identifier: "editor-quick-actions").firstMatch
+            let measures = app.buttons["editor-quick-measures"]
+            let start = app.buttons["editor-quick-start-repeat"]
+            let end = app.buttons["editor-quick-end-repeat"]
+            let cancel = app.buttons["editor-quick-cancel-repeat"]
+            XCTAssertTrue(group.waitForExistence(timeout: 5))
+            XCTAssertTrue(measures.isHittable)
+            XCTAssertFalse(start.isEnabled, "Select must not invent a repeat destination before a real measure tap")
+            let originalViewport = try assertQuickActionsOutsideCanvas(group, buttons: [measures, start], in: app)
+
+            tapFirstRow(at: 0.18, in: app)
+            let first = try selectedMeasure(in: app)
+            XCTAssertTrue(start.isEnabled)
+            tapFirstRow(at: 0.47, in: app)
+            let last = try waitForDifferentSelectedMeasure(than: first, in: app)
+            XCTAssertLessThan(first, last)
+            tapFirstRow(at: 0.18, in: app)
+            waitForContext("Measure \(first) selected", in: app)
+            tapControlEdge(measures, at: 0.92)
+            waitForPurpose("Change measures and rows", in: app)
+            XCTAssertTrue(app.buttons["Add"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.buttons["measure-layout-open"].isHittable)
+            XCTAssertTrue(app.buttons["Delete"].isHittable)
+            waitForContext("Measure \(first) selected", in: app)
+
+            tapControlEdge(start, at: 0.92)
+            waitForPurpose("Repeat measures or add an ending", in: app)
+            waitForContext("Start: measure \(first) · Current end: measure \(first)", in: app)
+            XCTAssertTrue(end.waitForExistence(timeout: 5))
+            XCTAssertTrue(end.isHittable)
+            XCTAssertTrue(cancel.isHittable)
+            XCTAssertFalse(start.exists)
+            XCTAssertFalse(measures.isEnabled, "Measures must not clear a repeat that is still being targeted")
+            let pendingViewport = try assertQuickActionsOutsideCanvas(group, buttons: [measures, end, cancel], in: app)
+            XCTAssertEqual(pendingViewport.minX, originalViewport.minX, accuracy: 1)
+            XCTAssertEqual(pendingViewport.width, originalViewport.width, accuracy: 1)
+            tapFirstRow(at: 0.47, in: app)
+            waitForContext("Start: measure \(first) · Current end: measure \(last)", in: app)
+            tapControlEdge(cancel, at: 0.92)
+            XCTAssertTrue(start.waitForExistence(timeout: 5))
+            XCTAssertTrue(start.isEnabled)
+            XCTAssertFalse(end.exists)
+            XCTAssertFalse(cancel.exists)
+            XCTAssertTrue(measures.isEnabled)
+            waitForPurpose("Repeat measures or add an ending", in: app)
+            waitForContext("Measure \(last) selected", in: app)
+            assertRepeatRemovalIsEnabled(false, in: app)
+            tapFirstRow(at: 0.18, in: app)
+            waitForContext("Measure \(first) selected", in: app)
+            assertRepeatRemovalIsEnabled(false, in: app)
+
+            tapControlEdge(start, at: 0.08)
+            waitForContext("Start: measure \(first) · Current end: measure \(first)", in: app)
+            tapFirstRow(at: 0.47, in: app)
+            waitForContext("Start: measure \(first) · Current end: measure \(last)", in: app)
+            tapControlEdge(end, at: 0.08)
+            waitForContext("Measure \(last) selected", in: app)
+            XCTAssertTrue(start.waitForExistence(timeout: 5))
+            XCTAssertFalse(end.exists)
+            XCTAssertFalse(cancel.exists)
+            XCTAssertTrue(measures.isEnabled)
+            assertRepeatRemovalIsEnabled(true, in: app)
+            app.buttons["Select"].tap()
+            XCTAssertTrue(group.waitForExistence(timeout: 5))
+            _ = try assertQuickActionsOutsideCanvas(group, buttons: [measures, start], in: app)
+            app.buttons["Write & Render"].tap()
+            XCTAssertTrue(app.buttons["editor-rendering-mode"].waitForExistence(timeout: 5))
+            waitForRemoval(group, message: "Quick actions stay out of the Write & Render flow")
+            for identifier in ["editor-quick-measures", "editor-quick-start-repeat",
+                "editor-quick-end-repeat", "editor-quick-cancel-repeat"] {
+                XCTAssertFalse(app.buttons[identifier].exists)
+            }
+            app.buttons["Select"].tap()
+            XCTAssertTrue(group.waitForExistence(timeout: 5))
+            _ = try assertQuickActionsOutsideCanvas(group, buttons: [measures, start], in: app)
+            if orientation == .portrait {
+                let viewport = try quickActionDocumentViewport(in: app)
+                viewport.pinch(withScale: 1.25, velocity: 1)
+                viewport.swipeUp(velocity: .slow)
+                _ = try assertQuickActionsOutsideCanvas(group, buttons: [measures, start], in: app)
+                tapControlEdge(measures, at: 0.92)
+                waitForPurpose("Change measures and rows", in: app)
+            }
+            attach(app, name: "\(title) quick action gutter \(orientation.rawValue)")
+            exitChart(in: app)
+        }
+    }
+
+    @MainActor
+    private func quickActionDocumentViewport(in app: XCUIApplication) throws -> XCUIElement {
+        try XCTUnwrap(app.scrollViews.allElementsBoundByIndex.filter {
+            $0.isHittable && $0.frame.width > app.windows.firstMatch.frame.width * 0.7 && $0.frame.height > 200
+        }.max { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height })
+    }
+
+    @MainActor
+    @discardableResult
+    private func assertQuickActionsOutsideCanvas(_ group: XCUIElement, buttons: [XCUIElement],
+        in app: XCUIApplication) throws -> CGRect {
+        let viewport = try quickActionDocumentViewport(in: app)
+        XCTAssertFalse(group.frame.isEmpty)
+        XCTAssertLessThanOrEqual(group.frame.width, 80)
+        XCTAssertTrue(app.windows.firstMatch.frame.contains(group.frame))
+        XCTAssertFalse(group.frame.intersects(viewport.frame), "The gutter must never cover the writing canvas")
+        for button in buttons {
+            XCTAssertTrue(button.exists)
+            XCTAssertGreaterThanOrEqual(button.frame.height, 44)
+            XCTAssertTrue(group.frame.insetBy(dx: -1, dy: -1).contains(button.frame))
+            XCTAssertFalse(button.frame.intersects(viewport.frame))
+        }
+        return viewport.frame
+    }
+
+    @MainActor
+    private func assertRepeatRemovalIsEnabled(_ expected: Bool, in app: XCUIApplication) {
+        app.buttons["Manage"].tap()
+        let remove = app.buttons["Remove Repeat"]
+        XCTAssertTrue(remove.waitForExistence(timeout: 5))
+        XCTAssertEqual(remove.isEnabled, expected,
+            expected ? "End Repeat must commit the targeted range" : "Cancel must leave no repeat at either endpoint")
+        dismissOpenMenu(in: app)
+        waitForRemoval(remove, message: "Inspecting repeat availability leaves the current tool usable")
     }
 
     @MainActor

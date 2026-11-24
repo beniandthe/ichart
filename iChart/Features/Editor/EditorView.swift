@@ -1321,6 +1321,9 @@ struct EditorView: View {
             width: max(1, availableSize.width - horizontalPadding * 2),
             height: max(1, availableSize.height - verticalPadding * 2)
         )
+        let hasQuickActionSpace = chart.hasCompletedInitialSetup && editorGuidedTourStep == nil
+        let reservesQuickActionGutter = hasQuickActionSpace && contentSize.width >= 640
+            && !dynamicTypeSize.isAccessibilitySize
         let logicalContentSize = CGSize(
             width: LeadSheetFreeInkDocumentLayoutPolicy.resolvedCanvasWidth(
                 retainedWidth: freeInkDocumentCanvasWidth,
@@ -1338,10 +1341,31 @@ struct EditorView: View {
                 .padding(.top, 10)
                 .padding(.bottom, 12)
 
-            canvasView(documentSize: documentSize)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.horizontal, horizontalPadding)
-                .padding(.bottom, verticalPadding)
+            if hasQuickActionSpace && !reservesQuickActionGutter && isQuickActionMode {
+                quickActionButtons(isVertical: false)
+                    .padding(.horizontal, horizontalPadding)
+                    .padding(.bottom, 8)
+            }
+
+            HStack(alignment: .top, spacing: 8) {
+                canvasView(documentSize: documentSize)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if reservesQuickActionGutter {
+                    // Keep the viewport width stable as the editor changes tools.
+                    ScrollView(.vertical) {
+                        if isQuickActionMode {
+                            quickActionButtons(isVertical: true)
+                        }
+                    }
+                    .scrollIndicators(.hidden)
+                    .frame(width: 72)
+                    .allowsHitTesting(showsQuickActionButtons)
+                    .accessibilityHidden(!showsQuickActionButtons)
+                }
+            }
+            .padding(.horizontal, horizontalPadding)
+            .padding(.bottom, verticalPadding)
         }
         .onAppear {
             latestEditorContentSize = documentSize
@@ -1352,6 +1376,51 @@ struct EditorView: View {
         .onChange(of: documentSize) { _, newContentSize in
             latestEditorContentSize = newContentSize
         }
+    }
+
+    private var isQuickActionMode: Bool {
+        canvasMode == .browse || canvasMode == .measureEdit || canvasMode == .repeatEdit
+    }
+
+    private var showsQuickActionButtons: Bool {
+        chart.hasCompletedInitialSetup && editorGuidedTourStep == nil
+            && isQuickActionMode && pendingDeleteStartMeasureID == nil
+            && pendingEndingType == nil && pendingEndingStartMeasureID == nil
+            && !isPresentingEditorPanel
+    }
+
+    private var canUseQuickRepeat: Bool {
+        guard let selectedMeasureID, chart.measure(id: selectedMeasureID) != nil else { return false }
+        guard let pendingRepeatStartMeasureID else { return true }
+        return canvasMode == .repeatEdit && chart.measure(id: pendingRepeatStartMeasureID) != nil
+    }
+
+    private func quickActionButtons(isVertical: Bool) -> some View {
+        EditorQuickActions(
+            isVertical: isVertical,
+            isMeasuresSelected: canvasMode == .measureEdit,
+            isRepeatInProgress: pendingRepeatStartMeasureID != nil,
+            canUseRepeat: canUseQuickRepeat,
+            onMeasures: {
+                guard showsQuickActionButtons, pendingRepeatStartMeasureID == nil else { return }
+                handleMeasureEditRequested()
+            },
+            onRepeat: {
+                guard showsQuickActionButtons, canUseQuickRepeat else { return }
+                if pendingRepeatStartMeasureID == nil {
+                    handleStartRepeatHere()
+                } else {
+                    handleEndRepeatHere()
+                }
+            },
+            onCancelRepeat: {
+                guard showsQuickActionButtons, pendingRepeatStartMeasureID != nil else { return }
+                clearPendingRepeatState()
+            }
+        )
+        .opacity(showsQuickActionButtons ? 1 : 0)
+        .allowsHitTesting(showsQuickActionButtons)
+        .accessibilityHidden(!showsQuickActionButtons)
     }
 
     private func retainFreeInkDocumentWidth(_ width: CGFloat? = nil) {
@@ -2133,6 +2202,9 @@ struct EditorView: View {
             guidance = guidance.replacingNextAction("Hold the cue, then drag it to move it.")
         case .browse where selectedRoadmapMarker != nil || selectedEndingSpan != nil:
             guidance = guidance.replacingNextAction("Drag Move Up or Down to change the selected item's height.")
+        case .browse where selectedChordID == nil && selectedCommittedBarlineMeasureID == nil
+            && canUseQuickRepeat && showsQuickActionButtons:
+            guidance = guidance.replacingNextAction("Choose Measures or Start Repeat for the selected measure.")
         case .chordEntry:
             if let focus = draftEndingBlockerFocus, focus.matches(chart: chart, state: chordPreviewState) {
                 guidance = guidance.replacingNextAction("Use Erase on the highlighted barline. Switch to Write to redraw it, then review the ending again.")
@@ -2148,6 +2220,8 @@ struct EditorView: View {
                 guidance = guidance.replacingNextAction("Tap the last measure. Check the highlighted measure, then choose End Repeat.")
             } else if let pendingEndingType {
                 guidance = guidance.replacingNextAction("Tap the last measure, then choose End \(endingToolTitle(for: pendingEndingType)).")
+            } else if canUseQuickRepeat && showsQuickActionButtons {
+                guidance = guidance.replacingNextAction("Choose Start Repeat or Add Ending for the selected measure.")
             }
         case .headerEntry where chart.headerInputMode == .typed:
             guidance = guidance.replacingNextAction("Tap Typed to edit the header, or Handwritten to write in the page header.")

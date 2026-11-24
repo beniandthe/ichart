@@ -424,6 +424,7 @@ private struct IChartHelpArticleSection: Identifiable {
             systemImageName: "repeat",
             body: "Write chord-repeat symbols (%) in Write & Render. Use Tools > Repeats for measure repeats and repeat ranges.",
             bullets: [
+                "In Select, Measures, or Repeats, tap the first measure and choose the Start Repeat shortcut. Tap the last measure and use End Repeat to place the range or Cancel Repeat to clear it.",
                 "Select the first measure, then choose Repeat Measures > Start Repeat. Tap the last measure and check the highlighted measure before tapping End Repeat.",
                 "Open Repeat Measures and choose Repeat This Measure for one measure, or Start Repeat for a range. Use Manage to remove repeats or edit and remove endings.",
                 "Write & Render does not convert drawn bar-and-dot repeat barlines. Use Free Ink to keep those signs as handwriting."
@@ -487,6 +488,7 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Measures stays one tap away; less-frequent structure and annotation commands live under Tools.",
             bullets: [
                 "Measures groups Add, Layout, and Delete actions for the selected measure.",
+                "The Measures shortcut beside the chart also opens these controls. In a narrow window, the shortcuts sit above the chart.",
                 "On a Rhythm Section Sheet, choose Add > Add One After to insert a measure and give the row even widths, including when it’s already full.",
                 "On a Rhythm Section Sheet, select a measure to show its arrow handles. Use Apple Pencil to drag an inside handle to adjust the two neighboring widths, or drag the last measure’s right arrow left to shorten the row.",
                 "When you release, a lone measure on the next row moves up if its full width fits. Manual row or page breaks and key changes keep their boundaries.",
