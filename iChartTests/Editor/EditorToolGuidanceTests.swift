@@ -119,16 +119,16 @@ final class EditorToolGuidanceTests: XCTestCase {
         XCTAssertTrue(legacy.steps[1].contains("One finger scrolls"))
     }
 
-    func testMeasuresGuideExplainsTheLayoutComparisonAndAvailability() {
+    func testMeasuresGuideExplainsDirectRowActionsAndAvailability() {
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
             let guidance = EditorCanvasMode.measureEdit.toolGuidance(
                 layoutStyle: style, manualRenderWithPreview: false)
             XCTAssertEqual(guidance.steps, ["Tap a measure, then choose an action."])
             XCTAssertTrue(guidance.referenceText.contains("tap Delete Measure…, and confirm the measure shown."))
             XCTAssertTrue(guidance.referenceText.contains("tap Delete Range… to start. Tap the last measure"))
-            XCTAssertTrue(guidance.referenceText.contains("Open Layout to compare each action"))
-            XCTAssertTrue(guidance.referenceText.contains("read why an option is unavailable"))
-            XCTAssertTrue(guidance.referenceText.contains("Tap an available action to apply it"))
+            XCTAssertTrue(guidance.referenceText.contains("Row actions sit to the left of the chart. In narrow windows, they appear below the other Measures controls."))
+            XCTAssertTrue(guidance.referenceText.contains("The selected measure determines which actions are available."))
+            XCTAssertTrue(guidance.referenceText.contains("Merge with Next Measure removes an eligible divider."))
             XCTAssertTrue(guidance.referenceText.contains("Join Row Above moves from the start of the row through your selection"))
             XCTAssertTrue(guidance.referenceText.contains("Move to Row Below moves from your selection through the end of the row"))
             let selectGuide = EditorCanvasMode.browse.toolGuidance(

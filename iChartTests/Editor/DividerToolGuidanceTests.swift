@@ -233,14 +233,22 @@ final class DividerToolGuidanceTests: XCTestCase {
                 CGPoint(x: redX.midX, y: redX.midY), from: mounted.canvas), with: nil),
                 "The selected divider's red X must be reachable through the actual hit overlay")
         } else {
-            XCTAssertTrue(expected.referenceText.contains("Open Layout to compare each action"))
+            XCTAssertTrue(expected.referenceText.contains("Row actions sit to the left of the chart."))
             XCTAssertTrue(expected.referenceText.contains("Merge with Next Measure"))
             XCTAssertEqual(mounted.canvas.interactionMode, .measureEdit)
-            for label in ["Add", "Layout", "Delete", "Done"] {
+            for label in ["Add One After", "Delete Range…", "Done"] {
                 let control = try await node(label, in: mounted.window, button: true)
                 assertVisible(control, in: mounted.window)
-                XCTAssertTrue(control.isEnabled, "\(label) must remain reachable below the helper")
             }
+            let startNewRow = try await node("Start New Row", in: mounted.window, button: true)
+            assertVisible(startNewRow, in: mounted.window)
+            XCTAssertTrue(startNewRow.isEnabled)
+            XCTAssertGreaterThanOrEqual(startNewRow.frame(in: mounted.window).height, 44)
+            let joinRowAbove = try await node("Join Row Above", in: mounted.window, button: true)
+            assertVisible(joinRowAbove, in: mounted.window)
+            XCTAssertFalse(joinRowAbove.isEnabled, "A chart with one row has no row above to join")
+            XCTAssertTrue(try NativeAccessibilityLookup.matching("Layout", in: mounted.window,
+                buttonsOnly: true).isEmpty)
         }
 
         // Tool entry and selection may intentionally add controls. Once those

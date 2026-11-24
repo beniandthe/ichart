@@ -743,7 +743,7 @@ extension Chart {
             guard let offset = row.firstIndex(of: measureID),
                   let target = candidate.measure(id: measureID) else { return nil }
             let inserted = target.authoringState == .open
-                ? candidate.commitOpenMeasure(barlineAfter: barlineAfter)
+                ? candidate.commitOpenMeasure(barlineAfter: barlineAfter, explicitlyAddsNextMeasure: true)
                 : candidate.insertMeasure(after: measureID, barlineAfter: barlineAfter)
             guard let inserted else { return nil }
             insertedMeasureID = inserted
@@ -1354,6 +1354,7 @@ extension Chart {
         var rightMeasure = originalMeasure
         rightMeasure.id = UUID()
         rightMeasure.index = originalMeasure.index + 1
+        rightMeasure.isExplicitlyAddedOpenMeasure = false
         rightMeasure.chordEvents = []
         rightMeasure.cueTextIDs = []
         rightMeasure.roadmapObjectIDs = []
@@ -2382,7 +2383,8 @@ extension Chart {
     @discardableResult
     mutating func commitOpenMeasure(
         barlineAfter: BarlineType? = nil,
-        normalizeSingleChordToMeasureStart: Bool = true
+        normalizeSingleChordToMeasureStart: Bool = true,
+        explicitlyAddsNextMeasure: Bool = false
     ) -> UUID? {
         guard let location = openMeasureLocation() else {
             return nil
@@ -2394,11 +2396,12 @@ extension Chart {
         if let barlineAfter {
             systems[location.systemIndex].measures[location.measureIndex].barlineAfter = barlineAfter
         }
-        let newMeasure = Self.makeMeasure(
+        var newMeasure = Self.makeMeasure(
             index: measures.count + 1,
             authoringState: .open,
             beatGridPreset: layoutStyle.profile.measureDefaults.beatGridPreset
         )
+        newMeasure.isExplicitlyAddedOpenMeasure = explicitlyAddsNextMeasure
         insertPreparedMeasure(newMeasure, after: location)
         if normalizeSingleChordToMeasureStart {
             anchorLoneChordsToMeasureStart(in: [closingMeasureID])
@@ -2750,6 +2753,7 @@ extension Chart {
         var rightMeasure = originalMeasure
         rightMeasure.id = UUID()
         rightMeasure.index = originalMeasure.index + 1
+        rightMeasure.isExplicitlyAddedOpenMeasure = false
         rightMeasure.roadmapObjectIDs = []
 
         leftMeasure.authoringState = .committed
@@ -3800,7 +3804,8 @@ extension Chart {
             return false
         }
 
-        return measure.chordEvents.isEmpty
+        return !measure.isExplicitlyAddedOpenMeasure
+            && measure.chordEvents.isEmpty
             && measure.rhythmMap == nil
             && measure.handwrittenRhythmicNotationData == nil
             && measure.cueTextIDs.isEmpty

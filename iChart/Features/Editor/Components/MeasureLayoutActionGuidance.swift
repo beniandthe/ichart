@@ -37,16 +37,6 @@ enum MeasureLayoutAction: String, CaseIterable, Identifiable, Hashable {
                 : "Give the measures in the selected row matching widths."
         }
     }
-
-    var systemImage: String {
-        switch self {
-        case .startNewRow: "arrow.down.to.line"
-        case .joinRowAbove: "arrow.up.to.line"
-        case .moveToRowBelow: "arrow.down.to.line"
-        case .mergeWithNext: "rectangle.compress.vertical"
-        case .evenRowWidths: "rectangle.split.3x1"
-        }
-    }
 }
 
 struct MeasureLayoutActionAvailability: Equatable {
@@ -151,12 +141,6 @@ enum MeasureLayoutActionGuidance {
     }
 }
 
-struct MeasureLayoutSheetRequest: Identifiable {
-    let id = UUID()
-    let chartID: UUID
-    let measureID: UUID?
-}
-
 struct MeasureLayoutActionOption: Identifiable {
     let action: MeasureLayoutAction
     let availability: MeasureLayoutActionAvailability
@@ -164,109 +148,58 @@ struct MeasureLayoutActionOption: Identifiable {
     var id: MeasureLayoutAction { action }
 }
 
-/// Explanations live outside native menus so they can wrap and scroll at every
-/// text size. This sheet reads state; only an available action changes a chart.
-struct MeasureLayoutSheetView: View {
-    @Environment(\.dismiss) private var dismiss
-    let measureNumber: Int?
+struct MeasureLayoutActionsView: View {
     let options: [MeasureLayoutActionOption]
+    let inLeftMargin: Bool
     let onSelect: (MeasureLayoutAction) -> Void
 
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 18) {
-                    VStack(spacing: 7) {
-                        Image(systemName: "rectangle.3.group")
-                            .font(.title2)
-                            .foregroundStyle(IChartInterfaceStyle.sectionAccent)
-                            .accessibilityHidden(true)
-                        Text("Shape measures and rows")
-                            .font(.headline)
-                        if let measureNumber {
-                            Text("Measure \(measureNumber) selected")
-                                .font(.subheadline.weight(.semibold))
-                                .accessibilityIdentifier("measure-layout-context")
-                        }
-                        Text("Read what each action changes, then tap an available action.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .accessibilityIdentifier("measure-layout-instruction")
-                    }
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                    .padding(16)
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.isEnabled) private var isEnabled
 
-                    ForEach(options) { option in
-                        MeasureLayoutActionRow(option: option) {
-                            guard option.availability.isEnabled else { return }
-                            onSelect(option.action)
-                            dismiss()
-                        }
-                        if option.id != options.last?.id {
-                            Divider()
-                        }
-                    }
+    var body: some View {
+        Group {
+            if inLeftMargin {
+                ViewThatFits(in: .vertical) {
+                    railButtons
+                    ScrollView { railButtons }
                 }
-                .padding(20)
-                .frame(maxWidth: 640)
-                .frame(maxWidth: .infinity)
-            }
-            .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle("Measure Layout")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
+            } else {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: dynamicTypeSize.isAccessibilitySize ? 140 : 100),
+                    spacing: 5)], spacing: 5) {
+                    buttons
                 }
             }
         }
     }
-}
 
-private struct MeasureLayoutActionRow: View {
-    let option: MeasureLayoutActionOption
-    let onSelect: () -> Void
-
-    var body: some View {
-        VStack(spacing: 10) {
-            Button(action: onSelect) {
-                Label(option.action.title(isOnlyMeasureInRow: option.isOnlyMeasureInRow),
-                    systemImage: option.action.systemImage)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(option.availability.isEnabled ? Color.white : Color.primary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(IChartInterfaceStyle.actionBlue)
-            .disabled(!option.availability.isEnabled)
-            .accessibilityIdentifier("measure-layout-action-\(option.action.rawValue)")
-
-            Text(option.action.explanation(isOnlyMeasureInRow: option.isOnlyMeasureInRow))
-                .font(.subheadline)
-                .foregroundStyle(.primary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity)
-                .accessibilityIdentifier("measure-layout-explanation-\(option.action.rawValue)")
-
-            if let reason = option.availability.reason {
-                Label(reason, systemImage: "info.circle")
-                    .font(.subheadline)
-                    .labelStyle(.titleAndIcon)
-                    .foregroundStyle(.primary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity)
-                    .accessibilityIdentifier("measure-layout-reason-\(option.action.rawValue)")
-            }
+    private var railButtons: some View {
+        VStack(spacing: 5) {
+            buttons
         }
-        .padding(16)
-        .accessibilityElement(children: .contain)
+    }
+
+    private var buttons: some View {
+        ForEach(options) { option in
+            let title = option.action.title(isOnlyMeasureInRow: option.isOnlyMeasureInRow)
+            IChartTapFeedbackButton {
+                onSelect(option.action)
+            } label: {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(isEnabled && option.availability.isEnabled ? Color.primary : Color.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .frame(maxWidth: .infinity, minHeight: EditorCommandLayoutPolicy.minimumTapTarget)
+                    .background(Color(uiColor: .tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
+            }
+            .disabled(!option.availability.isEnabled)
+            .accessibilityLabel(title)
+            .accessibilityHint(option.availability.reason
+                ?? option.action.explanation(isOnlyMeasureInRow: option.isOnlyMeasureInRow))
+            .accessibilityIdentifier("measure-layout-action-\(option.action.rawValue)")
+        }
     }
 }
 #endif

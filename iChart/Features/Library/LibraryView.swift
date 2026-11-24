@@ -301,7 +301,7 @@ private struct IChartQuickStartStep: Identifiable {
         IChartQuickStartStep(
             id: "form",
             title: "Shape The Form",
-            detail: "Tap Measures and select a measure. Use Add One After to insert a measure or Layout to move measures between rows and even their widths."
+            detail: "Tap Measures. Select a measure, then choose Add One After or a row action."
         ),
         IChartQuickStartStep(
             id: "cue",
@@ -494,8 +494,9 @@ private struct IChartHelpArticleSection: Identifiable {
                 "On a Rhythm Section Sheet, choose Add One After to insert a measure and give the row even widths, including when it’s already full.",
                 "On a Rhythm Section Sheet, select a measure to show its arrow handles. Use Apple Pencil to drag an inside handle to adjust the two neighboring widths, or drag the last measure’s right arrow left to shorten the row.",
                 "When you release, a lone measure on the next row moves up if its full width fits. Manual row or page breaks and key changes keep their boundaries.",
-                "Open Layout to compare Start New Row, Join Row Above, Move to Row Below, Even Row Widths, and Merge with Next Measure. The sheet explains each action and why an option is unavailable. Tap an available action to apply it.",
-                "Join Row Above moves from the start of the row through your selected measure. Move to Row Below moves from your selection through the end of the row. The rows adjust to fit.",
+                "Row actions sit to the left of the chart. In narrow windows, they appear below the other Measures controls. The selected measure determines which actions are available.",
+                "Start New Row begins a row at the selection. Join Row Above moves from the start of the row through your selected measure. Move to Row Below moves from your selection through the end of the row. The rows adjust to fit.",
+                "Even Row Widths gives the selected row matching measure widths. Fill Row expands a lone measure on a Simple Chord Sheet. Merge with Next Measure removes an eligible divider.",
                 "Tools > Repeats shows Start Repeat and Repeat This Measure alongside Add Ending. Add Ending offers 1st Ending…, 2nd Ending…, or Custom Ending… with a shared label and range editor.",
                 "In Tools > Text, tap where the cue should start. The blue marker shows the beat. Choose Above or Below and check the destination in the Text panel. Use Keyboard to type, or choose Scribble and tap the cue field with Apple Pencil before writing. Tap Add or Apply.",
                 "Tools > Time Signature uses the selected measure. Tools > Form Markers opens a sheet: check the measure, choose a marker, then tap Add."

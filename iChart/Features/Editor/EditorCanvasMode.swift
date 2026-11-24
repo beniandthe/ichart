@@ -249,14 +249,14 @@ enum EditorCanvasMode: Hashable {
         case .measureEdit:
             var details: [EditorToolGuidanceSection] = [
                 .init(title: "Add measures", text: "Select a measure and tap Add One After to insert one measure or Add Multiple After… to choose how many. Add at Beginning inserts before the first measure. Add Double Barline adds a double boundary."),
-                .init(title: "Change the layout", text: "Open Layout to compare each action and read why an option is unavailable. Tap an available action to apply it. Merge with Next Measure is available when the boundary can be removed safely."),
+                .init(title: "Change the layout", text: "Row actions sit to the left of the chart. In narrow windows, they appear below the other Measures controls. The selected measure determines which actions are available."),
                 .init(title: "Delete one measure", text: "Select the measure, tap Delete Measure…, and confirm the measure shown. When the first measure shows Reset Barline…, you can restore its right barline to a single line."),
                 .init(title: "Delete a range", text: "Select the first measure and tap Delete Range… to start. Tap the last measure and check the highlighted range, then tap Delete To or Cancel.")
             ]
             if layoutStyle == .simpleChordSheet || layoutStyle == .rhythmSectionSheet {
                 details.insert(.init(
                     title: "Move between rows",
-                    text: "Select a measure and open Layout. Join Row Above moves from the start of the row through your selection. Move to Row Below moves from your selection through the end of the row. The rows adjust to fit."
+                    text: "Join Row Above moves from the start of the row through your selection. Move to Row Below moves from your selection through the end of the row. The rows adjust to fit. Merge with Next Measure removes an eligible divider."
                 ), at: 2)
             }
             if layoutStyle == .rhythmSectionSheet {

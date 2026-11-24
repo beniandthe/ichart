@@ -511,6 +511,45 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertTrue(chart.measure(id: endMeasureID)?.roadmapObjectIDs.contains(repeatID) == true)
     }
 
+    func testAddOneAfterOpenRepeatKeepsItsAnchorsAndTheNewMeasureAfterReopen() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            var chart = Chart.draft(title: "Last Measure Repeat", layoutStyle: style)
+            chart.completeInitialSetup(title: chart.title, key: .cMajor,
+                meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine)
+            let repeatMeasureID = try XCTUnwrap(chart.measures.first?.id)
+            let original = try XCTUnwrap(chart.measure(id: repeatMeasureID))
+            XCTAssertEqual(original.authoringState, .open)
+            XCTAssertFalse(original.isExplicitlyAddedOpenMeasure)
+            XCTAssertTrue(chart.appendRecognizedChord(try ChordSymbolParser.parse("C7"), rawInput: "C7",
+                to: repeatMeasureID, atFraction: 0.4))
+            let chordID = try XCTUnwrap(chart.measure(id: repeatMeasureID)?.chordEvents.first?.id)
+            let repeatID = try XCTUnwrap(
+                chart.addRepeatSpan(startMeasureID: repeatMeasureID, endMeasureID: repeatMeasureID)
+            )
+
+            let insertedID: UUID
+            if style == .rhythmSectionSheet {
+                insertedID = try XCTUnwrap(chart.insertMeasure(inRhythmRow: [repeatMeasureID],
+                    availableWidth: 720, after: repeatMeasureID))
+            } else {
+                insertedID = try XCTUnwrap(chart.commitOpenMeasure(barlineAfter: .single,
+                    explicitlyAddsNextMeasure: true))
+            }
+
+            let reopened = try ChartPersistenceCoders.decoder.decode(Chart.self,
+                from: ChartPersistenceCoders.encoder.encode(chart))
+            XCTAssertEqual(reopened.measures.map(\.id), [repeatMeasureID, insertedID])
+            XCTAssertEqual(reopened.measures.map(\.authoringState), [.committed, .open])
+            XCTAssertEqual(reopened.measures[0].chordEvents.map(\.id), [chordID])
+            XCTAssertEqual(reopened.measures[0].roadmapObjectIDs, [repeatID])
+            XCTAssertTrue(reopened.measures[1].chordEvents.isEmpty)
+            XCTAssertTrue(reopened.measures[1].roadmapObjectIDs.isEmpty)
+            XCTAssertTrue(reopened.measures[1].isExplicitlyAddedOpenMeasure)
+            XCTAssertEqual(reopened.roadmapObject(id: repeatID)?.startMeasureID, repeatMeasureID)
+            XCTAssertEqual(reopened.roadmapObject(id: repeatID)?.endMeasureID, repeatMeasureID)
+        }
+    }
+
     func testInsertMeasureAfterSelectedAddsMeasureWithoutMovingTrailingOpenMeasure() throws {
         var chart = Chart.draft(title: "New Chart")
         chart.completeInitialSetup(

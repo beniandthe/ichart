@@ -103,7 +103,14 @@ struct Measure: Identifiable, Codable, Hashable {
     var chordEvents: [ChordEvent]
     var cueTextIDs: [UUID]
     var roadmapObjectIDs: [UUID]
-    var authoringState: MeasureAuthoringState
+    var authoringState: MeasureAuthoringState {
+        didSet {
+            if authoringState == .committed {
+                isExplicitlyAddedOpenMeasure = false
+            }
+        }
+    }
+    var isExplicitlyAddedOpenMeasure = false
 
     init(
         id: UUID,
@@ -158,6 +165,7 @@ struct Measure: Identifiable, Codable, Hashable {
         case cueTextIDs
         case roadmapObjectIDs
         case authoringState
+        case isExplicitlyAddedOpenMeasure
     }
 
     init(from decoder: Decoder) throws {
@@ -188,6 +196,10 @@ struct Measure: Identifiable, Codable, Hashable {
         cueTextIDs = try container.decode([UUID].self, forKey: .cueTextIDs)
         roadmapObjectIDs = try container.decode([UUID].self, forKey: .roadmapObjectIDs)
         authoringState = try container.decodeIfPresent(MeasureAuthoringState.self, forKey: .authoringState) ?? .committed
+        if authoringState == .open {
+            isExplicitlyAddedOpenMeasure = try container.decodeIfPresent(Bool.self,
+                forKey: .isExplicitlyAddedOpenMeasure) ?? false
+        }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -216,6 +228,9 @@ struct Measure: Identifiable, Codable, Hashable {
         try container.encode(cueTextIDs, forKey: .cueTextIDs)
         try container.encode(roadmapObjectIDs, forKey: .roadmapObjectIDs)
         try container.encode(authoringState, forKey: .authoringState)
+        if isExplicitlyAddedOpenMeasure {
+            try container.encode(true, forKey: .isExplicitlyAddedOpenMeasure)
+        }
     }
 
     func resolvedMeter(defaultMeter: Meter) -> Meter {

@@ -388,7 +388,7 @@ enum IChartEditorGuidedTourStep: String, Identifiable {
         case .renderChords:
             "Double-tap a rendered chord with Apple Pencil to edit it. Use Fix Writing if handwriting needs attention. Choose Manual in Rendering to check previews, then use Render Chords or Review & Render. In Review Chords, check each recognition guess."
         case .shapeForm:
-            "Tap Measures. Select a measure, then choose Add One After, Layout, or a delete action. Try one change, or continue."
+            "Tap Measures. Select a measure, then choose Add One After or a row action. Try one change, or continue."
         case .addCue:
             "Open Tools > Text, tap where the cue should start, then choose Above or Below. Choose Keyboard to type, or choose Scribble and tap the field with Apple Pencil before writing. Tap Add."
         case .review:
@@ -409,7 +409,7 @@ enum IChartEditorGuidedTourStep: String, Identifiable {
         case .renderChords:
             "Check notation • review remaining ink"
         case .shapeForm:
-            "Measures • Add One After / Layout / Delete"
+            "Measures • Add One After / Row Actions"
         case .addCue:
             "Tools > Text"
         case .review:
@@ -652,7 +652,6 @@ struct EditorView: View {
     @State private var cueTextEntryRequest: EditorCueTextEntryRequest?
     @State private var cueTextDraft = ""
     @State private var showingFormMarkerPlacement = false
-    @State private var pendingMeasureLayoutRequest: MeasureLayoutSheetRequest?
     @State private var showingToolGuide = false
     @State private var toolGuideResumeSnapshot: ToolGuideResumeSnapshot?
     @State private var canvasMode: EditorCanvasMode = .browse
@@ -1396,16 +1395,32 @@ struct EditorView: View {
         let documentSize = CGSize(width: logicalContentSize.width,
             height: canvasHeight(for: logicalContentSize))
 
+        let showsMeasureLayoutActions = chart.hasCompletedInitialSetup && canvasMode == .measureEdit
+        let showsLayoutInLeftMargin = showsMeasureLayoutActions && contentSize.width >= 600
+
         VStack(spacing: 0) {
             editorToolChrome(minWidth: contentSize.width)
                 .padding(.horizontal, horizontalPadding)
                 .padding(.top, 10)
                 .padding(.bottom, 12)
 
-            canvasView(documentSize: documentSize)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.horizontal, horizontalPadding)
-                .padding(.bottom, verticalPadding)
+            if showsMeasureLayoutActions && !showsLayoutInLeftMargin {
+                measureLayoutActions(pageSize: documentSize, inLeftMargin: false)
+                    .padding(.horizontal, horizontalPadding)
+                    .padding(.bottom, 8)
+            }
+
+            HStack(alignment: .top, spacing: 8) {
+                if showsLayoutInLeftMargin {
+                    measureLayoutActions(pageSize: documentSize, inLeftMargin: true)
+                        .frame(width: 120)
+                }
+
+                canvasView(documentSize: documentSize)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .padding(.horizontal, horizontalPadding)
+            .padding(.bottom, verticalPadding)
         }
         .onAppear {
             latestEditorContentSize = documentSize
@@ -2509,11 +2524,11 @@ struct EditorView: View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 12) {
                 measureInsertionActions(compact: false).fixedSize(horizontal: true, vertical: false)
-                measureLayoutAndDeleteActions(compact: false).fixedSize(horizontal: true, vertical: false)
+                measureDeleteActions(compact: false).fixedSize(horizontal: true, vertical: false)
             }
             VStack(spacing: 6) {
                 measureInsertionActions(compact: true)
-                measureLayoutAndDeleteActions(compact: true)
+                measureDeleteActions(compact: true)
             }
         }
         .alert(
@@ -2569,7 +2584,7 @@ struct EditorView: View {
         )
     }
 
-    private func measureLayoutAndDeleteActions(compact: Bool) -> some View {
+    private func measureDeleteActions(compact: Bool) -> some View {
         let choosingEnd = isMeasureDeleteContinuationActive
         let rangeLabel = ("Delete Range…", compact ? nil : "trash.circle")
         let endLabel = ("Delete To", compact ? nil : "checkmark.circle")
@@ -2578,11 +2593,6 @@ struct EditorView: View {
         let cancelLabel = ("Cancel", compact ? nil : "xmark.circle")
 
         return HStack(spacing: 5) {
-            measureLayoutButton(compact: compact)
-                .disabled(choosingEnd)
-                .opacity(choosingEnd ? 0 : 1)
-                .accessibilityHidden(choosingEnd)
-
             activeToolButton(
                 title: choosingEnd ? endLabel.0 : rangeLabel.0,
                 systemImage: choosingEnd ? endLabel.1 : rangeLabel.1,
@@ -3303,7 +3313,7 @@ struct EditorView: View {
         activeSheet != nil || showingSetupSheet || showingHeaderSheet
             || showingTypographySheet || showingNotationReadabilitySheet || showingPersonalHandwriting
             || showingToolGuide || showingFormMarkerPlacement
-            || pendingMeasureLayoutRequest != nil || pendingSingleMeasureDeletion != nil
+            || pendingSingleMeasureDeletion != nil
             || endingEditorRequest != nil
             || showingCueTextEntry || pendingMeasureStackInsertion != nil
             || pendingChordInkConfirmation != nil || pendingChordInkBatchConfirmation != nil
@@ -3787,56 +3797,34 @@ struct EditorView: View {
         return chart.canDeleteMeasures(from: pendingDeleteStartMeasureID, through: targetMeasureID)
     }
 
-    private func measureLayoutButton(compact: Bool) -> AnyView {
-        AnyView(Button {
-            pendingMeasureLayoutRequest = MeasureLayoutSheetRequest(
-                chartID: chart.id, measureID: resolvedMeasureActionTargetID())
-        } label: {
-            activeToolMenuLabel(
-                title: "Layout",
-                systemImage: compact ? nil : "rectangle.3.group",
-                isTourHighlighted: editorGuidedTourStep == .shapeForm,
-                fillsAvailableWidth: true
-            )
+    private func measureLayoutActions(pageSize: CGSize, inLeftMargin: Bool) -> some View {
+        let chartID = chart.id
+        let measureID = resolvedMeasureActionTargetID()
+        let layout = canvasGeometryCache.pageLayout(for: chart, pageSize: pageSize)
+        let onlyMeasureInRow = chart.layoutStyle == .simpleChordSheet && layout.systems.contains {
+            $0.measures.count == 1 && $0.measures.first?.sourceMeasureID == measureID
         }
-        .buttonStyle(.iChartTapFeedback)
-        .accessibilityHint("Open measure layout actions with full explanations and availability details.")
-        .accessibilityIdentifier("measure-layout-open")
-        .sheet(item: $pendingMeasureLayoutRequest) { request in
-            measureLayoutSheet(for: request)
-        })
-    }
-
-    private func measureLayoutSheet(for request: MeasureLayoutSheetRequest) -> MeasureLayoutSheetView {
-        let layout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: latestEditorContentSize)
-        let measureNumber = request.chartID == chart.id
-            ? chart.measures.firstIndex(where: { $0.id == request.measureID }).map { $0 + 1 }
-            : nil
-        let onlyMeasureInRow = chart.layoutStyle == .simpleChordSheet
-            && request.measureID.map { renderedMeasureRowIDs(containing: $0).count == 1 } == true
         let options = MeasureLayoutAction.allCases.map { action in
             MeasureLayoutActionOption(action: action,
-                availability: request.chartID == chart.id
-                    ? MeasureLayoutActionGuidance.availability(for: action, chart: chart,
-                        measureID: request.measureID, pageLayout: layout)
-                    : .unavailable("Close Layout and select a measure in the current chart."),
+                availability: MeasureLayoutActionGuidance.availability(for: action, chart: chart,
+                    measureID: measureID, pageLayout: layout),
                 isOnlyMeasureInRow: onlyMeasureInRow)
         }
-        return MeasureLayoutSheetView(measureNumber: measureNumber, options: options) { action in
-            handleMeasureLayoutAction(action, request: request)
+        return MeasureLayoutActionsView(options: options, inLeftMargin: inLeftMargin) { action in
+            handleMeasureLayoutAction(action, chartID: chartID, measureID: measureID, pageSize: pageSize)
         }
+        .disabled(isMeasureDeleteContinuationActive || isPresentingEditorPanel)
     }
 
-    private func handleMeasureLayoutAction(_ action: MeasureLayoutAction, request: MeasureLayoutSheetRequest) {
-        guard request.chartID == chart.id,
-              let measureID = request.measureID,
-              chart.measure(id: measureID) != nil,
+    private func handleMeasureLayoutAction(
+        _ action: MeasureLayoutAction, chartID: UUID, measureID: UUID?, pageSize: CGSize
+    ) {
+        guard canvasMode == .measureEdit, !isMeasureDeleteContinuationActive, !isPresentingEditorPanel,
+              chartID == chart.id, let measureID, measureID == resolvedMeasureActionTargetID(),
               MeasureLayoutActionGuidance.availability(for: action, chart: chart, measureID: measureID,
-                pageLayout: LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: latestEditorContentSize)).isEnabled else {
+                pageLayout: canvasGeometryCache.pageLayout(for: chart, pageSize: pageSize)).isEnabled else {
             return
         }
-        // Keep the exact measure shown in the sheet as the destination, even
-        // if a save or other refresh updates the editor's default selection.
         selectedMeasureID = measureID
         switch action {
         case .startNewRow: handleNewSystemBeforeSelectedMeasure()
@@ -4149,7 +4137,7 @@ struct EditorView: View {
             selectedMeasureID = chart.insertMeasure(inRhythmRow: row.measureIDs,
                 availableWidth: row.availableWidth, after: targetMeasureID, barlineAfter: barlineAfter)
         } else if chart.measure(id: targetMeasureID)?.authoringState == .open {
-            selectedMeasureID = chart.commitOpenMeasure(barlineAfter: barlineAfter)
+            selectedMeasureID = chart.commitOpenMeasure(barlineAfter: barlineAfter, explicitlyAddsNextMeasure: true)
         } else {
             selectedMeasureID = chart.insertMeasure(after: targetMeasureID, barlineAfter: barlineAfter)
         }

@@ -122,7 +122,7 @@ final class ToolMeasureSelectionUITests: XCTestCase {
     }
 
     @MainActor
-    func testChartTitleAndSubtoolMenusOpenFromTheirVisibleEdgesInBothStyles() throws {
+    func testChartTitleAndMeasuresOpenFromTheirVisibleEdgesInBothStyles() throws {
         let app = try fixtureApplication()
         app.launch()
         defer { app.terminate() }
@@ -141,14 +141,7 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             }
 
             tapControlEdge(app.buttons["Measures"], at: 0.95)
-            let layout = app.buttons["measure-layout-open"]
-            XCTAssertTrue(layout.waitForExistence(timeout: 5))
-            XCTAssertGreaterThanOrEqual(layout.frame.height, 44)
-            tapControlEdge(layout, at: 0.06)
-            let sheet = app.navigationBars["Measure Layout"]
-            XCTAssertTrue(sheet.waitForExistence(timeout: 5))
-            sheet.buttons["Done"].tap()
-            waitForRemoval(sheet, message: "Dismissing Layout returns to the same tool")
+            XCTAssertTrue(app.buttons["measure-layout-action-evenRowWidths"].waitForExistence(timeout: 5))
             XCTAssertTrue(app.buttons["Add One After"].isHittable)
             exitChart(in: app)
         }
@@ -462,18 +455,24 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label == %@", "Measures")).count, 1,
                 "The toolbar is the only entry to Measures even after selecting a measure")
             XCTAssertTrue(app.buttons["Even Row"].isHittable, "Select keeps the contextual row action")
+            let startNewRow = app.buttons["measure-layout-action-startNewRow"]
+            XCTAssertFalse(startNewRow.exists)
+            let selectViewport = try XCTUnwrap(documentViewport(in: app)).frame
 
             app.buttons["Measures"].tap()
+            waitForPurpose("Change measures and rows", in: app)
             waitForContext("Measure \(target) selected", in: app)
             let viewport = try XCTUnwrap(documentViewport(in: app))
             let readyViewport = viewport.frame
             if narrow {
                 XCTAssertLessThan(readyViewport.width, 360, "Use the compact tool layout")
+                XCTAssertEqual(readyViewport.width, selectViewport.width, accuracy: 2,
+                    "The inline actions preserve the available chart width")
             } else {
                 XCTAssertGreaterThan(readyViewport.width, 600, "Use the regular tool layout")
             }
             let controls = ["Add One After", "Add Multiple After…", "Add at Beginning", "Add Double Barline",
-                            "measure-layout-open", "Delete Measure…", "Delete Range…", "Done"]
+                            "Delete Measure…", "Delete Range…", "Done"]
             for control in controls {
                 let button = app.buttons[control]
                 XCTAssertTrue(button.exists && button.isHittable, "\(control) is a direct action")
@@ -482,6 +481,26 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             }
             XCTAssertFalse(app.buttons["Add"].exists)
             XCTAssertFalse(app.buttons["Delete"].exists)
+            XCTAssertFalse(app.buttons["measure-layout-open"].exists)
+            XCTAssertFalse(app.navigationBars["Measure Layout"].exists)
+            let layoutActions = ["startNewRow", "joinRowAbove", "moveToRowBelow", "evenRowWidths", "mergeWithNext"]
+            for id in layoutActions {
+                let action = app.buttons["measure-layout-action-\(id)"]
+                XCTAssertTrue(action.exists, "\(id) is available directly in Measures")
+                if action.isEnabled { XCTAssertTrue(action.isHittable, id) }
+                XCTAssertGreaterThanOrEqual(action.frame.height, 44, id)
+                XCTAssertTrue(app.windows.firstMatch.frame.insetBy(dx: -1, dy: -1).contains(action.frame), id)
+                if narrow {
+                    let addAction = app.buttons["Add One After"].frame
+                    XCTAssertGreaterThanOrEqual(action.frame.minY, addAction.maxY - 1, id)
+                    XCTAssertLessThanOrEqual(action.frame.maxY, readyViewport.minY + 1, id)
+                } else {
+                    XCTAssertLessThanOrEqual(action.frame.maxX, readyViewport.minX + 1, id)
+                }
+            }
+            XCTAssertTrue(startNewRow.isEnabled, "An interior measure can start a row")
+            XCTAssertFalse(app.buttons["measure-layout-action-joinRowAbove"].isEnabled,
+                "The first row has no destination above it")
             attach(app, name: "\(title) Measures controls at \(narrow ? "360 points" : "standard width")")
 
             let deleteMeasure = app.buttons["Delete Measure…"]
@@ -492,6 +511,7 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             waitForContext("Delete range: measures \(target)–\(target)", in: app)
             let deleteTo = app.buttons["Delete To"]
             let cancelRange = app.buttons["Cancel"]
+            XCTAssertFalse(startNewRow.isEnabled, "Row actions wait while a delete range is being selected")
             XCTAssertTrue(deleteTo.isHittable)
             XCTAssertTrue(cancelRange.isHittable)
             XCTAssertEqual(deleteTo.frame.midX, deleteRangeFrame.midX, accuracy: 2)
@@ -507,12 +527,16 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             cancelRange.tap()
             waitForContext("Measure 1 selected", in: app)
             XCTAssertFalse(deleteTo.exists)
+            XCTAssertFalse(startNewRow.isEnabled, "Retargeting to the first measure disables Start New Row")
+            XCTAssertEqual(viewport.frame.minX, readyViewport.minX, accuracy: 2)
+            XCTAssertEqual(viewport.frame.width, readyViewport.width, accuracy: 2)
 
             // A repeat on this specific measure proves which measure survives
             // cancellation and which measure is removed on confirmation.
             tapFirstRow(at: 0.47, in: app)
             waitForContext("Measure \(target) selected", in: app)
             openTool("Repeats", in: app)
+            XCTAssertFalse(startNewRow.exists, "Layout actions are only visible in Measures")
             tapControlEdge(app.buttons["Repeat This Measure"], at: 0.94)
             XCTAssertTrue(app.buttons["Remove Repeat"].isEnabled)
             app.buttons["Measures"].tap()
@@ -676,7 +700,17 @@ final class ToolMeasureSelectionUITests: XCTestCase {
 
     @MainActor
     func testRowMovesFitBothChartStyles() throws {
-        let app = try fixtureApplication()
+        try assertRowMovesFit(narrow: false)
+    }
+
+    @MainActor
+    func testRowMovesFitNarrowWindowsInBothChartStyles() throws {
+        try assertRowMovesFit(narrow: true)
+    }
+
+    @MainActor
+    private func assertRowMovesFit(narrow: Bool) throws {
+        let app = try fixtureApplication(narrow: narrow)
         app.launch()
         defer { app.terminate() }
         for title in fixtureTitles {
@@ -700,7 +734,7 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             chooseLayoutAction("moveToRowBelow", in: app)
             tapFirstRow(at: 0.76, in: app)
             waitForContext("Measure 1 selected", in: app)
-            attach(app, name: "\(title) row fits after moving measures in both directions")
+            attach(app, name: "\(title) row fits after moving measures in both directions at \(narrow ? "narrow" : "standard") width")
             exitChart(in: app)
         }
     }
@@ -732,14 +766,12 @@ final class ToolMeasureSelectionUITests: XCTestCase {
 
     @MainActor
     private func chooseLayoutAction(_ id: String, in app: XCUIApplication) {
-        app.buttons["measure-layout-open"].tap()
-        let sheet = app.navigationBars["Measure Layout"]
-        XCTAssertTrue(sheet.waitForExistence(timeout: 5))
         let action = app.buttons["measure-layout-action-\(id)"]
-        XCTAssertTrue(action.exists)
+        XCTAssertTrue(action.waitForExistence(timeout: 5))
         XCTAssertTrue(action.isEnabled, "Layout must accept \(id) for this selection")
-        action.tap()
-        waitForRemoval(sheet, message: "The selected layout action closes the sheet")
+        tapControlEdge(action, at: 0.94)
+        XCTAssertTrue(action.exists, "Editing layout keeps the Measures actions available")
+        XCTAssertFalse(app.navigationBars["Measure Layout"].exists)
     }
 
     @MainActor

@@ -691,9 +691,10 @@ enum LeadSheetSimpleChordTerminalBarlineGeometry {
             return true
         }
 
-        // An open measure can already contain rendered music. Only an empty
-        // continuation may share the preceding repeat's row-end boundary.
+        // Only an implicit, blank continuation can share the repeat's row edge.
+        // A measure explicitly added in Measures needs its own left boundary.
         return measure.isOpen
+            && !measure.isExplicitlyAddedOpenMeasure
             && measure.chordLayouts.isEmpty
             && measure.noteLayouts.isEmpty
             && measure.cueTextLayouts.isEmpty
