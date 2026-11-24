@@ -188,6 +188,27 @@ private struct PendingMeasureStackInsertion: Identifiable {
     let anchorMeasureID: UUID
 }
 
+private enum RepeatTargetOperation {
+    case removeRepeat
+    case editEnding
+    case removeEnding
+
+    var choiceTitle: String {
+        switch self {
+        case .removeRepeat: "Choose a repeat to remove"
+        case .editEnding: "Choose an ending to edit"
+        case .removeEnding: "Choose an ending to remove"
+        }
+    }
+}
+
+private struct RepeatTargetChoice {
+    let operation: RepeatTargetOperation
+    let chartID: UUID
+    let measureID: UUID
+    let targets: [RoadmapObject]
+}
+
 private enum EditorToolAccent {
     static let semanticRead = Color(red: 0.16, green: 0.38, blue: 0.82)
     static let persistentInk = Color.orange
@@ -232,6 +253,7 @@ private struct EditorToolActionButton: View {
     let isTourHighlighted: Bool
     let isDisabled: Bool
     var sizingLabel: (title: String, systemImage: String)?
+    var fillsAvailableWidth = false
     let action: () -> Void
 
     var body: some View {
@@ -239,7 +261,7 @@ private struct EditorToolActionButton: View {
             ? Color.red
             : Color(red: 0.16, green: 0.38, blue: 0.82)
 
-        let sharesActionSlot = sizingLabel != nil
+        let expandsActionLabel = fillsAvailableWidth || sizingLabel != nil
         return IChartTapFeedbackButton(action: action) {
             ZStack {
                 if let sizingLabel {
@@ -251,13 +273,13 @@ private struct EditorToolActionButton: View {
             }
             .font(.caption.weight(.semibold))
             .labelStyle(.titleAndIcon)
-            .lineLimit(sharesActionSlot ? nil : 1)
+            .lineLimit(expandsActionLabel ? nil : 1)
             .multilineTextAlignment(.center)
-            .fixedSize(horizontal: false, vertical: sharesActionSlot)
+            .fixedSize(horizontal: false, vertical: expandsActionLabel)
             .padding(.horizontal, 8)
             .frame(
-                minWidth: sharesActionSlot ? EditorCommandLayoutPolicy.minimumTapTarget : nil,
-                maxWidth: sharesActionSlot ? .infinity : nil,
+                minWidth: expandsActionLabel ? EditorCommandLayoutPolicy.minimumTapTarget : nil,
+                maxWidth: expandsActionLabel ? .infinity : nil,
                 minHeight: EditorCommandLayoutPolicy.minimumTapTarget
             )
             .foregroundStyle(
@@ -550,6 +572,8 @@ struct EditorView: View {
     @State private var showingTypographySheet = false
     @State private var showingNotationReadabilitySheet = false
     @State private var endingEditorRequest: EndingEditorRequest?
+    @State private var repeatTargetChoice: RepeatTargetChoice?
+    @State private var repeatEndingToRemove: RoadmapObject?
     @State private var isExporting = false
     @State private var activeEditorOperationMessage: String?
     @State private var activeEditorOperationID = UUID()
@@ -707,6 +731,8 @@ struct EditorView: View {
                 draftEndingBlockerFocus = nil
                 resumeRenderAfterEndingReview = false
                 selectedEndingSpanID = nil
+                repeatTargetChoice = nil
+                repeatEndingToRemove = nil
                 cueTextEntryRequest = nil
                 cueTextPlacement = nil
                 cueTextDraft = ""
@@ -2522,19 +2548,53 @@ struct EditorView: View {
 
     private var repeatToolControls: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: 8) {
-                repeatPrimaryActions.fixedSize(horizontal: true, vertical: false)
-                repeatSecondaryActions
+            HStack(spacing: 12) {
+                repeatSpanActions.fixedSize(horizontal: true, vertical: false)
+                repeatEndingActions.fixedSize(horizontal: true, vertical: false)
                 activeToolDoneButton
             }
             VStack(spacing: 6) {
-                repeatPrimaryActions
+                repeatSpanActions
                 HStack(spacing: 8) {
-                    ScrollView(.horizontal) { repeatSecondaryActions }
-                        .scrollBounceBehavior(.basedOnSize)
+                    repeatEndingActions
                     activeToolDoneButton
                 }
             }
+        }
+        .confirmationDialog(
+            repeatTargetChoice?.operation.choiceTitle ?? "Choose a mark",
+            isPresented: Binding(
+                get: { repeatTargetChoice != nil },
+                set: { if !$0 { repeatTargetChoice = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: repeatTargetChoice
+        ) { request in
+            ForEach(request.targets) { target in
+                Button(repeatTargetTitle(for: target), role: request.operation == .editEnding ? nil : .destructive) {
+                    repeatTargetChoice = nil
+                    applyRepeatTargetAction(request, targetID: target.id, confirmedEndingRemoval: true)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        .alert(
+            "Delete Ending?",
+            isPresented: Binding(
+                get: { repeatEndingToRemove != nil },
+                set: { if !$0 { repeatEndingToRemove = nil } }
+            ),
+            presenting: repeatEndingToRemove
+        ) { ending in
+            Button("Cancel", role: .cancel) {}
+            Button("Delete Ending", role: .destructive) {
+                repeatEndingToRemove = nil
+                guard canvasMode == .repeatEdit, !isPlacingRepeatBoundary,
+                      endingSpansAtSelectedMeasure.contains(where: { $0.id == ending.id }) else { return }
+                _ = chart.deleteRoadmapObject(ending.id)
+            }
+        } message: { ending in
+            Text("Delete the ending \(repeatTargetTitle(for: ending))?")
         }
     }
 
@@ -2542,6 +2602,20 @@ struct EditorView: View {
         pendingRepeatStartMeasureID != nil || pendingEndingType != nil
     }
 
+    private var repeatSpanActions: some View {
+        HStack(spacing: 5) {
+            repeatPrimaryActions
+            repeatSecondaryButton(
+                title: "Remove Repeat",
+                systemImage: "trash",
+                operation: .removeRepeat,
+                hasTarget: !repeatSpansAtSelectedBoundary.isEmpty
+            )
+            .accessibilityHint("Select a start or end measure of an existing repeat.")
+        }
+    }
+
+    @ViewBuilder
     private var repeatPrimaryActions: some View {
         let isPlacingBoundary = isPlacingRepeatBoundary
         let startLabel = ("Start Repeat", "repeat")
@@ -2551,95 +2625,94 @@ struct EditorView: View {
         let singleMeasureLabel = ("Repeat This Measure", "repeat.1")
         let cancelLabel = ("Cancel", "xmark.circle")
 
-        return HStack(spacing: 5) {
-            activeToolButton(
-                title: isPlacingBoundary ? endLabel.0 : startLabel.0,
-                systemImage: isPlacingBoundary ? endLabel.1 : startLabel.1,
-                isSelected: isPlacingBoundary,
-                sizingLabel: isPlacingBoundary ? startLabel : endLabel
-            ) {
-                if let pendingEndingType {
-                    handleRepeatActiveEndingTapped(pendingEndingType)
-                } else if pendingRepeatStartMeasureID != nil {
-                    handleEndRepeatHere()
-                } else {
-                    handleStartRepeatHere()
-                }
+        activeToolButton(
+            title: isPlacingBoundary ? endLabel.0 : startLabel.0,
+            systemImage: isPlacingBoundary ? endLabel.1 : startLabel.1,
+            isSelected: isPlacingBoundary,
+            sizingLabel: isPlacingBoundary ? startLabel : endLabel
+        ) {
+            if let pendingEndingType {
+                handleRepeatActiveEndingTapped(pendingEndingType)
+            } else if pendingRepeatStartMeasureID != nil {
+                handleEndRepeatHere()
+            } else {
+                handleStartRepeatHere()
             }
-            .accessibilityHint(isPlacingBoundary
-                ? "Apply the range through the selected measure."
-                : "Use the selected measure as the start of a repeat.")
-
-            activeToolButton(
-                title: isPlacingBoundary ? cancelLabel.0 : singleMeasureLabel.0,
-                systemImage: isPlacingBoundary ? cancelLabel.1 : singleMeasureLabel.1,
-                sizingLabel: isPlacingBoundary ? singleMeasureLabel : cancelLabel
-            ) {
-                if isPlacingRepeatBoundary {
-                    clearPendingRepeatState()
-                } else {
-                    handleRepeatSelectedMeasure()
-                }
-            }
-            .accessibilityHint(isPlacingBoundary
-                ? "Clear the pending range without changing the chart."
-                : "Place a repeat around the selected measure.")
         }
-    }
+        .accessibilityHint(isPlacingBoundary
+            ? "Apply the range through the selected measure."
+            : "Use the selected measure as the start of a repeat.")
 
-    private var repeatSecondaryActions: some View {
-        HStack(spacing: 5) {
+        activeToolButton(
+            title: isPlacingBoundary ? cancelLabel.0 : singleMeasureLabel.0,
+            systemImage: isPlacingBoundary ? cancelLabel.1 : singleMeasureLabel.1,
+            sizingLabel: isPlacingBoundary ? singleMeasureLabel : cancelLabel
+        ) {
             if isPlacingRepeatBoundary {
-                // Reserve the adjacent menu space so the primary actions
-                // stay in place while the user chooses an endpoint.
-                activeToolMenuLabel(title: "Add Ending", systemImage: "text.badge.plus")
-                    .hidden()
-                    .accessibilityHidden(true)
-                activeToolMenuLabel(title: "Manage", systemImage: "ellipsis.circle")
-                    .hidden()
-                    .accessibilityHidden(true)
+                clearPendingRepeatState()
             } else {
-                repeatSecondaryMenus
+                handleRepeatSelectedMeasure()
             }
+        }
+        .accessibilityHint(isPlacingBoundary
+            ? "Clear the pending range without changing the chart."
+            : "Place a repeat around the selected measure.")
+    }
+
+    private var repeatEndingActions: some View {
+        let hasEnding = !endingSpansAtSelectedMeasure.isEmpty
+        return HStack(spacing: 5) {
+            EditorToolActionMenu(menuIdentifier: "editor-add-ending-popover") {
+                EditorToolMenuRow("1st Ending…") { openEndingPreset(.ending1) }
+                EditorToolMenuRow("2nd Ending…") { openEndingPreset(.ending2) }
+                EditorToolMenuRow("Custom Ending…", action: handleCustomEndingTapped)
+                EditorToolMenuHeading("Or select a range on the page")
+                EditorToolMenuRow("Start 1st Ending Here") { handleRepeatActiveEndingTapped(.ending1) }
+                EditorToolMenuRow("Start 2nd Ending Here") { handleRepeatActiveEndingTapped(.ending2) }
+            } label: {
+                activeToolMenuLabel(title: "Add Ending", systemImage: "text.badge.plus", fillsAvailableWidth: true)
+            }
+            .disabled(isPlacingRepeatBoundary)
+            .opacity(isPlacingRepeatBoundary ? 0 : 1)
+            .accessibilityHidden(isPlacingRepeatBoundary)
+
+            repeatSecondaryButton(
+                title: "Edit Ending…",
+                systemImage: "pencil",
+                operation: .editEnding,
+                hasTarget: hasEnding
+            )
+            .accessibilityHint("Select a measure under an ending bracket.")
+
+            repeatSecondaryButton(
+                title: "Remove Ending",
+                systemImage: "trash",
+                operation: .removeEnding,
+                hasTarget: hasEnding
+            )
+            .accessibilityHint("Select a measure under the ending bracket to remove.")
         }
     }
 
-    @ViewBuilder
-    private var repeatSecondaryMenus: some View {
-        EditorToolActionMenu(menuIdentifier: "editor-add-ending-popover") {
-            EditorToolMenuRow("1st Ending…") { openEndingPreset(.ending1) }
-            EditorToolMenuRow("2nd Ending…") { openEndingPreset(.ending2) }
-            EditorToolMenuRow("Custom Ending…", action: handleCustomEndingTapped)
-            EditorToolMenuHeading("Or select a range on the page")
-            EditorToolMenuRow("Start 1st Ending Here") { handleRepeatActiveEndingTapped(.ending1) }
-            EditorToolMenuRow("Start 2nd Ending Here") { handleRepeatActiveEndingTapped(.ending2) }
-        } label: {
-            activeToolMenuLabel(title: "Add Ending", systemImage: "text.badge.plus")
+    /// Keep the toolbar's height and the repeat buttons in place while a
+    /// range is pending; other actions cannot change the pending range.
+    private func repeatSecondaryButton(
+        title: String,
+        systemImage: String,
+        operation: RepeatTargetOperation,
+        hasTarget: Bool
+    ) -> some View {
+        activeToolButton(
+            title: title,
+            systemImage: systemImage,
+            isDestructive: operation != .editEnding && hasTarget,
+            isDisabled: isPlacingRepeatBoundary || !hasTarget,
+            fillsAvailableWidth: true
+        ) {
+            requestRepeatTargetAction(operation)
         }
-        EditorToolActionMenu(menuIdentifier: "editor-manage-repeats-popover") {
-            EditorToolMenuRow("Remove Repeat", systemImage: "trash", role: .destructive,
-                              action: handleRemoveRepeatAtSelectedMeasure)
-            .disabled(!canRemoveRepeatAtSelectedMeasure)
-
-            if endingSpansAtSelectedMeasure.count > 1 {
-                EditorToolMenuHeading("Edit or Remove Ending…")
-                ForEach(endingSpansAtSelectedMeasure) { ending in
-                    EditorToolMenuRow(endingActionTitle(for: ending), systemImage: "pencil") {
-                        presentEndingEditor(endingID: ending.id)
-                    }
-                }
-            } else {
-                EditorToolMenuRow("Edit or Remove Ending…", systemImage: "pencil",
-                                  action: handleRemoveEndingAtSelectedMeasure)
-                .disabled(!canRemoveEndingAtSelectedMeasure)
-            }
-        } label: {
-            activeToolMenuLabel(
-                title: "Manage",
-                systemImage: "ellipsis.circle",
-                isTourHighlighted: false
-            )
-        }
+        .opacity(isPlacingRepeatBoundary ? 0 : 1)
+        .accessibilityHidden(isPlacingRepeatBoundary)
     }
 
     private var headerActiveToolActions: some View {
@@ -2989,6 +3062,7 @@ struct EditorView: View {
         isTourHighlighted: Bool = false,
         isDisabled: Bool = false,
         sizingLabel: (title: String, systemImage: String)? = nil,
+        fillsAvailableWidth: Bool = false,
         action: @escaping () -> Void
     ) -> EditorToolActionButton {
         EditorToolActionButton(
@@ -2999,6 +3073,7 @@ struct EditorView: View {
             isTourHighlighted: isTourHighlighted,
             isDisabled: isDisabled,
             sizingLabel: sizingLabel,
+            fillsAvailableWidth: fillsAvailableWidth,
             action: action
         )
     }
@@ -3008,7 +3083,8 @@ struct EditorView: View {
         systemImage: String,
         isSelected: Bool = false,
         isDestructive: Bool = false,
-        isTourHighlighted: Bool = false
+        isTourHighlighted: Bool = false,
+        fillsAvailableWidth: Bool = false
     ) -> some View {
         let selectedBackgroundColor = isDestructive
             ? Color.red
@@ -3017,9 +3093,15 @@ struct EditorView: View {
         return Label(title, systemImage: systemImage)
             .font(.caption.weight(.semibold))
             .labelStyle(.titleAndIcon)
-            .lineLimit(1)
+            .lineLimit(fillsAvailableWidth ? nil : 1)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: fillsAvailableWidth)
             .padding(.horizontal, 8)
-            .frame(minHeight: EditorCommandLayoutPolicy.minimumTapTarget)
+            .frame(
+                minWidth: fillsAvailableWidth ? EditorCommandLayoutPolicy.minimumTapTarget : nil,
+                maxWidth: fillsAvailableWidth ? .infinity : nil,
+                minHeight: EditorCommandLayoutPolicy.minimumTapTarget
+            )
             .foregroundStyle(
                 isSelected
                     ? Color.white
@@ -3470,36 +3552,35 @@ struct EditorView: View {
         return properties
     }
 
-    private var canRemoveRepeatAtSelectedMeasure: Bool {
-        guard let targetMeasureID = resolvedMeasureActionTargetID() else {
-            return false
-        }
-
-        return !chart.repeatSpanIDs(attachedTo: targetMeasureID).isEmpty
-    }
-
-    private var canRemoveEndingAtSelectedMeasure: Bool {
-        guard let targetMeasureID = resolvedMeasureActionTargetID() else {
-            return false
-        }
-
-        return !chart.endingSpanIDs(attachedTo: targetMeasureID).isEmpty
+    private var repeatSpansAtSelectedBoundary: [RoadmapObject] {
+        guard let measureID = selectedMeasureID else { return [] }
+        return chart.repeatSpanIDs(attachedTo: measureID).compactMap { chart.roadmapObject(id: $0) }
     }
 
     private var endingSpansAtSelectedMeasure: [RoadmapObject] {
-        guard let measureID = resolvedMeasureActionTargetID() else { return [] }
-        let endingIDs = Set(chart.endingSpanIDs(attachedTo: measureID))
-        return chart.roadmapObjects.filter { endingIDs.contains($0.id) }
+        let endings = chart.roadmapObjects.filter { $0.type.isEnding }
+        guard !endings.isEmpty, let measureID = selectedMeasureID else { return [] }
+
+        let measureOffsets = Dictionary(
+            chart.measures.enumerated().map { ($0.element.id, $0.offset) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        guard let selectedOffset = measureOffsets[measureID] else { return [] }
+        return endings.filter { ending in
+            guard let start = measureOffsets[ending.startMeasureID],
+                  let end = measureOffsets[ending.endMeasureID ?? ending.startMeasureID] else { return false }
+            return (min(start, end)...max(start, end)).contains(selectedOffset)
+        }
     }
 
-    private func endingActionTitle(for ending: RoadmapObject) -> String {
+    private func repeatTargetTitle(for target: RoadmapObject) -> String {
+        let name = target.type.isEnding ? target.resolvedEndingDisplayText : "Repeat"
         let measureIDs = chart.measures.map(\.id)
-        guard let start = measureIDs.firstIndex(of: ending.startMeasureID),
-              let end = ending.endMeasureID.flatMap({ measureIDs.firstIndex(of: $0) }) else {
-            return ending.resolvedEndingDisplayText
-        }
-        let range = start == end ? "Measure \(start + 1)" : "Measures \(start + 1)–\(end + 1)"
-        return "\(ending.resolvedEndingDisplayText) · \(range)"
+        guard let start = measureIDs.firstIndex(of: target.startMeasureID),
+              let end = measureIDs.firstIndex(of: target.endMeasureID ?? target.startMeasureID) else { return name }
+        let range = start == end ? "Measure \(start + 1)" : "Measures \(min(start, end) + 1)–\(max(start, end) + 1)"
+        let title = "\(name) · \(range)"
+        return target.type.isEnding ? "\(title) · \(target.resolvedEndingEndStyle.displayText)" : title
     }
 
     private var canInsertSystemBreakBeforeSelectedMeasure: Bool {
@@ -4162,19 +4243,44 @@ struct EditorView: View {
         selectedMeasureID = targetMeasureID
     }
 
-    private func handleRemoveRepeatAtSelectedMeasure() {
-        let targetMeasureID = resolvedMeasureActionTargetID()
-        guard enterRepeatEditMode(),
-              let targetMeasureID,
-              chart.deleteRepeatSpans(attachedTo: targetMeasureID) > 0 else {
-            return
+    private func requestRepeatTargetAction(_ operation: RepeatTargetOperation) {
+        guard canvasMode == .repeatEdit, !isPlacingRepeatBoundary,
+              let measureID = selectedMeasureID, chart.measure(id: measureID) != nil else { return }
+        let targets = repeatTargets(for: operation)
+        guard let first = targets.first else { return }
+        let request = RepeatTargetChoice(operation: operation, chartID: chart.id, measureID: measureID, targets: targets)
+        if targets.count == 1 {
+            applyRepeatTargetAction(request, targetID: first.id)
+        } else {
+            repeatTargetChoice = request
         }
+    }
 
-        pendingRepeatStartMeasureID = nil
-        pendingDeleteStartMeasureID = nil
-        pendingEndingStartMeasureID = nil
-        pendingEndingType = nil
-        selectedMeasureID = targetMeasureID
+    private func repeatTargets(for operation: RepeatTargetOperation) -> [RoadmapObject] {
+        operation == .removeRepeat ? repeatSpansAtSelectedBoundary : endingSpansAtSelectedMeasure
+    }
+
+    private func applyRepeatTargetAction(
+        _ request: RepeatTargetChoice,
+        targetID: UUID,
+        confirmedEndingRemoval: Bool = false
+    ) {
+        guard chart.id == request.chartID, selectedMeasureID == request.measureID,
+              canvasMode == .repeatEdit, !isPlacingRepeatBoundary,
+              let target = repeatTargets(for: request.operation).first(where: { $0.id == targetID }) else { return }
+
+        switch request.operation {
+        case .removeRepeat:
+            _ = chart.deleteRoadmapObject(target.id)
+        case .editEnding:
+            endingEditorRequest = EndingEditorRequest(ending: target)
+        case .removeEnding:
+            if confirmedEndingRemoval {
+                _ = chart.deleteRoadmapObject(target.id)
+            } else {
+                repeatEndingToRemove = target
+            }
+        }
     }
 
     private func handleRepeatActiveEndingTapped(_ type: RoadmapType) {
@@ -4247,11 +4353,6 @@ struct EditorView: View {
         )
     }
 
-    private func handleRemoveEndingAtSelectedMeasure() {
-        guard let ending = endingSpansAtSelectedMeasure.first else { return }
-        presentEndingEditor(endingID: ending.id)
-    }
-
     private func openEndingPreset(_ type: RoadmapType) {
         guard let measureID = resolvedMeasureActionTargetID() else { return }
         presentNewEndingEditor(type: type, startMeasureID: measureID, endMeasureID: measureID)
@@ -4292,6 +4393,10 @@ struct EditorView: View {
     private func handleEndingEditorDismissed() {
         let endingID = selectedEndingSpanID ?? endingEditorRequest?.endingID
         endingEditorRequest = nil
+        if canvasMode == .repeatEdit {
+            selectedEndingSpanID = nil
+            return
+        }
         activateSelectTool()
         if let endingID, let ending = chart.roadmapObject(id: endingID), ending.type.isEnding {
             selectedEndingSpanID = endingID

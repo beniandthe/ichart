@@ -241,8 +241,16 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             let repeatThisMeasure = app.buttons["Repeat This Measure"]
             let endRepeat = app.buttons["End Repeat"]
             let cancel = app.buttons["Cancel"]
+            let removeRepeat = app.buttons["Remove Repeat"]
+            let editEnding = app.buttons["Edit Ending…"]
+            let removeEnding = app.buttons["Remove Ending"]
             XCTAssertFalse(app.buttons["Repeat Measures"].exists)
+            XCTAssertFalse(app.buttons["Manage"].exists)
             let readyFrames = repeatActionFrames(startRepeat, repeatThisMeasure, in: app)
+            for action in [removeRepeat, editEnding, removeEnding] {
+                XCTAssertTrue(action.exists, "Existing-mark actions are directly available in Repeats")
+                XCTAssertFalse(action.isEnabled, "An empty measure has no mark to edit or remove")
+            }
             let canvas = try XCTUnwrap(documentViewport(in: app)).frame
             if narrow {
                 XCTAssertLessThanOrEqual(canvas.width, 360, "The narrow fixture must constrain the editor")
@@ -254,10 +262,16 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             waitForContext("Measure \(start) selected", in: app)
             XCTAssertTrue(startRepeat.isHittable, "A one-measure repeat commits in one tap")
             XCTAssertFalse(endRepeat.exists)
-            let removeSingleRepeat = openRepeatRemoval(in: app)
-            XCTAssertTrue(removeSingleRepeat.isEnabled, "Repeat This Measure applies to the selected measure")
-            tapControlEdge(removeSingleRepeat, at: 0.94)
-            waitForRemoval(removeSingleRepeat, message: "Remove the one-measure repeat before testing a range")
+            XCTAssertTrue(removeRepeat.isEnabled, "Repeat This Measure applies to the selected measure")
+            XCTAssertFalse(editEnding.isEnabled, "A repeat alone does not enable ending edits")
+
+            tapFirstRow(at: 0.47, in: app)
+            waitForContext("Measure \(end) selected", in: app)
+            XCTAssertFalse(removeRepeat.isEnabled, "A different measure cannot remove the saved repeat")
+            tapFirstRow(at: 0.18, in: app)
+            waitForContext("Measure \(start) selected", in: app)
+            tapControlEdge(removeRepeat, at: 0.94)
+            XCTAssertFalse(removeRepeat.isEnabled, "The direct action clears the selected repeat in one tap")
 
             tapControlEdge(startRepeat, at: 0.94)
             waitForContext("Start: \(start) · End: \(start)", in: app)
@@ -280,10 +294,7 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             XCTAssertTrue(repeatThisMeasure.isHittable)
             XCTAssertFalse(endRepeat.exists)
             XCTAssertFalse(cancel.exists)
-            let removeAfterCancel = openRepeatRemoval(in: app)
-            XCTAssertFalse(removeAfterCancel.isEnabled, "Cancel leaves the endpoint without a saved repeat")
-            dismissOpenMenu(in: app)
-            waitForRemoval(removeAfterCancel, message: "Dismissing Manage leaves Repeats available")
+            XCTAssertFalse(removeRepeat.isEnabled, "Cancel leaves the endpoint without a saved repeat")
 
             tapFirstRow(at: 0.18, in: app)
             waitForContext("Measure \(start) selected", in: app)
@@ -300,10 +311,32 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             XCTAssertTrue(repeatThisMeasure.isHittable)
             XCTAssertFalse(endRepeat.exists)
             XCTAssertFalse(cancel.exists)
-            let removeRange = openRepeatRemoval(in: app)
-            XCTAssertTrue(removeRange.isEnabled, "End Repeat commits the final endpoint")
-            dismissOpenMenu(in: app)
-            waitForRemoval(removeRange, message: "Dismissing Manage leaves Repeats available")
+            XCTAssertTrue(removeRepeat.isEnabled, "End Repeat commits the final endpoint")
+
+            if !narrow {
+                tapControlEdge(repeatThisMeasure, at: 0.94)
+                tapControlEdge(removeRepeat, at: 0.94)
+                let singleRepeat = app.buttons["Repeat · Measure \(end)"]
+                XCTAssertTrue(singleRepeat.waitForExistence(timeout: 5),
+                    "A shared boundary offers the specific repeat ranges")
+                XCTAssertTrue(app.buttons["Repeat · Measures \(start)–\(end)"].exists)
+                singleRepeat.tap()
+                waitForRemoval(singleRepeat, message: "Removing a marked repeat dismisses the chooser")
+                XCTAssertTrue(removeRepeat.isEnabled, "The other repeat at the same boundary stays in place")
+            }
+
+            tapFirstRow(at: 0.76, in: app)
+            let outside = try waitForDifferentSelectedMeasure(than: end, in: app)
+            XCTAssertGreaterThan(outside, end)
+            XCTAssertFalse(removeRepeat.isEnabled, "A measure outside the range has no repeat boundary")
+            tapFirstRow(at: 0.18, in: app)
+            waitForContext("Measure \(start) selected", in: app)
+            XCTAssertTrue(removeRepeat.isEnabled, "Either boundary can target the range")
+            tapControlEdge(removeRepeat, at: 0.94)
+            XCTAssertFalse(removeRepeat.isEnabled)
+            tapFirstRow(at: 0.47, in: app)
+            waitForContext("Measure \(end) selected", in: app)
+            XCTAssertFalse(removeRepeat.isEnabled, "Removing the repeat clears both boundaries")
             attach(app, name: "\(title) direct repeat actions at \(narrow ? "narrow" : "standard") width")
             exitChart(in: app)
         }
@@ -326,11 +359,86 @@ final class ToolMeasureSelectionUITests: XCTestCase {
     }
 
     @MainActor
-    private func openRepeatRemoval(in app: XCUIApplication) -> XCUIElement {
-        tapControlEdge(app.buttons["Manage"], at: 0.94)
-        let remove = app.buttons["Remove Repeat"]
-        XCTAssertTrue(remove.waitForExistence(timeout: 5))
-        return remove
+    func testDirectEndingActionsTrackTheSelectedMeasureInBothChartStyles() throws {
+        let app = try fixtureApplication(narrow: true)
+        app.launch()
+        defer { app.terminate() }
+        for title in fixtureTitles {
+            openFixture(title, in: app)
+            openTool("Repeats", in: app)
+
+            tapFirstRow(at: 0.18, in: app)
+            let start = try selectedMeasure(in: app)
+            let editEnding = app.buttons["Edit Ending…"]
+            let removeEnding = app.buttons["Remove Ending"]
+            XCTAssertTrue(editEnding.exists)
+            XCTAssertTrue(removeEnding.exists)
+            XCTAssertFalse(editEnding.isEnabled)
+            XCTAssertFalse(removeEnding.isEnabled)
+
+            tapControlEdge(app.buttons["Add Ending"], at: 0.94)
+            let startEnding = app.buttons["Start 1st Ending Here"]
+            XCTAssertTrue(startEnding.waitForExistence(timeout: 5))
+            tapControlEdge(startEnding, at: 0.94)
+            tapFirstRow(at: 0.69, in: app)
+            let context = app.staticTexts["editor-guidance-context"]
+            let endpointChanged = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                guard context.exists,
+                      let end = Int(context.label.split(separator: " ").last ?? "") else { return false }
+                return end > start + 1
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [endpointChanged], timeout: 5), .completed,
+                "The ending must cover an interior measure")
+            let end = try XCTUnwrap(Int(context.label.split(separator: " ").last ?? ""))
+            tapControlEdge(app.buttons["End 1st"], at: 0.94)
+            let addEndingSheet = app.navigationBars["Add Ending"]
+            XCTAssertTrue(addEndingSheet.waitForExistence(timeout: 5))
+            app.buttons["ending-editor-apply"].tap()
+            waitForRemoval(addEndingSheet, message: "Applying creates the ending over the selected range")
+
+            openTool("Repeats", in: app)
+            tapFirstRow(at: 0.93, in: app)
+            let outside = try selectedMeasure(in: app)
+            XCTAssertGreaterThan(outside, end)
+            XCTAssertFalse(editEnding.isEnabled, "An unrelated measure cannot edit this ending")
+            XCTAssertFalse(removeEnding.isEnabled, "An unrelated measure cannot remove this ending")
+            tapFirstRow(at: 0.47, in: app)
+            let interior = try waitForDifferentSelectedMeasure(than: outside, in: app)
+            XCTAssertGreaterThan(interior, start)
+            XCTAssertLessThan(interior, end)
+            XCTAssertTrue(editEnding.isEnabled, "A measure inside the bracket can edit the ending")
+            XCTAssertTrue(removeEnding.isEnabled, "A measure inside the bracket can remove the ending")
+            XCTAssertFalse(app.buttons["Remove Repeat"].isEnabled, "An ending alone does not enable repeat removal")
+
+            tapControlEdge(editEnding, at: 0.94)
+            let editEndingSheet = app.navigationBars["Edit Ending"]
+            XCTAssertTrue(editEndingSheet.waitForExistence(timeout: 5))
+            let label = app.textFields["ending-editor-label"]
+            XCTAssertEqual(label.value as? String, "1.")
+            app.buttons["Use ending label 2."].tap()
+            app.buttons["ending-editor-apply"].tap()
+            waitForRemoval(editEndingSheet, message: "The direct edit action saves changes to the existing ending")
+
+            XCTAssertTrue(editEnding.isHittable, "Applying an edit keeps the Repeats tool active")
+            tapFirstRow(at: 0.47, in: app)
+            waitForContext("Measure \(interior) selected", in: app)
+            tapControlEdge(editEnding, at: 0.94)
+            XCTAssertTrue(editEndingSheet.waitForExistence(timeout: 5))
+            XCTAssertEqual(label.value as? String, "2.")
+            app.buttons["ending-editor-cancel"].tap()
+            waitForRemoval(editEndingSheet, message: "Cancel leaves the saved ending available")
+
+            waitForContext("Measure \(interior) selected", in: app)
+            tapControlEdge(removeEnding, at: 0.94)
+            let deleteAlert = app.alerts.firstMatch
+            XCTAssertTrue(deleteAlert.waitForExistence(timeout: 5))
+            deleteAlert.buttons["Delete Ending"].tap()
+            waitForRemoval(deleteAlert, message: "Confirming the direct action removes the targeted ending")
+            XCTAssertFalse(editEnding.isEnabled)
+            XCTAssertFalse(removeEnding.isEnabled)
+            attach(app, name: "\(title) direct ending actions follow the selected measure at narrow width")
+            exitChart(in: app)
+        }
     }
 
     @MainActor

@@ -425,7 +425,9 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Write chord-repeat symbols (%) in Write & Render. Use Tools > Repeats for measure repeats and repeat ranges.",
             bullets: [
                 "Select the first measure and choose Start Repeat. Tap the last measure and check the highlight. Choose End Repeat to apply the range or Cancel to discard it.",
-                "Select a measure and choose Repeat This Measure to repeat it. Use Manage to remove repeats or edit and remove endings.",
+                "Select a measure and choose Repeat This Measure to repeat it.",
+                "Select the first or last measure of a repeat, then tap Remove Repeat. If repeats share the measure, choose the range to remove.",
+                "Select a measure covered by an ending. Tap Edit Ending… to change it, or tap Remove Ending and confirm. If endings overlap, choose the ending by label and range.",
                 "Write & Render does not convert drawn bar-and-dot repeat barlines. Use Free Ink to keep those signs as handwriting."
             ]
         ),
@@ -492,7 +494,7 @@ private struct IChartHelpArticleSection: Identifiable {
                 "When you release, a lone measure on the next row moves up if its full width fits. Manual row or page breaks and key changes keep their boundaries.",
                 "Open Layout to compare Start New Row, Join Row Above, Move to Row Below, Even Row Widths, and Merge with Next Measure. The sheet explains each action and why an option is unavailable. Tap an available action to apply it.",
                 "Join Row Above moves from the start of the row through your selected measure. Move to Row Below moves from your selection through the end of the row. The rows adjust to fit.",
-                "Tools > Repeats shows Start Repeat and Repeat This Measure alongside Add Ending and Manage. Add Ending offers 1st Ending…, 2nd Ending…, or Custom Ending… with a shared label and range editor.",
+                "Tools > Repeats shows Start Repeat and Repeat This Measure alongside Add Ending. Add Ending offers 1st Ending…, 2nd Ending…, or Custom Ending… with a shared label and range editor.",
                 "In Tools > Text, tap where the cue should start. The blue marker shows the beat. Choose Above or Below and check the destination in the Text panel. Use Keyboard to type, or choose Scribble and tap the cue field with Apple Pencil before writing. Tap Add or Apply.",
                 "Tools > Time Signature uses the selected measure. Tools > Form Markers opens a sheet: check the measure, choose a marker, then tap Add."
             ]
