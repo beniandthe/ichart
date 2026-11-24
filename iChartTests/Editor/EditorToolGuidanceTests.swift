@@ -126,21 +126,35 @@ final class EditorToolGuidanceTests: XCTestCase {
             XCTAssertEqual(guidance.steps, ["Tap a measure, then choose an action."])
             XCTAssertTrue(guidance.referenceText.contains("tap Delete Measure…, and confirm the measure shown."))
             XCTAssertTrue(guidance.referenceText.contains("tap Delete Range… to start. Tap the last measure"))
-            XCTAssertTrue(guidance.referenceText.contains("Row actions sit to the left of the chart. In narrow windows, they appear below the other Measures controls."))
-            XCTAssertTrue(guidance.referenceText.contains("The selected measure determines which actions are available."))
+            XCTAssertTrue(guidance.referenceText.contains("Layout actions stay visible to the left of the chart, or below the tool controls in narrow windows."))
+            XCTAssertTrue(guidance.referenceText.contains("Tap a measure in Select or Measures to see which actions are available."))
+            XCTAssertTrue(guidance.referenceText.contains("Even System Measures"))
             XCTAssertTrue(guidance.referenceText.contains("Merge with Next Measure removes an eligible divider."))
             XCTAssertTrue(guidance.referenceText.contains("Join Row Above moves from the start of the row through your selection"))
             XCTAssertTrue(guidance.referenceText.contains("Move to Row Below moves from your selection through the end of the row"))
             let selectGuide = EditorCanvasMode.browse.toolGuidance(
                 layoutStyle: style, manualRenderWithPreview: false)
+            XCTAssertTrue(selectGuide.referenceText.contains("Tap a measure in Select or Measures to see which actions are available."))
+            XCTAssertTrue(selectGuide.referenceText.contains("Even System Measures"))
             if style == .rhythmSectionSheet {
                 XCTAssertTrue(guidance.referenceText.contains("Adding one measure fits it in the row"))
                 XCTAssertTrue(guidance.referenceText.contains("When you release, a lone measure on the next row moves up if its full width fits."))
                 XCTAssertTrue(selectGuide.referenceText.contains("Manual row or page breaks and key changes keep their boundaries."))
+                XCTAssertFalse(selectGuide.referenceText.contains("Fill Row"))
             } else {
                 XCTAssertFalse(guidance.referenceText.contains("lone measure on the next row"))
                 XCTAssertFalse(selectGuide.referenceText.contains("lone measure on the next row"))
+                XCTAssertTrue(selectGuide.referenceText.contains("Fill Row"))
             }
+        }
+    }
+
+    func testSelectGuideShowsLayoutPromptForMeasureSelection() {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let guidance = EditorCanvasMode.browse.toolGuidance(
+                layoutStyle: style, manualRenderWithPreview: false, isLayoutMeasureSelected: true)
+            XCTAssertTrue(guidance.steps.contains("Use the Layout actions for the selected measure."))
+            XCTAssertFalse(guidance.steps.contains("Tap a chord for width handles. Drag its body to move it."))
         }
     }
 

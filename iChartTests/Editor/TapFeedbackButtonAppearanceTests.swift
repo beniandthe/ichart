@@ -35,14 +35,32 @@ final class TapFeedbackButtonAppearanceTests: XCTestCase {
         }
     }
 
-    private func render(isAcknowledged: Bool, isEnabled: Bool, scheme: ColorScheme, width: CGFloat = 164) throws -> UIImage {
+    func testRaisedToolFaceRemainsVisibleOverAnOpaqueSelectedControl() throws {
+        for scheme in [ColorScheme.light, .dark] {
+            let flat = try render(isAcknowledged: false, isEnabled: true, scheme: scheme)
+            let raised = try render(isAcknowledged: false, isEnabled: true, scheme: scheme, isRaised: true)
+            let accepted = try render(isAcknowledged: true, isEnabled: true, scheme: scheme, isRaised: true)
+            XCTAssertEqual(raised.size, flat.size)
+            XCTAssertEqual(accepted.size, raised.size)
+            XCTAssertNotEqual(try png(raised), try png(flat))
+            XCTAssertNotEqual(try png(accepted), try png(raised))
+        }
+    }
+
+    private func render(
+        isAcknowledged: Bool,
+        isEnabled: Bool,
+        scheme: ColorScheme,
+        width: CGFloat = 164,
+        isRaised: Bool = false
+    ) throws -> UIImage {
         let content = Button(action: {}) {
             Text("End Repeat")
                 .frame(width: width, height: 48)
                 .foregroundStyle(.white)
                 .background(IChartInterfaceStyle.actionBlue, in: RoundedRectangle(cornerRadius: 8))
         }
-        .buttonStyle(IChartTapFeedbackButtonStyle(isAcknowledged: isAcknowledged))
+        .buttonStyle(IChartTapFeedbackButtonStyle(isAcknowledged: isAcknowledged, isRaised: isRaised))
         .disabled(!isEnabled)
         .environment(\.colorScheme, scheme)
         let renderer = ImageRenderer(content: content)

@@ -1851,26 +1851,73 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     var isInteractionSuspended = false {
         didSet {
             guard oldValue != isInteractionSuspended else { return }
-            isUserInteractionEnabled = !isInteractionSuspended
             if isInteractionSuspended {
                 cancelRenderedObjectGesture()
                 cancelFreeInkArticulationDrag()
                 cancelAutomaticFreeInkArticulation()
                 cancelEndingEditDrag()
-                pageInkCanvasView.resignFirstResponder()
                 unlockParentScrollForChordMove()
-            } else {
-                requestActiveInkFocusIfNeeded()
             }
+            updateInkCanvasFocus()
             refreshFreeInkArticulationDeleteButton()
             refreshAnnotationPositionHandles()
         }
     }
 
-    private func requestActiveInkFocusIfNeeded() {
-        guard !isInteractionSuspended, !pageInkCanvasView.isHidden,
-              interactionMode.allowsAnyInkEditing else { return }
-        pageInkCanvasView.becomeFirstResponder()
+    private var wantsInkCanvasVisible = false
+    private var wantsInkCanvasInteraction = false
+    private var isInkFocusUpdatePending = false
+
+    private var shouldOwnInkFocus: Bool {
+        !isInteractionSuspended
+            && interactionMode.allowsAnyInkEditing
+            && pageInkCanvasView.window != nil
+            && wantsInkCanvasVisible
+            && wantsInkCanvasInteraction
+    }
+
+    private func setInkCanvasAvailability(isVisible: Bool? = nil, allowsInteraction: Bool? = nil) {
+        if let isVisible { wantsInkCanvasVisible = isVisible }
+        if let allowsInteraction { wantsInkCanvasInteraction = allowsInteraction }
+        updateInkCanvasFocus()
+    }
+
+    private func applyInkCanvasAvailability() {
+        let allowsEditorInteraction = !isInteractionSuspended
+        if isUserInteractionEnabled != allowsEditorInteraction {
+            isUserInteractionEnabled = allowsEditorInteraction
+        }
+        let hidesInkCanvas = !wantsInkCanvasVisible
+        if pageInkCanvasView.isHidden != hidesInkCanvas {
+            pageInkCanvasView.isHidden = hidesInkCanvas
+        }
+        if pageInkCanvasView.isUserInteractionEnabled != wantsInkCanvasInteraction {
+            pageInkCanvasView.isUserInteractionEnabled = wantsInkCanvasInteraction
+        }
+    }
+
+    private func updateInkCanvasFocus() {
+        let changesFocus = pageInkCanvasView.isFirstResponder != shouldOwnInkFocus
+        // Hiding or disabling a focused UIKit view also resigns it. Defer
+        // those updates together so the responder never reenters SwiftUI layout.
+        if !pageInkCanvasView.isFirstResponder || !changesFocus {
+            applyInkCanvasAvailability()
+        }
+
+        guard changesFocus, !isInkFocusUpdatePending else { return }
+        isInkFocusUpdatePending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.isInkFocusUpdatePending = false
+            let wantsFocus = self.shouldOwnInkFocus
+            if !wantsFocus, self.pageInkCanvasView.isFirstResponder {
+                self.pageInkCanvasView.resignFirstResponder()
+            }
+            self.applyInkCanvasAvailability()
+            if wantsFocus, !self.pageInkCanvasView.isFirstResponder {
+                self.pageInkCanvasView.becomeFirstResponder()
+            }
+        }
     }
 
     var interactionMode: EditorCanvasMode = .browse {
@@ -2343,6 +2390,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             editorPerformanceMetrics.flush(reason: "removed_from_window")
             inkPersistenceCoordinator.flushMetrics(reason: "removed_from_window")
         }
+        updateInkCanvasFocus()
         updateParentScrollGestureGate()
     }
 
@@ -6906,8 +6954,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                     "sync_hide_no_ink_mode",
                     fields: ["mode": interactionMode]
                 )
-                pageInkCanvasView.isHidden = true
-                pageInkCanvasView.isUserInteractionEnabled = false
+                setInkCanvasAvailability(isVisible: false, allowsInteraction: false)
                 pageInkCanvasView.localInputFrames = []
                 activeCanvasScopeIdentity = nil
                 activeCanvasScope = nil
@@ -6922,7 +6969,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 "sync_hide_no_active_scope",
                 fields: ["mode": interactionMode]
             )
-            pageInkCanvasView.isHidden = true
+            setInkCanvasAvailability(isVisible: false)
             pageInkCanvasView.localInputFrames = []
             activeCanvasScopeIdentity = nil
             activeCanvasScope = nil
@@ -6992,8 +7039,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 preservesPageInkReprojectionSource: true
             )
         }
-        pageInkCanvasView.isHidden = false
-        pageInkCanvasView.isUserInteractionEnabled = true
+        setInkCanvasAvailability(isVisible: true, allowsInteraction: true)
         pageInkCanvasView.frame = activeInkScope.frame
         pageInkCanvasView.contentSize = activeInkScope.frame.size
         pageInkCanvasView.localInputFrames = activeInkScope.localInputFrames
@@ -7015,7 +7061,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                     activeRole: activeInkAuthoringSessionRole()
                 )
             }
-            requestActiveInkFocusIfNeeded()
+            updateInkCanvasFocus()
             scheduleActiveInkEraseSpatialIndexPreparationIfNeeded()
             bootstrapRestoredChordDraftPreviewIfNeeded(reason: "preserved_dirty_active_canvas")
             return
@@ -7119,7 +7165,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             )
             activeCanvasScopeIdentity = targetScopeIdentity
             activeCanvasScope = activeInkScope
-            requestActiveInkFocusIfNeeded()
+            updateInkCanvasFocus()
             scheduleActiveInkEraseSpatialIndexPreparationIfNeeded()
             bootstrapRestoredChordDraftPreviewIfNeeded(reason: "preserved_active_canvas")
             return
@@ -7137,7 +7183,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             activeCanvasScopeIdentity = targetScopeIdentity
             activeCanvasScope = activeInkScope
             activeCanvasCoordinateSpace = targetCoordinateSpace
-            requestActiveInkFocusIfNeeded()
+            updateInkCanvasFocus()
             scheduleActiveInkEraseSpatialIndexPreparationIfNeeded()
             bootstrapRestoredChordDraftPreviewIfNeeded(reason: "already_current")
             return
@@ -7158,7 +7204,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             activeCanvasScopeIdentity = targetScopeIdentity
             activeCanvasScope = activeInkScope
             activeCanvasCoordinateSpace = targetCoordinateSpace
-            requestActiveInkFocusIfNeeded()
+            updateInkCanvasFocus()
             scheduleActiveInkEraseSpatialIndexPreparationIfNeeded()
             bootstrapRestoredChordDraftPreviewIfNeeded(reason: "treated_as_synced")
             return
@@ -7223,7 +7269,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             activeInkScope: activeInkScope
         )
         updateChordInkConfirmOverlayVisibility()
-        requestActiveInkFocusIfNeeded()
+        updateInkCanvasFocus()
         scheduleActiveInkEraseSpatialIndexPreparationIfNeeded()
         bootstrapRestoredChordDraftPreviewIfNeeded(reason: "loaded_model_drawing")
     }
@@ -7295,7 +7341,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             activeInkScope: activeInkScope
         )
         updateChordInkConfirmOverlayVisibility()
-        requestActiveInkFocusIfNeeded()
+        updateInkCanvasFocus()
         scheduleActiveInkEraseSpatialIndexPreparationIfNeeded()
         bootstrapRestoredChordDraftPreviewIfNeeded(reason: "resident_saved_ink_transfer")
         IChartPerformanceTrace.record(
@@ -10065,7 +10111,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         renderedEditHitOverlayView.isHidden = policy.renderedEditOverlayHidden
         renderedEditHitOverlayView.isUserInteractionEnabled = policy.renderedEditOverlayInteractionEnabled
         LeadSheetLiveInkCanvasAppearancePolicy.configure(pageInkCanvasView)
-        pageInkCanvasView.isUserInteractionEnabled = policy.pageInkCanvasInteractionEnabled
+        setInkCanvasAvailability(isVisible: policy.hidesPageInkCanvas ? false : nil,
+            allowsInteraction: policy.pageInkCanvasInteractionEnabled)
         pageInkCanvasView.drawingPolicy = policy.drawingPolicy
         pageInkCanvasView.tool = policy.canvasTool
         pageInkCanvasView.manualEraseEnabled = policy.pageInkCanvasInteractionEnabled
@@ -10087,11 +10134,6 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         if !interactionMode.allowsChordInkEditing {
             chordInkRecognitionRequestState.clearForChordEditingDisabled()
-        }
-
-        if policy.hidesPageInkCanvas {
-            pageInkCanvasView.isHidden = true
-            pageInkCanvasView.resignFirstResponder()
         }
 
         parentScrollGestureGate.updateCanvasView(self)

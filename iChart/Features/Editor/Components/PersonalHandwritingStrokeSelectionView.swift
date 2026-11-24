@@ -118,7 +118,7 @@ struct PersonalHandwritingStrokeSelectionView: View {
             .padding(12)
             .background(.background, in: RoundedRectangle(cornerRadius: 12))
         }
-        .buttonStyle(.iChartTapFeedback).disabled(isDisabled)
+        .buttonStyle(.iChartRaisedToolTapFeedback).disabled(isDisabled)
         .accessibilityLabel("Stroke \(index + 1)")
         .accessibilityValue(isSelected ? "Selected" : "Not selected")
         .accessibilityHint("Double-tap to \(isSelected ? "exclude" : "include") this whole stroke.")

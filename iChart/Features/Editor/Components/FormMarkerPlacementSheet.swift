@@ -37,7 +37,7 @@ struct FormMarkerPlacementSheet: View {
 
                 Section("Marker") {
                     ForEach(RoadmapType.navigationPointMarkerTypes, id: \.self) { type in
-                        IChartTapFeedbackButton {
+                        IChartTapFeedbackButton(isRaised: true) {
                             draft.markerType = type
                         } label: {
                             VStack(spacing: 5) {

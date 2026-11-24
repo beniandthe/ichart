@@ -31,7 +31,8 @@ struct EditorToolActionMenu<Trigger: View>: View {
         }
         .buttonStyle(IChartTapFeedbackButtonStyle(
             isAcknowledged: acknowledgement != nil,
-            cornerRadius: cornerRadius
+            cornerRadius: cornerRadius,
+            isRaised: true
         ))
         .popover(isPresented: $isPresented, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
             ViewThatFits(in: .vertical) {
@@ -56,7 +57,7 @@ struct EditorToolActionMenu<Trigger: View>: View {
     }
 
     private var rows: some View {
-        VStack(alignment: .leading, spacing: 2) { contents }
+        VStack(alignment: .leading, spacing: 4) { contents }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
             .environment(\.editorToolMenuRowActivated, {
@@ -117,7 +118,7 @@ struct EditorToolMenuRow: View {
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity, minHeight: EditorCommandLayoutPolicy.minimumTapTarget, alignment: .leading)
         }
-        .buttonStyle(.iChartTapFeedback)
+        .buttonStyle(.iChartRaisedToolTapFeedback)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier(identifier ?? title)
     }

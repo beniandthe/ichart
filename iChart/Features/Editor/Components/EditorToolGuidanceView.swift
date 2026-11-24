@@ -135,7 +135,7 @@ struct EditorToolGuidanceHeader: View {
     }
 
     private func guideButton(width: CGFloat?) -> some View {
-        IChartTapFeedbackButton(action: onOpenGuide) {
+        IChartTapFeedbackButton(isRaised: true, action: onOpenGuide) {
             Label("Guide", systemImage: "book")
                 .font(.caption.weight(.medium))
                 .fixedSize(horizontal: false, vertical: true)

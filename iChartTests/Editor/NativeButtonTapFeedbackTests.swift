@@ -9,6 +9,7 @@ final class NativeButtonTapFeedbackTests: XCTestCase {
         let button = PencilOnlyUIButton(type: .system)
         button.frame = CGRect(x: 24, y: 40, width: 180, height: 44)
         button.configuration = .borderedProminent()
+        button.usesRaisedToolFace = true
         button.setTitle("Add", for: .normal)
         button.accessibilityLabel = "Add cue"
         button.isSelected = true
@@ -21,8 +22,11 @@ final class NativeButtonTapFeedbackTests: XCTestCase {
         let bounds = button.bounds
         let labelFrame = button.titleLabel?.frame
         let traits = button.accessibilityTraits
+        XCTAssertGreaterThan(button.layer.shadowOpacity, 0)
+        let restShadowHeight = button.layer.shadowOffset.height
 
         button.isHighlighted = true
+        XCTAssertLessThan(button.layer.shadowOffset.height, restShadowHeight)
         XCTAssertEqual(button.feedbackPhase, .pressed)
         XCTAssertEqual(probe.count, 0, "Press feedback cannot run the action early")
         button.isHighlighted = false
@@ -55,6 +59,7 @@ final class NativeButtonTapFeedbackTests: XCTestCase {
 
     func testDisabledNativeActionRejectsTouchAndAccessibilityWithoutFeedback() {
         let button = PencilOnlyUIButton(type: .system)
+        button.usesRaisedToolFace = true
         let probe = ActionProbe()
         button.addTarget(probe, action: #selector(ActionProbe.recordActivation), for: .touchUpInside)
         button.isEnabled = false
@@ -62,6 +67,7 @@ final class NativeButtonTapFeedbackTests: XCTestCase {
         button.sendActions(for: .touchUpInside)
         XCTAssertFalse(button.accessibilityActivate())
         XCTAssertEqual(probe.count, 0)
+        XCTAssertEqual(button.layer.shadowOpacity, 0)
         XCTAssertEqual(button.feedbackPhase, .idle)
         button.isHighlighted = false
         button.isEnabled = true

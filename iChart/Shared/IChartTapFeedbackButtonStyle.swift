@@ -7,7 +7,6 @@ struct IChartTapFeedbackButtonStyle: ButtonStyle {
     private let isRaised: Bool
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
     init(isAcknowledged: Bool = false, cornerRadius: CGFloat = 8, isRaised: Bool = false) {
@@ -21,16 +20,10 @@ struct IChartTapFeedbackButtonStyle: ButtonStyle {
         let accent = showsFeedback ? IChartInterfaceStyle.actionText : Color.clear
         let width: CGFloat = colorSchemeContrast == .increased ? 3 : 2
         let outline = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        let isDepressed = isRaised && isEnabled && configuration.isPressed
         configuration.label
-            .offset(y: isDepressed && !reduceMotion ? 1 : 0)
-            .background {
-                if isRaised {
-                    raisedFace(outline, isDepressed: isDepressed)
-                }
-            }
+            .modifier(IChartToolButtonRelief(isRaised: isRaised, cornerRadius: cornerRadius,
+                isPressed: configuration.isPressed))
             .contentShape(Rectangle())
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.1), value: isDepressed)
             .overlay {
                 ZStack {
                     outline.fill(accent.opacity(0.16))
@@ -42,38 +35,68 @@ struct IChartTapFeedbackButtonStyle: ButtonStyle {
                 .allowsHitTesting(false)
             }
     }
+}
 
-    private func raisedFace(_ outline: RoundedRectangle, isDepressed: Bool) -> some View {
-        let isDark = colorScheme == .dark
-        let usesHighContrast = colorSchemeContrast == .increased
-        let highlight = Color.white.opacity(isDark ? 0.08 : 0.45)
-        let shade = isDark ? Color.black.opacity(0.18) : IChartInterfaceStyle.actionText.opacity(0.07)
-        let edge = usesHighContrast ? Color.primary.opacity(0.55) : Color.primary.opacity(0.17)
+private struct IChartToolButtonRelief: ViewModifier {
+    let isRaised: Bool
+    let cornerRadius: CGFloat
+    let isPressed: Bool
 
-        return ZStack {
-            outline.fill(Color(uiColor: .tertiarySystemBackground))
-                .shadow(color: Color.black.opacity(isEnabled ? (isDark ? 0.40 : 0.18) : 0),
-                    radius: isDepressed ? 0.5 : 1.5, y: isDepressed ? 0 : 2)
-            if isEnabled {
-                outline.fill(LinearGradient(colors: isDepressed ? [shade, highlight] : [highlight, shade],
-                    startPoint: .top, endPoint: .bottom))
-                outline.strokeBorder(edge, lineWidth: usesHighContrast ? 1.25 : 0.75)
-            }
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+
+    func body(content: Content) -> some View {
+        if isRaised {
+            let face = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            let isDepressed = isEnabled && isPressed
+            let isDark = colorScheme == .dark
+            let usesHighContrast = colorSchemeContrast == .increased
+            let highlight = Color.white.opacity(isDark ? 0.08 : 0.18)
+            let shade = isDark ? Color.black.opacity(0.18) : IChartInterfaceStyle.actionText.opacity(0.07)
+            let edge = Color.primary.opacity(usesHighContrast ? 0.55 : 0.17)
+
+            content
+                .background {
+                    face.fill(Color(uiColor: .tertiarySystemBackground))
+                        .shadow(color: Color.black.opacity(isEnabled ? (isDark ? 0.40 : 0.18) : 0),
+                            radius: isDepressed ? 0.5 : 1.5, y: isDepressed ? 0 : 2)
+                        .allowsHitTesting(false)
+                }
+                .overlay {
+                    if isEnabled {
+                        face.fill(LinearGradient(colors: isDepressed ? [shade, highlight] : [highlight, shade],
+                            startPoint: .top, endPoint: .bottom))
+                            .overlay(face.strokeBorder(edge, lineWidth: usesHighContrast ? 1.25 : 0.75))
+                            .allowsHitTesting(false)
+                    }
+                }
+                .offset(y: isDepressed && !reduceMotion ? 1 : 0)
+                .contentShape(Rectangle())
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.1), value: isDepressed)
+        } else {
+            content
         }
-        .allowsHitTesting(false)
     }
 }
 
 extension ButtonStyle where Self == IChartTapFeedbackButtonStyle {
     static var iChartTapFeedback: Self { Self() }
+    static var iChartRaisedToolTapFeedback: Self { Self(isRaised: true) }
 }
 
 extension View {
+    /// Adds the editor tool face to controls with their own press colors.
+    func iChartRaisedToolFace(cornerRadius: CGFloat = 8, isPressed: Bool) -> some View {
+        modifier(IChartToolButtonRelief(isRaised: true, cornerRadius: cornerRadius, isPressed: isPressed))
+    }
+
     /// Gives an on-screen Menu trigger the same press feedback as a Button.
     /// The menu's rows and submenu presentation still belong to SwiftUI.
-    func iChartMenuTapFeedback(cornerRadius: CGFloat = 8) -> some View {
+    func iChartMenuTapFeedback(cornerRadius: CGFloat = 8, isRaised: Bool = false) -> some View {
         menuStyle(.button)
-            .buttonStyle(IChartTapFeedbackButtonStyle(cornerRadius: cornerRadius))
+            .buttonStyle(IChartTapFeedbackButtonStyle(cornerRadius: cornerRadius, isRaised: isRaised))
     }
 }
 

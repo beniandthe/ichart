@@ -7,7 +7,7 @@ struct InkToolModeTab: View {
     var body: some View {
         HStack(spacing: 4) {
             ForEach(EditorInkToolMode.allCases, id: \.self) { toolMode in
-                IChartTapFeedbackButton {
+                IChartTapFeedbackButton(isRaised: true) {
                     mode = toolMode
                     onModeSelected(toolMode)
                 } label: {

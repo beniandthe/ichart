@@ -211,21 +211,23 @@ enum EditorCanvasMode: Hashable {
         layoutStyle: ChartLayoutStyle,
         manualRenderWithPreview: Bool,
         hasFreeInkArticulations: Bool = false,
-        isClosingRepeatSelected: Bool = false
+        isClosingRepeatSelected: Bool = false,
+        isLayoutMeasureSelected: Bool = false
     ) -> EditorToolGuidance {
         switch self {
         case .browse:
             var details = [EditorToolGuidanceSection(
                 title: "Chords and cues",
-                text: "Drag a chord with Apple Pencil, then lift to place it. Snap to beat 1 at the first guide, or keep dragging toward the left barline for tighter spacing. Cross the barline to move into the previous measure in the row. Tap a chord to show its side handles. Drag a side handle to resize that chord or tap the red X to delete it. Double-tap a chord to correct it. Tap a measure or cue to see its actions."
+                text: "Drag a chord with Apple Pencil, then lift to place it. Snap to beat 1 at the first guide, or keep dragging toward the left barline for tighter spacing. Cross the barline to move into the previous measure in the row. Tap a chord to show its side handles. Drag a side handle to resize that chord or tap the red X to delete it. Double-tap a chord to correct it. Tap a cue to see its actions."
             ), .init(
                 title: "Moving text cues",
                 text: Self.cueMoveGuidance
             ), .init(
                 title: "Space endings and form marks",
                 text: "Tap the item, then drag Move Up or Down to adjust its height. Reset Position restores automatic height. For endings, Move and Lengthen adjust the measures."
-            )]
+            ), Self.layoutPlacementGuide]
             if layoutStyle == .simpleChordSheet || layoutStyle == .rhythmSectionSheet {
+                details.append(Self.measureRowActionsGuide(layoutStyle: layoutStyle))
                 details.append(.init(
                     title: "Merge measures",
                     text: "Tap an eligible divider, then its red X to merge the measures."
@@ -243,22 +245,21 @@ enum EditorCanvasMode: Hashable {
             return .init(
                 title: "Edit items on the chart",
                 steps: ["Use Apple Pencil to select, move, or delete items on the chart. Scroll with a finger.",
-                        "Tap a chord for width handles. Drag its body to move it."],
+                        isLayoutMeasureSelected
+                            ? "Use the Layout actions for the selected measure."
+                            : "Tap a chord for width handles. Drag its body to move it."],
                 detailsTitle: "Select guide",
                 details: details
             )
         case .measureEdit:
             var details: [EditorToolGuidanceSection] = [
                 .init(title: "Add measures", text: "Select a measure and tap Add One After to insert one measure or Add Multiple After… to choose how many. Add at Beginning inserts before the first measure. Add Double Barline adds a double boundary."),
-                .init(title: "Change the layout", text: "Row actions sit to the left of the chart. In narrow windows, they appear below the other Measures controls. The selected measure determines which actions are available."),
+                Self.layoutPlacementGuide,
                 .init(title: "Delete one measure", text: "Select the measure, tap Delete Measure…, and confirm the measure shown. When the first measure shows Reset Barline…, you can restore its right barline to a single line."),
                 .init(title: "Delete a range", text: "Select the first measure and tap Delete Range… to start. Tap the last measure and check the highlighted range, then tap Delete To or Cancel.")
             ]
             if layoutStyle == .simpleChordSheet || layoutStyle == .rhythmSectionSheet {
-                details.insert(.init(
-                    title: "Move between rows",
-                    text: "Join Row Above moves from the start of the row through your selection. Move to Row Below moves from your selection through the end of the row. The rows adjust to fit. Merge with Next Measure removes an eligible divider."
-                ), at: 2)
+                details.insert(Self.measureRowActionsGuide(layoutStyle: layoutStyle), at: 2)
             }
             if layoutStyle == .rhythmSectionSheet {
                 details[0] = .init(
@@ -380,6 +381,18 @@ enum EditorCanvasMode: Hashable {
     }
 
     private static let cueMoveGuidance = "Press and hold the cue, then drag it in any direction. The blue line stays at the center of its measure until you cross a barline and disappears in the row margin. Lift to place the cue. Staff spacing stays fixed."
+
+    private static let layoutPlacementGuide = EditorToolGuidanceSection(
+        title: "Layout actions",
+        text: "Layout actions stay visible to the left of the chart, or below the tool controls in narrow windows. Tap a measure in Select or Measures to see which actions are available."
+    )
+
+    private static func measureRowActionsGuide(layoutStyle: ChartLayoutStyle) -> EditorToolGuidanceSection {
+        let move = "Start New Row begins a row at the selection. Join Row Above moves from the start of the row through your selection. Move to Row Below moves from your selection through the end of the row. The rows adjust to fit."
+        let align = "Even System Measures gives the measures in the selected row matching widths. Merge with Next Measure removes an eligible divider."
+        let fill = layoutStyle == .simpleChordSheet ? " Fill Row expands a lone measure to fill its row." : ""
+        return .init(title: "Move and resize rows", text: move + " " + align + fill)
+    }
 
     private static let rhythmMeasureResizeGuide = EditorToolGuidanceSection(
         title: "Resize a Rhythm row",

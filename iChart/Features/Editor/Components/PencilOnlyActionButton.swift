@@ -30,6 +30,7 @@ struct PencilOnlyActionButton: UIViewRepresentable {
             action: #selector(Coordinator.performAction),
             for: .touchUpInside
         )
+        button.usesRaisedToolFace = true
         button.titleLabel?.lineBreakMode = .byTruncatingTail
         button.setContentHuggingPriority(.defaultLow, for: .horizontal)
         button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -39,7 +40,8 @@ struct PencilOnlyActionButton: UIViewRepresentable {
     func updateUIView(_ button: PencilOnlyUIButton, context: Context) {
         context.coordinator.action = action
         button.isEnabled = isEnabled && context.environment.isEnabled
-        button.configuration = configuration
+        button.configuration = configuration(increasedContrast:
+            context.environment.colorSchemeContrast == .increased)
         button.accessibilityLabel = accessibilityLabel ?? title
         button.acceptsDirectTouches = acceptsDirectTouches
     }
@@ -48,7 +50,7 @@ struct PencilOnlyActionButton: UIViewRepresentable {
         Coordinator(action: action)
     }
 
-    private var configuration: UIButton.Configuration {
+    private func configuration(increasedContrast: Bool) -> UIButton.Configuration {
         var configuration: UIButton.Configuration
         switch style {
         case .plain:
@@ -59,6 +61,12 @@ struct PencilOnlyActionButton: UIViewRepresentable {
             configuration = .borderedProminent()
         }
 
+        configuration.background.strokeColor = UIColor.label.withAlphaComponent(increasedContrast ? 0.55 : 0.17)
+        configuration.background.strokeWidth = increasedContrast ? 1.25 : 0.75
+        if style == .plain {
+            configuration.background.backgroundColor = .tertiarySystemBackground
+            configuration.background.cornerRadius = 8
+        }
         configuration.title = title
         configuration.image = systemImageName.flatMap(UIImage.init(systemName:))
         configuration.imagePadding = systemImageName == nil ? 0 : 6
@@ -89,6 +97,46 @@ struct PencilOnlyActionButton: UIViewRepresentable {
 
 final class PencilOnlyUIButton: IChartFeedbackUIButton {
     var acceptsDirectTouches = false
+    var usesRaisedToolFace = false {
+        didSet {
+            if usesRaisedToolFace {
+                updateToolElevation()
+            } else {
+                layer.shadowOpacity = 0
+                layer.shadowPath = nil
+            }
+        }
+    }
+
+    override var isHighlighted: Bool {
+        didSet { updateToolElevation() }
+    }
+
+    override var isEnabled: Bool {
+        didSet { updateToolElevation() }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateToolElevation()
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        updateToolElevation()
+    }
+
+    private func updateToolElevation() {
+        guard usesRaisedToolFace else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = isEnabled ? (traitCollection.userInterfaceStyle == .dark ? 0.4 : 0.18) : 0
+        layer.shadowRadius = isHighlighted ? 0.5 : 1.5
+        layer.shadowOffset = CGSize(width: 0, height: isHighlighted ? 0 : 2)
+        layer.shadowPath = UIBezierPath(roundedRect: bounds, cornerRadius: 8).cgPath
+        CATransaction.commit()
+    }
 
     override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
         guard PencilOnlyActionButtonInputPolicy.allowsButtonTouch(

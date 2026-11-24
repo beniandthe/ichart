@@ -252,7 +252,23 @@ private struct ActiveToolDoneButtonStyle: ButtonStyle {
                     )
                     .allowsHitTesting(false)
             )
+            .iChartRaisedToolFace(isPressed: configuration.isPressed)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.08), value: configuration.isPressed)
+    }
+}
+
+private struct EditorHorizontalToolActions<Content: View>: View {
+    let minWidth: CGFloat
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            content().fixedSize(horizontal: true, vertical: false)
+            ScrollView(.horizontal) {
+                content().frame(minWidth: minWidth, alignment: .center)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 }
 
@@ -290,7 +306,7 @@ private struct EditorToolActionButton: View {
             : Color(red: 0.16, green: 0.38, blue: 0.82)
 
         let expandsActionLabel = fillsAvailableWidth || sizingLabel != nil
-        return IChartTapFeedbackButton(action: action) {
+        return IChartTapFeedbackButton(isRaised: true, action: action) {
             ZStack {
                 if let sizingLabel {
                     EditorActionLabel(title: sizingLabel.title, systemImage: sizingLabel.systemImage)
@@ -1315,7 +1331,7 @@ struct EditorView: View {
                     .background(Color(uiColor: .tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
                     .contentShape(Rectangle())
                 }
-                .iChartMenuTapFeedback()
+                .iChartMenuTapFeedback(isRaised: true)
                 .accessibilityLabel("Document settings for \(chart.title)")
                 .accessibilityIdentifier("editor-document-settings")
 
@@ -1403,7 +1419,7 @@ struct EditorView: View {
         let documentSize = CGSize(width: logicalContentSize.width,
             height: canvasHeight(for: logicalContentSize))
 
-        let showsMeasureLayoutActions = chart.hasCompletedInitialSetup && canvasMode == .measureEdit
+        let showsMeasureLayoutActions = chart.hasCompletedInitialSetup
         let showsLayoutInLeftMargin = showsMeasureLayoutActions && contentSize.width >= 600
 
         VStack(spacing: 0) {
@@ -1493,17 +1509,15 @@ struct EditorView: View {
     }
 
     private var showsSelectedRenderedEditActions: Bool {
-        guard canvasMode == .browse else {
-            return false
-        }
+        canvasMode == .browse && (canUndoFreeInkArticulationDeletion || hasSelectedRenderedObject)
+    }
 
-        return canUndoFreeInkArticulationDeletion
-            || selectedChord != nil
+    private var hasSelectedRenderedObject: Bool {
+        selectedChord != nil
             || selectedCommittedBarlineMeasureID != nil
             || selectedCueText != nil
             || selectedRoadmapMarker != nil
             || selectedEndingSpan != nil
-            || selectedMeasureID != nil
     }
 
     private var isEditorGuidedTourDoneActionHighlighted: Bool {
@@ -1867,7 +1881,7 @@ struct EditorView: View {
     ) -> some View {
         switch destination {
         case .select:
-            IChartTapFeedbackButton(cornerRadius: 12) {
+            IChartTapFeedbackButton(cornerRadius: 12, isRaised: true) {
                 handleActiveToolDoneTapped()
             } label: {
                 EditorMenuTabLabel(
@@ -1885,7 +1899,7 @@ struct EditorView: View {
             )
 
         case .chords:
-            IChartTapFeedbackButton(cornerRadius: 12) {
+            IChartTapFeedbackButton(cornerRadius: 12, isRaised: true) {
                 handleChordTabTapped()
             } label: {
                 EditorMenuTabLabel(
@@ -1906,7 +1920,7 @@ struct EditorView: View {
             .accessibilityHint("Write with Apple Pencil in the highlighted lanes to render chart notation")
 
         case .ink:
-            IChartTapFeedbackButton(cornerRadius: 12) {
+            IChartTapFeedbackButton(cornerRadius: 12, isRaised: true) {
                 selectedMeasureID = nil
                 selectedNoteSelection = nil
                 pendingTimeSignatureSourceMeasureID = nil
@@ -1937,7 +1951,7 @@ struct EditorView: View {
             )
 
         case .measures:
-            IChartTapFeedbackButton(cornerRadius: 12) {
+            IChartTapFeedbackButton(cornerRadius: 12, isRaised: true) {
                 handleMeasureEditRequested()
             } label: {
                 EditorMenuTabLabel(
@@ -2018,10 +2032,9 @@ struct EditorView: View {
                 .frame(maxWidth: minWidth)
         } else {
             HStack(spacing: 8) {
-                ScrollView(.horizontal, showsIndicators: true) {
-                    activeToolControlStrip(minWidth: max(1, minWidth - 94))
+                EditorHorizontalToolActions(minWidth: max(1, minWidth - 94)) {
+                    activeToolControlStrip
                 }
-                .frame(maxWidth: .infinity, alignment: .center)
 
                 activeToolDoneButton
                     .layoutPriority(1)
@@ -2110,7 +2123,7 @@ struct EditorView: View {
         .accessibilityIdentifier("editor-rendering-mode")
     }
 
-    private func activeToolControlStrip(minWidth: CGFloat) -> some View {
+    private var activeToolControlStrip: some View {
         HStack(spacing: 8) {
             activeToolControlItems
         }
@@ -2122,7 +2135,6 @@ struct EditorView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(Color.black.opacity(0.08), lineWidth: 1)
         )
-        .frame(minWidth: minWidth, alignment: .center)
     }
 
     @ViewBuilder
@@ -2177,7 +2189,8 @@ struct EditorView: View {
         canvasMode.toolGuidance(layoutStyle: chart.layoutStyle,
             manualRenderWithPreview: manualRenderWithPreview,
             hasFreeInkArticulations: !chart.freeInkArticulations.isEmpty,
-            isClosingRepeatSelected: canvasMode == .measureEdit && closingRepeatForMeasureInsertion != nil)
+            isClosingRepeatSelected: canvasMode == .measureEdit && closingRepeatForMeasureInsertion != nil,
+            isLayoutMeasureSelected: canvasMode == .browse && measureLayoutTargetID != nil)
     }
 
     private func handleToolGuidePresentationChanged(_ isPresented: Bool) {
@@ -2344,7 +2357,7 @@ struct EditorView: View {
     }
 
     private func selectedRenderedEditActionTray(minWidth: CGFloat) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        EditorHorizontalToolActions(minWidth: minWidth) {
             HStack(spacing: 8) {
                 if canUndoFreeInkArticulationDeletion {
                     activeToolButton(title: "Undo Delete", systemImage: "arrow.uturn.backward") {
@@ -2455,22 +2468,6 @@ struct EditorView: View {
                             _ = chart.setRoadmapAnnotationVerticalOffset(ending.id, to: 0)
                         }
                     }
-                } else if selectedMeasureID != nil {
-                    if let selectedMeasureID, adjacentRowMovePlan(for: selectedMeasureID, direction: .above) != nil {
-                        activeToolButton(
-                            title: "Join Row Above",
-                            systemImage: "arrow.up.to.line",
-                            action: handleJoinSelectedMeasureRow
-                        )
-                    }
-
-                    activeToolButton(
-                        title: selectedMeasureIsOnlyMeasureInRow ? "Fill Row" : "Even Row",
-                        systemImage: "rectangle.split.3x1",
-                        isDisabled: !canEvenSelectedMeasureRow,
-                        action: handleEvenSelectedMeasureRow
-                    )
-
                 }
             }
             .padding(.horizontal, 9)
@@ -2481,9 +2478,7 @@ struct EditorView: View {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(Color.black.opacity(0.08), lineWidth: 1)
             )
-            .frame(minWidth: minWidth, alignment: .center)
         }
-        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private func resetAnnotationPositionButton(action: @escaping () -> Void) -> some View {
@@ -3079,7 +3074,7 @@ struct EditorView: View {
             .background((status.isReading ? Color.blue : Color.orange).opacity(0.12))
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
-        .buttonStyle(.iChartTapFeedback)
+        .buttonStyle(.iChartRaisedToolTapFeedback)
         .foregroundStyle(status.isReading ? Color.secondary : Color.primary)
         .disabled(!status.canReview)
         .accessibilityLabel(status.accessibilityLabel)
@@ -3399,7 +3394,7 @@ struct EditorView: View {
                                 .background(tint)
                                 .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                         }
-                        .buttonStyle(.iChartTapFeedback)
+                        .buttonStyle(.iChartRaisedToolTapFeedback)
                     }
                     .frame(width: RhythmDiagnosticPreviewMetrics.statusWidth, alignment: .leading)
                 } else if preview.isCertain {
@@ -3823,78 +3818,90 @@ struct EditorView: View {
         return chart.canDeleteMeasures(from: pendingDeleteStartMeasureID, through: targetMeasureID)
     }
 
+    private var measureLayoutTargetID: UUID? {
+        switch canvasMode {
+        case .browse:
+            guard !hasSelectedRenderedObject, let selectedMeasureID,
+                  chart.measure(id: selectedMeasureID) != nil else { return nil }
+            return selectedMeasureID
+        case .measureEdit:
+            return resolvedMeasureActionTargetID()
+        default:
+            return nil
+        }
+    }
+
+    private var measureLayoutUnavailableReason: String? {
+        if isPresentingEditorPanel {
+            return "Close the editor panel to change the layout."
+        }
+        if isMeasureDeleteContinuationActive {
+            return "Finish or cancel the deletion range first."
+        }
+        if canvasMode != .browse && canvasMode != .measureEdit {
+            return "Switch to Select or Measures to change the layout."
+        }
+        return nil
+    }
+
     private func measureLayoutActions(pageSize: CGSize, inLeftMargin: Bool) -> some View {
         let chartID = chart.id
-        let measureID = resolvedMeasureActionTargetID()
-        let layout = canvasGeometryCache.pageLayout(for: chart, pageSize: pageSize)
-        let onlyMeasureInRow = chart.layoutStyle == .simpleChordSheet && layout.systems.contains {
+        let measureID = measureLayoutTargetID
+        let reason = measureLayoutUnavailableReason
+        let layout = measureID.map { _ in canvasGeometryCache.pageLayout(for: chart, pageSize: pageSize) }
+        let onlyMeasureInRow = chart.layoutStyle == .simpleChordSheet && layout?.systems.contains {
             $0.measures.count == 1 && $0.measures.first?.sourceMeasureID == measureID
-        }
+        } == true
+
         let options = MeasureLayoutAction.allCases.map { action in
-            MeasureLayoutActionOption(action: action,
-                availability: MeasureLayoutActionGuidance.availability(for: action, chart: chart,
-                    measureID: measureID, pageLayout: layout),
+            let availability: MeasureLayoutActionAvailability
+            if let reason {
+                availability = .unavailable(reason)
+            } else if let layout, let measureID {
+                availability = MeasureLayoutActionGuidance.availability(for: action, chart: chart,
+                    measureID: measureID, pageLayout: layout)
+            } else {
+                availability = .unavailable("Select a measure first.")
+            }
+            return MeasureLayoutActionOption(action: action, availability: availability,
                 isOnlyMeasureInRow: onlyMeasureInRow)
         }
+
         return MeasureLayoutActionsView(options: options, inLeftMargin: inLeftMargin) { action in
             handleMeasureLayoutAction(action, chartID: chartID, measureID: measureID, pageSize: pageSize)
         }
-        .disabled(isMeasureDeleteContinuationActive || isPresentingEditorPanel)
     }
 
     private func handleMeasureLayoutAction(
         _ action: MeasureLayoutAction, chartID: UUID, measureID: UUID?, pageSize: CGSize
     ) {
-        guard canvasMode == .measureEdit, !isMeasureDeleteContinuationActive, !isPresentingEditorPanel,
-              chartID == chart.id, let measureID, measureID == resolvedMeasureActionTargetID(),
-              MeasureLayoutActionGuidance.availability(for: action, chart: chart, measureID: measureID,
-                pageLayout: canvasGeometryCache.pageLayout(for: chart, pageSize: pageSize)).isEnabled else {
-            return
+        guard chart.hasCompletedInitialSetup, chartID == chart.id,
+              measureLayoutUnavailableReason == nil,
+              let measureID, measureID == measureLayoutTargetID else { return }
+        let layout = canvasGeometryCache.pageLayout(for: chart, pageSize: pageSize)
+        guard MeasureLayoutActionGuidance.availability(for: action, chart: chart,
+            measureID: measureID, pageLayout: layout).isEnabled else { return }
+
+        switch action {
+        case .startNewRow:
+            guard chart.insertSystemBreak(before: measureID) else { return }
+            completeEditorGuidedTourStep(.shapeForm)
+        case .joinRowAbove, .moveToRowBelow:
+            let direction: LeadSheetRowMoveDirection = action == .joinRowAbove ? .above : .below
+            guard let plan = try? LeadSheetAdjacentRowMovePolicy.plan(
+                for: measureID, direction: direction, in: layout, chart: chart
+            ).get(), plan.apply(to: &chart) else { return }
+            completeEditorGuidedTourStep(.shapeForm)
+        case .evenRowWidths:
+            equalizeMeasureWidths(containing: measureID, pageLayout: layout)
+        case .mergeWithNext:
+            var updatedChart = chartPreservingVisibleSimpleArticulations()
+            guard updatedChart.joinMeasure(after: measureID,
+                sourceMeasureWidths: sourceMeasureWidthsForStructuralEdit) else { return }
+            chart = updatedChart
+            clearPendingMeasureStackState()
         }
         selectedMeasureID = measureID
-        switch action {
-        case .startNewRow: handleNewSystemBeforeSelectedMeasure()
-        case .joinRowAbove: handleJoinSelectedMeasureRow()
-        case .moveToRowBelow: handleMoveSelectedMeasureToRowBelow()
-        case .evenRowWidths: handleEvenSelectedMeasureRow()
-        case .mergeWithNext: handleJoinSelectedMeasure()
-        }
-    }
-
-    private var canEvenSelectedMeasureRow: Bool {
-        guard chart.layoutStyle == .simpleChordSheet || chart.layoutStyle == .rhythmSectionSheet,
-              let targetMeasureID = resolvedMeasureActionTargetID() else {
-            return false
-        }
-
-        let measureCount = renderedMeasureRowIDs(containing: targetMeasureID).count
-        return chart.layoutStyle == .simpleChordSheet ? measureCount > 0 : measureCount > 1
-    }
-
-    private var selectedMeasureIsOnlyMeasureInRow: Bool {
-        guard chart.layoutStyle == .simpleChordSheet,
-              let targetMeasureID = resolvedMeasureActionTargetID() else { return false }
-        return renderedMeasureRowIDs(containing: targetMeasureID).count == 1
-    }
-
-    private var canJoinSelectedMeasure: Bool {
-        guard let targetMeasureID = resolvedMeasureActionTargetID(),
-              chart.canJoinMeasure(after: targetMeasureID) else {
-            return false
-        }
-
-        let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
-            for: chart,
-            pageSize: latestEditorContentSize
-        )
-        return pageLayout.systems.contains { system in
-            let measureIDs = system.measures.compactMap(\.sourceMeasureID)
-            guard let selectedIndex = measureIDs.firstIndex(of: targetMeasureID) else {
-                return false
-            }
-
-            return measureIDs.indices.contains(selectedIndex + 1)
-        }
     }
 
     @discardableResult
@@ -3924,114 +3931,32 @@ struct EditorView: View {
         _ = enterMeasureEditMode()
     }
 
-    private func handleEvenSelectedMeasureRow() {
-        let targetMeasureID = resolvedMeasureActionTargetID()
-        guard enterMeasureEditMode(),
-              chart.layoutStyle == .simpleChordSheet || chart.layoutStyle == .rhythmSectionSheet,
-              let targetMeasureID else {
-            return
-        }
-
-        if chart.measure(id: targetMeasureID)?.rhythmFittedRowID != nil,
-           let row = rhythmRowLayout(containing: targetMeasureID),
+    private func equalizeMeasureWidths(containing measureID: UUID, pageLayout: LeadSheetPageLayout) {
+        if chart.measure(id: measureID)?.rhythmFittedRowID != nil,
+           let row = rhythmRowLayout(containing: measureID),
            chart.fitRhythmMeasureRows([row.measureIDs], availableWidths: [row.availableWidth]) {
-            selectedMeasureID = targetMeasureID
             return
         }
 
-        let equalizedWidths = measureRowEqualizedManualWidths(containing: targetMeasureID)
-        guard !equalizedWidths.isEmpty else {
-            return
-        }
-
-        var didUpdate = false
-        for (measureID, width) in equalizedWidths {
-            didUpdate = chart.setMeasureManualLayoutWidth(width, for: measureID) != nil || didUpdate
-        }
-
-        if didUpdate {
-            selectedMeasureID = targetMeasureID
-        }
-    }
-
-    private func handleJoinSelectedMeasure() {
-        let targetMeasureID = resolvedMeasureActionTargetID()
-        var updatedChart = chartPreservingVisibleSimpleArticulations()
-        guard enterMeasureEditMode(),
-              let targetMeasureID,
-              canJoinSelectedMeasure,
-              updatedChart.joinMeasure(after: targetMeasureID,
-                sourceMeasureWidths: sourceMeasureWidthsForStructuralEdit) else {
-            return
-        }
-        chart = updatedChart
-
-        clearPendingMeasureStackState()
-        selectedMeasureID = targetMeasureID
-    }
-
-    private func renderedMeasureRowIDs(containing measureID: UUID) -> [UUID] {
-        guard chart.layoutStyle == .simpleChordSheet || chart.layoutStyle == .rhythmSectionSheet else {
-            return []
-        }
-
-        let pageLayout = canvasGeometryCache.pageLayout(
-            for: chart,
-            pageSize: latestEditorContentSize
-        )
-        return pageLayout.systems
-            .first { system in
-                system.measures.contains { $0.sourceMeasureID == measureID }
-            }?
-            .measures
-            .compactMap(\.sourceMeasureID)
-            ?? []
-    }
-
-    private func measureRowEqualizedManualWidths(containing measureID: UUID) -> [UUID: CGFloat] {
-        guard chart.layoutStyle == .simpleChordSheet || chart.layoutStyle == .rhythmSectionSheet else {
-            return [:]
-        }
-
-        let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
-            for: chart,
-            pageSize: latestEditorContentSize
-        )
         guard let system = pageLayout.systems.first(where: { system in
             system.measures.contains { $0.sourceMeasureID == measureID }
-        }) else {
-            return [:]
-        }
+        }) else { return }
 
+        let widths: [UUID: CGFloat]
         switch chart.layoutStyle {
         case .simpleChordSheet:
-            return LeadSheetSimpleChordRowEqualizationPolicy.manualLayoutWidths(
-                for: system,
-                in: pageLayout,
-                chart: chart
-            )
+            widths = LeadSheetSimpleChordRowEqualizationPolicy.manualLayoutWidths(
+                for: system, in: pageLayout, chart: chart)
         case .rhythmSectionSheet:
-            return LeadSheetRhythmSectionRowEqualizationPolicy.manualLayoutWidths(
-                for: system,
-                in: pageLayout,
-                chart: chart
-            )
+            widths = LeadSheetRhythmSectionRowEqualizationPolicy.manualLayoutWidths(
+                for: system, in: pageLayout, chart: chart)
         case .leadSheet:
-            return [:]
+            return
         }
-    }
 
-    private func adjacentRowMovePlan(
-        for measureID: UUID,
-        direction: LeadSheetRowMoveDirection
-    ) -> LeadSheetAdjacentRowMovePlan? {
-        let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
-            for: chart,
-            pageSize: latestEditorContentSize
-        )
-        return try? LeadSheetAdjacentRowMovePolicy.plan(
-            for: measureID, direction: direction, in: pageLayout, chart: chart
-        ).get()
+        for (id, width) in widths {
+            _ = chart.setMeasureManualLayoutWidth(width, for: id)
+        }
     }
 
     @discardableResult
@@ -4230,47 +4155,6 @@ struct EditorView: View {
         clearPendingMeasureStackState()
         selectedMeasureID = nextSelectionID.flatMap { chart.measure(id: $0)?.id }
             ?? chart.resolvedAuthoringMeasureID()
-        completeEditorGuidedTourStep(.shapeForm)
-    }
-
-    private func handleNewSystemBeforeSelectedMeasure() {
-        let targetMeasureID = resolvedMeasureActionTargetID()
-        guard enterMeasureEditMode(),
-              let targetMeasureID,
-              chart.insertSystemBreak(before: targetMeasureID) else {
-            return
-        }
-
-        pendingRepeatStartMeasureID = nil
-        pendingDeleteStartMeasureID = nil
-        pendingEndingStartMeasureID = nil
-        pendingEndingType = nil
-        selectedMeasureID = targetMeasureID
-        completeEditorGuidedTourStep(.shapeForm)
-    }
-
-    private func handleJoinSelectedMeasureRow() {
-        handleMoveSelectedMeasure(to: .above)
-    }
-
-    private func handleMoveSelectedMeasureToRowBelow() {
-        handleMoveSelectedMeasure(to: .below)
-    }
-
-    private func handleMoveSelectedMeasure(to direction: LeadSheetRowMoveDirection) {
-        let targetMeasureID = resolvedMeasureActionTargetID()
-        guard enterMeasureEditMode(),
-              let targetMeasureID,
-              let plan = adjacentRowMovePlan(for: targetMeasureID, direction: direction),
-              plan.apply(to: &chart) else {
-            return
-        }
-
-        pendingRepeatStartMeasureID = nil
-        pendingDeleteStartMeasureID = nil
-        pendingEndingStartMeasureID = nil
-        pendingEndingType = nil
-        selectedMeasureID = targetMeasureID
         completeEditorGuidedTourStep(.shapeForm)
     }
 
@@ -7869,7 +7753,7 @@ private struct NoteEditPopoverView: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.iChartTapFeedback)
+            .buttonStyle(.iChartRaisedToolTapFeedback)
         }
     }
 
@@ -7881,7 +7765,7 @@ private struct NoteEditPopoverView: View {
                 Label("Edit Note", systemImage: "chevron.left")
                     .font(.subheadline.weight(.semibold))
             }
-            .buttonStyle(.iChartTapFeedback)
+            .buttonStyle(.iChartRaisedToolTapFeedback)
 
             Divider()
 
@@ -7897,7 +7781,7 @@ private struct NoteEditPopoverView: View {
                                 isSelected: selectedRhythmValue == rhythmValue
                             )
                         }
-                        .buttonStyle(.iChartTapFeedback)
+                        .buttonStyle(.iChartRaisedToolTapFeedback)
                     }
                 }
             }
@@ -8111,9 +7995,9 @@ private struct MeasureStackInsertionSheetView: View {
                                 measureCount = preset
                             } label: {
                                 Text("\(preset)")
-                                    .frame(maxWidth: .infinity)
+                                    .frame(maxWidth: .infinity, minHeight: EditorCommandLayoutPolicy.minimumTapTarget)
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.iChartRaisedToolTapFeedback)
                         }
                     }
                 }
@@ -8232,7 +8116,7 @@ private struct TimeSignatureScopeSheetView: View {
                 .foregroundStyle(Color(red: 0.11, green: 0.31, blue: 0.64))
                 .clipShape(Capsule())
         }
-        .buttonStyle(.iChartTapFeedback)
+        .buttonStyle(.iChartRaisedToolTapFeedback)
         .tourActionHighlight(
             isActive: highlightsApplyActions,
             cornerRadius: 18

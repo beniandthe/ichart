@@ -253,6 +253,9 @@ final class DividerToolGuidanceTests: XCTestCase {
             let delete = try await node("Delete", in: mounted.window, button: true)
             assertVisible(delete, in: mounted.window)
             XCTAssertTrue(delete.isEnabled)
+            let evenSystem = try await node("Even System Measures", in: mounted.window, button: true)
+            assertVisible(evenSystem, in: mounted.window)
+            XCTAssertFalse(evenSystem.isEnabled, "A selected divider cannot also target the Layout actions")
             let redX = LeadSheetCommittedChordBarlineOverlayGeometry.controlFrames(
                 for: measure, layoutStyle: style).delete
             let overlay = try XCTUnwrap(mounted.canvas.subviews.compactMap {
@@ -262,7 +265,7 @@ final class DividerToolGuidanceTests: XCTestCase {
                 CGPoint(x: redX.midX, y: redX.midY), from: mounted.canvas), with: nil),
                 "The selected divider's red X must be reachable through the actual hit overlay")
         } else {
-            XCTAssertTrue(expected.referenceText.contains("Row actions sit to the left of the chart."))
+            XCTAssertTrue(expected.referenceText.contains("Layout actions stay visible to the left of the chart"))
             XCTAssertTrue(expected.referenceText.contains("Merge with Next Measure"))
             XCTAssertEqual(mounted.canvas.interactionMode, .measureEdit)
             for label in ["Add One After", "Delete Range…", "Done"] {
@@ -273,6 +276,9 @@ final class DividerToolGuidanceTests: XCTestCase {
             assertVisible(startNewRow, in: mounted.window)
             XCTAssertTrue(startNewRow.isEnabled)
             XCTAssertGreaterThanOrEqual(startNewRow.frame(in: mounted.window).height, 44)
+            let evenSystem = try await node("Even System Measures", in: mounted.window, button: true)
+            assertVisible(evenSystem, in: mounted.window)
+            XCTAssertTrue(evenSystem.isEnabled)
             let joinRowAbove = try await node("Join Row Above", in: mounted.window, button: true)
             assertVisible(joinRowAbove, in: mounted.window)
             XCTAssertFalse(joinRowAbove.isEnabled, "A chart with one row has no row above to join")

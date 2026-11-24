@@ -228,7 +228,7 @@ struct ChartSetupSheetView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            IChartTapFeedbackButton(action: onSkipTour) {
+            IChartTapFeedbackButton(isRaised: true, action: onSkipTour) {
                 Image(systemName: "xmark")
                     .font(.caption.weight(.bold))
                     .frame(width: 30, height: 30)
@@ -298,7 +298,7 @@ struct ChartSetupSheetView: View {
 
             VStack(spacing: 0) {
                 ForEach(StylePreset.sheetPresets(for: chart.layoutStyle)) { preset in
-                    IChartTapFeedbackButton {
+                    IChartTapFeedbackButton(isRaised: true) {
                         selectedStylePreset = preset
                     } label: {
                         HStack(alignment: .top, spacing: 12) {

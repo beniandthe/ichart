@@ -17,7 +17,7 @@ enum MeasureLayoutAction: String, CaseIterable, Identifiable, Hashable {
         case .joinRowAbove: "Join Row Above"
         case .moveToRowBelow: "Move to Row Below"
         case .mergeWithNext: "Merge with Next Measure"
-        case .evenRowWidths: isOnlyMeasureInRow ? "Fill Row" : "Even Row Widths"
+        case .evenRowWidths: isOnlyMeasureInRow ? "Fill Row" : "Even System Measures"
         }
     }
 

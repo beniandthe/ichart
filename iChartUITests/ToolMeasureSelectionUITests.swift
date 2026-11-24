@@ -4,6 +4,7 @@ import XCTest
 /// fixtures contain no user charts; no private canvas action is invoked.
 final class ToolMeasureSelectionUITests: XCTestCase {
     private let fixtureTitles = ["Simple Sheet UI Fixture", "Rhythm Section UI Fixture"]
+    private let layoutActionIDs = ["startNewRow", "joinRowAbove", "moveToRowBelow", "evenRowWidths", "mergeWithNext"]
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -507,6 +508,84 @@ final class ToolMeasureSelectionUITests: XCTestCase {
     }
 
     @MainActor
+    func testLayoutActionsStayVisibleAcrossToolsInBothChartStyles() throws {
+        try assertPersistentLayoutActions(narrow: false)
+    }
+
+    @MainActor
+    func testLayoutActionsStayVisibleAcrossToolsInNarrowWindowsInBothChartStyles() throws {
+        try assertPersistentLayoutActions(narrow: true)
+    }
+
+    @MainActor
+    private func assertPersistentLayoutActions(narrow: Bool) throws {
+        let app = try fixtureApplication(narrow: narrow)
+        app.launch()
+        defer { app.terminate() }
+        for title in fixtureTitles {
+            openFixture(title, in: app)
+            let startNewRow = app.buttons["measure-layout-action-startNewRow"]
+            let joinRowAbove = app.buttons["measure-layout-action-joinRowAbove"]
+            let evenMeasures = app.buttons["measure-layout-action-evenRowWidths"]
+            XCTAssertTrue(startNewRow.waitForExistence(timeout: 5))
+            let selectPurpose = app.staticTexts["editor-guidance-purpose"].label
+            let unselectedCanvas = try XCTUnwrap(documentViewport(in: app)).frame
+            assertLayoutActionsVisible(narrow: narrow, canvas: unselectedCanvas, in: app)
+            assertLayoutActionsDisabled(in: app)
+
+            tapFirstRow(at: 0.47, in: app)
+            let target = try selectedMeasure(in: app)
+            XCTAssertGreaterThan(target, 1)
+            let selectedCanvas = try XCTUnwrap(documentViewport(in: app)).frame
+            XCTAssertEqual(selectedCanvas.minX, unselectedCanvas.minX, accuracy: 2)
+            XCTAssertEqual(selectedCanvas.width, unselectedCanvas.width, accuracy: 2)
+            XCTAssertEqual(evenMeasures.label, "Even System Measures")
+            XCTAssertTrue(evenMeasures.isEnabled && evenMeasures.isHittable)
+            XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label == %@", "Even Row")).firstMatch.exists)
+            XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label == %@", "Join Row Above")).count, 1)
+            XCTAssertFalse(joinRowAbove.isEnabled, "There is no destination above the first system")
+
+            chooseLayoutAction("startNewRow", in: app)
+            waitForPurpose(selectPurpose, in: app)
+            waitForContext("Measure \(target) selected", in: app)
+            XCTAssertTrue(joinRowAbove.isEnabled, "The selected measure now starts a system with one above it")
+            chooseLayoutAction("joinRowAbove", in: app)
+            waitForPurpose(selectPurpose, in: app)
+            waitForContext("Measure \(target) selected", in: app)
+            XCTAssertFalse(joinRowAbove.isEnabled, "The selected measure is back in the first system")
+
+            openTool("Repeats", in: app)
+            waitForPurpose("Repeat measures or add an ending", in: app)
+            waitForContext("Measure \(target) selected", in: app)
+            assertLayoutActionsVisible(narrow: narrow,
+                canvas: try XCTUnwrap(documentViewport(in: app)).frame, in: app)
+            assertLayoutActionsDisabled(in: app)
+
+            let inkTools = [
+                (button: "Write & Render", purpose: "Turn handwriting into chart notation"),
+                (button: "Free Ink", purpose: "Write notes and reminders on the page")
+            ]
+            for tool in inkTools {
+                app.buttons[tool.button].firstMatch.tap()
+                waitForPurpose(tool.purpose, in: app)
+                let canvas = try XCTUnwrap(documentViewport(in: app)).frame
+                assertLayoutActionsVisible(narrow: narrow, canvas: canvas, in: app)
+                XCTAssertEqual(canvas.minX, unselectedCanvas.minX, accuracy: 2)
+                XCTAssertEqual(canvas.width, unselectedCanvas.width, accuracy: 2)
+                assertLayoutActionsDisabled(in: app)
+            }
+
+            app.buttons["Measures"].tap()
+            waitForPurpose("Change measures and rows", in: app)
+            XCTAssertTrue(app.buttons["Add One After"].isHittable)
+            tapFirstRow(at: 0.47, in: app)
+            XCTAssertTrue(evenMeasures.isEnabled && evenMeasures.isHittable)
+            attach(app, name: "\(title) shared Layout actions at \(narrow ? "360 points" : "standard width")")
+            exitChart(in: app)
+        }
+    }
+
+    @MainActor
     func testDirectMeasureActionsRetargetInBothChartStyles() throws {
         try assertDirectMeasureActions(narrow: false)
     }
@@ -528,9 +607,9 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             XCTAssertGreaterThan(target, 1, "Use an ordinary measure away from the opening barline")
             XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label == %@", "Measures")).count, 1,
                 "The toolbar is the only entry to Measures even after selecting a measure")
-            XCTAssertTrue(app.buttons["Even Row"].isHittable, "Select keeps the contextual row action")
             let startNewRow = app.buttons["measure-layout-action-startNewRow"]
-            XCTAssertFalse(startNewRow.exists)
+            XCTAssertTrue(startNewRow.exists && startNewRow.isEnabled, "Select uses the same Layout controls")
+            XCTAssertEqual(app.buttons["measure-layout-action-evenRowWidths"].label, "Even System Measures")
             let selectViewport = try XCTUnwrap(documentViewport(in: app)).frame
 
             app.buttons["Measures"].tap()
@@ -557,20 +636,9 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             XCTAssertFalse(app.buttons["Delete"].exists)
             XCTAssertFalse(app.buttons["measure-layout-open"].exists)
             XCTAssertFalse(app.navigationBars["Measure Layout"].exists)
-            let layoutActions = ["startNewRow", "joinRowAbove", "moveToRowBelow", "evenRowWidths", "mergeWithNext"]
-            for id in layoutActions {
-                let action = app.buttons["measure-layout-action-\(id)"]
-                XCTAssertTrue(action.exists, "\(id) is available directly in Measures")
-                if action.isEnabled { XCTAssertTrue(action.isHittable, id) }
-                XCTAssertGreaterThanOrEqual(action.frame.height, 44, id)
-                XCTAssertTrue(app.windows.firstMatch.frame.insetBy(dx: -1, dy: -1).contains(action.frame), id)
-                if narrow {
-                    let addAction = app.buttons["Add One After"].frame
-                    XCTAssertGreaterThanOrEqual(action.frame.minY, addAction.maxY - 1, id)
-                    XCTAssertLessThanOrEqual(action.frame.maxY, readyViewport.minY + 1, id)
-                } else {
-                    XCTAssertLessThanOrEqual(action.frame.maxX, readyViewport.minX + 1, id)
-                }
+            assertLayoutActionsVisible(narrow: narrow, canvas: readyViewport, in: app)
+            if narrow {
+                XCTAssertGreaterThanOrEqual(startNewRow.frame.minY, app.buttons["Add One After"].frame.maxY - 1)
             }
             XCTAssertTrue(startNewRow.isEnabled, "An interior measure can start a row")
             XCTAssertFalse(app.buttons["measure-layout-action-joinRowAbove"].isEnabled,
@@ -610,7 +678,8 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             tapFirstRow(at: 0.47, in: app)
             waitForContext("Measure \(target) selected", in: app)
             openTool("Repeats", in: app)
-            XCTAssertFalse(startNewRow.exists, "Layout actions are only visible in Measures")
+            XCTAssertTrue(startNewRow.exists)
+            XCTAssertFalse(startNewRow.isEnabled, "Layout actions stay visible while Repeats owns the chart")
             tapControlEdge(app.buttons["Repeat This Measure"], at: 0.94)
             XCTAssertTrue(app.buttons["Remove Repeat"].isEnabled)
             app.buttons["Measures"].tap()
@@ -839,12 +908,37 @@ final class ToolMeasureSelectionUITests: XCTestCase {
     }
 
     @MainActor
+    private func assertLayoutActionsVisible(narrow: Bool, canvas: CGRect, in app: XCUIApplication) {
+        for id in layoutActionIDs {
+            let action = app.buttons["measure-layout-action-\(id)"]
+            XCTAssertTrue(action.exists, "\(id) remains visible")
+            if action.isEnabled { XCTAssertTrue(action.isHittable, id) }
+            XCTAssertGreaterThanOrEqual(action.frame.height, 44, id)
+            XCTAssertTrue(app.windows.firstMatch.frame.insetBy(dx: -1, dy: -1).contains(action.frame), id)
+            if narrow {
+                XCTAssertLessThanOrEqual(action.frame.maxY, canvas.minY + 1, id)
+            } else {
+                XCTAssertLessThanOrEqual(action.frame.maxX, canvas.minX + 1, id)
+            }
+        }
+    }
+
+    @MainActor
+    private func assertLayoutActionsDisabled(in app: XCUIApplication) {
+        for id in layoutActionIDs {
+            let action = app.buttons["measure-layout-action-\(id)"]
+            XCTAssertTrue(action.exists)
+            XCTAssertFalse(action.isEnabled, "\(id) requires an eligible measure in Select or Measures")
+        }
+    }
+
+    @MainActor
     private func chooseLayoutAction(_ id: String, in app: XCUIApplication) {
         let action = app.buttons["measure-layout-action-\(id)"]
         XCTAssertTrue(action.waitForExistence(timeout: 5))
         XCTAssertTrue(action.isEnabled, "Layout must accept \(id) for this selection")
         tapControlEdge(action, at: 0.94)
-        XCTAssertTrue(action.exists, "Editing layout keeps the Measures actions available")
+        XCTAssertTrue(action.exists, "Editing layout keeps the Layout actions available")
         XCTAssertFalse(app.navigationBars["Measure Layout"].exists)
     }
 
