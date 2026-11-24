@@ -98,7 +98,7 @@ final class EditorCommandLayoutPolicyTests: XCTestCase {
         XCTAssertNil(IChartEditorGuidedTourStep.setup.forwardActionTitle)
         XCTAssertEqual(IChartEditorGuidedTourStep.writeChords.targetText, "Write & Render • write C, F, G, C")
         XCTAssertEqual(IChartEditorGuidedTourStep.renderChords.targetText, "Check notation • review remaining ink")
-        XCTAssertEqual(IChartEditorGuidedTourStep.shapeForm.targetText, "Measures • Add / Layout / Delete")
+        XCTAssertEqual(IChartEditorGuidedTourStep.shapeForm.targetText, "Measures • Add One After / Layout / Delete")
         XCTAssertEqual(IChartEditorGuidedTourStep.addCue.targetText, "Tools > Text")
         XCTAssertEqual(IChartEditorGuidedTourStep.export.forwardActionTitle, "Skip Export")
         XCTAssertEqual(IChartEditorGuidedTourStep.finish.forwardActionTitle, "Done")

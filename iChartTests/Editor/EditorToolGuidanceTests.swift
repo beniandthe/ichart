@@ -123,6 +123,9 @@ final class EditorToolGuidanceTests: XCTestCase {
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
             let guidance = EditorCanvasMode.measureEdit.toolGuidance(
                 layoutStyle: style, manualRenderWithPreview: false)
+            XCTAssertEqual(guidance.steps, ["Tap a measure, then choose an action."])
+            XCTAssertTrue(guidance.referenceText.contains("tap Delete Measure…, and confirm the measure shown."))
+            XCTAssertTrue(guidance.referenceText.contains("tap Delete Range… to start. Tap the last measure"))
             XCTAssertTrue(guidance.referenceText.contains("Open Layout to compare each action"))
             XCTAssertTrue(guidance.referenceText.contains("read why an option is unavailable"))
             XCTAssertTrue(guidance.referenceText.contains("Tap an available action to apply it"))
@@ -131,11 +134,10 @@ final class EditorToolGuidanceTests: XCTestCase {
             let selectGuide = EditorCanvasMode.browse.toolGuidance(
                 layoutStyle: style, manualRenderWithPreview: false)
             if style == .rhythmSectionSheet {
-                XCTAssertTrue(guidance.accessibilitySummary.contains("Add One After fits the new measure in the row"))
+                XCTAssertTrue(guidance.referenceText.contains("Add One After fits the new measure in the row"))
                 XCTAssertTrue(guidance.referenceText.contains("When you release, a lone measure on the next row moves up if its full width fits."))
                 XCTAssertTrue(selectGuide.referenceText.contains("Manual row or page breaks and key changes keep their boundaries."))
             } else {
-                XCTAssertEqual(guidance.steps, ["Tap a measure, then choose Add, Layout, or Delete."])
                 XCTAssertFalse(guidance.referenceText.contains("lone measure on the next row"))
                 XCTAssertFalse(selectGuide.referenceText.contains("lone measure on the next row"))
             }

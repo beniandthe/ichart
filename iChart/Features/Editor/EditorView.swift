@@ -188,6 +188,13 @@ private struct PendingMeasureStackInsertion: Identifiable {
     let anchorMeasureID: UUID
 }
 
+private struct MeasureDeletionRequest {
+    let chartID: UUID
+    let measureID: UUID
+    let measureNumber: Int
+    let resetsBarline: Bool
+}
+
 private enum RepeatTargetOperation {
     case removeRepeat
     case editEnding
@@ -381,7 +388,7 @@ enum IChartEditorGuidedTourStep: String, Identifiable {
         case .renderChords:
             "Double-tap a rendered chord with Apple Pencil to edit it. Use Fix Writing if handwriting needs attention. Choose Manual in Rendering to check previews, then use Render Chords or Review & Render. In Review Chords, check each recognition guess."
         case .shapeForm:
-            "Tap Measures. Select a measure, then use Add, Layout, or Delete. Try one change, or continue."
+            "Tap Measures. Select a measure, then choose Add One After, Layout, or a delete action. Try one change, or continue."
         case .addCue:
             "Open Tools > Text, tap where the cue should start, then choose Above or Below. Choose Keyboard to type, or choose Scribble and tap the field with Apple Pencil before writing. Tap Add."
         case .review:
@@ -402,7 +409,7 @@ enum IChartEditorGuidedTourStep: String, Identifiable {
         case .renderChords:
             "Check notation • review remaining ink"
         case .shapeForm:
-            "Measures • Add / Layout / Delete"
+            "Measures • Add One After / Layout / Delete"
         case .addCue:
             "Tools > Text"
         case .review:
@@ -637,6 +644,7 @@ struct EditorView: View {
     @State private var pendingTimeSignaturePlacement: PendingTimeSignaturePlacement?
     @State private var pendingRepeatStartMeasureID: UUID?
     @State private var pendingDeleteStartMeasureID: UUID?
+    @State private var pendingSingleMeasureDeletion: MeasureDeletionRequest?
     @State private var pendingEndingStartMeasureID: UUID?
     @State private var pendingEndingType: RoadmapType?
     @State private var pendingMeasureStackInsertion: PendingMeasureStackInsertion?
@@ -746,6 +754,7 @@ struct EditorView: View {
                 selectedEndingSpanID = nil
                 repeatTargetChoice = nil
                 repeatEndingToRemove = nil
+                pendingSingleMeasureDeletion = nil
                 cueTextEntryRequest = nil
                 cueTextPlacement = nil
                 cueTextDraft = ""
@@ -1981,6 +1990,9 @@ struct EditorView: View {
         } else if canvasMode == .repeatEdit {
             repeatToolControls
                 .frame(maxWidth: minWidth)
+        } else if canvasMode == .measureEdit {
+            measureToolControls
+                .frame(maxWidth: minWidth)
         } else {
             HStack(spacing: 8) {
                 ScrollView(.horizontal, showsIndicators: true) {
@@ -2110,10 +2122,6 @@ struct EditorView: View {
             restoreFreeInkMenu
         }
 
-        if canvasMode == .measureEdit {
-            measureActiveToolActions
-        }
-
         if canvasMode == .headerEntry {
             headerActiveToolActions
         }
@@ -2195,7 +2203,7 @@ struct EditorView: View {
             if pendingDeleteStartMeasureID != nil {
                 guidance = guidance.replacingNextAction("Tap the last measure, then choose Delete To.")
             } else if freeInkArticulationBlocksMeasureEdit {
-                guidance = guidance.replacingNextAction("Tap a measure and choose Add, Layout or Delete. If a converted mark blocks an edit, use Restore Ink in Free Ink first.")
+                guidance = guidance.replacingNextAction("Choose a measure action. If a converted mark blocks an edit, use Restore Ink in Free Ink first.")
             }
         case .repeatEdit:
             if pendingRepeatStartMeasureID != nil {
@@ -2439,11 +2447,6 @@ struct EditorView: View {
                         action: handleEvenSelectedMeasureRow
                     )
 
-                    activeToolButton(
-                        title: "Measures",
-                        systemImage: "rectangle.split.3x1",
-                        action: handleSelectedMeasureActionsRequested
-                    )
                 }
             }
             .padding(.horizontal, 9)
@@ -2502,60 +2505,117 @@ struct EditorView: View {
         }
     }
 
-    private var measureActiveToolActions: some View {
+    private var measureToolControls: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                measureInsertionActions(compact: false).fixedSize(horizontal: true, vertical: false)
+                measureLayoutAndDeleteActions(compact: false).fixedSize(horizontal: true, vertical: false)
+            }
+            VStack(spacing: 6) {
+                measureInsertionActions(compact: true)
+                measureLayoutAndDeleteActions(compact: true)
+            }
+        }
+        .alert(
+            pendingSingleMeasureDeletion?.resetsBarline == true ? "Reset Barline?" : "Delete Measure?",
+            isPresented: Binding(
+                get: { pendingSingleMeasureDeletion != nil },
+                set: { if !$0 { pendingSingleMeasureDeletion = nil } }
+            ),
+            presenting: pendingSingleMeasureDeletion
+        ) { request in
+            Button("Cancel", role: .cancel) {}
+            Button(request.resetsBarline ? "Reset Barline" : "Delete Measure", role: .destructive) {
+                pendingSingleMeasureDeletion = nil
+                handleDeleteSelectedMeasure(request)
+            }
+        } message: { request in
+            Text(request.resetsBarline
+                ? "Restore the single barline after Measure \(request.measureNumber)."
+                : "Delete Measure \(request.measureNumber) and its contents?")
+        }
+        .onDisappear { pendingSingleMeasureDeletion = nil }
+    }
+
+    private func measureInsertionActions(compact: Bool) -> some View {
         HStack(spacing: 5) {
-            if pendingDeleteStartMeasureID != nil {
-                activeToolButton(
-                    title: "Delete To",
-                    systemImage: "checkmark.circle",
-                    isSelected: true,
-                    isDestructive: true,
-                    isTourHighlighted: editorGuidedTourStep == .shapeForm,
-                    isDisabled: !canDeleteThroughSelectedMeasure,
-                    action: handleMeasureRangeDeleteTapped
-                )
+            measureInsertionButton("Add One After", symbol: "plus.square", compact: compact,
+                action: handleAddMeasureAfterSelected)
+            measureInsertionButton("Add Multiple After…", symbol: "square.stack.3d.up", compact: compact,
+                action: handleAddMeasureStackAfterSelectedRequested)
+            measureInsertionButton("Add at Beginning", symbol: "backward.end", compact: compact,
+                action: handleAddMeasureAtBeginning)
+            measureInsertionButton("Add Double Barline", symbol: "pause", compact: compact,
+                action: handleAddDoubleBarlineMeasure)
+        }
+        // Keep the chart and the two range action positions steady.
+        .opacity(isMeasureDeleteContinuationActive ? 0 : 1)
+        .accessibilityHidden(isMeasureDeleteContinuationActive)
+    }
 
-                activeToolButton(
-                    title: "Cancel",
-                    systemImage: "xmark.circle",
-                    action: clearPendingMeasureDeleteState
-                )
-            } else {
-                EditorToolActionMenu(menuIdentifier: "editor-measures-add-popover") {
-                    EditorToolMenuRow("Add One After", systemImage: "plus.square",
-                                      action: handleAddMeasureAfterSelected)
-                    EditorToolMenuRow("Add Multiple After…", systemImage: "square.stack.3d.up",
-                                      action: handleAddMeasureStackAfterSelectedRequested)
-                    EditorToolMenuRow("Add at Beginning", systemImage: "backward.end",
-                                      action: handleAddMeasureAtBeginning)
-                    EditorToolMenuRow("Add Double Barline", systemImage: "pause",
-                                      action: handleAddDoubleBarlineMeasure)
-                } label: {
-                    activeToolMenuLabel(
-                        title: "Add",
-                        systemImage: "plus.square",
-                        isTourHighlighted: editorGuidedTourStep == .shapeForm
-                    )
-                }
-                measureLayoutButton
+    private func measureInsertionButton(
+        _ title: String,
+        symbol: String,
+        compact: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        activeToolButton(
+            title: title,
+            systemImage: compact ? nil : symbol,
+            isTourHighlighted: editorGuidedTourStep == .shapeForm,
+            isDisabled: isMeasureDeleteContinuationActive,
+            fillsAvailableWidth: true,
+            action: action
+        )
+    }
 
-                EditorToolActionMenu(menuIdentifier: "editor-measures-delete-popover") {
-                    EditorToolMenuRow("Delete Measure", systemImage: "trash", role: .destructive,
-                                      action: handleDeleteSelectedMeasure)
-                    .disabled(!canDeleteSelectedMeasure)
+    private func measureLayoutAndDeleteActions(compact: Bool) -> some View {
+        let choosingEnd = isMeasureDeleteContinuationActive
+        let rangeLabel = ("Delete Range…", compact ? nil : "trash.circle")
+        let endLabel = ("Delete To", compact ? nil : "checkmark.circle")
+        let singleLabel = (measureDeletionSlotResetsBarline ? "Reset Barline…" : "Delete Measure…",
+            compact ? nil : "trash")
+        let cancelLabel = ("Cancel", compact ? nil : "xmark.circle")
 
-                    EditorToolMenuRow("Delete Range…", systemImage: "trash.circle", role: .destructive,
-                                      action: handleMeasureRangeDeleteTapped)
-                    .disabled(!canDeleteSelectedMeasure)
-                } label: {
-                    activeToolMenuLabel(
-                        title: "Delete",
-                        systemImage: "trash",
-                        isDestructive: true,
-                        isTourHighlighted: editorGuidedTourStep == .shapeForm
-                    )
+        return HStack(spacing: 5) {
+            measureLayoutButton(compact: compact)
+                .disabled(choosingEnd)
+                .opacity(choosingEnd ? 0 : 1)
+                .accessibilityHidden(choosingEnd)
+
+            activeToolButton(
+                title: choosingEnd ? endLabel.0 : rangeLabel.0,
+                systemImage: choosingEnd ? endLabel.1 : rangeLabel.1,
+                isSelected: choosingEnd,
+                isDestructive: true,
+                isTourHighlighted: editorGuidedTourStep == .shapeForm,
+                isDisabled: choosingEnd ? !canDeleteThroughSelectedMeasure : !canStartMeasureDeletionRange,
+                sizingLabel: choosingEnd ? rangeLabel : endLabel,
+                action: handleMeasureRangeDeleteTapped
+            )
+            .accessibilityHint(choosingEnd
+                ? "Delete the range through the selected measure."
+                : "Use the selected measure as the beginning of a deletion range.")
+
+            activeToolButton(
+                title: choosingEnd ? cancelLabel.0 : singleLabel.0,
+                systemImage: choosingEnd ? cancelLabel.1 : singleLabel.1,
+                isDestructive: !choosingEnd,
+                isTourHighlighted: editorGuidedTourStep == .shapeForm,
+                isDisabled: !choosingEnd && !canDeleteSelectedMeasure,
+                sizingLabel: choosingEnd ? singleLabel : cancelLabel
+            ) {
+                if isMeasureDeleteContinuationActive {
+                    clearPendingMeasureDeleteState()
+                } else {
+                    requestSingleMeasureDeletion()
                 }
             }
+            .accessibilityHint(choosingEnd
+                ? "Clear the pending range."
+                : "Review the action for the selected measure before applying it.")
+
+            activeToolDoneButton
         }
     }
 
@@ -3243,7 +3303,7 @@ struct EditorView: View {
         activeSheet != nil || showingSetupSheet || showingHeaderSheet
             || showingTypographySheet || showingNotationReadabilitySheet || showingPersonalHandwriting
             || showingToolGuide || showingFormMarkerPlacement
-            || pendingMeasureLayoutRequest != nil
+            || pendingMeasureLayoutRequest != nil || pendingSingleMeasureDeletion != nil
             || endingEditorRequest != nil
             || showingCueTextEntry || pendingMeasureStackInsertion != nil
             || pendingChordInkConfirmation != nil || pendingChordInkBatchConfirmation != nil
@@ -3708,6 +3768,16 @@ struct EditorView: View {
         return chart.canDeleteMeasure(id: targetMeasureID)
     }
 
+    private var canStartMeasureDeletionRange: Bool {
+        guard let measureID = resolvedMeasureActionTargetID() else { return false }
+        return chart.canDeleteMeasures(from: measureID, through: measureID)
+    }
+
+    private var measureDeletionSlotResetsBarline: Bool {
+        guard let measureID = pendingDeleteStartMeasureID ?? resolvedMeasureActionTargetID() else { return false }
+        return chart.deletingMeasureResetsBarline(id: measureID)
+    }
+
     private var canDeleteThroughSelectedMeasure: Bool {
         guard let pendingDeleteStartMeasureID,
               let targetMeasureID = resolvedMeasureActionTargetID() else {
@@ -3717,15 +3787,16 @@ struct EditorView: View {
         return chart.canDeleteMeasures(from: pendingDeleteStartMeasureID, through: targetMeasureID)
     }
 
-    private var measureLayoutButton: AnyView {
+    private func measureLayoutButton(compact: Bool) -> AnyView {
         AnyView(Button {
             pendingMeasureLayoutRequest = MeasureLayoutSheetRequest(
                 chartID: chart.id, measureID: resolvedMeasureActionTargetID())
         } label: {
             activeToolMenuLabel(
                 title: "Layout",
-                systemImage: "rectangle.3.group",
-                isTourHighlighted: editorGuidedTourStep == .shapeForm
+                systemImage: compact ? nil : "rectangle.3.group",
+                isTourHighlighted: editorGuidedTourStep == .shapeForm,
+                fillsAvailableWidth: true
             )
         }
         .buttonStyle(.iChartTapFeedback)
@@ -3833,14 +3904,6 @@ struct EditorView: View {
     private func handleMeasureEditRequested() {
         if canvasMode == .measureEdit {
             activateSelectTool()
-            return
-        }
-
-        _ = enterMeasureEditMode()
-    }
-
-    private func handleSelectedMeasureActionsRequested() {
-        guard selectedMeasureID != nil else {
             return
         }
 
@@ -4101,15 +4164,28 @@ struct EditorView: View {
         }
     }
 
-    private func handleDeleteSelectedMeasure() {
-        let targetMeasureID = resolvedMeasureActionTargetID()
-        let nextSelectionID = targetMeasureID.flatMap(neighboringSelectionAfterDeletingMeasure)
+    private func requestSingleMeasureDeletion() {
+        guard canvasMode == .measureEdit, !isMeasureDeleteContinuationActive,
+              let measureID = resolvedMeasureActionTargetID(),
+              let index = chart.measures.firstIndex(where: { $0.id == measureID }),
+              chart.canDeleteMeasure(id: measureID) else { return }
+        pendingSingleMeasureDeletion = MeasureDeletionRequest(
+            chartID: chart.id,
+            measureID: measureID,
+            measureNumber: index + 1,
+            resetsBarline: chart.deletingMeasureResetsBarline(id: measureID)
+        )
+    }
+
+    private func handleDeleteSelectedMeasure(_ request: MeasureDeletionRequest) {
+        guard canvasMode == .measureEdit, chart.id == request.chartID,
+              resolvedMeasureActionTargetID() == request.measureID,
+              chart.deletingMeasureResetsBarline(id: request.measureID) == request.resetsBarline else { return }
+
+        let nextSelectionID = request.resetsBarline
+            ? request.measureID : neighboringSelectionAfterDeletingMeasure(request.measureID)
         var updatedChart = chartPreservingVisibleSimpleArticulations()
-        guard enterMeasureEditMode(),
-              let targetMeasureID,
-              updatedChart.deleteMeasure(id: targetMeasureID) else {
-            return
-        }
+        guard updatedChart.deleteMeasure(id: request.measureID) else { return }
         chart = updatedChart
 
         clearPendingMeasureStackState()
@@ -4197,6 +4273,7 @@ struct EditorView: View {
 
     private func handleMeasureRangeDeleteTapped() {
         if pendingDeleteStartMeasureID == nil {
+            guard canStartMeasureDeletionRange else { return }
             handleStartDeleteRangeHere()
         } else {
             handleDeleteThroughHere()

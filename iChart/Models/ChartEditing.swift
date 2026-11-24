@@ -864,6 +864,11 @@ extension Chart {
         return firstNewMeasureID
     }
 
+    func deletingMeasureResetsBarline(id measureID: UUID) -> Bool {
+        guard let location = measureLocation(id: measureID) else { return false }
+        return canClearFirstMeasureTrailingBarline(at: location)
+    }
+
     func canDeleteMeasure(id measureID: UUID) -> Bool {
         guard let location = measureLocation(id: measureID) else {
             return false

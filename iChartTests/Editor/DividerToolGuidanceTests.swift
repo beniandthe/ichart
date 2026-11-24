@@ -173,7 +173,7 @@ final class DividerToolGuidanceTests: XCTestCase {
             manualRenderWithPreview: false, hasFreeInkArticulations: hasConvertedMarks)
         let purpose = try await node(expected.title, in: mounted.window)
         let nextActionText = tool == .measureEdit && style == .rhythmSectionSheet && hasConvertedMarks
-            ? "Tap a measure and choose Add, Layout or Delete. If a converted mark blocks an edit, use Restore Ink in Free Ink first."
+            ? "Choose a measure action. If a converted mark blocks an edit, use Restore Ink in Free Ink first."
             : expected.steps[0]
         let nextAction = try await node(nextActionText, in: mounted.window)
         assertVisible(purpose, in: mounted.window)

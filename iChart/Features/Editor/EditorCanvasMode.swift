@@ -247,11 +247,11 @@ enum EditorCanvasMode: Hashable {
                 details: details
             )
         case .measureEdit:
-            var steps = ["Tap a measure, then choose Add, Layout, or Delete."]
             var details: [EditorToolGuidanceSection] = [
-                .init(title: "Add measures", text: "Use Add to extend the chart beside the selected measure or onto another row."),
+                .init(title: "Add measures", text: "Select a measure and tap Add One After to insert one measure or Add Multiple After… to choose how many. Add at Beginning inserts before the first measure. Add Double Barline adds a double boundary."),
                 .init(title: "Change the layout", text: "Open Layout to compare each action and read why an option is unavailable. Tap an available action to apply it. Merge with Next Measure is available when the boundary can be removed safely."),
-                .init(title: "Delete a range", text: "Choose the first measure and start the range. Tap the last measure, then choose Delete To. Review the range before deleting.")
+                .init(title: "Delete one measure", text: "Select the measure, tap Delete Measure…, and confirm the measure shown. When the first measure shows Reset Barline…, you can restore its right barline to a single line."),
+                .init(title: "Delete a range", text: "Select the first measure and tap Delete Range… to start. Tap the last measure and check the highlighted range, then tap Delete To or Cancel.")
             ]
             if layoutStyle == .simpleChordSheet || layoutStyle == .rhythmSectionSheet {
                 details.insert(.init(
@@ -260,16 +260,15 @@ enum EditorCanvasMode: Hashable {
                 ), at: 2)
             }
             if layoutStyle == .rhythmSectionSheet {
-                steps = ["Tap a measure for Add, Layout, or Delete. Add One After fits the new measure in the row."]
                 details[0] = .init(
                     title: "Add measures",
-                    text: "Choose Add > Add One After to insert a measure and give the row even widths, including when it’s already full. Add Multiple After… can extend the chart onto more rows."
+                    text: "Add One After fits the new measure in the row and evens the measure widths, including when the row is full. Add Multiple After… can extend the chart across rows. Add at Beginning inserts before the first measure. Add Double Barline adds a double boundary."
                 )
                 details.insert(Self.rhythmMeasureResizeGuide, at: 1)
             }
             return .init(
                 title: "Change measures and rows",
-                steps: steps,
+                steps: ["Tap a measure, then choose an action."],
                 detailsTitle: "Measures guide",
                 details: details
             )

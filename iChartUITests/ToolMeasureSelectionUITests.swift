@@ -141,15 +141,15 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             }
 
             tapControlEdge(app.buttons["Measures"], at: 0.95)
-            let add = app.buttons["Add"]
-            XCTAssertTrue(add.waitForExistence(timeout: 5))
-            XCTAssertGreaterThanOrEqual(add.frame.height, 44)
-            tapControlEdge(add, at: 0.06)
-            let addOne = app.buttons["Add One After"]
-            XCTAssertTrue(addOne.waitForExistence(timeout: 5))
-            dismissOpenMenu(in: app)
-            waitForRemoval(addOne, message: "Dismissing Add returns to the same tool")
-            XCTAssertTrue(add.isHittable)
+            let layout = app.buttons["measure-layout-open"]
+            XCTAssertTrue(layout.waitForExistence(timeout: 5))
+            XCTAssertGreaterThanOrEqual(layout.frame.height, 44)
+            tapControlEdge(layout, at: 0.06)
+            let sheet = app.navigationBars["Measure Layout"]
+            XCTAssertTrue(sheet.waitForExistence(timeout: 5))
+            sheet.buttons["Done"].tap()
+            waitForRemoval(sheet, message: "Dismissing Layout returns to the same tool")
+            XCTAssertTrue(app.buttons["Add One After"].isHittable)
             exitChart(in: app)
         }
     }
@@ -165,7 +165,6 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             app.buttons["Measures"].tap()
             tapFirstRow(at: 0.18, in: app)
             let measure = try selectedMeasure(in: app)
-            tapControlEdge(app.buttons["Add"], at: 0.94)
             let multiple = app.buttons["Add Multiple After…"]
             XCTAssertTrue(multiple.waitForExistence(timeout: 5))
             XCTAssertTrue(multiple.isHittable)
@@ -177,14 +176,13 @@ final class ToolMeasureSelectionUITests: XCTestCase {
                 .press(forDuration: 0.25)
             let stack = app.navigationBars["Measure Stack"]
             XCTAssertTrue(stack.waitForExistence(timeout: 5))
-            waitForRemoval(multiple, message: "The Add popover yields to Measure Stack")
             XCTAssertTrue(stack.buttons["Cancel"].isHittable)
             XCTAssertTrue(stack.buttons["Add"].isEnabled)
             XCTAssertFalse(app.keyboards.firstMatch.exists)
             stack.buttons["Cancel"].tap()
             waitForRemoval(stack, message: "Cancel closes Measure Stack without inserting measures")
             waitForContext("Measure \(measure) selected", in: app)
-            XCTAssertTrue(app.buttons["Add"].isHittable)
+            XCTAssertTrue(multiple.isHittable)
 
             openTool("Repeats", in: app)
             tapFirstRow(at: 0.18, in: app)
@@ -442,6 +440,112 @@ final class ToolMeasureSelectionUITests: XCTestCase {
     }
 
     @MainActor
+    func testDirectMeasureActionsRetargetInBothChartStyles() throws {
+        try assertDirectMeasureActions(narrow: false)
+    }
+
+    @MainActor
+    func testDirectMeasureActionsStayReachableInNarrowWindowsInBothChartStyles() throws {
+        try assertDirectMeasureActions(narrow: true)
+    }
+
+    @MainActor
+    private func assertDirectMeasureActions(narrow: Bool) throws {
+        let app = try fixtureApplication(narrow: narrow)
+        app.launch()
+        defer { app.terminate() }
+        for title in fixtureTitles {
+            openFixture(title, in: app)
+            tapFirstRow(at: 0.47, in: app)
+            let target = try selectedMeasure(in: app)
+            XCTAssertGreaterThan(target, 1, "Use an ordinary measure away from the opening barline")
+            XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label == %@", "Measures")).count, 1,
+                "The toolbar is the only entry to Measures even after selecting a measure")
+            XCTAssertTrue(app.buttons["Even Row"].isHittable, "Select keeps the contextual row action")
+
+            app.buttons["Measures"].tap()
+            waitForContext("Measure \(target) selected", in: app)
+            let viewport = try XCTUnwrap(documentViewport(in: app))
+            let readyViewport = viewport.frame
+            if narrow {
+                XCTAssertLessThan(readyViewport.width, 360, "Use the compact tool layout")
+            } else {
+                XCTAssertGreaterThan(readyViewport.width, 600, "Use the regular tool layout")
+            }
+            let controls = ["Add One After", "Add Multiple After…", "Add at Beginning", "Add Double Barline",
+                            "measure-layout-open", "Delete Measure…", "Delete Range…", "Done"]
+            for control in controls {
+                let button = app.buttons[control]
+                XCTAssertTrue(button.exists && button.isHittable, "\(control) is a direct action")
+                XCTAssertGreaterThanOrEqual(button.frame.height, 44, control)
+                XCTAssertTrue(app.windows.firstMatch.frame.insetBy(dx: -1, dy: -1).contains(button.frame), control)
+            }
+            XCTAssertFalse(app.buttons["Add"].exists)
+            XCTAssertFalse(app.buttons["Delete"].exists)
+            attach(app, name: "\(title) Measures controls at \(narrow ? "360 points" : "standard width")")
+
+            let deleteMeasure = app.buttons["Delete Measure…"]
+            let deleteRange = app.buttons["Delete Range…"]
+            let deleteMeasureFrame = deleteMeasure.frame
+            let deleteRangeFrame = deleteRange.frame
+            tapControlEdge(deleteRange, at: 0.94)
+            waitForContext("Delete range: measures \(target)–\(target)", in: app)
+            let deleteTo = app.buttons["Delete To"]
+            let cancelRange = app.buttons["Cancel"]
+            XCTAssertTrue(deleteTo.isHittable)
+            XCTAssertTrue(cancelRange.isHittable)
+            XCTAssertEqual(deleteTo.frame.midX, deleteRangeFrame.midX, accuracy: 2)
+            XCTAssertEqual(deleteTo.frame.midY, deleteRangeFrame.midY, accuracy: 2)
+            XCTAssertEqual(cancelRange.frame.midX, deleteMeasureFrame.midX, accuracy: 2)
+            XCTAssertEqual(cancelRange.frame.midY, deleteMeasureFrame.midY, accuracy: 2)
+            XCTAssertEqual(viewport.frame.minY, readyViewport.minY, accuracy: 2)
+            tapFirstRow(at: 0.18, in: app)
+            waitForContext("Delete range: measures 1–\(target)", in: app)
+            XCTAssertEqual(deleteTo.frame.midX, deleteRangeFrame.midX, accuracy: 2)
+            XCTAssertEqual(cancelRange.frame.midX, deleteMeasureFrame.midX, accuracy: 2)
+            XCTAssertEqual(viewport.frame.minY, readyViewport.minY, accuracy: 2)
+            cancelRange.tap()
+            waitForContext("Measure 1 selected", in: app)
+            XCTAssertFalse(deleteTo.exists)
+
+            // A repeat on this specific measure proves which measure survives
+            // cancellation and which measure is removed on confirmation.
+            tapFirstRow(at: 0.47, in: app)
+            waitForContext("Measure \(target) selected", in: app)
+            openTool("Repeats", in: app)
+            tapControlEdge(app.buttons["Repeat This Measure"], at: 0.94)
+            XCTAssertTrue(app.buttons["Remove Repeat"].isEnabled)
+            app.buttons["Measures"].tap()
+            waitForContext("Measure \(target) selected", in: app)
+
+            let confirmation = app.alerts["Delete Measure?"]
+            tapControlEdge(deleteMeasure, at: 0.94)
+            XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+            XCTAssertTrue(confirmation.staticTexts.containing(NSPredicate(
+                format: "label CONTAINS[c] %@", "measure \(target)"
+            )).firstMatch.exists, "The confirmation identifies the exact selected measure")
+            confirmation.buttons["Cancel"].tap()
+            waitForRemoval(confirmation, message: "Cancel leaves the targeted measure intact")
+            waitForContext("Measure \(target) selected", in: app)
+            openTool("Repeats", in: app)
+            XCTAssertTrue(app.buttons["Remove Repeat"].isEnabled, "Cancel preserves the selected measure's repeat")
+            app.buttons["Measures"].tap()
+            waitForContext("Measure \(target) selected", in: app)
+
+            tapControlEdge(deleteMeasure, at: 0.94)
+            XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+            confirmation.buttons["Delete Measure"].tap()
+            waitForRemoval(confirmation, message: "Confirming deletes the targeted measure")
+            openTool("Repeats", in: app)
+            XCTAssertFalse(app.buttons["Remove Repeat"].isEnabled, "The neighboring measure has no repeat")
+            tapFirstRow(at: 0.47, in: app)
+            XCTAssertFalse(app.buttons["Remove Repeat"].isEnabled, "The deleted measure's repeat is gone")
+            attach(app, name: "\(title) direct Measures at \(narrow ? "360 points" : "standard width")")
+            exitChart(in: app)
+        }
+    }
+
+    @MainActor
     func testMeasuresRangeCancelAndTimeSignatureRetargetingInBothChartStyles() throws {
         let app = try fixtureApplication()
         app.launch()
@@ -455,7 +559,6 @@ final class ToolMeasureSelectionUITests: XCTestCase {
             tapFirstRow(at: 0.18, in: app)
             let first = try waitForDifferentSelectedMeasure(than: later, in: app)
 
-            tapControlEdge(app.buttons["Delete"], at: 0.92)
             let range = app.buttons["Delete Range…"]
             XCTAssertTrue(range.waitForExistence(timeout: 5))
             range.tap()
@@ -612,13 +715,11 @@ final class ToolMeasureSelectionUITests: XCTestCase {
         tapFirstRow(at: 0.18, in: app)
         waitForContext("Measure 1 selected", in: app)
 
-        // Grow the first row through the same Add menu used in a real chart.
-        // The final canvas tap checks placement instead of relying on automatic
-        // selection of the inserted measure.
+        // Grow the first row with the direct tool. The final canvas tap
+        // checks placement instead of relying on automatic selection.
+        let insert = app.buttons["Add One After"]
+        XCTAssertTrue(insert.waitForExistence(timeout: 5))
         for measure in 2...9 {
-            app.buttons["Add"].tap()
-            let insert = app.buttons["Add One After"]
-            XCTAssertTrue(insert.waitForExistence(timeout: 5))
             tapControlEdge(insert, at: 0.94)
             waitForContext("Measure \(measure) selected", in: app)
         }

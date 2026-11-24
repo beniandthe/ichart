@@ -301,7 +301,7 @@ private struct IChartQuickStartStep: Identifiable {
         IChartQuickStartStep(
             id: "form",
             title: "Shape The Form",
-            detail: "Tap Measures, select a measure, then use Add, Layout, or Delete. Layout also moves measures between rows and evens their widths."
+            detail: "Tap Measures and select a measure. Use Add One After to insert a measure or Layout to move measures between rows and even their widths."
         ),
         IChartQuickStartStep(
             id: "cue",
@@ -488,8 +488,10 @@ private struct IChartHelpArticleSection: Identifiable {
             systemImageName: "rectangle.split.3x1",
             body: "Measures stays one tap away; less-frequent structure and annotation commands live under Tools.",
             bullets: [
-                "Measures groups Add, Layout, and Delete actions for the selected measure.",
-                "On a Rhythm Section Sheet, choose Add > Add One After to insert a measure and give the row even widths, including when it’s already full.",
+                "Tap Measures and select a measure. Use Add One After to insert one measure or Add Multiple After… to choose how many. Use Add at Beginning to insert before the first measure or Add Double Barline to add a double boundary.",
+                "Tap Delete Measure… and confirm the measure shown. When the first measure shows Reset Barline…, you can restore its right barline to a single line.",
+                "To delete a range, select the first measure and tap Delete Range… to start. Tap the last measure and check the highlighted range before choosing Delete To or Cancel.",
+                "On a Rhythm Section Sheet, choose Add One After to insert a measure and give the row even widths, including when it’s already full.",
                 "On a Rhythm Section Sheet, select a measure to show its arrow handles. Use Apple Pencil to drag an inside handle to adjust the two neighboring widths, or drag the last measure’s right arrow left to shorten the row.",
                 "When you release, a lone measure on the next row moves up if its full width fits. Manual row or page breaks and key changes keep their boundaries.",
                 "Open Layout to compare Start New Row, Join Row Above, Move to Row Below, Even Row Widths, and Merge with Next Measure. The sheet explains each action and why an option is unavailable. Tap an available action to apply it.",

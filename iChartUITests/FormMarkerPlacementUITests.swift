@@ -182,7 +182,7 @@ final class FormMarkerPlacementUITests: XCTestCase {
                 XCTAssertGreaterThanOrEqual(explanation.frame.height, 14)
                 XCTAssertTrue(app.windows.firstMatch.frame.insetBy(dx: -1, dy: -1).contains(explanation.frame))
                 if actionID == "joinRowAbove" {
-                    XCTAssertTrue(explanation.label.contains("The remaining measures stay together."))
+                    XCTAssertTrue(explanation.label.contains("Both rows resize evenly."))
                     XCTAssertGreaterThan(explanation.frame.height, 25,
                         "The full two-sentence explanation wraps instead of using a truncated menu subtitle")
                 }

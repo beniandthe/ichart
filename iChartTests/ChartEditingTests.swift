@@ -851,11 +851,14 @@ final class ChartEditingTests: XCTestCase {
         let measureIDs = chart.measures.map(\.id)
         chart.systems[0].measures[0].barlineAfter = .double
 
+        XCTAssertTrue(chart.deletingMeasureResetsBarline(id: measureIDs[0]))
+        XCTAssertFalse(chart.deletingMeasureResetsBarline(id: measureIDs[1]))
         XCTAssertTrue(chart.canDeleteMeasure(id: measureIDs[0]))
         XCTAssertTrue(chart.deleteMeasure(id: measureIDs[0]))
 
         XCTAssertEqual(chart.measures.map(\.id), measureIDs)
         XCTAssertEqual(chart.measure(id: measureIDs[0])?.barlineAfter, .single)
+        XCTAssertFalse(chart.deletingMeasureResetsBarline(id: measureIDs[0]))
     }
 
     func testCanDeleteMeasureRequiresExistingMeasureAndSpareMeasure() throws {
