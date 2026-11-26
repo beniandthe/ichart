@@ -334,6 +334,8 @@ final class PaperMeasureGestureTests: XCTestCase {
             let chordID = try XCTUnwrap(original.measures.first?.chordEvents.first?.id)
             host.canvas.selectedChordID = chordID
             let page = layout(host.canvas)
+            let glyph = try XCTUnwrap(page.systems.flatMap(\.measures).flatMap(\.chordLayouts)
+                .first { $0.id == chordID })
             let context = RenderedEditContext(pageLayout: page, layoutStyle: style,
                 selection: RenderedEditSelectionState(selectedObjectID: .chord(chordID)),
                 allowsUnselectedChordMove: true, allowsSelectedMeasureMove: true)
@@ -348,10 +350,15 @@ final class PaperMeasureGestureTests: XCTestCase {
             let initialGripX = grip.frame.midX
             host.canvas.layer.displayIfNeeded()
             pan.simulatedState = .changed
-            pan.point.x += 12
-            pan.movement.x = 12
+            // This fixture is already at maximum horizontal scale. Resize
+            // inward so the policy permits a real width change rather than
+            // correctly clamping an outward drag at the existing width.
+            let movement = min(12, glyph.frame.width * 0.15)
+            pan.point.x -= movement
+            pan.movement.x = -movement
             host.canvas.handleRenderedObjectMovePan(pan)
-            XCTAssertGreaterThan(grip.frame.midX, initialGripX)
+            XCTAssertLessThan(grip.frame.midX, initialGripX)
+            XCTAssertEqual(grip.frame.midX, initialGripX - movement, accuracy: 0.001)
             XCTAssertFalse(host.canvas.layer.needsDisplay())
             pan.simulatedState = .cancelled
             host.canvas.handleRenderedObjectMovePan(pan)
