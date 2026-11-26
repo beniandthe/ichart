@@ -374,6 +374,12 @@ struct Chart: Identifiable, Codable, Hashable {
     var hasExplicitClefSelection: Bool = false
     var hasCompletedInitialSetup: Bool = true
     var systems: [ChartSystem]
+    var paperMeasureLayoutVersion: Int? = nil
+
+    var usesPaperMeasureLayout: Bool {
+        get { paperMeasureLayoutVersion == 1 }
+        set { paperMeasureLayoutVersion = newValue ? 1 : nil }
+    }
     var keyChanges: [KeyChange]
     var keyChangeSystemBreakMeasureIDs: Set<UUID>
     var timeSignatureChanges: [TimeSignatureChange]
@@ -529,6 +535,7 @@ struct Chart: Identifiable, Codable, Hashable {
         case hasExplicitClefSelection
         case hasCompletedInitialSetup
         case systems
+        case paperMeasureLayoutVersion
         case keyChanges
         case keyChangeSystemBreakMeasureIDs
         case timeSignatureChanges
@@ -581,6 +588,7 @@ struct Chart: Identifiable, Codable, Hashable {
         hasExplicitClefSelection = try container.decodeIfPresent(Bool.self, forKey: .hasExplicitClefSelection) ?? false
         hasCompletedInitialSetup = try container.decodeIfPresent(Bool.self, forKey: .hasCompletedInitialSetup) ?? true
         let decodedSystems = try container.decode([ChartSystem].self, forKey: .systems)
+        paperMeasureLayoutVersion = try container.decodeIfPresent(Int.self, forKey: .paperMeasureLayoutVersion)
         systems = Self.systemsApplyingChordTransposition(
             to: decodedSystems,
             by: decodedChordTranspositionSemitones

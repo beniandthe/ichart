@@ -291,7 +291,7 @@ private struct IChartQuickStartStep: Identifiable {
         IChartQuickStartStep(
             id: "create",
             title: "Create A Simple Sheet",
-            detail: "Tap New Chart and choose Simple Chord Sheet. Quick Start prepares four measures; change the setup if you want, then create the page."
+            detail: "Tap New Chart and choose Simple Chord Sheet. Choose the page settings, then create a blank page. Write your own barlines in the blue lanes."
         ),
         IChartQuickStartStep(
             id: "chords",
@@ -384,6 +384,7 @@ private struct IChartHelpArticleSection: Identifiable {
                 "You can switch directly between Write & Render, Free Ink, Measures, and Repeats, or choose a tool in Quick Actions.",
                 "Tap a chord, barline, text label, marker, or measure with Apple Pencil to show its buttons. Use a finger to scroll.",
                 "In Select, drag a chord with Apple Pencil, then lift to place it. You can start on the chord without selecting it first.",
+                "To move a measure within its system, tap the measure and drag its grab handle or an empty part of its selected area. Chords and attached ink follow. Drag its edge handles to resize. Moving across other measures changes their order.",
                 "Tap a chord to show its controls. Drag a side handle to resize the chord or tap the red X to delete it.",
                 "In either chart style, tap an eligible divider, then its red X or Delete to merge the two measures. Rhythm divider deletion is limited to chord-only measures; notes, attached marks or a merge that could move staff handwriting keep the boundary protected.",
                 "On a Simple Chord Sheet or Rhythm Section Sheet, tap a converted mark to select it. Drag to move it or tap the red X to delete it.",
@@ -407,6 +408,8 @@ private struct IChartHelpArticleSection: Identifiable {
                 "If a triangle is unclear, the ink stays on the chart. Tap Review Chord in Automatic, or Review & Render in Manual, to enter the intended chord.",
                 "Choose Manual under Rendering in Write & Render or app Settings to check the previews before tapping Render Chords or Review & Render.",
                 "On a Simple Chord Sheet or Rhythm Section Sheet, you can write chords and barlines in the same pass. Draw each barline tall and nearly vertical, with a gap on both sides.",
+                "New charts start with empty writing rows. Draw a single or double barline to begin a measure and another to close it. Two double barlines enclose one measure. On a Rhythm Section Sheet the staff stays visible.",
+                "Write anywhere in a row, including the right end. Tap Done to size the row's measures. A single measure written away from the left edge keeps its position and can be moved or resized in Select.",
                 "When barlines form measures around rendered chords in either style, each resulting measure with just one chord moves that chord to beat 1. Measures with multiple chords keep their relative placement.",
                 "On a Rhythm Section Sheet, a handwritten barline can split a measure at a rhythmic boundary in Automatic or Manual. If a note crosses that boundary, the line stays as draft ink and the tool shows feedback above the controls. Use Measures for other form edits.",
                 "Draw the line near an existing note onset when splitting a measure that already has rhythms. Both new measures use the current meter. Written notes keep their lengths, and rests fill the unused beats.",

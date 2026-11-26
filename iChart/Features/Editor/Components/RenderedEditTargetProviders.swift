@@ -9,6 +9,7 @@ struct RenderedEditContext {
     var committedChordBarlineMeasures: [LeadSheetMeasureLayout]
     var screenPointsPerDisplayedPoint: CGFloat
     var allowsUnselectedChordMove: Bool
+    var allowsSelectedMeasureMove: Bool
 
     init(
         pageLayout: LeadSheetPageLayout,
@@ -16,7 +17,8 @@ struct RenderedEditContext {
         selection: RenderedEditSelectionState = RenderedEditSelectionState(),
         committedChordBarlineMeasures: [LeadSheetMeasureLayout] = [],
         screenPointsPerDisplayedPoint: CGFloat = 1,
-        allowsUnselectedChordMove: Bool = false
+        allowsUnselectedChordMove: Bool = false,
+        allowsSelectedMeasureMove: Bool = false
     ) {
         self.pageLayout = pageLayout
         self.layoutStyle = layoutStyle
@@ -24,6 +26,7 @@ struct RenderedEditContext {
         self.committedChordBarlineMeasures = committedChordBarlineMeasures
         self.screenPointsPerDisplayedPoint = screenPointsPerDisplayedPoint
         self.allowsUnselectedChordMove = allowsUnselectedChordMove
+        self.allowsSelectedMeasureMove = allowsSelectedMeasureMove
     }
 }
 
@@ -543,6 +546,8 @@ struct MeasureRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
                     return []
                 }
 
+                guard !measure.isPaperWritingPlaceholder else { return [] }
+
                 let renderedMeasure = LeadSheetSimpleChordTerminalBarlineGeometry.displayMeasure(
                     measure,
                     in: system,
@@ -567,6 +572,17 @@ struct MeasureRenderedEditHitTargetProvider: RenderedEditHitTargetProvider {
 
                 guard context.selection.contains(objectID) else {
                     return targets
+                }
+
+                if context.allowsSelectedMeasureMove {
+                    targets.append(RenderedEditHitTarget(objectID: objectID, action: .move,
+                        priority: .measureSelect, frame: displayMeasure.frame,
+                        requiresSelection: true, mutationRisk: .visual))
+                    targets.append(RenderedEditHitTarget(objectID: objectID, action: .move,
+                        priority: .selectedObjectEditControl,
+                        frame: LeadSheetMeasureResizeGeometry.moveHandleFrame(for: displayMeasure)
+                            .insetBy(dx: -5, dy: -6),
+                        requiresSelection: true, mutationRisk: .visual))
                 }
 
                 let handles = LeadSheetMeasureResizeGeometry.handleFrames(for: displayMeasure)

@@ -70,6 +70,7 @@ struct LeadSheetSystemLayout: Identifiable, Hashable {
     var roadmapMarkerLayouts: [LeadSheetRoadmapMarkerLayout]
     var endingLayouts: [LeadSheetEndingLayout]
     var measures: [LeadSheetMeasureLayout]
+    var paperWritingFrame: CGRect? = nil
     var reservesAnnotationSpace = false
     // Frozen, unresolved annotation geometry for a bounded drag projection.
     // This is view layout data, never part of the saved chart document.
@@ -110,9 +111,24 @@ struct LeadSheetMeasureLayout: Identifiable, Hashable {
     var trailingBarlineFrame: CGRect
     var isOpen: Bool
     var preservesOpenMeasureBoundary = false
+    var usesPaperMeasureLayout = false
 }
 
 extension LeadSheetMeasureLayout {
+    var isPaperWritingPlaceholder: Bool {
+        usesPaperMeasureLayout && isOpen
+    }
+
+    func explicitPaperLeadingBarline(after previous: LeadSheetMeasureLayout?) -> BarlineType? {
+        guard usesPaperMeasureLayout, let leadingBarline,
+              !repeatMarkerLayouts.contains(where: { $0.edge == .leading }) else { return nil }
+        if let previous, !previous.isOpen,
+           abs(previous.trailingBarlineFrame.midX - leadingBarlineX) <= 1 {
+            return nil
+        }
+        return leadingBarline
+    }
+
     var leadingBarlineX: CGFloat {
         staffFrame.minX
     }
@@ -137,6 +153,20 @@ extension LeadSheetMeasureLayout {
 }
 
 extension LeadSheetSystemLayout {
+    var usesPaperMeasureLayout: Bool {
+        paperWritingFrame != nil
+    }
+
+    func paperMeasurePositioningFrame(in paperFrame: CGRect) -> CGRect? {
+        if let paperWritingFrame { return paperWritingFrame }
+        guard let first = measures.first else { return nil }
+        let left = first.staffFrame.minX
+        let right = paperFrame.maxX - 40
+        guard left.isFinite, right.isFinite, right > left else { return nil }
+        return CGRect(x: left, y: first.chordWritingFrame.minY,
+            width: right - left, height: first.chordWritingFrame.height)
+    }
+
     /// Bounds used when the user explicitly requests closer system spacing.
     /// Includes writing lanes and glyph outlines, not the row's blank reserve.
     /// Chord sizing is a visual edit: reserve its natural box, so a user resize
@@ -1833,6 +1863,7 @@ enum LeadSheetPageLayoutEngine {
         metrics: LeadSheetEngravingMetrics
     ) -> [PackedLeadSheetSystemPlan] {
         var plans = packedSystemPlans(for: chart, maxSystemWidth: paperFrame.width - 68)
+        guard !chart.usesPaperMeasureLayout else { return plans }
         guard chart.layoutStyle == .simpleChordSheet,
               chart.hasCompletedInitialSetup,
               let openMeasureID = chart.measures.first(where: { $0.authoringState == .open })?.id else {
@@ -2001,19 +2032,28 @@ enum LeadSheetPageLayoutEngine {
             CGRect(x: frame.maxX - 160, y: frame.minY + 2, width: 160, height: 18)
         }
 
+        let paperBodyFrame = CGRect(
+            x: frame.minX + plan.leadingSignatureWidth,
+            y: frame.minY,
+            width: max(1, frame.width - plan.leadingSignatureWidth - systemTrailingPadding),
+            height: frame.height
+        )
         var measureX = measureStartX
         var measures = plan.measures.enumerated().map { offset, measurePlan in
-            let leadingSignatureExtension = isRhythmSectionSheet && offset == 0
+            let leadingSignatureExtension = isRhythmSectionSheet && offset == 0 && !chart.usesPaperMeasureLayout
                 ? plan.leadingSignatureWidth
                 : 0
+            let resolvedX = measurePlan.paperStartFraction.map {
+                paperBodyFrame.minX + paperBodyFrame.width * CGFloat($0)
+            } ?? measureX
             let measureFrame = CGRect(
-                x: measureX,
+                x: resolvedX,
                 y: frame.minY,
                 width: measurePlan.width + leadingSignatureExtension,
                 height: frame.height
             )
             let measureStaffFrame = CGRect(
-                x: measureX + leadingSignatureExtension,
+                x: resolvedX + leadingSignatureExtension,
                 y: staffFrame.minY,
                 width: measurePlan.width,
                 height: staffFrame.height
@@ -2022,7 +2062,7 @@ enum LeadSheetPageLayoutEngine {
                 measureX += measureFrame.width
             }
 
-            return measureLayout(
+            var layout = measureLayout(
                 for: measurePlan.measure,
                 chart: chart,
                 index: offset,
@@ -2037,6 +2077,12 @@ enum LeadSheetPageLayoutEngine {
                 meterChange: meterContext.change(for: measurePlan.measure),
                 cueMaximumWidth: cueMaximumWidth
             )
+            if chart.usesPaperMeasureLayout {
+                layout.usesPaperMeasureLayout = true
+                layout.leadingBarline = measurePlan.measure?.paperLayout?.leadingBarline
+                layout.preservesOpenMeasureBoundary = false
+            }
+            return layout
         }
         var roadmapMarkerLayouts = roadmapMarkerLayouts(
             for: chart,
@@ -2113,6 +2159,10 @@ enum LeadSheetPageLayoutEngine {
             )
         }
 
+        let writingFrame = measures.first.map { first in
+            CGRect(x: paperBodyFrame.minX, y: first.chordWritingFrame.minY,
+                width: paperBodyFrame.width, height: first.chordWritingFrame.height)
+        }
         let layout = LeadSheetSystemLayout(
             id: plan.id,
             index: index,
@@ -2131,6 +2181,7 @@ enum LeadSheetPageLayoutEngine {
             roadmapMarkerLayouts: roadmapMarkerLayouts,
             endingLayouts: endingLayouts,
             measures: measures,
+            paperWritingFrame: chart.usesPaperMeasureLayout ? writingFrame : nil,
             reservesAnnotationSpace: annotationPlacement.reservesSpace,
             annotationBaseLayout: annotationBaseLayout
         )
@@ -2496,6 +2547,9 @@ enum LeadSheetPageLayoutEngine {
         maxSystemWidth: CGFloat
     ) -> [PackedLeadSheetSystemPlan] {
         let visualPolicy = VisualPolicy(chart: chart)
+        if chart.usesPaperMeasureLayout {
+            return paperSystemPlans(for: chart, maxSystemWidth: maxSystemWidth, visualPolicy: visualPolicy)
+        }
         let sourceMeasures = chart.measures
         guard !sourceMeasures.isEmpty else {
             let metrics = visualPolicy.metrics
@@ -2641,6 +2695,36 @@ enum LeadSheetPageLayoutEngine {
         return rhythmSectionPlansJoiningFittingSingletons(standardizedPlans,
             packingPlans: standardizedPackingPlans,
             maxSystemWidth: maxSystemWidth, forcedBreakStartIDs: forcedBreakStartIDs)
+    }
+
+    private static func paperSystemPlans(
+        for chart: Chart,
+        maxSystemWidth: CGFloat,
+        visualPolicy: VisualPolicy
+    ) -> [PackedLeadSheetSystemPlan] {
+        chart.systems.enumerated().compactMap { systemIndex, system in
+            guard !system.measures.isEmpty else { return nil }
+            let signatureWidth = leadingSignatureWidth(
+                for: chart, visualPolicy: visualPolicy, systemIndex: systemIndex)
+            let bodyWidth = max(1, maxSystemWidth - signatureWidth - systemTrailingPadding)
+            let count = Double(system.measures.count)
+            let measures = system.measures.enumerated().map { offset, measure in
+                let start = measure.paperLayout?.startFraction ?? Double(offset) / count
+                let end = measure.paperLayout?.endFraction ?? Double(offset + 1) / count
+                return PackedLeadSheetMeasurePlan(
+                    measure: measure,
+                    chordInkTargetMeasureID: measure.id,
+                    width: bodyWidth * CGFloat(max(0.0001, end - start)),
+                    paperStartFraction: start
+                )
+            }
+            return PackedLeadSheetSystemPlan(
+                id: system.id,
+                leadingSignatureWidth: signatureWidth,
+                frameWidth: maxSystemWidth,
+                measures: measures
+            )
+        }
     }
 
     private static func rhythmSectionPlansJoiningFittingSingletons(
@@ -5595,6 +5679,7 @@ private struct PackedLeadSheetMeasurePlan: Hashable {
     var measure: Measure?
     var chordInkTargetMeasureID: UUID?
     var width: CGFloat
+    var paperStartFraction: Double? = nil
 }
 
 private struct LeadSheetEngravingMetrics {

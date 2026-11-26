@@ -409,7 +409,7 @@ extension Chart {
             return false
         }
 
-        guard layoutStyle == .simpleChordSheet else {
+        guard layoutStyle == .simpleChordSheet && !usesPaperMeasureLayout else {
             return true
         }
 
@@ -475,6 +475,9 @@ extension Chart {
         }
 
         var candidate = self
+        if usesPaperMeasureLayout {
+            return reflowPaperMeasureRows(originalRows, into: rows)
+        }
         candidate.rebuildSystems(using: flatMeasures, forcedBreakStartIDsOverride: breaks)
         if layoutStyle == .rhythmSectionSheet {
             let bodyWidths = zip(rows, equalizedWidthPerMeasure).map { CGFloat($0.count) * $1 }
@@ -496,6 +499,7 @@ extension Chart {
         guard canInsertSystemBreak(before: measureID) else {
             return false
         }
+        if usesPaperMeasureLayout { return insertPaperSystemBreak(before: measureID) }
 
         var forcedBreakStartIDs = currentForcedSystemBreakStartIDs()
         forcedBreakStartIDs.insert(measureID)
@@ -509,6 +513,7 @@ extension Chart {
         guard canRemoveSystemBreak(before: measureID) else {
             return false
         }
+        if usesPaperMeasureLayout { return removePaperSystemBreak(before: measureID) }
 
         var forcedBreakStartIDs = currentForcedSystemBreakStartIDs()
         forcedBreakStartIDs.remove(measureID)
@@ -714,6 +719,12 @@ extension Chart {
         authoringState: MeasureAuthoringState = .committed,
         barlineAfter: BarlineType = .single
     ) -> UUID {
+        if usesPaperMeasureLayout,
+           let target = measures.last(where: { $0.authoringState == .committed || !$0.chordEvents.isEmpty })
+                ?? measures.first,
+           let inserted = insertPaperMeasures(after: target.id, count: 1, barlineAfter: barlineAfter)?.first {
+            return inserted
+        }
         let newMeasure = Self.makeMeasure(
             index: measures.count + 1,
             authoringState: authoringState,
@@ -739,6 +750,9 @@ extension Chart {
         var candidate = self
         var row = measureIDs
         let insertedMeasureID: UUID
+        if usesPaperMeasureLayout, let measureID {
+            return insertPaperMeasures(after: measureID, count: 1, barlineAfter: barlineAfter)?.first
+        }
         if let measureID {
             guard let offset = row.firstIndex(of: measureID),
                   let target = candidate.measure(id: measureID) else { return nil }
@@ -768,7 +782,9 @@ extension Chart {
         guard let target = measure(id: measureID) else { return nil }
         var candidate = self
         let insertedID: UUID?
-        if let rhythmRow, layoutStyle == .rhythmSectionSheet {
+        if usesPaperMeasureLayout {
+            insertedID = candidate.insertPaperMeasures(after: measureID, count: 1, barlineAfter: barlineAfter)?.first
+        } else if let rhythmRow, layoutStyle == .rhythmSectionSheet {
             insertedID = candidate.insertMeasure(inRhythmRow: rhythmRow.measureIDs,
                 availableWidth: rhythmRow.availableWidth, after: measureID, barlineAfter: barlineAfter)
         } else if target.authoringState == .open {
@@ -793,6 +809,13 @@ extension Chart {
     ) -> [UUID]? {
         guard count > 0, let target = measure(id: measureID) else { return nil }
         var candidate = self
+        if usesPaperMeasureLayout {
+            guard let insertedIDs = candidate.insertPaperMeasures(after: measureID, count: count, barlineAfter: .single),
+                  let lastID = insertedIDs.last,
+                  candidate.extendClosingRepeat(repeatID, from: measureID, through: lastID) else { return nil }
+            self = candidate
+            return insertedIDs
+        }
         if target.authoringState == .open, candidate.commitOpenMeasure() == nil {
             return nil
         }
@@ -841,6 +864,9 @@ extension Chart {
         authoringState: MeasureAuthoringState = .committed,
         barlineAfter: BarlineType = .single
     ) -> UUID? {
+        if usesPaperMeasureLayout {
+            return insertPaperMeasures(after: measureID, count: 1, barlineAfter: barlineAfter)?.first
+        }
         guard let targetLocation = measureLocation(id: measureID) else {
             return nil
         }
@@ -863,6 +889,9 @@ extension Chart {
         authoringState: MeasureAuthoringState = .committed,
         barlineAfter: BarlineType = .single
     ) -> [UUID]? {
+        if usesPaperMeasureLayout {
+            return insertPaperMeasures(after: measureID, count: count, barlineAfter: barlineAfter)
+        }
         guard count > 0,
               let targetLocation = measureLocation(id: measureID) else {
             return nil
@@ -887,6 +916,7 @@ extension Chart {
         guard hasCompletedInitialSetup else {
             return nil
         }
+        if usesPaperMeasureLayout { return appendPaperWritingRows(count: 8) }
 
         let measureDefaults = layoutStyle.profile.measureDefaults
         let addedMeasureCount = measureDefaults.addedPageMeasureCount
@@ -1127,6 +1157,8 @@ extension Chart {
 
         let leftMeasure = flattenedMeasures[leftIndex]
         let rightMeasure = flattenedMeasures[leftIndex + 1]
+        if usesPaperMeasureLayout,
+           leftMeasure.paperLayout?.rowIndex != rightMeasure.paperLayout?.rowIndex { return false }
         guard leftMeasure.authoringState == .committed,
               leftMeasure.barlineAfter == .single,
               keyChange(atStartOf: rightMeasure.id) == nil,
@@ -1310,6 +1342,11 @@ extension Chart {
             leftMeasure.rhythmSectionSplitLayoutSource = nil
         }
         leftMeasure.barlineAfter = rightMeasure.barlineAfter
+        if let leftPlacement = leftMeasure.paperLayout, let rightPlacement = rightMeasure.paperLayout,
+           leftPlacement.rowIndex == rightPlacement.rowIndex {
+            leftMeasure.paperLayout?.endFraction = rightPlacement.endFraction
+            leftMeasure.paperLayout?.needsSystemFit = false
+        }
         leftMeasure.authoringState = rightMeasure.authoringState == .open ? .open : .committed
         leftMeasure.cueTextIDs.append(contentsOf: rightMeasure.cueTextIDs.filter { !leftMeasure.cueTextIDs.contains($0) })
         leftMeasure.roadmapObjectIDs.append(contentsOf: rightMeasure.roadmapObjectIDs.filter {
@@ -1423,6 +1460,8 @@ extension Chart {
         rightMeasure.handwrittenRhythmicNotationCoordinateSpace = nil
 
         leftMeasure.barlineAfter = barlineAfter
+        splitPaperLayout(originalMeasure.paperLayout, fraction: splitFraction,
+            barlineAfter: barlineAfter, left: &leftMeasure, right: &rightMeasure)
         if originalMeasure.authoringState == .open {
             leftMeasure.authoringState = .committed
             rightMeasure.authoringState = .open
@@ -1478,6 +1517,10 @@ extension Chart {
         }
         extendRangeEndpointsAcrossSplit(from: originalMeasure.id, through: rightMeasure.id)
         reanchorSimpleArticulationsToExistingChords()
+        if usesPaperMeasureLayout {
+            splitPersistentInkAnchors(from: originalMeasure.id, through: rightMeasure.id,
+                fraction: splitFraction, rightChordIDs: Set(rightMeasure.chordEvents.map(\.id)))
+        }
         updatedAt = .now
         return rightMeasure.id
     }
@@ -2662,6 +2705,8 @@ extension Chart {
             timeSignatureChanges[index].afterMeasureID = right.id
         }
         let rightChordIDs = Set(right.chordEvents.map(\.id))
+        splitPaperLayout(original.paperLayout, fraction: fraction,
+            barlineAfter: barlineAfter, left: &left, right: &right)
         for index in freeInkArticulations.indices where freeInkArticulations[index].measureID == measureID {
             switch freeInkArticulations[index].attachment {
             case .chord(let id):
@@ -2821,6 +2866,8 @@ extension Chart {
         leftMeasure.barlineAfter = barlineAfter
         rightMeasure.authoringState = .open
         rightMeasure.barlineAfter = .single
+        splitPaperLayout(originalMeasure.paperLayout, fraction: splitFraction,
+            barlineAfter: barlineAfter, left: &leftMeasure, right: &rightMeasure)
 
         let meter = originalMeasure.resolvedMeter(defaultMeter: defaultMeter)
         leftMeasure.chordEvents = []
@@ -2858,6 +2905,10 @@ extension Chart {
             anchorLoneChordsToMeasureStart(in: [originalMeasure.id, rightMeasure.id])
         }
         extendRangeEndpointsAcrossSplit(from: originalMeasure.id, through: rightMeasure.id)
+        if usesPaperMeasureLayout {
+            splitPersistentInkAnchors(from: originalMeasure.id, through: rightMeasure.id,
+                fraction: splitFraction, rightChordIDs: Set(rightMeasure.chordEvents.map(\.id)))
+        }
         updatedAt = .now
         return rightMeasure.id
     }
@@ -3779,7 +3830,7 @@ extension Chart {
         measureLocation(id: id).map { systems[$0.systemIndex].measures[$0.measureIndex] }
     }
 
-    private func measureLocation(id: UUID) -> (systemIndex: Int, measureIndex: Int)? {
+    func measureLocation(id: UUID) -> (systemIndex: Int, measureIndex: Int)? {
         for (systemIndex, system) in systems.enumerated() {
             if let measureIndex = system.measures.firstIndex(where: { $0.id == id }) {
                 return (systemIndex, measureIndex)
@@ -4267,6 +4318,11 @@ extension Chart {
         for measureIndex in normalizedMeasures.indices {
             normalizedMeasures[measureIndex].index = measureIndex + 1
         }
+        if usesPaperMeasureLayout {
+            rebuildPaperMeasureSystems(using: normalizedMeasures)
+            normalizeAnchorsToSystems()
+            return
+        }
         if supportsManualSystemBreaks {
             let pageBreakStartIDs = pageBreakStartIDsOverride
                 ?? currentPageBreakStartIDs(in: normalizedMeasures)
@@ -4579,7 +4635,7 @@ extension Chart {
         }
     }
 
-    private mutating func normalizeAnchorsToSystems() {
+    mutating func normalizeAnchorsToSystems() {
         let systemIDByMeasureID = systems.reduce(into: [UUID: UUID]()) { partialResult, system in
             for measure in system.measures {
                 partialResult[measure.id] = system.id

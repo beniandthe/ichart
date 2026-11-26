@@ -405,9 +405,9 @@ enum IChartEditorGuidedTourStep: String, Identifiable {
     var message: String {
         switch self {
         case .setup:
-            "Four measures are ready. Change the setup if you want, then create the page."
+            "Choose the page settings, then create a blank page. You can write your own measure boundaries."
         case .writeChords:
-            "Tap Write & Render and use Apple Pencil to write C, F, G, C in the first four measures. Leave space between chords; completed chords render as you move on. Pause to finish the last chord."
+            "Tap Write & Render and use Apple Pencil to write C, F, G, C in a blue lane. Draw single or double barlines between measures. Leave space between chords; completed chords render as you move on. Pause to finish the last mark."
         case .renderChords:
             "Double-tap a rendered chord with Apple Pencil to edit it. Use Fix Writing if handwriting needs attention. Choose Manual in Rendering to check previews, then use Render Chords or Review & Render. In Review Chords, check each recognition guess."
         case .shapeForm:
@@ -1017,6 +1017,10 @@ struct EditorView: View {
             }
         }
         .onChange(of: canvasMode) { previousMode, mode in
+            if previousMode == .chordEntry, mode != .chordEntry,
+               chart.usesPaperMeasureLayout {
+                _ = chart.finishPaperWritingRows()
+            }
             if mode != .chordEntry { draftEndingBlockerFocus = nil }
             cancelAutomaticChordRendering()
             if previousMode != mode {
@@ -2143,7 +2147,8 @@ struct EditorView: View {
             manualRenderWithPreview: manualRenderWithPreview,
             hasFreeInkArticulations: !chart.freeInkArticulations.isEmpty,
             isClosingRepeatSelected: canvasMode == .measureEdit && closingRepeatForMeasureInsertion != nil,
-            isLayoutMeasureSelected: isQuickActionsOpen && canvasMode == .browse && measureLayoutTargetID != nil)
+            isLayoutMeasureSelected: isQuickActionsOpen && canvasMode == .browse && measureLayoutTargetID != nil,
+            usesPaperMeasureLayout: chart.usesPaperMeasureLayout)
     }
 
     private func handleToolGuidePresentationChanged(_ isPresented: Bool) {
@@ -3957,6 +3962,10 @@ struct EditorView: View {
     }
 
     private func equalizeMeasureWidths(containing measureID: UUID, pageLayout: LeadSheetPageLayout) {
+        if chart.usesPaperMeasureLayout {
+            _ = chart.equalizePaperRow(containing: measureID)
+            return
+        }
         if chart.measure(id: measureID)?.rhythmFittedRowID != nil,
            let row = rhythmRowLayout(containing: measureID),
            chart.fitRhythmMeasureRows([row.measureIDs], availableWidths: [row.availableWidth]) {
@@ -7045,7 +7054,7 @@ enum ChordDiagnosticBarlineSymbolGeometry {
     }
 
     static func width(for kind: DraftBarlineKind) -> CGFloat {
-        16
+        kind == .double ? 20 : 16
     }
 
     static func geometry(for kind: DraftBarlineKind, in bounds: CGRect) -> Geometry {
@@ -7053,6 +7062,9 @@ enum ChordDiagnosticBarlineSymbolGeometry {
         let top = bounds.minY + 5
         let height = max(1, bounds.height - 10)
         let bar = CGRect(x: centerX - 1, y: top, width: 2, height: height)
+        if kind == .double {
+            return Geometry(barSegments: [bar.offsetBy(dx: -3, dy: 0), bar.offsetBy(dx: 3, dy: 0)])
+        }
         return Geometry(barSegments: [bar])
     }
 }

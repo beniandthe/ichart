@@ -696,8 +696,11 @@ enum DraftBarlineAmbiguity: String, Hashable {
 
 enum DraftBarlineKind: String, Hashable {
     case single
+    case double
 
-    var displayName: String { "Barline" }
+    var displayName: String { self == .double ? "Double Barline" : "Barline" }
+
+    var barlineType: BarlineType { self == .double ? .double : .single }
 }
 
 /// Admission at an existing divider confirms that divider rather than
@@ -1137,7 +1140,8 @@ enum ChordDraftPreviewImplicitBarlinePolicy {
         for state: ChordPreviewState,
         chart: Chart
     ) -> [ChordDraftPreviewImplicitBarline] {
-        guard !state.isEmpty,
+        guard !chart.usesPaperMeasureLayout,
+              !state.isEmpty,
               let pageSize = state.layoutPageSize else {
             return []
         }
@@ -1719,18 +1723,35 @@ enum ChordDraftBarlineRecognizer {
                isImmediateEndpointTap(strokes[nextIndex], after: strokes[pair.strokeIndex]) {
                 owned.insert(nextIndex)
             }
-            if let index = retained.firstIndex(where: { existing in
-                existing.measureID == barline.measureID
-                    && existing.laneLocation?.systemIndex == barline.laneLocation?.systemIndex
-                    && abs(existing.laneFraction - barline.laneFraction) < 0.035
+            if let index = retained.lastIndex(where: { existing in
+                existing.laneLocation?.systemIndex == barline.laneLocation?.systemIndex
+                    && existing.ownedSourceStrokeIndices.contains { sourceIndex in
+                        strokes.indices.contains(sourceIndex)
+                            && retracesDivider(strokes[pair.strokeIndex], strokes[sourceIndex])
+                    }
             }) {
-                // Preserve existing duplicate-divider spacing. Claim a
-                // secondary stroke only when it physically retraces the line.
-                guard let anchor = retained[index].sourceStrokeIndex,
-                      retracesDivider(strokes[pair.strokeIndex], strokes[anchor]) else { continue }
                 owned.formUnion(retained[index].ownedSourceStrokeIndices)
                 retained[index].sourceStrokeIndices = owned
                 retained[index].sourceStrokeGeometry = owned.sorted().map { strokes[$0] }
+                continue
+            }
+            if let index = retained.lastIndex(where: { existing in
+                guard existing.kind == .single,
+                      existing.laneLocation?.systemIndex == barline.laneLocation?.systemIndex,
+                      let anchor = existing.sourceStrokeIndex else { return false }
+                return formsDoubleDivider(strokes[anchor], strokes[pair.strokeIndex])
+            }), let anchor = retained[index].sourceStrokeIndex {
+                owned.formUnion(retained[index].ownedSourceStrokeIndices)
+                retained[index].kind = .double
+                retained[index].fraction = (retained[index].fraction + barline.fraction) / 2
+                if let first = retained[index].laneLocation, let second = barline.laneLocation {
+                    retained[index].laneLocation = ChordInkDraftLaneLocation(
+                        systemIndex: first.systemIndex, fraction: (first.fraction + second.fraction) / 2)
+                }
+                retained[index].sourceStrokeIndices = owned
+                retained[index].sourceStrokeGeometry = owned.sorted().map { strokes[$0] }
+                let bounds = strokes[anchor].bounds.union(strokes[pair.strokeIndex].bounds)
+                retained[index].metrics.width = bounds.width
                 continue
             }
             if owned.count > 1 {
@@ -1740,6 +1761,16 @@ enum ChordDraftBarlineRecognizer {
             retained.append(barline)
         }
         return retained
+    }
+
+    private static func formsDoubleDivider(_ first: InkStroke, _ second: InkStroke) -> Bool {
+        let height = min(first.bounds.height, second.bounds.height)
+        guard height > 0, max(first.bounds.height, second.bounds.height) <= height * 1.4 else { return false }
+        let overlap = min(first.bounds.maxY, second.bounds.maxY) - max(first.bounds.minY, second.bounds.minY)
+        let separation = abs((first.bounds.minX + first.bounds.maxX - second.bounds.minX - second.bounds.maxX) / 2)
+        return overlap >= height * 0.78
+            && separation > min(3, height * 0.06)
+            && separation <= min(18, max(6, height * 0.34))
     }
 
     private static func retracesDivider(_ stroke: InkStroke, _ original: InkStroke) -> Bool {
@@ -1784,9 +1815,11 @@ extension Chart {
         var boundaryFractionsByOriginalMeasureID: [UUID: [Double]]
         var sourceBoundaryFractionsByOriginalMeasureID: [UUID: [Double]] = [:]
         var unresolvedDraftIDs: [UUID]
+        var closedPaperMeasureIDs: Set<UUID> = []
 
         var splitMeasureIDs: Set<UUID> {
             Set(segmentMeasureIDsByOriginalMeasureID.values.filter { $0.count > 1 }.flatMap { $0 })
+                .union(closedPaperMeasureIDs)
         }
     }
 
@@ -1894,7 +1927,8 @@ extension Chart {
                 includesChordInkContinuationLanes: true
             )
         }
-        if barlineSpacingMode == .drawn, state.draftChords.isEmpty, state.draftEndings.isEmpty,
+        if !usesPaperMeasureLayout, barlineSpacingMode == .drawn,
+           state.draftChords.isEmpty, state.draftEndings.isEmpty,
            let sourceLayout,
            let tailResult = commitRhythmTailBarlines(renderableBarlines, sourceLayout: sourceLayout) {
             return tailResult
@@ -1920,7 +1954,8 @@ extension Chart {
             spacingMode: barlineSpacingMode,
             sourcePageLayout: sourceLayout,
             commitPageLayout: commitLayout,
-            requiresCompleteSplits: true
+            requiresCompleteSplits: true,
+            precedingChordLocations: state.draftChords.compactMap(\.laneLocation)
         )
         guard barlinePlan.unresolvedDraftIDs.isEmpty else {
             return ChordInkDraftBatchRenderResult(
@@ -1986,7 +2021,10 @@ extension Chart {
                 continue
             }
 
-            if layoutStyle == .simpleChordSheet,
+            if usesPaperMeasureLayout, let fraction = renderTarget.fraction {
+                _ = moveChordEventInCommittedChordLane(chordEventID, to: measureID, atFraction: nil,
+                    visualFraction: fraction, preserveMusicalPlacement: true)
+            } else if layoutStyle == .simpleChordSheet,
                measure(id: measureID)?.rhythmMap == nil,
                let fraction = renderTarget.fraction {
                 _ = setChordEventManualLaneFraction(fraction, for: chordEventID)
@@ -2005,7 +2043,7 @@ extension Chart {
                 previouslyOpenIDs.contains($0.id) && $0.authoringState == .committed
             }.map(\.id))
             anchorLoneChordsToMeasureStart(in: barlinePlan.splitMeasureIDs.union(closedIDs),
-                eligibleChordIDs: existingChordIDs)
+                eligibleChordIDs: usesPaperMeasureLayout ? nil : existingChordIDs)
         }
 
         if unresolvedDraftIDs.isEmpty,
@@ -2224,7 +2262,8 @@ extension Chart {
             includesChordInkContinuationLanes: true)
         let plan = staged.commitDraftBarlinesBeforeChordRender(state.renderableBarlines,
             spacingMode: .drawn, sourcePageLayout: sourceLayout,
-            commitPageLayout: materializedLayout, requiresCompleteSplits: true)
+            commitPageLayout: materializedLayout, requiresCompleteSplits: true,
+            precedingChordLocations: state.draftChords.compactMap(\.laneLocation))
         guard plan.unresolvedDraftIDs.isEmpty else { return .init(unresolvedBarlineIDs: plan.unresolvedDraftIDs) }
         return .init(mapping: .init(chart: staged, sourceLayout: sourceLayout,
             materializedLayout: materializedLayout, plan: plan))
@@ -2237,6 +2276,12 @@ extension Chart {
         endings: [DraftEnding] = [],
         automaticContinuationSourceLayout: LeadSheetPageLayout? = nil
     ) -> Bool {
+        if usesPaperMeasureLayout {
+            let rows = Set(drafts.compactMap { $0.laneLocation?.systemIndex }
+                + barlines.compactMap { $0.laneLocation?.systemIndex }
+                + endings.flatMap { [$0.start.laneLocation.systemIndex, $0.end.laneLocation.systemIndex] })
+            return rows.sorted().allSatisfy { ensurePaperWritingRow($0) != nil }
+        }
         guard layoutStyle == .simpleChordSheet,
               let targetSystemIndex = (
                 drafts.compactMap { $0.laneLocation?.systemIndex }
@@ -2467,8 +2512,13 @@ extension Chart {
         spacingMode: ChordDraftBarlineSpacingMode,
         sourcePageLayout: LeadSheetPageLayout?,
         commitPageLayout: LeadSheetPageLayout?,
-        requiresCompleteSplits: Bool = false
+        requiresCompleteSplits: Bool = false,
+        precedingChordLocations: [ChordInkDraftLaneLocation] = []
     ) -> ChordDraftBarlineCommitPlan {
+        if usesPaperMeasureLayout {
+            return commitPaperDraftBarlines(barlines, precedingChordLocations: precedingChordLocations,
+                                           sourcePageLayout: sourcePageLayout)
+        }
         var renderedBarlineIDs = [UUID]()
         var unresolvedDraftIDs = [UUID]()
         var segmentMeasureIDsByOriginalMeasureID = [UUID: [UUID]]()
@@ -2546,6 +2596,9 @@ extension Chart {
                     edgeTolerance: layoutStyle == .rhythmSectionSheet ? 9 : 6
                 )
                 if placement == .interior { return true }
+                if barline.kind == .double {
+                    setDraftDoubleBarlineAtExistingBoundary(measureID: measureID, placement: placement)
+                }
                 renderedBarlineIDs.append(barline.id)
                 return false
             }
@@ -2594,7 +2647,7 @@ extension Chart {
                       let newSegmentMeasureID = splitMeasureForDraftBarline(
                         currentSegmentMeasureID,
                         atFraction: localSplitFraction,
-                        barlineAfter: .single,
+                        barlineAfter: barline.kind.barlineType,
                         sourceGeometry: sourceGeometry,
                         sourcePageLayout: sourcePageLayout,
                         precedingBoundaryFraction: previousBoundaryFraction,
@@ -2657,6 +2710,83 @@ extension Chart {
             sourceBoundaryFractionsByOriginalMeasureID: sourceBoundaryFractionsByOriginalMeasureID,
             unresolvedDraftIDs: unresolvedDraftIDs.filter { seenUnresolved.insert($0).inserted }
         )
+    }
+
+    private mutating func setDraftDoubleBarlineAtExistingBoundary(
+        measureID: UUID, placement: ChordDraftBarlineBoundaryPlacement
+    ) {
+        for systemIndex in systems.indices {
+            guard let measureIndex = systems[systemIndex].measures.firstIndex(where: { $0.id == measureID }) else {
+                continue
+            }
+            let boundaryIndex = placement == .leading ? measureIndex - 1 : measureIndex
+            guard systems[systemIndex].measures.indices.contains(boundaryIndex) else { return }
+            systems[systemIndex].measures[boundaryIndex].barlineAfter = .double
+            updatedAt = .now
+            return
+        }
+    }
+
+    private mutating func commitPaperDraftBarlines(
+        _ barlines: [DraftBarline], precedingChordLocations: [ChordInkDraftLaneLocation],
+        sourcePageLayout: LeadSheetPageLayout?
+    ) -> ChordDraftBarlineCommitPlan {
+        var rendered: [UUID] = []
+        var unresolved: [UUID] = []
+        let priorPositions = Dictionary(uniqueKeysWithValues: measures.compactMap { measure in
+            measure.paperLayout.map { (measure.id, (position: $0, state: measure.authoringState)) }
+        })
+        for barline in barlines.sorted(by: { $0.visualOrder < $1.visualOrder }) {
+            guard let row = barline.laneLocation?.systemIndex ?? measure(id: barline.measureID)?.paperLayout?.rowIndex else {
+                unresolved.append(barline.id)
+                continue
+            }
+            let hasPrecedingChord = precedingChordLocations.contains {
+                $0.systemIndex == row && $0.fraction < barline.laneFraction
+            }
+            let boundary = existingPaperBoundary(near: barline, row: row, sourcePageLayout: sourcePageLayout)
+            if placePaperBarline(inRow: row, at: boundary?.fraction ?? barline.laneFraction,
+                                 kind: boundary?.kind ?? barline.kind.barlineType,
+                                 normalizeSingleChords: false, allowsOpeningBoundary: !hasPrecedingChord) != nil {
+                rendered.append(barline.id)
+            } else {
+                unresolved.append(barline.id)
+            }
+        }
+        let closed = Set(measures.compactMap { measure -> UUID? in
+            guard measure.authoringState == .committed, let position = measure.paperLayout else { return nil }
+            guard let previous = priorPositions[measure.id] else { return measure.id }
+            return previous.state != .committed || previous.position.startFraction != position.startFraction
+                || previous.position.endFraction != position.endFraction ? measure.id : nil
+        })
+        return ChordDraftBarlineCommitPlan(renderedBarlineIDs: rendered,
+            segmentMeasureIDsByOriginalMeasureID: [:], boundaryFractionsByOriginalMeasureID: [:],
+            unresolvedDraftIDs: unresolved, closedPaperMeasureIDs: closed)
+    }
+
+    private func existingPaperBoundary(
+        near barline: DraftBarline, row: Int, sourcePageLayout: LeadSheetPageLayout?
+    ) -> (fraction: Double, kind: BarlineType)? {
+        guard let frame = sourcePageLayout?.systems.first(where: { $0.index == row })?.paperWritingFrame,
+              frame.width > 0 else { return nil }
+        let boundaries = measures.flatMap { measure -> [(fraction: Double, kind: BarlineType)] in
+            guard let position = measure.paperLayout, position.rowIndex == row else { return [] }
+            var result: [(fraction: Double, kind: BarlineType)] = []
+            if let kind = position.leadingBarline { result.append((position.startFraction, kind)) }
+            if measure.authoringState == .committed { result.append((position.endFraction, measure.barlineAfter)) }
+            return result
+        }
+        guard let nearest = boundaries.min(by: {
+            abs($0.fraction - barline.laneFraction) < abs($1.fraction - barline.laneFraction)
+        }) else { return nil }
+        let distance = abs(nearest.fraction - barline.laneFraction) * Double(frame.width)
+        let retraceDistance = min(3, barline.metrics.height * 0.06)
+        let doubleDistance = min(18, max(6, barline.metrics.height * 0.34))
+        guard distance <= doubleDistance else { return nil }
+        if barline.kind == .double || nearest.kind == .double || distance > retraceDistance {
+            return (nearest.fraction, .double)
+        }
+        return nearest
     }
 
     private mutating func splitMeasureForDraftBarline(
@@ -2743,7 +2873,7 @@ extension Chart {
 
         var sourceGeometryByMeasureID = [UUID: ChordDraftBarlineSourceGeometry]()
         let resolvedBarlines = barlines.compactMap { barline -> DraftBarline? in
-            if isTerminalBoundaryLaneLocation(
+            if barline.kind == .single, isTerminalBoundaryLaneLocation(
                 barline.laneLocation,
                 in: sourcePageLayout
             ) {
@@ -3004,12 +3134,18 @@ extension Chart {
         return nil
     }
 
-    private func chordDraftRenderTarget(
+    private mutating func chordDraftRenderTarget(
         for draft: ChordInkDraft,
         sourcePageLayout: LeadSheetPageLayout?,
         renderPageLayout: LeadSheetPageLayout?,
         barlinePlan: ChordDraftBarlineCommitPlan
     ) -> (measureID: UUID, fraction: Double?)? {
+        if usesPaperMeasureLayout,
+           let row = draft.laneLocation?.systemIndex ?? measure(id: draft.measureID)?.paperLayout?.rowIndex {
+            let fraction = draft.laneLocation?.fraction ?? draft.targetFraction ?? 0
+            guard let target = ensurePaperChordTarget(inRow: row, at: fraction) else { return nil }
+            return (target.measureID, target.fraction)
+        }
         if layoutStyle == .rhythmSectionSheet,
            let segmentTarget = chordDraftSegmentTarget(
             for: draft,

@@ -154,7 +154,7 @@ final class EditorToolGuidanceTests: XCTestCase {
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
             let guidance = EditorCanvasMode.browse.toolGuidance(
                 layoutStyle: style, manualRenderWithPreview: false, isLayoutMeasureSelected: true)
-            XCTAssertTrue(guidance.steps.contains("Use the Layout actions for the selected measure."))
+            XCTAssertTrue(guidance.steps.contains("Drag the selected measure's grab handle to move it, or use its Layout actions."))
             XCTAssertFalse(guidance.steps.contains("Tap a chord for width handles. Drag its body to move it."))
         }
     }

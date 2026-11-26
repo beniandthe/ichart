@@ -1042,7 +1042,10 @@ final class ChordInkDraftRenderCoordinator {
             }
             guard matches.count == 1, let index = matches.first else { return nil }
             let draft = unclaimedDrafts.remove(at: index)
-            if event.anchorsToMeasureStart { continue }
+            if event.anchorsToMeasureStart,
+               !positioned.usesPaperMeasureLayout || destinationMeasure.authoringState == .committed {
+                continue
+            }
             guard let drawing = try? PKDrawing(data: draft.drawingData),
                   let bounds = visibleInkFrames(drawing).reduce(nil as CGRect?, { union, frame in
                       union.map { $0.union(frame) } ?? frame
