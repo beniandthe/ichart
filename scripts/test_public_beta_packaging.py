@@ -47,7 +47,7 @@ class PublicBetaPackagingTests(unittest.TestCase):
             "CFBundleIdentifier": "com.ichart.app",
             "CFBundleExecutable": "iChart",
             "CFBundleShortVersionString": "1.9.4",
-            "CFBundleVersion": "174",
+            "CFBundleVersion": "199",
             "SupabaseURL": "https://pausvvwoazbvmzyrebwl.supabase.co",
             "SupabasePublishableKey": self.synthetic_key,
             "SupabaseAnonKey": "",
@@ -93,7 +93,7 @@ class PublicBetaPackagingTests(unittest.TestCase):
         self.assertEqual(result["publishable_key_sha256"], hashlib.sha256(self.synthetic_key.encode()).hexdigest())
         self.assertEqual(result["host"], packaging.PRODUCTION_URL)
         self.assertNotIn(self.synthetic_key, json.dumps(result))
-        self.assertEqual(packaging.validate_info(self.info(TFInternalTestingOnly=False))["build"], "174")
+        self.assertEqual(packaging.validate_info(self.info(TFInternalTestingOnly=False))["build"], "199")
 
     def test_info_rejects_wrong_backend_key_and_legacy_fallback(self):
         changes = [
@@ -113,7 +113,7 @@ class PublicBetaPackagingTests(unittest.TestCase):
     def test_info_rejects_wrong_identity_platform_family_and_boolean_types(self):
         for change in [
             {"CFBundleIdentifier": "com.ichart.test"}, {"CFBundleExecutable": "Other"},
-            {"CFBundleVersion": "173"}, {"CFBundleVersion": 174},
+            {"CFBundleVersion": "198"}, {"CFBundleVersion": 199},
             {"CFBundleShortVersionString": "1.9.3"},
             {"CFBundleSupportedPlatforms": ["iPhoneSimulator"]},
             {"UIDeviceFamily": [1, 2]}, {"UIDeviceFamily": (2,)},

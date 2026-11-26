@@ -23,7 +23,7 @@ final class ChordRecognitionProviderBoundaryTests: XCTestCase {
                 // These two text-cue instructions describe native text entry.
                 // Leave every other occurrence subject to the provider guard.
                 source = source
-                    .replacingOccurrences(of: #""Tap Add Text in the sidebar, tap where the cue should start, then choose Above or Below. Choose Keyboard to type, or choose Scribble and tap the field with Apple Pencil before writing. Tap Add.""#, with: "")
+                    .replacingOccurrences(of: #""Tap Add Text in Quick Actions, tap where the cue should start, then choose Above or Below. Choose Keyboard to type, or choose Scribble and tap the field with Apple Pencil before writing. Tap Add.""#, with: "")
                     .replacingOccurrences(of: #""Choose Keyboard to type. Choose Scribble, then tap the field with Apple Pencil before writing.""#, with: "")
             }
             for forbiddenToken in forbiddenTokens where source.contains(forbiddenToken) {

@@ -19,7 +19,7 @@ from zipfile import ZipFile
 BUNDLE_ID = 'com.ichart.app'
 TEAM = 'N6G8X4K46U'
 VERSION = '1.9.4'
-BUILD = '174'
+BUILD = '199'
 PRODUCTION_URL = 'https://pausvvwoazbvmzyrebwl.supabase.co'
 PRODUCTION_KEY_SHA256 = 'f18ceef124ea533fd0f738afd352dd5fec4dc8776bb2e5139449996d805e7b7d'
 FORBIDDEN_FLAGS = {'DEBUG', 'ICHART_PAID_SUBSCRIPTION', 'ICHART_STAGING_STOREKIT_PRODUCTS',
