@@ -430,11 +430,15 @@ final class ChordInkAutomaticCadenceWorkflowTests: XCTestCase {
             try? FileManager.default.removeItem(at: directory)
         }
         addTeardownBlock { @MainActor in close() }
+        // Ink focus is intentionally deferred beyond SwiftUI's update pass.
+        // A visible canvas alone is not ready for input; await the shipping
+        // interactive Automatic state before starting the cadence clock.
         for _ in 0..<80 {
             window.layoutIfNeeded()
             if let view = descendants(window).compactMap({ $0 as? LeadSheetCanvasUIKitView }).first,
                let ink = view.subviews.compactMap({ $0 as? PKCanvasView }).last,
-               !ink.isHidden, view.recognizesChordInk, view.chordDraftRenderCoordinator != nil,
+               !ink.isHidden, ink.isUserInteractionEnabled, ink.isFirstResponder,
+               !view.manualRenderWithPreview, view.recognizesChordInk, view.chordDraftRenderCoordinator != nil,
                view.bounds.width > 0, view.bounds.height > 0 {
                 XCTAssertTrue(ink.drawing.strokes.isEmpty)
                 return Mounted(model: model, reader: reader, view: view, ink: ink, window: window, close: close)

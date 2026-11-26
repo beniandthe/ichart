@@ -64,6 +64,35 @@ enum LeadSheetChordPlacementGuidePolicy {
         )
     }
 
+    /// The downbeat guide is an engraving preference, not the leftmost
+    /// position available to a manually moved chord. The chord band already
+    /// excludes the system's signature gutter and any inline meter reserve.
+    static func visualMovementFrame(
+        for measure: LeadSheetMeasureLayout,
+        referenceFrame: CGRect
+    ) -> CGRect {
+        visualMovementFrame(
+            referenceFrame: referenceFrame,
+            leadingRepeatMarkerMaxX: measure.repeatMarkerLayouts
+                .filter { $0.edge == .leading }.map(\.occupiedFrame.maxX).max(),
+            meterChangeFrame: measure.meterChangeFrame
+        )
+    }
+
+    static func visualMovementFrame(
+        referenceFrame: CGRect,
+        leadingRepeatMarkerMaxX: CGFloat?,
+        meterChangeFrame: CGRect?
+    ) -> CGRect {
+        let reservedMaxX = [leadingRepeatMarkerMaxX, meterChangeFrame?.maxX].compactMap { $0 }.max()
+        let minimumX = min(
+            max(referenceFrame.minX, reservedMaxX.map { $0 + artifactGap } ?? referenceFrame.minX),
+            max(referenceFrame.minX, referenceFrame.maxX - 1)
+        )
+        return CGRect(x: minimumX, y: referenceFrame.minY,
+            width: max(1, referenceFrame.maxX - minimumX), height: referenceFrame.height)
+    }
+
     static func resolvedFraction(
         rawFraction: Double,
         referenceFrame: CGRect,
@@ -100,12 +129,13 @@ enum LeadSheetChordPlacementGuidePolicy {
         screenPointsPerDisplayedPoint: CGFloat,
         referenceFrame: CGRect,
         guideFrame: CGRect,
-        meter: Meter
+        meter: Meter,
+        visualMovementFrame: CGRect? = nil
     ) -> (fraction: Double, activeGuideX: CGFloat?) {
         let scale = max(0.0001, screenPointsPerDisplayedPoint)
         let clampedFraction = ChordEvent.clampedManualLaneFraction(rawFraction)
         let rawX = referenceFrame.minX + referenceFrame.width * CGFloat(clampedFraction)
-        let safeMinX = max(referenceFrame.minX, guideFrame.minX)
+        let safeMinX = max(referenceFrame.minX, (visualMovementFrame ?? guideFrame).minX)
         let safeMaxX = max(safeMinX, referenceFrame.maxX - 1)
         let boundedX = min(max(rawX, safeMinX), safeMaxX)
         let boundedFraction = ChordEvent.clampedManualLaneFraction(Double(
@@ -114,9 +144,13 @@ enum LeadSheetChordPlacementGuidePolicy {
         // Starting on/near a particular guide means precision editing around
         // it. Only deliberately approaching a different/farther guide enables
         // the weak snap; feedback from a prior preview is not an input.
-        let eligibleGuides = guideXs(for: meter, in: guideFrame).filter { guideX in
+        let guides = guideXs(for: meter, in: guideFrame)
+        let eligibleGuides = guides.filter { guideX in
             let initialDistance = abs(guideX - initialX) * scale
             let currentDistance = abs(guideX - boundedX) * scale
+            if visualMovementFrame != nil, guideX == guides.first, currentDistance <= 0.0001 {
+                return true
+            }
             return initialDistance > 6 && currentDistance <= 2 && currentDistance < initialDistance
         }
         guard let snappedX = eligibleGuides.min(by: { abs($0 - boundedX) < abs($1 - boundedX) }) else {

@@ -384,7 +384,7 @@ struct LeadSheetSimpleRowGroupAffordance {
 enum LeadSheetRenderedMeasureBoundary {
     case none
     case normalBarline(type: BarlineType, frame: CGRect)
-    case repeatBoundary(markers: [LeadSheetRepeatMarkerLayout], terminalTrailingLineX: CGFloat?)
+    case repeatBoundary(markers: [LeadSheetRepeatMarkerLayout], trailingLineX: CGFloat?)
 }
 
 enum LeadSheetSimpleChordTerminalBarlineGeometry {
@@ -451,10 +451,6 @@ enum LeadSheetSimpleChordTerminalBarlineGeometry {
         paperFrame: CGRect,
         layoutStyle: ChartLayoutStyle
     ) -> LeadSheetRenderedMeasureBoundary {
-        guard !(measure.isOpen && layoutStyle != .simpleChordSheet) else {
-            return .none
-        }
-
         let allRepeatBoundaryMarkers = LeadSheetRepeatBoundaryPolicy.repeatMarkers(
             after: measure,
             before: nextMeasure
@@ -466,14 +462,14 @@ enum LeadSheetSimpleChordTerminalBarlineGeometry {
         if !visibleRepeatBoundaryMarkers.isEmpty {
             return .repeatBoundary(
                 markers: visibleRepeatBoundaryMarkers,
-                terminalTrailingLineX: terminalTrailingRepeatLineX(
+                trailingLineX: terminalTrailingRepeatLineX(
                     after: measure,
                     before: nextMeasure,
                     repeatBoundaryMarkers: visibleRepeatBoundaryMarkers,
                     in: system,
                     paperFrame: paperFrame,
                     layoutStyle: layoutStyle
-                )
+                ) ?? followingOpenRepeatBoundaryX(before: nextMeasure, markers: visibleRepeatBoundaryMarkers)
             )
         }
 
@@ -577,14 +573,7 @@ enum LeadSheetSimpleChordTerminalBarlineGeometry {
         paperFrame: CGRect,
         layoutStyle: ChartLayoutStyle
     ) -> CGFloat? {
-        guard let measureIndex = system.measures.firstIndex(where: { $0.id == measure.id }) else {
-            return nil
-        }
-
-        let nextMeasureIndex = measureIndex + 1
-        let nextMeasure = system.measures.indices.contains(nextMeasureIndex)
-            ? system.measures[nextMeasureIndex]
-            : nil
+        let nextMeasure = followingMeasure(after: measure, in: system)
         let repeatBoundaryMarkers = LeadSheetRepeatBoundaryPolicy.repeatMarkers(
             after: measure,
             before: nextMeasure
@@ -633,14 +622,21 @@ enum LeadSheetSimpleChordTerminalBarlineGeometry {
         paperFrame: CGRect,
         layoutStyle: ChartLayoutStyle
     ) -> CGRect {
-        guard marker.edge == .trailing,
-              let terminalTrailingLineX = terminalTrailingRepeatLineX(
-                after: measure,
-                in: system,
-                paperFrame: paperFrame,
-                layoutStyle: layoutStyle
-              ) else {
-            return marker.occupiedFrame
+        guard marker.edge == .trailing else { return marker.occupiedFrame }
+        guard let terminalTrailingLineX = terminalTrailingRepeatLineX(
+            after: measure,
+            in: system,
+            paperFrame: paperFrame,
+            layoutStyle: layoutStyle
+        ) else {
+            let nextMeasure = followingMeasure(after: measure, in: system)
+            guard let boundaryX = followingOpenRepeatBoundaryX(before: nextMeasure, markers: [marker]) else {
+                return marker.occupiedFrame
+            }
+            let staffSpace = max(CGFloat(1), (marker.frame.height - 4) / 4)
+            let separation = marker.boundarySeparation
+                ?? LeadSheetBarlineMetrics.repeatSeparation(staffSpace: staffSpace, layoutStyle: layoutStyle)
+            return marker.occupiedFrame.offsetBy(dx: boundaryX - separation / 2 - marker.frame.midX, dy: 0)
         }
 
         if let separation = marker.boundarySeparation {
@@ -661,6 +657,25 @@ enum LeadSheetSimpleChordTerminalBarlineGeometry {
             width: markerWidth,
             height: marker.frame.height
         )
+    }
+
+    private static func followingMeasure(
+        after measure: LeadSheetMeasureLayout,
+        in system: LeadSheetSystemLayout
+    ) -> LeadSheetMeasureLayout? {
+        guard let index = system.measures.firstIndex(where: { $0.id == measure.id }) else { return nil }
+        let followingIndex = system.measures.index(after: index)
+        return system.measures.indices.contains(followingIndex) ? system.measures[followingIndex] : nil
+    }
+
+    private static func followingOpenRepeatBoundaryX(
+        before nextMeasure: LeadSheetMeasureLayout?,
+        markers: [LeadSheetRepeatMarkerLayout]
+    ) -> CGFloat? {
+        guard let nextMeasure, nextMeasure.isOpen, nextMeasure.preservesOpenMeasureBoundary,
+              markers.contains(where: { $0.edge == .trailing }) else { return nil }
+        // The outside stroke also serves as the left barline of the new measure.
+        return nextMeasure.leadingBarlineX
     }
 
     private static func isTerminalBoundary(
@@ -691,9 +706,10 @@ enum LeadSheetSimpleChordTerminalBarlineGeometry {
             return true
         }
 
-        // An open measure can already contain rendered music. Only an empty
-        // continuation may share the preceding repeat's row-end boundary.
+        // An explicitly added lane or a legacy lane with authored width has
+        // its own boundary. Unmeasured blank continuation can share the row edge.
         return measure.isOpen
+            && !measure.preservesOpenMeasureBoundary
             && measure.chordLayouts.isEmpty
             && measure.noteLayouts.isEmpty
             && measure.cueTextLayouts.isEmpty

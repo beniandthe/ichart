@@ -67,12 +67,27 @@ struct ForumPDFCredit: Hashable {
 
 struct ChartPDFExportContext: Hashable {
     var forumCredit: ForumPDFCredit?
+    var showsIChartCredit: Bool = false
 
     static let standard = ChartPDFExportContext(forumCredit: nil)
+
+    static func personalChart(entitlements: AppEntitlements) -> Self {
+        // Grace keeps local Pro benefits even though its effective plan is free.
+        guard entitlements.accessPolicy.offersPaidPurchases,
+              entitlements.activePlan == .free,
+              entitlements.subscription.status != .proGrace else { return .standard }
+        return ChartPDFExportContext(forumCredit: nil, showsIChartCredit: true)
+    }
 }
 
 protocol ChartExporting {
-    func exportPDF(for chart: Chart) async throws -> ExportedPDF
+    func exportPDF(for chart: Chart, context: ChartPDFExportContext) async throws -> ExportedPDF
+}
+
+extension ChartExporting {
+    func exportPDF(for chart: Chart) async throws -> ExportedPDF {
+        try await exportPDF(for: chart, context: .standard)
+    }
 }
 
 #if canImport(UIKit)
@@ -95,10 +110,6 @@ struct PDFChartExporter: ChartExporting {
             exportDirectory: baseDirectory.appendingPathComponent("iChartExports", isDirectory: true),
             fileManager: fileManager
         )
-    }
-
-    func exportPDF(for chart: Chart) async throws -> ExportedPDF {
-        try await exportPDF(for: chart, context: .standard)
     }
 
     func exportPDF(for chart: Chart, context: ChartPDFExportContext) async throws -> ExportedPDF {
@@ -184,6 +195,7 @@ private struct ChartPDFRenderer {
             ?? LeadSheetFreeInkDocumentLayoutPolicy.portraitCanvasWidth
     }
     private let minimumLayoutCanvasHeight: CGFloat = 1_100
+    private let iChartCreditStripHeight: CGFloat = 28
 
     func render() -> Data {
         let pageLayout = LeadSheetPageLayoutEngine.pageLayout(
@@ -214,16 +226,45 @@ private struct ChartPDFRenderer {
                     return
                 }
 
+                let showsIChartCredit = exportContext.showsIChartCredit
+                    && exportContext.forumCredit == nil && paperPage.index == 0
                 cgContext.saveGState()
+                if showsIChartCredit {
+                    // Free Ink can occupy the normal footer margin. Fit the
+                    // entire original paper content above a separate strip,
+                    // keeping its proportions, page count and saved geometry.
+                    // Paper ruling and borders retain their original scale.
+                    LeadSheetNotationRenderer(chart: chart).drawPaper(pageRect,
+                        in: cgContext, showsShadow: false)
+                    let contentScale = max(1, pageRect.height - iChartCreditStripHeight) / pageRect.height
+                    cgContext.translateBy(x: (pageRect.width - pageRect.width * contentScale) / 2, y: 0)
+                    cgContext.scaleBy(x: contentScale, y: contentScale)
+                }
                 cgContext.translateBy(
                     x: -paperPage.frame.minX,
                     y: -paperPage.frame.minY
                 )
-                drawLeadSheetPage(pageLayout, paperPage: paperPage, in: cgContext)
+                if showsIChartCredit { cgContext.clip(to: paperPage.frame) }
+                drawLeadSheetPage(pageLayout, paperPage: paperPage,
+                    drawsPaper: !showsIChartCredit, in: cgContext)
                 cgContext.restoreGState()
                 drawForumCreditFooter(in: pageRect)
+                if showsIChartCredit { drawIChartCredit(in: pageRect) }
             }
         }
+    }
+
+    private func drawIChartCredit(in pageRect: CGRect) {
+        let footerRect = CGRect(x: pageRect.minX + 46, y: pageRect.maxY - 23,
+            width: pageRect.width - 92, height: 18)
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = .center
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 8, weight: .medium),
+            .foregroundColor: UIColor.black.withAlphaComponent(0.45),
+            .paragraphStyle: paragraphStyle
+        ]
+        NSString(string: "Made with iChart").draw(in: footerRect, withAttributes: attributes)
     }
 
     private func drawForumCreditFooter(in pageRect: CGRect) {
@@ -251,10 +292,11 @@ private struct ChartPDFRenderer {
     private func drawLeadSheetPage(
         _ pageLayout: LeadSheetPageLayout,
         paperPage: LeadSheetPaperPageLayout,
+        drawsPaper: Bool,
         in context: CGContext
     ) {
         let renderer = LeadSheetNotationRenderer(chart: chart)
-        renderer.drawPaper(paperPage.frame, in: context, showsShadow: false)
+        if drawsPaper { renderer.drawPaper(paperPage.frame, in: context, showsShadow: false) }
         if paperPage.includesHeader {
             renderer.drawHeader(pageLayout.header)
         }
@@ -399,37 +441,35 @@ private struct ChartPDFRenderer {
             renderer.drawTimeSignature(meterChange, in: meterChangeFrame)
         }
 
-        if measure.isOpen && chart.layoutStyle != .simpleChordSheet {
-            renderer.drawOpenMeasureHint(measure)
-        } else {
-            let boundary = LeadSheetSimpleChordTerminalBarlineGeometry.renderedBoundary(
-                after: measure,
-                before: nextMeasure,
-                excludingRepeatMarkerIDs: drawnRepeatMarkerIDs,
-                in: system,
-                paperFrame: paperFrame,
-                layoutStyle: chart.layoutStyle
-            )
+        let boundary = LeadSheetSimpleChordTerminalBarlineGeometry.renderedBoundary(
+            after: measure,
+            before: nextMeasure,
+            excludingRepeatMarkerIDs: drawnRepeatMarkerIDs,
+            in: system,
+            paperFrame: paperFrame,
+            layoutStyle: chart.layoutStyle
+        )
 
-            switch boundary {
-            case .repeatBoundary(let repeatBoundaryMarkers, let terminalTrailingLineX):
-                drawRepeatMarkers(
-                    repeatBoundaryMarkers,
-                    terminalTrailingLineX: terminalTrailingLineX,
-                    using: renderer
-                )
-                drawnRepeatMarkerIDs.formUnion(LeadSheetRepeatBoundaryPolicy.markerIDs(repeatBoundaryMarkers))
-            case .normalBarline(let barline, let frame):
-                renderer.drawBarline(barline, in: frame)
-            case .none:
-                break
+        switch boundary {
+        case .repeatBoundary(let repeatBoundaryMarkers, let trailingLineX):
+            drawRepeatMarkers(
+                repeatBoundaryMarkers,
+                trailingLineX: trailingLineX,
+                using: renderer
+            )
+            drawnRepeatMarkerIDs.formUnion(LeadSheetRepeatBoundaryPolicy.markerIDs(repeatBoundaryMarkers))
+        case .normalBarline(let barline, let frame):
+            renderer.drawBarline(barline, in: frame)
+        case .none:
+            if measure.isOpen && chart.layoutStyle != .simpleChordSheet {
+                renderer.drawOpenMeasureHint(measure)
             }
         }
     }
 
     private func drawRepeatMarkers(
         _ repeatMarkers: [LeadSheetRepeatMarkerLayout],
-        terminalTrailingLineX: CGFloat? = nil,
+        trailingLineX: CGFloat? = nil,
         using renderer: LeadSheetNotationRenderer
     ) {
         guard !repeatMarkers.isEmpty else {
@@ -438,7 +478,7 @@ private struct ChartPDFRenderer {
 
         renderer.drawRepeatBoundary(
             repeatMarkers,
-            terminalTrailingLineX: terminalTrailingLineX
+            trailingLineX: trailingLineX
         )
     }
 

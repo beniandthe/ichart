@@ -59,6 +59,10 @@ Basic includes
 - creation of up to 3 active local chart documents
 - opening, editing, renaming, deleting, and exporting all saved charts, including converted charts and charts above the creation cap after downgrade
 
+At paid rollout, new Basic chart PDFs include a small **Made with iChart** credit
+on the first page. PDF exports remain unlimited. A PDF already in the library
+keeps the file originally saved there, including across plan changes.
+
 ### Pro
 
 Pro is an auto-renewing subscription surface, offered as monthly and annual plans.

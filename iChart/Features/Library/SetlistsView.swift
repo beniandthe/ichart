@@ -101,8 +101,10 @@ struct SetlistsView: View {
                                     Image(systemName: "chevron.right").font(.caption).foregroundStyle(IChartInterfaceStyle.actionText)
                                 }
                                 .padding(.vertical, 4)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.iChartTapFeedback)
                             .accessibilityIdentifier("setlists.row.\(setlist.id.uuidString)")
                             .swipeActions {
                                 Button("Delete Setlist", role: .destructive) { pendingDeletion = setlist }
@@ -197,7 +199,9 @@ struct IChartSetlistDetailView: View {
                 } label: {
                     Label("Setlist Options", systemImage: "ellipsis.circle").labelStyle(.iconOnly)
                         .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
                 }
+                .iChartMenuTapFeedback()
                 .disabled(setlist == nil)
                 .accessibilityIdentifier("setlists.options")
             }
@@ -234,7 +238,7 @@ struct IChartSetlistDetailView: View {
                         } label: {
                             songRow(song, index: index)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.iChartTapFeedback)
                         .accessibilityIdentifier("setlists.song.\(song.id.uuidString)")
                         .accessibilityAction(named: Text("Move Up")) { moveSong(at: index, by: -1) }
                         .accessibilityAction(named: Text("Move Down")) { moveSong(at: index, by: 1) }
@@ -318,6 +322,8 @@ struct IChartSetlistDetailView: View {
             Image(systemName: "chevron.right").font(.caption).foregroundStyle(IChartInterfaceStyle.actionText)
         }
         .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 
     private var errorPresented: Binding<Bool> {
@@ -477,9 +483,10 @@ private struct IChartSetlistPDFPicker: View {
                             Image(systemName: selectedIDs.contains(item.id) ? "checkmark.circle.fill" : "circle")
                                 .foregroundStyle(selectedIDs.contains(item.id) ? IChartInterfaceStyle.actionText : Color.secondary)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.iChartTapFeedback)
                     .listRowBackground(selectedIDs.contains(item.id) ? IChartInterfaceStyle.selectionFill : Color.clear)
                     .disabled(pdfStore.exportedPDF(for: item) == nil)
                     .accessibilityIdentifier("setlists.pick.\(item.id.uuidString)")
@@ -700,7 +707,9 @@ private struct IChartSetlistSearchControls: View {
             } label: {
                 Label("Sort: \(order.rawValue)", systemImage: "arrow.up.arrow.down")
                     .frame(minHeight: 44)
+                    .contentShape(Rectangle())
             }
+            .iChartMenuTapFeedback()
             .accessibilityIdentifier("\(identifier).sort")
         }
         .frame(maxWidth: IChartSearchControlLayout.maximumWidth, alignment: .leading)

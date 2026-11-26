@@ -28,7 +28,7 @@ final class EditorToolGuidanceTests: XCTestCase {
                 // the canvas, but must remain available from the same tool.
                 XCTAssertFalse(guidance.accessibilitySummary.contains("bar-and-dot"))
                 XCTAssertTrue(guidance.referenceText.contains("chord-repeat symbols (%)"))
-                XCTAssertTrue(guidance.referenceText.contains("Use Tools > Repeats for measure repeats or ranges."))
+                XCTAssertTrue(guidance.referenceText.contains("Use Repeats for measure repeats or ranges."))
                 XCTAssertTrue(guidance.referenceText.contains("Drawn bar-and-dot repeat signs are not recognized."))
                 XCTAssertTrue(guidance.referenceText.contains("Unplaced ink stays on the page."))
             }
@@ -119,26 +119,70 @@ final class EditorToolGuidanceTests: XCTestCase {
         XCTAssertTrue(legacy.steps[1].contains("One finger scrolls"))
     }
 
-    func testMeasuresGuideExplainsTheLayoutComparisonAndAvailability() {
+    func testMeasuresGuideExplainsDirectRowActionsAndAvailability() {
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
             let guidance = EditorCanvasMode.measureEdit.toolGuidance(
                 layoutStyle: style, manualRenderWithPreview: false)
-            XCTAssertTrue(guidance.referenceText.contains("Open Layout to compare each action"))
-            XCTAssertTrue(guidance.referenceText.contains("read why an option is unavailable"))
-            XCTAssertTrue(guidance.referenceText.contains("Tap an available action to apply it"))
+            XCTAssertEqual(guidance.steps, ["Tap a measure, then choose an action."])
+            XCTAssertTrue(guidance.referenceText.contains("tap Delete Measure…, and confirm the measure shown."))
+            XCTAssertTrue(guidance.referenceText.contains("tap Delete Range… to start. Tap the last measure"))
+            XCTAssertTrue(guidance.referenceText.contains("Quick Actions holds the Layout controls to the left of the chart, or below the tool controls in narrow windows."))
+            XCTAssertTrue(guidance.referenceText.contains("Tap the left-pointing chevron beside Quick Actions to give the chart more room. Tap the right-pointing chevron to show the controls again."))
+            XCTAssertTrue(guidance.referenceText.contains("Tap a measure in Select or Measures to see which actions are available."))
+            XCTAssertTrue(guidance.referenceText.contains("Even System Measures"))
+            XCTAssertTrue(guidance.referenceText.contains("Merge with Next Measure removes an eligible divider."))
             XCTAssertTrue(guidance.referenceText.contains("Join Row Above moves from the start of the row through your selection"))
             XCTAssertTrue(guidance.referenceText.contains("Move to Row Below moves from your selection through the end of the row"))
             let selectGuide = EditorCanvasMode.browse.toolGuidance(
                 layoutStyle: style, manualRenderWithPreview: false)
+            XCTAssertTrue(selectGuide.referenceText.contains("Tap a measure in Select or Measures to see which actions are available."))
+            XCTAssertTrue(selectGuide.referenceText.contains("Even System Measures"))
             if style == .rhythmSectionSheet {
-                XCTAssertTrue(guidance.accessibilitySummary.contains("Add One After fits the new measure in the row"))
+                XCTAssertTrue(guidance.referenceText.contains("Adding one measure fits it in the row"))
                 XCTAssertTrue(guidance.referenceText.contains("When you release, a lone measure on the next row moves up if its full width fits."))
                 XCTAssertTrue(selectGuide.referenceText.contains("Manual row or page breaks and key changes keep their boundaries."))
+                XCTAssertFalse(selectGuide.referenceText.contains("Fill Row"))
             } else {
-                XCTAssertEqual(guidance.steps, ["Tap a measure, then choose Add, Layout, or Delete."])
                 XCTAssertFalse(guidance.referenceText.contains("lone measure on the next row"))
                 XCTAssertFalse(selectGuide.referenceText.contains("lone measure on the next row"))
+                XCTAssertTrue(selectGuide.referenceText.contains("Fill Row"))
             }
+        }
+    }
+
+    func testSelectGuideShowsLayoutPromptForMeasureSelection() {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let guidance = EditorCanvasMode.browse.toolGuidance(
+                layoutStyle: style, manualRenderWithPreview: false, isLayoutMeasureSelected: true)
+            XCTAssertTrue(guidance.steps.contains("Use the Layout actions for the selected measure."))
+            XCTAssertFalse(guidance.steps.contains("Tap a chord for width handles. Drag its body to move it."))
+        }
+    }
+
+    func testMeasuresGuideNamesRepeatChoicesForAClosingRepeat() {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let ordinary = EditorCanvasMode.measureEdit.toolGuidance(
+                layoutStyle: style, manualRenderWithPreview: false)
+            let closingRepeat = EditorCanvasMode.measureEdit.toolGuidance(
+                layoutStyle: style, manualRenderWithPreview: false, isClosingRepeatSelected: true)
+
+            XCTAssertFalse(ordinary.accessibilitySummary.contains("Add Inside Repeat"))
+            XCTAssertEqual(closingRepeat.steps, ["Choose Add Inside Repeat or Add After Repeat."])
+            XCTAssertTrue(closingRepeat.referenceText.contains("Add Inside Repeat includes the new measure in the loop"))
+            XCTAssertTrue(closingRepeat.referenceText.contains("Add After Repeat puts the new measure after the closing sign."))
+            XCTAssertTrue(closingRepeat.referenceText.contains("adding inside extends the outermost repeat."))
+            XCTAssertTrue(closingRepeat.referenceText.contains("After Repeat is selected when the sheet opens."))
+        }
+    }
+
+    func testRepeatGuideExplainsWhereToFinishOrCancelAfterHidingQuickActions() {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let guide = EditorCanvasMode.repeatEdit.toolGuidance(
+                layoutStyle: style, manualRenderWithPreview: false)
+            XCTAssertTrue(guide.referenceText.contains("tap Start Repeat in Quick Actions or Repeats"))
+            XCTAssertTrue(guide.referenceText.contains("Tap End Repeat where you started."))
+            XCTAssertTrue(guide.referenceText.contains("If Quick Actions is hidden, finish with End Repeat in Repeats."))
+            XCTAssertTrue(guide.referenceText.contains("Tap Cancel in Repeats to discard the range."))
         }
     }
 
@@ -147,7 +191,7 @@ final class EditorToolGuidanceTests: XCTestCase {
             let guide = EditorCanvasMode.browse.toolGuidance(
                 layoutStyle: style, manualRenderWithPreview: false)
             XCTAssertTrue(guide.referenceText.contains("Move Up or Down to adjust its height"))
-            XCTAssertTrue(guide.referenceText.contains("Reset Position restores automatic spacing"))
+            XCTAssertTrue(guide.referenceText.contains("Reset Position restores automatic height"))
             XCTAssertTrue(guide.referenceText.contains("Move and Lengthen adjust the measures"))
         }
     }
@@ -174,7 +218,10 @@ final class EditorToolGuidanceTests: XCTestCase {
                 XCTAssertTrue(guidance.steps.joined().contains("Scroll with a finger"))
                 XCTAssertTrue(guidance.referenceText.contains("Drag a chord with Apple Pencil, then lift to place it"))
                 XCTAssertTrue(guidance.referenceText.contains("tap the red X to delete"))
-                XCTAssertTrue(guidance.referenceText.contains("drag the width handle to change width"))
+                XCTAssertTrue(guidance.steps.contains("Tap a chord for width handles. Drag its body to move it."))
+                XCTAssertTrue(guidance.referenceText.contains("Drag a side handle to resize that chord"))
+                XCTAssertTrue(guidance.referenceText.contains("Snap to beat 1 at the first guide"))
+                XCTAssertTrue(guidance.referenceText.contains("Cross the barline to move into the previous measure"))
                 XCTAssertTrue(guidance.referenceText.contains("Double-tap a chord to correct it"))
             }
         }
@@ -190,6 +237,34 @@ final class EditorToolGuidanceTests: XCTestCase {
         XCTAssertEqual(recovered.steps, ["Erase the highlighted barline, then redraw it."])
         XCTAssertEqual(original.steps.count, 2)
         XCTAssertEqual(original.withContext("Measure 8 selected").context, "Measure 8 selected")
+    }
+
+    func testFormAndMeterGuidesNameTheirDirectControlsInBothStyles() {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let form = EditorCanvasMode.formMarkerEdit.toolGuidance(
+                layoutStyle: style, manualRenderWithPreview: false)
+            XCTAssertEqual(form.steps, ["Tap a measure, then choose a form marker."])
+            XCTAssertTrue(form.referenceText.contains("Tap a marker button to add it to the selected measure"))
+            let meter = EditorCanvasMode.timeSignatureEdit.toolGuidance(
+                layoutStyle: style, manualRenderWithPreview: false)
+            XCTAssertTrue(meter.steps.contains("Tap the starting measure, then choose a time signature above the chart."))
+            XCTAssertTrue(meter.referenceText.contains("tap Custom… to set the numerator and denominator."))
+            XCTAssertTrue(meter.referenceText.contains("Check its scope before applying it."))
+        }
+    }
+
+    func testTextGuideNamesPlacementAndEditingInBothStyles() {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let guidance = EditorCanvasMode.textEdit.toolGuidance(layoutStyle: style,
+                manualRenderWithPreview: false)
+            XCTAssertTrue(guidance.steps.contains("Tap where the cue should start, then choose Above or Below."))
+            XCTAssertTrue(guidance.referenceText.contains("The blue marker shows the cue’s beat."))
+            XCTAssertTrue(guidance.referenceText.contains("Press and hold the cue, then drag it in any direction"))
+            XCTAssertTrue(guidance.referenceText.contains("blue line stays at the center of its measure until you cross a barline"))
+            XCTAssertTrue(guidance.referenceText.contains("disappears in the row margin"))
+            XCTAssertTrue(guidance.referenceText.contains("Staff spacing stays fixed"))
+            XCTAssertFalse(guidance.referenceText.contains("Reset Position"))
+        }
     }
 
     func testReviewGuideNamesOnlyTheActionsAvailableInItsRenderingMode() throws {

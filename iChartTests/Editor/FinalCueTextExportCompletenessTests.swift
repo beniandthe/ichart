@@ -21,6 +21,64 @@ final class FinalCueTextExportCompletenessTests: XCTestCase {
         )
     }
 
+    func testPDFKeepsViewedCuePositionsAboveTheFirstSystemAndBeyondTheOldHeightLimit() async throws {
+        NotationFontRegistrar.registerBundledFontsIfNeeded()
+        let output = try proofOutputDirectory(label: "horizontal-cue-export")
+        defer {
+            if !output.keepArtifacts { try? FileManager.default.removeItem(at: output.url) }
+        }
+        let exporter = PDFChartExporter(exportDirectory: output.url)
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            var chart = Chart.blank(title: "Cue Export Geometry", measureCount: 4, layoutStyle: style)
+            let firstID = chart.measures[0].id
+            let secondID = chart.measures[1].id
+            let marginText = "Hold rhythm\nSoft entrance"
+            let freeText = "Play lightly"
+            let marginCueID = try XCTUnwrap(chart.addCueText(marginText, anchorMeasureID: firstID))
+            let freeCueID = try XCTUnwrap(chart.addCueText(freeText, anchorMeasureID: secondID))
+            XCTAssertTrue(chart.moveCueText(marginCueID, to: firstID, atFraction: 0,
+                horizontalPlacement: .init(region: .leadingMargin, fraction: 0.2), manualVerticalOffset: -10_000))
+            XCTAssertTrue(chart.moveCueText(freeCueID, to: secondID, atFraction: 0.25,
+                horizontalPlacement: .init(region: .measure, fraction: 0.32), manualVerticalOffset: 150))
+
+            let saved = try ChartPersistenceCoders.encoder.encode(chart)
+            let reopened = try ChartPersistenceCoders.decoder.decode(Chart.self, from: saved)
+            let layout = LeadSheetPageLayoutEngine.pageLayout(
+                for: reopened, pageSize: CGSize(width: 932, height: 1_100)
+            )
+            let system = try XCTUnwrap(layout.systems.first)
+            let paper = layout.paperFrame(for: system)
+            let first = try XCTUnwrap(system.measures.first { $0.sourceMeasureID == firstID })
+            let second = try XCTUnwrap(system.measures.first { $0.sourceMeasureID == secondID })
+            let marginCue = try XCTUnwrap(first.cueTextLayouts.first { $0.id == marginCueID })
+            let freeCue = try XCTUnwrap(second.cueTextLayouts.first { $0.id == freeCueID })
+            XCTAssertLessThan(marginCue.frame.minX, first.staffFrame.minX - 4)
+            XCTAssertLessThan(marginCue.frame.minY, layout.header.handwrittenFrame.maxY)
+            XCTAssertGreaterThanOrEqual(marginCue.frame.minY, paper.minY)
+            XCTAssertEqual(freeCue.frame.minX, second.staffFrame.minX + 0.32 * second.staffFrame.width, accuracy: 0.01)
+            XCTAssertEqual(freeCue.verticalOffsetFromDefault, 150, accuracy: 0.01)
+
+            let export = try await exporter.exportPDF(for: reopened)
+            let document = try XCTUnwrap(PDFDocument(url: export.url))
+            let page = try XCTUnwrap(document.page(at: 0))
+            let text = try XCTUnwrap(page.string) as NSString
+            for (wording, cue) in [("Hold rhythm", marginCue), ("Soft entrance", marginCue), (freeText, freeCue)] {
+                let range = text.range(of: wording)
+                guard range.location != NSNotFound else {
+                    XCTFail("\(style) export omitted \(wording)")
+                    continue
+                }
+                let selection = try XCTUnwrap(page.selection(for: range))
+                let ink = selection.bounds(for: page)
+                let expected = CGRect(x: cue.frame.minX - paper.minX, y: paper.maxY - cue.frame.maxY,
+                    width: cue.frame.width, height: cue.frame.height)
+                XCTAssertFalse(ink.isEmpty)
+                XCTAssertTrue(expected.insetBy(dx: -2, dy: -2).contains(ink),
+                    "\(style) export placed \(wording) outside its saved cue frame")
+            }
+        }
+    }
+
     func testShortCueKeepsPreferredFontAndExplicitScaleForBothStylesAndFonts() throws {
         NotationFontRegistrar.registerBundledFontsIfNeeded()
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
@@ -66,7 +124,8 @@ final class FinalCueTextExportCompletenessTests: XCTestCase {
                     let longID = try XCTUnwrap(chart.addCueText("Bring the horns in softly after the guitar solo", anchorMeasureID: stackedMeasureID, position: .below))
                     XCTAssertTrue(chart.updateCueText(longID, scale: 1.25))
                     XCTAssertTrue(chart.moveCueText(longID, to: stackedMeasureID, atFraction: 0.25, verticalOffset: 12))
-                    let shortID = try XCTUnwrap(chart.addCueText("Horns enter", anchorMeasureID: stackedMeasureID, position: .below))
+                    let shortID = try XCTUnwrap(chart.addCueText("Horns enter", anchorMeasureID: stackedMeasureID,
+                        position: .below, atFraction: 0.25))
                     XCTAssertTrue(chart.updateCueText(shortID, scale: 0.75, verticalOffset: 12))
                     _ = try XCTUnwrap(chart.addCueText("Repeat softly, then build into the final chorus", anchorMeasureID: chart.measures[11].id, position: .below))
                     let originalChart = chart
@@ -97,6 +156,7 @@ final class FinalCueTextExportCompletenessTests: XCTestCase {
                     let stackedMeasure = try XCTUnwrap(layout.systems.flatMap(\.measures).first { $0.sourceMeasureID == stackedMeasureID })
                     let longCue = try XCTUnwrap(stackedMeasure.cueTextLayouts.first { $0.id == longID })
                     let shortCue = try XCTUnwrap(stackedMeasure.cueTextLayouts.first { $0.id == shortID })
+                    XCTAssertTrue(longCue.frame.minX < shortCue.frame.maxX && shortCue.frame.minX < longCue.frame.maxX)
                     XCTAssertGreaterThanOrEqual(shortCue.frame.minY - longCue.frame.maxY, 3 - 0.01)
                     XCTAssertEqual(longCue.beatFraction, 0.25)
                     XCTAssertEqual(longCue.verticalOffset, 12)

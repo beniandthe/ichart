@@ -922,7 +922,7 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
         }
     }
 
-    func testSelectResetsAnnotationHeightWithoutChangingMusicalAnchors() async throws {
+    func testSelectResetsEndingAndFormMarkHeightWithoutAddingAResetForTextCues() async throws {
         var chart = Chart.draft(title: "Annotation controls", layoutStyle: .rhythmSectionSheet)
         chart.completeInitialSetup(title: chart.title, key: .cMajor,
             meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine, startingMeasureCount: 4)
@@ -931,7 +931,7 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
         let cue = try XCTUnwrap(chart.addCueText("On cue", anchorMeasureID: first, position: .above))
         let marker = try XCTUnwrap(chart.addPointRoadmapMarker(.segno, anchorMeasureID: first))
         let ending = try XCTUnwrap(chart.addEndingSpan(.ending1, startMeasureID: first, endMeasureID: last))
-        XCTAssertTrue(chart.setCueTextVerticalOffset(cue, to: -24))
+        XCTAssertTrue(chart.setCueTextManualVerticalOffset(cue, to: 124))
         XCTAssertTrue(chart.setRoadmapAnnotationVerticalOffset(marker, to: -48))
         XCTAssertTrue(chart.setRoadmapAnnotationVerticalOffset(ending, to: -16))
         let mounted = try await mount(manual: true, initialChart: chart, initialCanvasMode: .browse)
@@ -944,8 +944,15 @@ final class ChordInkAutomaticFeedbackUITests: XCTestCase {
             })
         }
 
-        try await reset(cue, afterSelecting: mounted.canvas.onCueTextSelectedFromCanvas)
-        XCTAssertEqual(mounted.model.chart.cueText(id: cue)?.verticalOffset, 0)
+        let selectCue = try XCTUnwrap(mounted.canvas.onCueTextSelectedFromCanvas)
+        selectCue(cue)
+        _ = try await waitForNode(in: mounted.window) {
+            $0.isButton && $0.element.accessibilityLabel == "Edit"
+        }
+        XCTAssertFalse(try NativeAccessibilityLookup.nodes(in: mounted.window).contains {
+            $0.isButton && $0.element.accessibilityLabel == "Reset Position"
+        })
+        XCTAssertEqual(mounted.model.chart.cueText(id: cue)?.manualVerticalOffset, 124)
         XCTAssertEqual(mounted.model.chart.cueText(id: cue)?.anchorMeasureID, first)
         try await reset(marker, afterSelecting: mounted.canvas.onRoadmapMarkerSelectedFromCanvas)
         XCTAssertEqual(mounted.model.chart.roadmapObject(id: marker)?.resolvedVerticalOffset, 0)

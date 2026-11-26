@@ -42,7 +42,7 @@ final class FormMarkerPlacementUITests: XCTestCase {
                 XCTAssertFalse(writingTool.isSelected, "Each cold chart entry starts in Browse")
 
                 for entry in 1...2 {
-                    writingTool.tap()
+                    writingTool.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
                     let context = app.staticTexts["editor-guidance-context"]
                     XCTAssertTrue(context.waitForExistence(timeout: 10),
                         "Toolbar construction must survive entry \(entry) for \(title), \(manual ? "Manual" : "Automatic")")
@@ -56,8 +56,14 @@ final class FormMarkerPlacementUITests: XCTestCase {
                         XCTAssertTrue(control.waitForExistence(timeout: 5))
                         XCTAssertTrue(control.isHittable, "\(label) stays reachable after toolbar construction")
                     }
+                    let erase = app.buttons["Erase"]
+                    erase.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
+                    XCTAssertTrue(erase.isSelected)
+                    let write = app.buttons["Write"]
+                    write.coordinate(withNormalizedOffset: CGVector(dx: 0.06, dy: 0.5)).tap()
+                    XCTAssertTrue(write.isSelected)
                     attach(app, name: "\(title) \(manual ? "Manual" : "Automatic") cold entry \(entry)")
-                    app.buttons["Done"].tap()
+                    app.buttons["Done"].coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
                     let returnedToBrowse = XCTNSPredicateExpectation(
                         predicate: NSPredicate { _, _ in !writingTool.isSelected }, object: nil)
                     XCTAssertEqual(XCTWaiter.wait(for: [returnedToBrowse], timeout: 5), .completed)
@@ -125,98 +131,6 @@ final class FormMarkerPlacementUITests: XCTestCase {
             XCTAssertTrue(symbolStep.waitForExistence(timeout: 10))
             XCTAssertTrue(freeInk.isSelected)
             app.buttons["Done"].tap()
-            app.buttons["Exit Chart"].tap()
-            XCTAssertTrue(chart.waitForExistence(timeout: 10))
-        }
-        app.terminate()
-    }
-
-    @MainActor
-    func testMeasureLayoutExplanationsAndDoneAcrossLayouts() throws {
-        XCUIDevice.shared.orientation = .portrait
-        let (app, arguments) = try disposableFixtureApplication()
-        app.launchArguments = arguments
-        app.launch()
-        let actionIDs = ["startNewRow", "joinRowAbove", "moveToRowBelow", "evenRowWidths", "mergeWithNext"]
-
-        for title in ["Simple Sheet UI Fixture", "Rhythm Section UI Fixture"] {
-            let chart = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
-            XCTAssertTrue(chart.waitForExistence(timeout: 20))
-            chart.tap()
-            let measures = app.buttons["Measures"]
-            XCTAssertTrue(measures.waitForExistence(timeout: 15))
-            measures.tap()
-            let layout = app.buttons["measure-layout-open"]
-            XCTAssertTrue(layout.waitForExistence(timeout: 10))
-            XCTAssertTrue(layout.isHittable)
-            layout.tap()
-            let bar = app.navigationBars["Measure Layout"]
-            XCTAssertTrue(bar.waitForExistence(timeout: 10))
-            let context = app.staticTexts["measure-layout-context"]
-            XCTAssertTrue(context.waitForExistence(timeout: 5))
-            let selectedMeasure = context.label
-            XCTAssertNotNil(selectedMeasure.range(of: #"^Measure [1-9][0-9]* selected$"#, options: .regularExpression))
-            XCTAssertTrue(app.staticTexts["measure-layout-instruction"].isHittable)
-            XCTAssertTrue(bar.buttons["Done"].isHittable)
-
-            var availability: [String: Bool] = [:]
-            var explanations: [String: String] = [:]
-            var reasons: [String: String] = [:]
-            for actionID in actionIDs {
-                let action = app.buttons["measure-layout-action-\(actionID)"]
-                let explanation = app.staticTexts["measure-layout-explanation-\(actionID)"]
-                reveal(explanation, in: app)
-                XCTAssertTrue(action.exists)
-                XCTAssertGreaterThanOrEqual(action.frame.height, 44)
-                XCTAssertTrue(app.windows.firstMatch.frame.insetBy(dx: -1, dy: -1).contains(action.frame),
-                    "Every action remains visible beside its full explanation")
-                if action.isEnabled { XCTAssertTrue(action.isHittable) }
-                XCTAssertTrue(explanation.isHittable, "Every explanation is reachable by ordinary scrolling")
-                XCTAssertFalse(explanation.label.isEmpty)
-                XCTAssertGreaterThanOrEqual(explanation.frame.height, 14)
-                XCTAssertTrue(app.windows.firstMatch.frame.insetBy(dx: -1, dy: -1).contains(explanation.frame))
-                if actionID == "joinRowAbove" {
-                    XCTAssertTrue(explanation.label.contains("The remaining measures stay together."))
-                    XCTAssertGreaterThan(explanation.frame.height, 25,
-                        "The full two-sentence explanation wraps instead of using a truncated menu subtitle")
-                }
-                availability[actionID] = action.isEnabled
-                explanations[actionID] = explanation.label
-                let reason = app.descendants(matching: .any)
-                    .matching(identifier: "measure-layout-reason-\(actionID)").firstMatch
-                if !action.isEnabled {
-                    reveal(reason, in: app)
-                    XCTAssertFalse(reason.label.isEmpty, "An unavailable action explains how to make it available")
-                    XCTAssertGreaterThan(reason.frame.height, 0)
-                    XCTAssertTrue(app.windows.firstMatch.frame.insetBy(dx: -1, dy: -1).contains(reason.frame))
-                    reasons[actionID] = reason.label
-                } else {
-                    XCTAssertFalse(reason.exists)
-                }
-                attach(app, name: "\(title) \(actionID) full explanation and availability")
-            }
-            XCTAssertFalse(reasons.isEmpty, "A blank chart also exercises the disabled-action explanations")
-
-            // Inspecting the sheet and Done never invokes a layout action.
-            // Reopen to check unchanged selection, availability and guidance;
-            // independent container readback verifies saved chart payloads.
-            bar.buttons["Done"].tap()
-            XCTAssertTrue(layout.waitForExistence(timeout: 10))
-            XCTAssertTrue(measures.isSelected)
-            layout.tap()
-            XCTAssertTrue(bar.waitForExistence(timeout: 10))
-            XCTAssertEqual(app.staticTexts["measure-layout-context"].label, selectedMeasure)
-            for actionID in actionIDs {
-                XCTAssertEqual(app.buttons["measure-layout-action-\(actionID)"].isEnabled, availability[actionID])
-                XCTAssertEqual(app.staticTexts["measure-layout-explanation-\(actionID)"].label, explanations[actionID])
-                if let originalReason = reasons[actionID] {
-                    let reason = app.descendants(matching: .any)
-                        .matching(identifier: "measure-layout-reason-\(actionID)").firstMatch
-                    XCTAssertEqual(reason.label, originalReason)
-                }
-            }
-            bar.buttons["Done"].tap()
-            XCTAssertTrue(layout.waitForExistence(timeout: 10))
             app.buttons["Exit Chart"].tap()
             XCTAssertTrue(chart.waitForExistence(timeout: 10))
         }
@@ -308,58 +222,6 @@ final class FormMarkerPlacementUITests: XCTestCase {
     }
 
     @MainActor
-    func testFormMarkerPlacementInBothLayouts() throws {
-        XCUIDevice.shared.orientation = .portrait
-        let app = XCUIApplication()
-        app.launchArguments = ["-iChartEditorUIPreview", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
-        app.launch()
-
-        for title in ["Simple Sheet UI Fixture", "Rhythm Section UI Fixture"] {
-            let chart = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
-            XCTAssertTrue(chart.waitForExistence(timeout: 20), "The synthetic chart must be available in Charts")
-            chart.tap()
-            XCTAssertTrue(app.buttons["Tools"].waitForExistence(timeout: 15))
-
-            openMarkers(in: app)
-            chooseMeasureTwo(in: app)
-            chooseSegno(in: app)
-            let stagedTarget = app.staticTexts["Add Segno to measure 2"]
-            reveal(stagedTarget, in: app)
-            XCTAssertTrue(stagedTarget.isHittable, "The exact destination is visible before confirmation")
-            attach(app, name: "\(title) staged Segno at measure 2 before Cancel")
-            app.navigationBars["Form Markers"].buttons["Cancel"].tap()
-            XCTAssertTrue(app.buttons["Tools"].waitForExistence(timeout: 10))
-            XCTAssertFalse(app.staticTexts["Marker"].exists, "Cancel must not add a marker")
-
-            openMarkers(in: app)
-            let coda = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Coda")).firstMatch
-            reveal(coda, in: app, scrollDown: true)
-            XCTAssertTrue(coda.isSelected, "A cancelled Segno selection must not carry into a new placement")
-            let defaultTarget = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Add Coda to measure ")).firstMatch
-            reveal(defaultTarget, in: app)
-            XCTAssertTrue(defaultTarget.isHittable, "The reopened placement shows its default marker and destination")
-            chooseMeasureTwo(in: app)
-            chooseSegno(in: app)
-            let confirmedTarget = app.staticTexts["Add Segno to measure 2"]
-            reveal(confirmedTarget, in: app)
-            XCTAssertTrue(confirmedTarget.isHittable)
-            attach(app, name: "\(title) confirmed target before Add")
-            app.navigationBars["Form Markers"].buttons["Add"].tap()
-
-            let markerTray = app.staticTexts["Marker"]
-            XCTAssertTrue(markerTray.waitForExistence(timeout: 10), "The newly added marker is selected for editing")
-            XCTAssertTrue(app.staticTexts["Measure 2 selected"].exists,
-                "The selection context must match the exact measure confirmed in the sheet")
-            XCTAssertTrue(app.buttons["Larger"].exists)
-            XCTAssertTrue(app.buttons["Smaller"].exists)
-            XCTAssertTrue(app.buttons["Delete"].exists)
-            attach(app, name: "\(title) Segno added with Measure 2 context")
-            app.buttons["Exit Chart"].tap()
-            XCTAssertTrue(chart.waitForExistence(timeout: 10))
-        }
-    }
-
-    @MainActor
     private func disposableFixtureApplication() throws -> (XCUIApplication, [String]) {
         let languageArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         #if targetEnvironment(simulator)
@@ -373,42 +235,13 @@ final class FormMarkerPlacementUITests: XCTestCase {
     }
 
     @MainActor
-    private func openMarkers(in app: XCUIApplication) {
-        app.buttons["Tools"].tap()
-        let entry = app.buttons["Form Markers"]
-        XCTAssertTrue(entry.waitForExistence(timeout: 5))
-        entry.tap()
-        XCTAssertTrue(app.navigationBars["Form Markers"].waitForExistence(timeout: 10))
-        let instruction = app.staticTexts["Choose a measure and a marker, then tap Add. Nothing changes until you add it."]
-        XCTAssertTrue(instruction.waitForExistence(timeout: 5))
-    }
-
-    @MainActor
-    private func chooseMeasureTwo(in app: XCUIApplication) {
-        let picker = app.descendants(matching: .any).matching(identifier: "form-marker-measure").firstMatch
-        reveal(picker, in: app, scrollDown: true)
-        picker.tap()
-        let secondMeasure = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Measure 2")).firstMatch
-        XCTAssertTrue(secondMeasure.waitForExistence(timeout: 5))
-        secondMeasure.tap()
-    }
-
-    @MainActor
-    private func chooseSegno(in app: XCUIApplication) {
-        let segno = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Segno")).firstMatch
-        reveal(segno, in: app)
-        segno.tap()
-    }
-
-    @MainActor
-    private func reveal(_ element: XCUIElement, in app: XCUIApplication, scrollDown: Bool = false) {
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
         for _ in 0..<10 {
             if element.exists && element.isHittable { return }
             let collection = app.collectionViews.firstMatch
             let table = app.tables.firstMatch
             let scrollSurface = collection.exists ? collection : (table.exists ? table : app)
-            if scrollDown { scrollSurface.swipeDown() }
-            else { scrollSurface.swipeUp() }
+            scrollSurface.swipeUp()
         }
         XCTAssertTrue(element.exists && element.isHittable,
             "The requested sheet control must be reachable through ordinary scrolling")

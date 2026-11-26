@@ -2,7 +2,7 @@ import Foundation
 
 // Shared model/layout operation; available to the app and the SwiftPM gate.
 enum EditorChordWidthAdjustmentPolicy {
-    static let selectionInstruction = "Drag to move · Right handle adjusts width."
+    static let selectionInstruction = "Drag to move · Side handles resize."
 
     static func canResetWidth(of chord: ChordEvent) -> Bool {
         chord.manualHorizontalScale != nil

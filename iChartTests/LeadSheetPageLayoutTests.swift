@@ -1231,6 +1231,61 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         )
     }
 
+    func testAddOneAfterLastOpenRepeatDrawsItsBoundaryAtTheBlankNewMeasure() throws {
+        let editorSize = CGSize(width: 900, height: 1400)
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            var chart = Chart.draft(title: "Last Measure Repeat", layoutStyle: style)
+            chart.completeInitialSetup(title: chart.title, key: .cMajor,
+                meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine,
+                startingMeasureCount: 2)
+            let measureIDs = chart.measures.map(\.id)
+            let repeatMeasureID = try XCTUnwrap(measureIDs.last)
+            let repeatID = try XCTUnwrap(
+                chart.addRepeatSpan(startMeasureID: repeatMeasureID, endMeasureID: repeatMeasureID)
+            )
+            let insertedID: UUID
+            if style == .rhythmSectionSheet {
+                let initialLayout = LeadSheetPageLayoutEngine.pageLayout(for: chart, pageSize: editorSize)
+                let row = try XCTUnwrap(initialLayout.systems.first)
+                let width = LeadSheetPageLayoutEngine.rhythmSectionAvailableRowWidth(for: row, in: initialLayout)
+                insertedID = try XCTUnwrap(chart.insertMeasure(inRhythmRow: row.measures.compactMap(\.sourceMeasureID),
+                    availableWidth: width, after: repeatMeasureID))
+            } else {
+                insertedID = try XCTUnwrap(chart.commitOpenMeasure(barlineAfter: .single,
+                    explicitlyAddsNextMeasure: true))
+            }
+
+            let reopened = try ChartPersistenceCoders.decoder.decode(Chart.self,
+                from: ChartPersistenceCoders.encoder.encode(chart))
+            for pageSize in [editorSize, CGSize(width: 612, height: 792)] {
+                let layout = LeadSheetPageLayoutEngine.pageLayout(for: reopened, pageSize: pageSize)
+                let system = try XCTUnwrap(layout.systems.first)
+                XCTAssertEqual(system.measures.compactMap(\.sourceMeasureID), measureIDs + [insertedID])
+                let repeated = system.measures[1]
+                let following = system.measures[2]
+                XCTAssertTrue(following.isOpen)
+                XCTAssertTrue(following.chordLayouts.isEmpty)
+                XCTAssertTrue(following.repeatMarkerLayouts.isEmpty)
+                XCTAssertEqual(repeated.repeatMarkerLayouts.map(\.edge), [.leading, .trailing])
+
+                let boundary = LeadSheetSimpleChordTerminalBarlineGeometry.renderedBoundary(
+                    after: repeated, before: following, excludingRepeatMarkerIDs: [],
+                    in: system, paperFrame: layout.paperFrame(for: system), layoutStyle: style
+                )
+                guard case .repeatBoundary(let markers, let terminalX) = boundary else {
+                    return XCTFail("Expected a visible repeat boundary at the inserted measure's left edge in \(style)")
+                }
+                let close = try XCTUnwrap(markers.first)
+                XCTAssertEqual(markers.count, 1)
+                XCTAssertEqual(close.roadmapObjectID, repeatID)
+                XCTAssertEqual(close.edge, .trailing)
+                XCTAssertEqual(try XCTUnwrap(terminalX), following.leadingBarlineX, accuracy: 0.001)
+                XCTAssertEqual(close.frame.midX, following.leadingBarlineX, accuracy: 0.001)
+                XCTAssertLessThan(close.frame.maxX, following.trailingBarlineFrame.midX)
+            }
+        }
+    }
+
     func testChordToolLayoutAddsOpenContinuationLanesWithoutChangingDefaultEngraving() throws {
         var chart = Chart.draft(title: "Open Chord Lanes", layoutStyle: .simpleChordSheet)
         chart.completeInitialSetup(

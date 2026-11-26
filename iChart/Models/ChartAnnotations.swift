@@ -14,6 +14,42 @@ enum SectionLabelType: String, Codable, CaseIterable, Hashable {
     case rehearsalMark
 }
 
+struct CueTextHorizontalPlacement: Codable, Hashable {
+    enum Region: String, Codable, Hashable {
+        case measure
+        case leadingMargin
+        case trailingMargin
+
+        var marginLabel: String? {
+            switch self {
+            case .measure: return nil
+            case .leadingMargin: return "Left row margin"
+            case .trailingMargin: return "Right row margin"
+            }
+        }
+    }
+
+    let region: Region
+    let fraction: Double
+    /// Preserve the line wrapping of a cue moved across measures of different widths.
+    let wrapWidth: Double?
+
+    init(region: Region, fraction: Double, wrapWidth: Double? = nil) {
+        self.region = region
+        self.fraction = fraction.isFinite ? min(max(fraction, 0), 1) : 0
+        self.wrapWidth = wrapWidth.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+    }
+
+    private enum CodingKeys: String, CodingKey { case region, fraction, wrapWidth }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(region: try values.decode(Region.self, forKey: .region),
+                  fraction: try values.decode(Double.self, forKey: .fraction),
+                  wrapWidth: try values.decodeIfPresent(Double.self, forKey: .wrapWidth))
+    }
+}
+
 struct CueText: Identifiable, Codable, Hashable {
     var id: UUID
     var text: String
@@ -24,6 +60,10 @@ struct CueText: Identifiable, Codable, Hashable {
     var beatFraction: Double?
     var verticalOffset: Double
     var rawInput: String?
+    var horizontalPlacement: CueTextHorizontalPlacement?
+    /// Explicit displacement from the automatic lane, with verticalOffset
+    /// retained as the constrained fallback for earlier chart readers.
+    var manualVerticalOffset: Double?
 
     init(
         id: UUID,
@@ -34,7 +74,9 @@ struct CueText: Identifiable, Codable, Hashable {
         scale: Double = Self.defaultScale,
         beatFraction: Double? = nil,
         verticalOffset: Double = 0,
-        rawInput: String? = nil
+        rawInput: String? = nil,
+        horizontalPlacement: CueTextHorizontalPlacement? = nil,
+        manualVerticalOffset: Double? = nil
     ) {
         self.id = id
         self.text = text
@@ -43,8 +85,10 @@ struct CueText: Identifiable, Codable, Hashable {
         self.emphasis = emphasis
         self.scale = Self.clampedScale(scale)
         self.beatFraction = Self.clampedBeatFraction(beatFraction)
-        self.verticalOffset = Self.clampedVerticalOffset(verticalOffset)
+        self.manualVerticalOffset = Self.finiteManualVerticalOffset(manualVerticalOffset)
+        self.verticalOffset = Self.clampedVerticalOffset(self.manualVerticalOffset ?? verticalOffset)
         self.rawInput = rawInput
+        self.horizontalPlacement = horizontalPlacement
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -57,6 +101,8 @@ struct CueText: Identifiable, Codable, Hashable {
         case beatFraction
         case verticalOffset
         case rawInput
+        case horizontalPlacement
+        case manualVerticalOffset
     }
 
     init(from decoder: Decoder) throws {
@@ -72,6 +118,10 @@ struct CueText: Identifiable, Codable, Hashable {
             try container.decodeIfPresent(Double.self, forKey: .verticalOffset) ?? 0
         )
         rawInput = try container.decodeIfPresent(String.self, forKey: .rawInput)
+        horizontalPlacement = try container.decodeIfPresent(CueTextHorizontalPlacement.self, forKey: .horizontalPlacement)
+        manualVerticalOffset = Self.finiteManualVerticalOffset(
+            try container.decodeIfPresent(Double.self, forKey: .manualVerticalOffset)
+        )
     }
 
     static let defaultScale: Double = 1
@@ -104,6 +154,11 @@ struct CueText: Identifiable, Codable, Hashable {
         }
 
         return min(max(offset, minimumVerticalOffset), maximumVerticalOffset)
+    }
+
+    static func finiteManualVerticalOffset(_ offset: Double?) -> Double? {
+        guard let offset, offset.isFinite else { return nil }
+        return offset
     }
 }
 

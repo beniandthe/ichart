@@ -17,7 +17,7 @@ final class ToolMeasureSelectionRoutingTests: XCTestCase {
             let selectionTap = try selectionRecognizer(in: host.canvas)
             let overlay = try overlay(in: host.canvas)
 
-            for mode in [EditorCanvasMode.repeatEdit, .measureEdit, .timeSignatureEdit, .rhythmicNotationEdit] {
+            for mode in [EditorCanvasMode.repeatEdit, .measureEdit, .timeSignatureEdit, .formMarkerEdit, .rhythmicNotationEdit] {
                 host.canvas.interactionMode = mode
                 host.canvas.layoutIfNeeded()
                 XCTAssertTrue(selectionTap.isEnabled)
@@ -47,7 +47,7 @@ final class ToolMeasureSelectionRoutingTests: XCTestCase {
             defer { host.close() }
             let selectionTap = try selectionRecognizer(in: host.canvas)
             let ids = original.measures.map(\.id)
-            for interveningMode in [EditorCanvasMode.browse, .textEdit, .measureEdit, .timeSignatureEdit] {
+            for interveningMode in [EditorCanvasMode.browse, .textEdit, .measureEdit, .timeSignatureEdit, .formMarkerEdit] {
                 host.canvas.interactionMode = interveningMode
                 host.canvas.interactionMode = .repeatEdit
                 let point = try measurePoint(ids[1], in: host.canvas)
@@ -108,16 +108,28 @@ final class ToolMeasureSelectionRoutingTests: XCTestCase {
             XCTAssertTrue(overlayTap.isEnabled)
             XCTAssertFalse(overlay.isHidden)
             let measureID = original.measures[1].id
-            let measurePoint = try measurePoint(measureID, in: host.canvas)
-            let cue = try XCTUnwrap(layout(host.canvas).systems.flatMap(\.measures)
+            let pageMeasures = layout(host.canvas).systems.flatMap(\.measures)
+            let measure = try XCTUnwrap(pageMeasures.first { $0.sourceMeasureID == measureID })
+            let fractions = [CGFloat(0.33), 0.68]
+            var requestedPlacements: [(UUID, Double)] = []
+            host.canvas.onCueTextPlacementRequested = { requestedPlacements.append(($0, $1)) }
+            let cue = try XCTUnwrap(pageMeasures
                 .flatMap(\.cueTextLayouts).first { $0.id == cueID })
             let cuePoint = CGPoint(x: cue.frame.midX, y: cue.frame.midY)
 
-            for point in [measurePoint, cuePoint] {
+            for fraction in fractions {
+                let point = CGPoint(x: measure.staffFrame.minX + fraction * measure.staffFrame.width,
+                    y: measure.frame.midY)
                 XCTAssertFalse(try receives(selectionTap, at: point, type: .pencil, in: host.canvas))
                 XCTAssertTrue(try receives(overlayTap, at: point, type: .pencil, in: host.canvas))
                 host.canvas.handleRenderedEditTapGesture(MeasureRoutingTap(point: point, coordinateView: host.canvas))
+                XCTAssertEqual(host.canvas.selectedMeasureID, measureID)
+                XCTAssertEqual(try XCTUnwrap(requestedPlacements.last?.1), fraction, accuracy: 0.001)
             }
+            XCTAssertEqual(requestedPlacements.map(\.0), [measureID, measureID])
+            XCTAssertTrue(try receives(overlayTap, at: cuePoint, type: .pencil, in: host.canvas))
+            host.canvas.handleRenderedEditTapGesture(MeasureRoutingTap(point: cuePoint, coordinateView: host.canvas))
+            XCTAssertEqual(requestedPlacements.count, 2, "Selecting a cue must not replace the user's placement request")
             XCTAssertEqual(host.canvas.selectedCueTextID, cueID)
             XCTAssertEqual(host.canvas.selectedMeasureID, original.measures[0].id)
             XCTAssertEqual(host.canvas.interactionMode, .textEdit)

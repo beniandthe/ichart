@@ -71,6 +71,16 @@ struct LeadSheetSystemLayout: Identifiable, Hashable {
     var endingLayouts: [LeadSheetEndingLayout]
     var measures: [LeadSheetMeasureLayout]
     var reservesAnnotationSpace = false
+    // Frozen, unresolved annotation geometry for a bounded drag projection.
+    // This is view layout data, never part of the saved chart document.
+    var annotationBaseLayout: LeadSheetSystemAnnotationBaseLayout? = nil
+}
+
+struct LeadSheetSystemAnnotationBaseLayout: Hashable {
+    var endingLayouts: [LeadSheetEndingLayout]
+    var roadmapMarkerLayouts: [LeadSheetRoadmapMarkerLayout]
+    var fixedLabelFrames: [CGRect]
+    var defaultCueLayouts: [LeadSheetCueTextLayout] = []
 }
 
 struct LeadSheetKeySignatureLayout: Hashable {
@@ -99,6 +109,7 @@ struct LeadSheetMeasureLayout: Identifiable, Hashable {
     var meterChangeFrame: CGRect?
     var trailingBarlineFrame: CGRect
     var isOpen: Bool
+    var preservesOpenMeasureBoundary = false
 }
 
 extension LeadSheetMeasureLayout {
@@ -484,6 +495,25 @@ struct LeadSheetCueTextLayout: Identifiable, Hashable {
     var verticalOffsetFromDefault: CGFloat = 0
 }
 
+/// Frozen typography and row constraints for a cue drag. Continuous pointer
+/// samples translate this geometry without measuring text or packing pages.
+struct LeadSheetCueTextMovePreviewTemplate {
+    fileprivate var cueLayout: LeadSheetCueTextLayout
+    fileprivate var measure: LeadSheetMeasureLayout
+    fileprivate var system: LeadSheetSystemLayout
+    fileprivate var paperFrame: CGRect
+    fileprivate var rowTop: CGFloat
+    fileprivate var rowBottom: CGFloat
+    fileprivate var paperTop: CGFloat
+    fileprivate var freePaperTop: CGFloat
+    fileprivate var paperBottom: CGFloat
+    fileprivate var otherCueFrames: [CGRect]
+    fileprivate var obstacles: [CGRect]
+
+    var frame: CGRect { cueLayout.frame }
+    var verticalOffsetFromDefault: CGFloat { cueLayout.verticalOffsetFromDefault }
+}
+
 enum LeadSheetCueTextTypography {
     static func fontSize(layoutStyle: ChartLayoutStyle, emphasis: CueEmphasis, scale: CGFloat) -> CGFloat {
         let isRhythmSection = layoutStyle == .rhythmSectionSheet
@@ -518,6 +548,402 @@ struct LeadSheetSelectableNote: Identifiable, Hashable {
 }
 
 enum LeadSheetPageLayoutEngine {
+    static func cueTextHorizontalOriginRange(
+        for region: CueTextHorizontalPlacement.Region,
+        measureID: UUID,
+        in pageLayout: LeadSheetPageLayout,
+        cueWidth: CGFloat
+    ) -> ClosedRange<CGFloat>? {
+        guard cueWidth.isFinite, cueWidth > 0,
+              let system = pageLayout.systems.first(where: { $0.measures.contains { $0.sourceMeasureID == measureID } }),
+              let measure = system.measures.first(where: { $0.sourceMeasureID == measureID }) else { return nil }
+        return cueTextHorizontalOriginRange(for: region, measure: measure, system: system,
+            paperFrame: pageLayout.paperFrame(for: system), cueWidth: cueWidth)
+    }
+
+    static func cueTextHorizontalOriginRange(
+        for region: CueTextHorizontalPlacement.Region,
+        measure: LeadSheetMeasureLayout,
+        system: LeadSheetSystemLayout,
+        paperFrame: CGRect,
+        cueWidth: CGFloat
+    ) -> ClosedRange<CGFloat>? {
+        let measures = system.measures.filter { $0.sourceMeasureID != nil }
+        guard let leading = measures.map(\.staffFrame.minX).min(),
+              let trailing = measures.map(\.staffFrame.maxX).max() else { return nil }
+        let paperMinimum = paperFrame.minX + 4
+        let paperMaximum = max(paperMinimum, paperFrame.maxX - 4 - cueWidth)
+        switch region {
+        case .measure: return measure.staffFrame.minX...measure.staffFrame.maxX
+        case .leadingMargin:
+            return paperMinimum...max(paperMinimum, min(leading, paperMaximum))
+        case .trailingMargin:
+            guard trailing <= paperMaximum else { return nil }
+            return trailing...paperMaximum
+        }
+    }
+
+    private static func horizontallyPlacedCue(
+        _ cue: LeadSheetCueTextLayout, model: CueText,
+        measure: LeadSheetMeasureLayout, system: LeadSheetSystemLayout, paperFrame: CGRect
+    ) -> LeadSheetCueTextLayout {
+        guard let placement = model.horizontalPlacement else { return cue }
+        let minimum = paperFrame.minX + 4
+        let maximum = max(minimum, paperFrame.maxX - 4 - cue.frame.width)
+        let requested: CGFloat
+        if let range = cueTextHorizontalOriginRange(for: placement.region, measure: measure,
+            system: system, paperFrame: paperFrame, cueWidth: cue.frame.width) {
+            requested = range.lowerBound + (range.upperBound - range.lowerBound) * CGFloat(placement.fraction)
+        } else {
+            // A saved detached cue can outgrow the margin after editing or
+            // reflow. Keep all its text on paper without resizing it on drag.
+            requested = maximum
+        }
+        let x = min(max(requested, minimum), maximum)
+        var placed = cue
+        placed.frame.origin.x = x
+        placed.hitFrame = cue.hitFrame.offsetBy(dx: x - cue.frame.minX, dy: 0)
+        return placed
+    }
+
+    /// Measures a destination row once. Explicit visual placement deliberately
+    /// ignores the legacy beat fallback when choosing the automatic cue lane.
+    static func cueTextMovePreviewTemplate(
+        chart: Chart,
+        sourcePageLayout: LeadSheetPageLayout,
+        cueID: UUID,
+        targetMeasureID: UUID,
+        fraction: Double?,
+        horizontalPlacement: CueTextHorizontalPlacement? = nil
+    ) -> LeadSheetCueTextMovePreviewTemplate? {
+        guard chart.cueTexts.filter({ $0.id == cueID }).count == 1,
+              let sourceCue = chart.cueText(id: cueID),
+              let systemIndex = sourcePageLayout.systems.firstIndex(where: { system in
+                  system.measures.contains { $0.sourceMeasureID == targetMeasureID }
+              }) else { return nil }
+        let system = sourcePageLayout.systems[systemIndex]
+        guard let base = system.annotationBaseLayout,
+              let page = sourcePageLayout.pages.first(where: { $0.systemIDs.contains(system.id) }) else { return nil }
+        let placement = horizontalPlacement ?? sourceCue.horizontalPlacement
+        var projectedChart = chart
+        let projected: Bool
+        if sourceCue.anchorMeasureID == targetMeasureID, sourceCue.beatFraction == fraction {
+            // Preserve an existing unsnapped legacy anchor on vertical moves.
+            projected = projectedChart.updateCueText(cueID, verticalOffset: 0)
+            if let cueIndex = projectedChart.cueTexts.firstIndex(where: { $0.id == cueID }) {
+                projectedChart.cueTexts[cueIndex].horizontalPlacement = placement
+            }
+        } else {
+            projected = projectedChart.moveCueText(cueID, to: targetMeasureID,
+                atFraction: fraction, verticalOffset: 0, horizontalPlacement: placement)
+        }
+        guard projected else { return nil }
+
+        var measures = system.measures
+        for index in measures.indices {
+            guard let measureID = measures[index].sourceMeasureID,
+                  let measure = projectedChart.measure(id: measureID) else { continue }
+            let original = measures[index]
+            measures[index].cueTextLayouts = cueTextLayouts(for: measure, chart: projectedChart,
+                measureFrame: original.frame, chordBandFrame: original.chordBandFrame,
+                staffFrame: original.staffFrame, noteLayouts: original.noteLayouts,
+                maximumCueWidth: max(1, page.frame.width - 8))
+        }
+        var endings = base.endingLayouts
+        var markers = base.roadmapMarkerLayouts
+        _ = resolveAnnotationPlacement(chart: projectedChart, measures: &measures,
+            endings: &endings, markers: &markers, fixedLabels: base.fixedLabelFrames,
+            appliesManualOffsets: true)
+        var baseline = system
+        baseline.measures = measures
+        baseline.endingLayouts = endings
+        baseline.roadmapMarkerLayouts = markers
+        baseline.annotationBaseLayout?.defaultCueLayouts = measures.flatMap(\.cueTextLayouts)
+        guard let measure = measures.first(where: { $0.sourceMeasureID == targetMeasureID }),
+              let cue = measure.cueTextLayouts.first(where: { $0.id == cueID }) else { return nil }
+
+        // Neighbor bounds use zero-offset baselines. A cue never changes the
+        // staff positions, and another row's existing clearance remains owned.
+        let indices = Dictionary(sourcePageLayout.systems.enumerated().map { ($0.element.id, $0.offset) },
+            uniquingKeysWith: { first, _ in first })
+        let rowIndices = page.systemIDs.compactMap { indices[$0] }
+        guard let row = rowIndices.firstIndex(of: systemIndex) else { return nil }
+        func restoredSystem(_ index: Int) -> LeadSheetSystemLayout {
+            if index == systemIndex { return baseline }
+            var restored = sourcePageLayout.systems[index]
+            if let defaults = restored.annotationBaseLayout?.defaultCueLayouts {
+                let byID = Dictionary(defaults.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                for measureIndex in restored.measures.indices {
+                    restored.measures[measureIndex].cueTextLayouts = restored.measures[measureIndex].cueTextLayouts.map {
+                        byID[$0.id] ?? $0
+                    }
+                }
+            }
+            return restored
+        }
+        let bounds = baseline.spacingContentBounds(for: projectedChart)
+        let paperTop = page.includesHeader
+            ? max(page.frame.minY + annotationTopEdgeClearance,
+                sourcePageLayout.header.handwrittenFrame.maxY + annotationTopEdgeClearance)
+            : page.frame.minY + annotationTopEdgeClearance
+        let paperBottom = page.frame.maxY - systemBottomInset
+        var rowTop = paperTop
+        if row > 0 {
+            let previous = restoredSystem(rowIndices[row - 1])
+            let previousBottom = previous.spacingContentBounds(for: projectedChart).maxY
+            let gap = min(interSystemAnnotationClearance, max(0, bounds.minY - previousBottom))
+            rowTop = previous.measures.contains { !$0.cueTextLayouts.isEmpty }
+                ? (previousBottom + bounds.minY + gap) / 2 : previousBottom + gap
+        }
+        var rowBottom = paperBottom
+        if row + 1 < rowIndices.count {
+            let next = restoredSystem(rowIndices[row + 1])
+            let nextTop = next.spacingContentBounds(for: projectedChart).minY
+            let gap = min(interSystemAnnotationClearance, max(0, nextTop - bounds.maxY))
+            rowBottom = next.measures.contains { !$0.cueTextLayouts.isEmpty }
+                ? (bounds.maxY + nextTop - gap) / 2 : nextTop - gap
+        }
+        let cueModels = Dictionary(projectedChart.cueTexts.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first })
+        let otherCueFrames = measures.flatMap { owningMeasure in
+            owningMeasure.cueTextLayouts.compactMap { layout -> CGRect? in
+                guard layout.id != cueID else { return nil }
+                guard let model = cueModels[layout.id] else { return layout.frame }
+                return horizontallyPlacedCue(layout, model: model, measure: owningMeasure,
+                    system: baseline, paperFrame: page.frame).frame
+            }
+        }
+        return LeadSheetCueTextMovePreviewTemplate(cueLayout: cue, measure: measure,
+            system: baseline, paperFrame: page.frame,
+            rowTop: rowTop, rowBottom: rowBottom, paperTop: paperTop,
+            freePaperTop: page.frame.minY + annotationTopEdgeClearance, paperBottom: paperBottom,
+            otherCueFrames: otherCueFrames, obstacles: cueMovementObstacles(in: baseline, chart: projectedChart))
+    }
+
+    /// Projects continuous movement using frozen row geometry. No text is
+    /// measured and no page or measure is repacked when a template is supplied.
+    static func cueTextMovePreview(
+        chart: Chart,
+        sourcePageLayout: LeadSheetPageLayout,
+        cueID: UUID,
+        targetMeasureID: UUID,
+        fraction: Double?,
+        verticalOffset: Double,
+        horizontalPlacement: CueTextHorizontalPlacement? = nil,
+        template: LeadSheetCueTextMovePreviewTemplate? = nil,
+        usesFreeVerticalPlacement: Bool = false
+    ) -> LeadSheetCueTextLayout? {
+        guard var model = chart.cueText(id: cueID),
+              let frozen = template ?? cueTextMovePreviewTemplate(chart: chart,
+                sourcePageLayout: sourcePageLayout, cueID: cueID,
+                targetMeasureID: targetMeasureID, fraction: fraction,
+                horizontalPlacement: horizontalPlacement),
+              frozen.cueLayout.id == cueID, frozen.measure.sourceMeasureID == targetMeasureID else { return nil }
+        model.horizontalPlacement = horizontalPlacement ?? model.horizontalPlacement
+        var cue = horizontallyPlacedCue(frozen.cueLayout, model: model, measure: frozen.measure,
+            system: frozen.system, paperFrame: frozen.paperFrame)
+        let freePlacement = usesFreeVerticalPlacement || model.manualVerticalOffset != nil
+        let offset = freePlacement
+            ? CGFloat(verticalOffset.isFinite ? verticalOffset : 0)
+            : CGFloat(CueText.clampedVerticalOffset(verticalOffset))
+        let y = freePlacement
+            ? paperClampedCueY(for: cue.frame, offset: offset,
+                paperTop: frozen.freePaperTop, paperBottom: frozen.paperBottom)
+            : constrainedCueY(for: cue.frame, offset: offset,
+                rowTop: frozen.rowTop, rowBottom: frozen.rowBottom,
+                paperTop: frozen.paperTop, paperBottom: frozen.paperBottom,
+                otherCues: frozen.otherCueFrames, obstacles: frozen.obstacles)
+        let dy = y - cue.frame.minY
+        cue.frame = cue.frame.offsetBy(dx: 0, dy: dy)
+        cue.hitFrame = cue.hitFrame.offsetBy(dx: 0, dy: dy)
+        cue.verticalOffset = offset
+        cue.verticalOffsetFromDefault = dy
+        return cue
+    }
+
+    /// Default cue geometry participates in planning. Explicit manual Y is
+    /// applied afterward inside the paper body and cannot move any staff.
+    /// Older saved offsets retain their original local-clearance policy.
+    private static func applyingCueOffsets(
+        to layout: LeadSheetPageLayout,
+        chart: Chart
+    ) -> LeadSheetPageLayout {
+        let offsets = Dictionary(chart.cueTexts.filter { $0.verticalOffset != 0 }
+            .map { ($0.id, $0.verticalOffset) }, uniquingKeysWith: { first, _ in first })
+        let freeOffsets = Dictionary(chart.cueTexts.compactMap { cue -> (UUID, Double)? in
+            guard let offset = cue.manualVerticalOffset else { return nil }
+            return (cue.id, offset.isFinite ? offset : 0)
+        }, uniquingKeysWith: { first, _ in first })
+        let horizontal = Dictionary(chart.cueTexts.filter { $0.horizontalPlacement != nil }
+            .map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        guard !offsets.isEmpty || !freeOffsets.isEmpty || !horizontal.isEmpty else { return layout }
+        var result = layout
+        let systemIndices = Dictionary(layout.systems.enumerated().map { ($0.element.id, $0.offset) },
+            uniquingKeysWith: { first, _ in first })
+        var baselineCache: [Int: LeadSheetSystemLayout] = [:]
+        var boundsCache: [Int: CGRect] = [:]
+        func baselineSystem(at index: Int) -> LeadSheetSystemLayout {
+            if let cached = baselineCache[index] { return cached }
+            var system = layout.systems[index]
+            if let defaults = system.annotationBaseLayout?.defaultCueLayouts {
+                let byID = Dictionary(defaults.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                for measureIndex in system.measures.indices {
+                    system.measures[measureIndex].cueTextLayouts = system.measures[measureIndex].cueTextLayouts.map {
+                        byID[$0.id] ?? $0
+                    }
+                }
+            }
+            baselineCache[index] = system
+            return system
+        }
+        func baselineBounds(at index: Int) -> CGRect {
+            if let cached = boundsCache[index] { return cached }
+            let bounds = baselineSystem(at: index).spacingContentBounds(for: chart)
+            boundsCache[index] = bounds
+            return bounds
+        }
+
+        for page in layout.pages {
+            let indices = page.systemIDs.compactMap { systemIndices[$0] }
+            let paperTop = page.includesHeader
+                ? max(page.frame.minY + annotationTopEdgeClearance, layout.header.handwrittenFrame.maxY + annotationTopEdgeClearance)
+                : page.frame.minY + annotationTopEdgeClearance
+            let paperBottom = page.frame.maxY - systemBottomInset
+            for (row, index) in indices.enumerated() {
+                let original = layout.systems[index]
+                guard original.measures.contains(where: { measure in
+                          measure.cueTextLayouts.contains {
+                              offsets[$0.id] != nil || freeOffsets[$0.id] != nil || horizontal[$0.id] != nil
+                          }
+                      }) else { continue }
+                let baseline = baselineSystem(at: index)
+                let bounds = baselineBounds(at: index)
+                // Split shared whitespace when both rows contain cues.
+                // Otherwise the current row can use all existing clearance.
+                var rowTop = paperTop
+                if row > 0 {
+                    let previous = indices[row - 1]
+                    let previousBottom = baselineBounds(at: previous).maxY
+                    let gap = min(interSystemAnnotationClearance, max(0, bounds.minY - previousBottom))
+                    rowTop = layout.systems[previous].measures.contains { !$0.cueTextLayouts.isEmpty }
+                        ? (previousBottom + bounds.minY + gap) / 2 : previousBottom + gap
+                }
+                var rowBottom = paperBottom
+                if row + 1 < indices.count {
+                    let next = indices[row + 1]
+                    let nextTop = baselineBounds(at: next).minY
+                    let gap = min(interSystemAnnotationClearance, max(0, nextTop - bounds.maxY))
+                    rowBottom = layout.systems[next].measures.contains { !$0.cueTextLayouts.isEmpty }
+                        ? (bounds.maxY + nextTop - gap) / 2 : nextTop - gap
+                }
+                let cues = baseline.measures.flatMap { measure in
+                    measure.cueTextLayouts.map { cue in
+                        guard let model = horizontal[cue.id] else { return cue }
+                        return horizontallyPlacedCue(cue, model: model, measure: measure,
+                            system: baseline, paperFrame: page.frame)
+                    }
+                }
+                guard !cues.isEmpty else { continue }
+                let obstacles = cueMovementObstacles(in: baseline, chart: chart)
+                for measureIndex in baseline.measures.indices {
+                    for cueIndex in baseline.measures[measureIndex].cueTextLayouts.indices {
+                        let originalCue = baseline.measures[measureIndex].cueTextLayouts[cueIndex]
+                        let cue = cues.first { $0.id == originalCue.id } ?? originalCue
+                        let manualOffset = freeOffsets[cue.id]
+                        let authoredOffset = manualOffset ?? offsets[cue.id] ?? 0
+                        var placed = cue
+                        placed.verticalOffset = CGFloat(authoredOffset)
+                        if manualOffset != nil || authoredOffset != 0 {
+                            let y = manualOffset != nil
+                                ? paperClampedCueY(for: cue.frame, offset: CGFloat(authoredOffset),
+                                    paperTop: page.frame.minY + annotationTopEdgeClearance, paperBottom: paperBottom)
+                                : constrainedCueY(for: cue.frame, offset: CGFloat(authoredOffset),
+                                    rowTop: rowTop, rowBottom: rowBottom,
+                                    paperTop: paperTop, paperBottom: paperBottom,
+                                    otherCues: cues.filter { $0.id != cue.id }.map(\.frame), obstacles: obstacles)
+                            let dy = y - cue.frame.minY
+                            placed.frame = cue.frame.offsetBy(dx: 0, dy: dy)
+                            placed.hitFrame = cue.hitFrame.offsetBy(dx: 0, dy: dy)
+                            placed.verticalOffsetFromDefault = dy
+                        } else {
+                            placed.verticalOffsetFromDefault = 0
+                        }
+                        result.systems[index].measures[measureIndex].cueTextLayouts[cueIndex] = placed
+                    }
+                }
+            }
+        }
+        return result
+    }
+
+    private static func cueMovementObstacles(in system: LeadSheetSystemLayout, chart: Chart) -> [CGRect] {
+        var frames: [CGRect] = []
+        let drawsStaff = chart.layoutStyle != .simpleChordSheet
+        for measure in system.measures {
+            frames.append(contentsOf: measure.chordLayouts.map(\.naturalFrame))
+            frames.append(contentsOf: measure.noteLayouts.map { $0.paintedBounds(for: chart) })
+            frames.append(contentsOf: measure.repeatMarkerLayouts.map(\.occupiedFrame))
+            if let meter = measure.meterChangeFrame { frames.append(meter) }
+            if drawsStaff { frames.append(measure.staffFrame) }
+        }
+        frames += [system.clefFrame, system.timeSignatureFrame, system.sectionTextFrame,
+            system.roadmapTextFrame, system.keyTextFrame].compactMap { $0 }
+        frames += system.keySignatureLayouts.map(\.frame)
+        frames += system.endingLayouts.map(\.occupiedFrame)
+        frames += system.roadmapMarkerLayouts.map(LeadSheetRoadmapMarkerLabelGeometry.labelFrame)
+        return frames
+    }
+
+    private static func paperClampedCueY(
+        for frame: CGRect, offset: CGFloat, paperTop: CGFloat, paperBottom: CGFloat
+    ) -> CGFloat {
+        let maximum = max(paperTop, paperBottom - frame.height)
+        return min(max(frame.minY + offset, paperTop), maximum)
+    }
+
+    private static func constrainedCueY(
+        for frame: CGRect, offset: CGFloat,
+        rowTop: CGFloat, rowBottom: CGFloat, paperTop: CGFloat, paperBottom: CGFloat,
+        otherCues: [CGRect], obstacles: [CGRect]
+    ) -> CGFloat {
+        let clearance: CGFloat = 3
+        var minimum = min(frame.minY, max(paperTop, rowTop))
+        var maximum = max(frame.minY, min(paperBottom, rowBottom) - frame.height)
+        // Split shared whitespace between overlapping cue columns as well as
+        // between systems. Moving one cue cannot displace an unrelated cue.
+        for other in otherCues where other.minX < frame.maxX && frame.minX < other.maxX {
+            if other.maxY <= frame.minY {
+                let preservedGap = min(clearance, frame.minY - other.maxY)
+                minimum = max(minimum, (other.maxY + frame.minY) / 2 + preservedGap / 2)
+            } else if frame.maxY <= other.minY {
+                let preservedGap = min(clearance, other.minY - frame.maxY)
+                maximum = min(maximum, (frame.maxY + other.minY) / 2 - preservedGap / 2 - frame.height)
+            }
+        }
+        for obstacle in obstacles where obstacle.minX < frame.maxX && frame.minX < obstacle.maxX {
+            if obstacle.maxY <= frame.minY {
+                let gap = min(clearance, frame.minY - obstacle.maxY)
+                minimum = max(minimum, obstacle.maxY + gap)
+            } else if frame.maxY <= obstacle.minY {
+                let gap = min(clearance, obstacle.minY - frame.maxY)
+                maximum = min(maximum, obstacle.minY - frame.height - gap)
+            } else {
+                let overlap = min(frame.maxY, obstacle.maxY) - max(frame.minY, obstacle.minY)
+                // Some automatic positions already share space with the
+                // notation. A vertical move can clear the existing overlap
+                // without jumping through the obstacle or increasing it.
+                guard overlap < min(frame.height, obstacle.height) - 0.001 else { continue }
+                if frame.midY < obstacle.midY {
+                    maximum = min(maximum, frame.minY)
+                } else {
+                    minimum = max(minimum, frame.minY)
+                }
+            }
+        }
+        guard minimum <= maximum else { return frame.minY }
+        return min(max(frame.minY + offset, minimum), maximum)
+    }
+
     /// Predecessors are defined by the saved chart's flattened measure order,
     /// not by the rows or pages that engraving later packs them into.
     struct MeterChangeContext {
@@ -909,7 +1335,7 @@ enum LeadSheetPageLayoutEngine {
             )
         )
 
-        return LeadSheetPageLayout(
+        let layout = LeadSheetPageLayout(
             pageBounds: pageBounds,
             paperFrame: firstPaperFrame,
             pages: paperPages,
@@ -921,6 +1347,7 @@ enum LeadSheetPageLayoutEngine {
             systems: systemFrames,
             engravingPreset: chart.engravingPreset
         )
+        return applyingCueOffsets(to: layout, chart: chart)
     }
 
     static func estimatedCanvasHeight(for chart: Chart, pageSize: CGSize) -> CGFloat {
@@ -1205,7 +1632,7 @@ enum LeadSheetPageLayoutEngine {
         let movedRoadmapIDs = Set(chart.roadmapObjects.filter {
             ($0.type.isPointMarker || $0.type.isEnding) && $0.resolvedVerticalOffset != 0
         }.map(\.id))
-        let hasManualAnnotations = !movedRoadmapIDs.isEmpty || chart.cueTexts.contains { $0.verticalOffset != 0 }
+        let hasManualAnnotations = !movedRoadmapIDs.isEmpty
 
         // Measure the automatic placement first so a manual adjustment can
         // reuse the row's existing reserve and the space between systems.
@@ -1223,7 +1650,8 @@ enum LeadSheetPageLayoutEngine {
                 frame: measuringFrame,
                 visualPolicy: visualPolicy,
                 meterContext: meterContext,
-                appliesManualAnnotationOffsets: false
+                appliesManualAnnotationOffsets: false,
+                cueMaximumWidth: max(1, paperFrame.width - 8)
             )
             let contentBounds: CGRect
             if chart.staffSystemDensity == .standard && !readabilityActive && !flexibleEndings
@@ -1244,7 +1672,6 @@ enum LeadSheetPageLayoutEngine {
             let automaticBounds = automatic.layout.spacingContentBounds(for: chart)
             let hasMovedAnnotation = automatic.layout.endingLayouts.contains { movedRoadmapIDs.contains($0.roadmapObjectID) }
                 || automatic.layout.roadmapMarkerLayouts.contains { movedRoadmapIDs.contains($0.roadmapObjectID) }
-                || automatic.layout.measures.contains { $0.cueTextLayouts.contains { $0.verticalOffset != 0 } }
             resolvedPlan.defaultEndingReserve = automatic.endingReserve
             let placedBounds: CGRect
             if hasMovedAnnotation {
@@ -1254,7 +1681,8 @@ enum LeadSheetPageLayoutEngine {
                     index: index,
                     frame: measuringFrame,
                     visualPolicy: visualPolicy,
-                    meterContext: meterContext
+                    meterContext: meterContext,
+                    cueMaximumWidth: max(1, paperFrame.width - 8)
                 ).layout.spacingContentBounds(for: chart)
             } else {
                 placedBounds = automaticBounds
@@ -1392,7 +1820,8 @@ enum LeadSheetPageLayoutEngine {
                 index: resolvedSystemIndex,
                 frame: systemFrame,
                 visualPolicy: visualPolicy,
-                meterContext: meterContext
+                meterContext: meterContext,
+                cueMaximumWidth: max(1, paperFrame.width - 8)
             ).layout
         }
     }
@@ -1455,7 +1884,8 @@ enum LeadSheetPageLayoutEngine {
         visualPolicy: VisualPolicy,
         meterContext: MeterChangeContext,
         appliesManualAnnotationOffsets: Bool = true,
-        endingReserveOverride: CGFloat? = nil
+        endingReserveOverride: CGFloat? = nil,
+        cueMaximumWidth: CGFloat? = nil
     ) -> (layout: LeadSheetSystemLayout, endingReserve: CGFloat?) {
         let endingReserve = endingReserveOverride ?? plan.defaultEndingReserve
         let metrics = visualPolicy.metrics
@@ -1604,7 +2034,8 @@ enum LeadSheetPageLayoutEngine {
                 staffLineYPositions: staffLineYPositions,
                 layoutStyle: chart.layoutStyle,
                 visualPolicy: visualPolicy,
-                meterChange: meterContext.change(for: measurePlan.measure)
+                meterChange: meterContext.change(for: measurePlan.measure),
+                cueMaximumWidth: cueMaximumWidth
             )
         }
         var roadmapMarkerLayouts = roadmapMarkerLayouts(
@@ -1627,6 +2058,11 @@ enum LeadSheetPageLayoutEngine {
             topOffset: endingTopOffset,
             measureLayouts: measures
         )
+        var annotationBaseLayout = LeadSheetSystemAnnotationBaseLayout(
+            endingLayouts: endingLayouts,
+            roadmapMarkerLayouts: roadmapMarkerLayouts,
+            fixedLabelFrames: [sectionTextFrame, roadmapTextFrame].compactMap { $0 }
+        )
         let annotationPlacement = resolveAnnotationPlacement(
             chart: chart,
             measures: &measures,
@@ -1635,6 +2071,7 @@ enum LeadSheetPageLayoutEngine {
             fixedLabels: [sectionTextFrame, roadmapTextFrame].compactMap { $0 },
             appliesManualOffsets: appliesManualAnnotationOffsets
         )
+        annotationBaseLayout.defaultCueLayouts = measures.flatMap(\.cueTextLayouts)
 
         let proposedReserve: CGFloat?
         if annotationPlacement.hasManualOffsets {
@@ -1671,7 +2108,8 @@ enum LeadSheetPageLayoutEngine {
                 visualPolicy: visualPolicy,
                 meterContext: meterContext,
                 appliesManualAnnotationOffsets: appliesManualAnnotationOffsets,
-                endingReserveOverride: proposedReserve
+                endingReserveOverride: proposedReserve,
+                cueMaximumWidth: cueMaximumWidth
             )
         }
 
@@ -1693,7 +2131,8 @@ enum LeadSheetPageLayoutEngine {
             roadmapMarkerLayouts: roadmapMarkerLayouts,
             endingLayouts: endingLayouts,
             measures: measures,
-            reservesAnnotationSpace: annotationPlacement.reservesSpace
+            reservesAnnotationSpace: annotationPlacement.reservesSpace,
+            annotationBaseLayout: annotationBaseLayout
         )
         return (layout, endingReserve)
     }
@@ -1770,7 +2209,7 @@ enum LeadSheetPageLayoutEngine {
                 let cue = measures[measureIndex].cueTextLayouts[cueIndex]
                 annotations.append(SystemAnnotation(target: .cue(measure: measureIndex, index: cueIndex),
                     frame: cue.frame,
-                    preferredOffset: appliesManualOffsets ? cue.verticalOffset : 0,
+                    preferredOffset: 0,
                     stacksDown: cue.position == .below))
             }
         }
@@ -1780,11 +2219,8 @@ enum LeadSheetPageLayoutEngine {
         if moved.isEmpty {
             resolvedOffsets = defaultOffsets
         } else {
-            let notationFrames = measures.flatMap { measure in
-                measure.chordLayouts.map(\.naturalFrame) + measure.noteLayouts.map { $0.paintedBounds(for: chart) }
-            }
             resolvedOffsets = placeAnnotations(annotations, fixedLabels: fixedLabels,
-                defaultOffsets: defaultOffsets, moved: moved, notationFrames: notationFrames)
+                defaultOffsets: defaultOffsets, moved: moved)
         }
 
         var reservesSpace = false
@@ -1811,7 +2247,9 @@ enum LeadSheetPageLayoutEngine {
                 var cue = measures[measure].cueTextLayouts[index]
                 cue.frame = cue.frame.offsetBy(dx: 0, dy: offset)
                 cue.hitFrame = cue.hitFrame.offsetBy(dx: 0, dy: offset)
-                cue.verticalOffsetFromDefault = offsetFromDefault
+                // Authored cue offsets are visual-only and are applied once
+                // after the page/system plan and other annotations are fixed.
+                cue.verticalOffsetFromDefault = 0
                 measures[measure].cueTextLayouts[index] = cue
             }
         }
@@ -1822,8 +2260,7 @@ enum LeadSheetPageLayoutEngine {
         _ annotations: [SystemAnnotation],
         fixedLabels: [CGRect],
         defaultOffsets: [CGFloat]? = nil,
-        moved: [Int] = [],
-        notationFrames: [CGRect] = []
+        moved: [Int] = []
     ) -> [CGFloat] {
         let movedIndexes = Set(moved)
         let order = moved + annotations.indices.filter { !movedIndexes.contains($0) }
@@ -1834,11 +2271,10 @@ enum LeadSheetPageLayoutEngine {
             let annotation = annotations[index]
             let isMoved = movedIndexes.contains(index)
             // Use the automatic placement as the starting point for a drag
-            // so a cue already displaced by a bracket doesn't jump on drop.
+            // so a marker already displaced by another item doesn't jump on drop.
             let preferredOffset = isMoved ? (defaultOffsets?[index] ?? 0) + annotation.preferredOffset : 0
             let preferredFrame = annotation.frame.offsetBy(dx: 0, dy: preferredOffset)
-            let obstacles = isMoved && annotation.isCue ? occupied + notationFrames : occupied
-            let frame = clearAnnotationFrame(preferredFrame, obstacles: obstacles, stacksDown: annotation.stacksDown)
+            let frame = clearAnnotationFrame(preferredFrame, obstacles: occupied, stacksDown: annotation.stacksDown)
             occupied.append(frame)
             offsets[index] = frame.minY - annotation.frame.minY
         }
@@ -2651,7 +3087,8 @@ enum LeadSheetPageLayoutEngine {
         staffLineYPositions: [CGFloat],
         layoutStyle: ChartLayoutStyle,
         visualPolicy: VisualPolicy,
-        meterChange: Meter?
+        meterChange: Meter?,
+        cueMaximumWidth: CGFloat?
     ) -> LeadSheetMeasureLayout {
         let isSimpleChordSheet = layoutStyle == .simpleChordSheet
         let measureContentFrame = layoutStyle == .rhythmSectionSheet ? CGRect(
@@ -2827,7 +3264,8 @@ enum LeadSheetPageLayoutEngine {
             measureFrame: frame,
             chordBandFrame: chordBandFrame,
             staffFrame: staffFrame,
-            noteLayouts: noteLayouts
+            noteLayouts: noteLayouts,
+            maximumCueWidth: cueMaximumWidth
         )
 
         return LeadSheetMeasureLayout(
@@ -2848,7 +3286,8 @@ enum LeadSheetPageLayoutEngine {
             meterChange: meterChange,
             meterChangeFrame: meterChangeFrame,
             trailingBarlineFrame: trailingBarlineFrame,
-            isOpen: measure.authoringState == .open
+            isOpen: measure.authoringState == .open,
+            preservesOpenMeasureBoundary: measure.isExplicitlyAddedOpenMeasure || measure.manualLayoutWidth != nil
         )
     }
 
@@ -3159,16 +3598,25 @@ enum LeadSheetPageLayoutEngine {
             placement.chordEvent.manualVisualLaneFraction.map { (placement.chordEvent.id, $0) }
         })
         guard !visualFractions.isEmpty else { return chordLayouts }
+        let movementFrame = LeadSheetChordPlacementGuidePolicy.visualMovementFrame(
+            referenceFrame: chordBandFrame,
+            leadingRepeatMarkerMaxX: repeatMarkerLayouts.filter { $0.edge == .leading }.map(\.occupiedFrame.maxX).max(),
+            meterChangeFrame: meterChangeFrame
+        )
         let guideFrame = LeadSheetChordPlacementGuidePolicy.guideFrame(
             referenceFrame: chordBandFrame,
             leadingRepeatMarkerMaxX: repeatMarkerLayouts.filter { $0.edge == .leading }.map(\.occupiedFrame.maxX).max(),
             meterChangeFrame: meterChangeFrame
         )
+        let leadingInsetIDs = Set(placements.filter {
+            $0.chordEvent.manualVisualAllowsLeadingInset == true
+        }.map { $0.chordEvent.id })
         return chordLayouts.map { chordLayout in
             guard let visualFraction = visualFractions[chordLayout.id] else { return chordLayout }
             var placed = chordLayout
             let requestedX = chordBandFrame.minX + chordBandFrame.width * CGFloat(ChordEvent.clampedManualLaneFraction(visualFraction))
-            let leftX = min(max(guideFrame.minX, requestedX), chordBandFrame.maxX - 1)
+            let minimumX = leadingInsetIDs.contains(chordLayout.id) ? movementFrame.minX : guideFrame.minX
+            let leftX = min(max(minimumX, requestedX), chordBandFrame.maxX - 1)
             placed.frame.origin.x = leftX
             placed.fitFrame.origin.x = leftX
             placed.usesManualVisualPlacement = true
@@ -3967,7 +4415,8 @@ enum LeadSheetPageLayoutEngine {
         measureFrame: CGRect,
         chordBandFrame: CGRect,
         staffFrame: CGRect,
-        noteLayouts: [LeadSheetNoteLayout]
+        noteLayouts: [LeadSheetNoteLayout],
+        maximumCueWidth: CGFloat? = nil
     ) -> [LeadSheetCueTextLayout] {
         let anchoredCues = chart.cueTexts.filter { $0.anchorMeasureID == measure.id }
         guard !anchoredCues.isEmpty else { return [] }
@@ -3977,10 +4426,13 @@ enum LeadSheetPageLayoutEngine {
             : staffFrame.maxY
         let measuredCues = anchoredCues
             .map { cueText in
-                (cueText, cueTextMetrics(for: cueText, chart: chart, maximumWidth: max(1, staffFrame.width - 12)))
+                let defaultWidth = max(1, staffFrame.width - 12)
+                let requestedWidth = cueText.horizontalPlacement?.wrapWidth.map { CGFloat($0) } ?? defaultWidth
+                let width = min(max(1, requestedWidth), maximumCueWidth ?? requestedWidth)
+                return (cueText, cueTextMetrics(for: cueText, chart: chart, maximumWidth: width), width)
             }
         let usesWrappedAboveLane = measuredCues.contains { $0.0.position == .above && $0.1.lineCount > 1 }
-        return measuredCues.map { cueText, metrics in
+        return measuredCues.map { cueText, metrics, maximumWidth in
                 let frame = cueTextFrame(
                     for: cueText,
                     textSize: metrics.size,
@@ -3989,7 +4441,8 @@ enum LeadSheetPageLayoutEngine {
                     measureFrame: measureFrame,
                     chordBandFrame: chordBandFrame,
                     staffFrame: staffFrame,
-                    notationBottom: notationBottom
+                    notationBottom: notationBottom,
+                    maximumWidth: maximumWidth
                 )
                 precedingTextHeight += metrics.size.height + 3
                 let beatFraction = cueText.beatFraction.map { CGFloat($0) }
@@ -4016,15 +4469,16 @@ enum LeadSheetPageLayoutEngine {
         measureFrame: CGRect,
         chordBandFrame: CGRect,
         staffFrame: CGRect,
-        notationBottom: CGFloat
+        notationBottom: CGFloat,
+        maximumWidth: CGFloat
     ) -> CGRect {
         let lineHeight = textSize.height
         let offset = precedingTextHeight
-        let maximumWidth = max(1, staffFrame.width - 12)
         let width = min(maximumWidth, textSize.width)
-        let leadingWidth = min(width, max(1, staffFrame.width - 8))
+        let leadingWidth = cueText.horizontalPlacement == nil
+            ? min(width, max(1, staffFrame.width - 8)) : width
         let defaultTextX = staffFrame.minX + 6
-        let beatAnchoredTextX = cueText.beatFraction.map { fraction in
+        let beatAnchoredTextX = (cueText.horizontalPlacement == nil ? cueText.beatFraction : nil).map { fraction in
             clampedCueTextX(
                 staffFrame.minX + CGFloat(fraction) * staffFrame.width,
                 width: width,
@@ -4107,9 +4561,9 @@ enum LeadSheetPageLayoutEngine {
         let paragraphWidths = cueText.text.split(separator: "\n", omittingEmptySubsequences: false).map { paragraph in
             paragraph.reduce(CGFloat(0)) { $0 + estimatedCueTextCharacterWidth($1, fontSize: fontSize) }
         }
-        let width = min(max(1, maximumWidth), max(28, (paragraphWidths.max() ?? 0) + 12))
+        let width = min(max(1, maximumWidth), max(1, ceil(paragraphWidths.max() ?? 0) + 1))
         let lineCount = max(1, paragraphWidths.reduce(0) { $0 + max(1, Int(ceil($1 / width))) })
-        return (CGSize(width: width, height: max(16, fontSize * 1.34) * CGFloat(lineCount)), lineCount)
+        return (CGSize(width: width, height: ceil(fontSize * 1.2 * CGFloat(lineCount)) + 1), lineCount)
         #endif
     }
 

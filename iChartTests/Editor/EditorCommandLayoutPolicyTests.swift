@@ -5,7 +5,7 @@ import XCTest
 final class EditorCommandLayoutPolicyTests: XCTestCase {
     func testSelectedChordWidthControlIsContextualAndUsesTheSafeResetPolicy() throws {
         XCTAssertEqual(EditorChordWidthAdjustmentPolicy.selectionInstruction,
-                       "Drag to move · Right handle adjusts width.")
+                       "Drag to move · Side handles resize.")
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let editor = try String(contentsOf: projectRoot.appendingPathComponent("iChart/Features/Editor/EditorView.swift"))
@@ -15,7 +15,7 @@ final class EditorCommandLayoutPolicyTests: XCTestCase {
         XCTAssertTrue(editor.contains("Text(EditorChordWidthAdjustmentPolicy.selectionInstruction)"))
         XCTAssertTrue(editor.contains("EditorChordWidthAdjustmentPolicy.resetWidth("))
         XCTAssertTrue(editor.contains("for: selectedChordID, in: &chart, pageSize: latestEditorContentSize"))
-        XCTAssertEqual(EditorCommandLayoutPolicy.primaryDestinations, [.select, .chords, .ink, .measures])
+        XCTAssertEqual(EditorCommandLayoutPolicy.primaryDestinations, [.select, .chords, .ink, .measures, .repeats])
         XCTAssertEqual(EditorCommandLayoutPolicy.primaryControlCount, 5,
                        "Selected-object polish must not add a permanent toolbar destination")
     }
@@ -98,8 +98,8 @@ final class EditorCommandLayoutPolicyTests: XCTestCase {
         XCTAssertNil(IChartEditorGuidedTourStep.setup.forwardActionTitle)
         XCTAssertEqual(IChartEditorGuidedTourStep.writeChords.targetText, "Write & Render • write C, F, G, C")
         XCTAssertEqual(IChartEditorGuidedTourStep.renderChords.targetText, "Check notation • review remaining ink")
-        XCTAssertEqual(IChartEditorGuidedTourStep.shapeForm.targetText, "Measures • Add / Layout / Delete")
-        XCTAssertEqual(IChartEditorGuidedTourStep.addCue.targetText, "Tools > Text")
+        XCTAssertEqual(IChartEditorGuidedTourStep.shapeForm.targetText, "Measures • Add One After / Row Actions")
+        XCTAssertEqual(IChartEditorGuidedTourStep.addCue.targetText, "Add Text")
         XCTAssertEqual(IChartEditorGuidedTourStep.export.forwardActionTitle, "Skip Export")
         XCTAssertEqual(IChartEditorGuidedTourStep.finish.forwardActionTitle, "Done")
     }
@@ -131,7 +131,7 @@ final class EditorCommandLayoutPolicyTests: XCTestCase {
     func testPrimaryBarKeepsFrequentCommandsVisibleWithoutCrowding() {
         XCTAssertEqual(
             EditorCommandLayoutPolicy.primaryDestinations,
-            [.select, .chords, .ink, .measures]
+            [.select, .chords, .ink, .measures, .repeats]
         )
         XCTAssertEqual(EditorCommandLayoutPolicy.primaryControlCount, 5)
         XCTAssertLessThanOrEqual(
@@ -154,25 +154,25 @@ final class EditorCommandLayoutPolicyTests: XCTestCase {
         XCTAssertEqual(placements[.chords], .primaryBar)
         XCTAssertEqual(placements[.ink], .primaryBar)
         XCTAssertEqual(placements[.measures], .primaryBar)
-        XCTAssertEqual(placements[.repeats], .toolsMenu)
-        XCTAssertEqual(placements[.timeSignature], .toolsMenu)
-        XCTAssertEqual(placements[.rhythm], .toolsMenu)
-        XCTAssertEqual(placements[.text], .toolsMenu)
-        XCTAssertEqual(placements[.formMarkers], .toolsMenu)
+        XCTAssertEqual(placements[.repeats], .primaryBar)
+        XCTAssertEqual(placements[.timeSignature], .sidebar)
+        XCTAssertEqual(placements[.rhythm], .sidebar)
+        XCTAssertEqual(placements[.text], .sidebar)
+        XCTAssertEqual(placements[.formMarkers], .sidebar)
     }
 
-    func testToolsMenuOnlyAddsRhythmWhenThatSystemShipsIt() {
+    func testSidebarOnlyAddsRhythmWhenThatSystemShipsIt() {
         XCTAssertEqual(
-            EditorCommandLayoutPolicy.toolsDestinations(includesDedicatedRhythmTool: false),
-            [.repeats, .timeSignature, .text, .formMarkers]
+            EditorCommandLayoutPolicy.sidebarDestinations(includesDedicatedRhythmTool: false),
+            [.text, .formMarkers, .timeSignature]
         )
         XCTAssertEqual(
-            EditorCommandLayoutPolicy.toolsDestinations(includesDedicatedRhythmTool: true),
-            [.repeats, .timeSignature, .rhythm, .text, .formMarkers]
+            EditorCommandLayoutPolicy.sidebarDestinations(includesDedicatedRhythmTool: true),
+            [.text, .formMarkers, .timeSignature, .rhythm]
         )
     }
 
-    func testFormMarkerMenuPreservesEveryShippedMarker() {
+    func testFormMarkerToolPreservesEveryShippedMarker() {
         XCTAssertEqual(
             RoadmapType.navigationPointMarkerTypes,
             [
@@ -189,19 +189,22 @@ final class EditorCommandLayoutPolicyTests: XCTestCase {
         )
     }
 
-    func testPrimaryModeSelectionAndToolsActivityAreUnambiguous() {
+    func testToolbarAndSidebarToolSelectionAreUnambiguous() {
         XCTAssertEqual(EditorCommandLayoutPolicy.primaryDestination(for: .browse), .select)
         XCTAssertEqual(EditorCommandLayoutPolicy.primaryDestination(for: .noteEdit), .select)
         XCTAssertEqual(EditorCommandLayoutPolicy.primaryDestination(for: .measureEdit), .measures)
         XCTAssertEqual(EditorCommandLayoutPolicy.primaryDestination(for: .chordEntry), .chords)
         XCTAssertEqual(EditorCommandLayoutPolicy.primaryDestination(for: .freeHand), .ink)
+        XCTAssertEqual(EditorCommandLayoutPolicy.primaryDestination(for: .repeatEdit), .repeats)
+        XCTAssertNil(EditorCommandLayoutPolicy.primaryDestination(for: .formMarkerEdit))
 
-        XCTAssertTrue(EditorCommandLayoutPolicy.isToolsMenuActive(for: .repeatEdit))
-        XCTAssertTrue(EditorCommandLayoutPolicy.isToolsMenuActive(for: .timeSignatureEdit))
-        XCTAssertTrue(EditorCommandLayoutPolicy.isToolsMenuActive(for: .rhythmicNotationEdit))
-        XCTAssertTrue(EditorCommandLayoutPolicy.isToolsMenuActive(for: .textEdit))
-        XCTAssertFalse(EditorCommandLayoutPolicy.isToolsMenuActive(for: .browse))
-        XCTAssertFalse(EditorCommandLayoutPolicy.isToolsMenuActive(for: .chordEntry))
+        XCTAssertEqual(EditorCommandLayoutPolicy.sidebarDestination(for: .timeSignatureEdit), .timeSignature)
+        XCTAssertEqual(EditorCommandLayoutPolicy.sidebarDestination(for: .rhythmicNotationEdit), .rhythm)
+        XCTAssertEqual(EditorCommandLayoutPolicy.sidebarDestination(for: .textEdit), .text)
+        XCTAssertEqual(EditorCommandLayoutPolicy.sidebarDestination(for: .formMarkerEdit), .formMarkers)
+        XCTAssertNil(EditorCommandLayoutPolicy.sidebarDestination(for: .repeatEdit))
+        XCTAssertNil(EditorCommandLayoutPolicy.sidebarDestination(for: .browse))
+        XCTAssertNil(EditorCommandLayoutPolicy.sidebarDestination(for: .chordEntry))
     }
 
     func testReadyChartAllowsOneTapSwitchingFromEveryMode() {
@@ -267,7 +270,8 @@ private extension EditorCanvasMode {
         .chordEntry,
         .noteEdit,
         .freeHand,
-        .textEdit
+        .textEdit,
+        .formMarkerEdit
     ]
 }
 #endif

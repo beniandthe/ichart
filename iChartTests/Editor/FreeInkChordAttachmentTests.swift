@@ -73,6 +73,113 @@ final class FreeInkChordAttachmentTests: XCTestCase {
         }
     }
 
+    func testSimpleInkJustBelowChordFollowsAcrossMeasuresAfterReopen() throws {
+        var chart = Chart.blank(title: "Simple chord ink attachment", measureCount: 4,
+            layoutStyle: .simpleChordSheet)
+        let measureIDs = chart.measures.map(\.id)
+        let movedChord = try XCTUnwrap(chart.appendRecognizedChordEvent(
+            ChordSymbolParser.parse("Cmaj7"), rawInput: "Cmaj7", to: measureIDs[0], atFraction: 0
+        ))
+        let stationaryChord = try XCTUnwrap(chart.appendRecognizedChordEvent(
+            ChordSymbolParser.parse("D7"), rawInput: "D7", to: measureIDs[1], atFraction: 0
+        ))
+        let source = try coordinateSpace(for: chart)
+        let chord = try chordFrame(movedChord, in: source)
+        let neighbor = try chordFrame(stationaryChord, in: source)
+        let junction = CGPoint(x: chord.midX + 2, y: chord.maxY + 6)
+        let mark: [PKStroke] = [
+            stroke([CGPoint(x: chord.midX - 5, y: chord.maxY - 8), junction], seed: 41),
+            stroke([junction, CGPoint(x: chord.midX + 5, y: chord.maxY + 17)], seed: 42)
+        ]
+        let markBounds = mark[0].renderBounds.union(mark[1].renderBounds)
+        XCTAssertLessThan(markBounds.minY, chord.maxY - 6)
+        XCTAssertGreaterThan(markBounds.midY, chord.maxY)
+
+        // The similarly aligned mark in the middle of the chord band, the
+        // neighbor's handwriting, and the page note stay where they were.
+        let original = PKDrawing(strokes: mark + [
+            stroke([CGPoint(x: chord.midX - 3, y: chord.midY - 2),
+                CGPoint(x: chord.midX + 4, y: chord.midY + 2)], seed: 43),
+            stroke([CGPoint(x: neighbor.midX, y: neighbor.maxY + 8),
+                CGPoint(x: neighbor.midX + 5, y: neighbor.maxY + 13)], seed: 44),
+            stroke([CGPoint(x: chord.midX, y: 900), CGPoint(x: chord.midX + 11, y: 906)], seed: 45)
+        ])
+        let originalBytes = original.dataRepresentation()
+        chart.pageHandwrittenNotationData = originalBytes
+        chart.pageHandwrittenNotationCoordinateSpace = source
+
+        XCTAssertTrue(chart.moveChordEventInCommittedChordLane(movedChord, to: measureIDs[2],
+            atFraction: 0.25, visualFraction: 0.25, preserveMusicalPlacement: true))
+        let reopened = try JSONDecoder().decode(Chart.self, from: JSONEncoder().encode(chart))
+        XCTAssertEqual(reopened.pageHandwrittenNotationData, originalBytes)
+        XCTAssertEqual(reopened.pageHandwrittenNotationCoordinateSpace, source)
+
+        let destination = try coordinateSpace(for: reopened)
+        let moved = try chordFrame(movedChord, in: destination)
+        XCTAssertGreaterThan(abs(moved.minX - chord.minX), 10)
+        XCTAssertEqual(try chordFrame(stationaryChord, in: destination), neighbor)
+        let projected = try XCTUnwrap(LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
+            from: reopened.pageHandwrittenNotationData,
+            sourceCoordinateSpace: reopened.pageHandwrittenNotationCoordinateSpace,
+            targetCoordinateSpace: destination))
+        assertProjection(projected, of: original, from: chord, to: moved)
+    }
+
+    func testRhythmInkBelowChordAndAboveStaffFollowsAcrossMeasuresAfterReopen() throws {
+        var chart = Chart.blank(title: "Rhythm chord ink attachment", measureCount: 4,
+            layoutStyle: .rhythmSectionSheet)
+        let measureIDs = chart.measures.map(\.id)
+        let movedChord = try XCTUnwrap(chart.appendRecognizedChordEvent(
+            ChordSymbolParser.parse("C7"), rawInput: "C7", to: measureIDs[0], atFraction: 0
+        ))
+        let stationaryChord = try XCTUnwrap(chart.appendRecognizedChordEvent(
+            ChordSymbolParser.parse("D7"), rawInput: "D7", to: measureIDs[1], atFraction: 0
+        ))
+        let source = try coordinateSpace(for: chart)
+        let chord = try chordFrame(movedChord, in: source)
+        let neighbor = try chordFrame(stationaryChord, in: source)
+        let staff = try XCTUnwrap(source.measureAnchors?.first { $0.measureID == measureIDs[0] }?.staffFrame).rect
+        let bottom = min(chord.maxY + 13, staff.minY - 3)
+        let overlap = min(9, chord.height / 3, bottom - chord.maxY - 3)
+        let junction = CGPoint(x: chord.midX + 2, y: chord.maxY + 4)
+        let mark = [
+            stroke([CGPoint(x: chord.midX - 5, y: chord.maxY - overlap), junction], seed: 61),
+            stroke([junction, CGPoint(x: chord.midX + 5, y: bottom)], seed: 62)
+        ]
+        let markBounds = mark[0].renderBounds.union(mark[1].renderBounds)
+        XCTAssertLessThan(markBounds.minY, chord.maxY - 5)
+        XCTAssertGreaterThan(markBounds.midY, chord.maxY)
+        XCTAssertLessThan(markBounds.maxY, staff.minY)
+
+        let original = PKDrawing(strokes: mark + [
+            stroke([CGPoint(x: chord.midX - 3, y: chord.minY + 1),
+                CGPoint(x: chord.midX + 4, y: chord.minY + 2)], seed: 63),
+            stroke([CGPoint(x: chord.maxX + 14, y: chord.maxY - overlap),
+                CGPoint(x: chord.maxX + 20, y: bottom)], seed: 64),
+            stroke([CGPoint(x: neighbor.midX, y: neighbor.maxY + 6),
+                CGPoint(x: neighbor.midX + 5, y: neighbor.maxY + 10)], seed: 65)
+        ])
+        let originalBytes = original.dataRepresentation()
+        chart.pageHandwrittenNotationData = originalBytes
+        chart.pageHandwrittenNotationCoordinateSpace = source
+
+        XCTAssertTrue(chart.moveChordEventInCommittedChordLane(movedChord, to: measureIDs[2],
+            atFraction: 0.25, visualFraction: 0.25, preserveMusicalPlacement: true))
+        let reopened = try JSONDecoder().decode(Chart.self, from: JSONEncoder().encode(chart))
+        XCTAssertEqual(reopened.pageHandwrittenNotationData, originalBytes)
+        XCTAssertEqual(reopened.pageHandwrittenNotationCoordinateSpace, source)
+
+        let destination = try coordinateSpace(for: reopened)
+        let moved = try chordFrame(movedChord, in: destination)
+        XCTAssertGreaterThan(abs(moved.minX - chord.minX), 10)
+        XCTAssertEqual(try chordFrame(stationaryChord, in: destination), neighbor)
+        let projected = try XCTUnwrap(LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
+            from: reopened.pageHandwrittenNotationData,
+            sourceCoordinateSpace: reopened.pageHandwrittenNotationCoordinateSpace,
+            targetCoordinateSpace: destination))
+        assertProjection(projected, of: original, from: chord, to: moved)
+    }
+
     func testTightRowsUseTheNearestChordAboveInkAndRejectInkOverTheNextChord() throws {
         let upperMeasure = UUID()
         let lowerMeasure = UUID()

@@ -31,16 +31,6 @@ enum LeadSheetAnnotationPositionEditOverlay {
         var reserved: [CGRect] = []
         let annotations: [(LeadSheetSystemLayout, CGRect, CGFloat)]
         switch context.selection.selectedObjectID {
-        case .cueText(let id):
-            annotations = pageLayout.systems.flatMap { system in
-                system.measures.flatMap(\.cueTextLayouts).filter { $0.id == id }.map { cue in
-                    let controls = LeadSheetCueTextEditOverlayGeometry.controlFrames(for: cue)
-                    let outset = LeadSheetCueTextEditOverlayGeometry.controlHitOutset
-                    reserved += [controls.edit, controls.shrink, controls.grow, controls.delete]
-                        .map { $0.insetBy(dx: -outset, dy: -outset) }
-                    return (system, cue.frame, cue.verticalOffsetFromDefault)
-                }
-            }
         case .roadmapMarker(let id):
             annotations = pageLayout.systems.flatMap { system in
                 system.roadmapMarkerLayouts.filter { $0.id == id }.map { marker in
@@ -115,6 +105,32 @@ final class LeadSheetAnnotationPositionHandleView: UILabel {
 
     override func accessibilityIncrement() { adjustment?(-8) }
     override func accessibilityDecrement() { adjustment?(8) }
+}
+
+/// The cue itself exposes movement to VoiceOver without adding artwork or
+/// intercepting Pencil/finger input above the canvas.
+final class LeadSheetCueTextAccessibilityView: UIView {
+    var adjustment: ((CGFloat, CGFloat) -> Bool)?
+    var activation: (() -> Bool)?
+
+    init() {
+        super.init(frame: .zero)
+        isOpaque = false
+        backgroundColor = .clear
+        isUserInteractionEnabled = false
+        isAccessibilityElement = true
+        accessibilityTraits = .adjustable
+        accessibilityHint = "Press and hold this text, then drag to move it. Swipe up or down to change its height. Use Move Left or Move Right for horizontal placement."
+        accessibilityCustomActions = [
+            UIAccessibilityCustomAction(name: "Move Left") { [weak self] _ in self?.adjustment?(-8, 0) ?? false },
+            UIAccessibilityCustomAction(name: "Move Right") { [weak self] _ in self?.adjustment?(8, 0) ?? false }
+        ]
+    }
+
+    required init?(coder: NSCoder) { return nil }
+    override func accessibilityActivate() -> Bool { activation?() ?? false }
+    override func accessibilityIncrement() { _ = adjustment?(0, -8) }
+    override func accessibilityDecrement() { _ = adjustment?(0, 8) }
 }
 
 /// Tracks a frozen source layout and chart value for one vertical gesture.

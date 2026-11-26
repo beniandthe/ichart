@@ -11,16 +11,20 @@ final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
                 snapGuideTarget: CGPoint(x: 840, y: 230))
             let controls = LeadSheetChordEditOverlayGeometry.controlFrames(for: chord, within: canvas)
             let body = LeadSheetChordEditOverlayGeometry.bodySelectionFrame(for: chord)
-            let hitFrames = [controls.delete, controls.trailingResize].map {
-                $0.insetBy(dx: -LeadSheetChordEditOverlayGeometry.controlHitOutset,
-                    dy: -LeadSheetChordEditOverlayGeometry.controlHitOutset)
-            }
+            let hitFrames = [
+                controls.delete.insetBy(dx: -LeadSheetChordEditOverlayGeometry.controlHitOutset,
+                    dy: -LeadSheetChordEditOverlayGeometry.controlHitOutset),
+                LeadSheetChordEditOverlayGeometry.resizeHitFrame(for: controls.leadingResize, edge: .leading),
+                LeadSheetChordEditOverlayGeometry.resizeHitFrame(for: controls.trailingResize, edge: .trailing)
+            ]
             for hit in hitFrames {
                 XCTAssertTrue(canvas.contains(hit))
                 XCTAssertEqual(hit.size, CGSize(width: 42, height: 42))
                 XCTAssertFalse(hit.intersects(body))
             }
             XCTAssertFalse(hitFrames[0].intersects(hitFrames[1]))
+            XCTAssertFalse(hitFrames[0].intersects(hitFrames[2]))
+            XCTAssertFalse(hitFrames[1].intersects(hitFrames[2]))
         }
     }
 
@@ -30,7 +34,7 @@ final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
             snapGuideTarget: CGPoint(x: 120, y: 132)
         )
         let box = LeadSheetChordEditOverlayGeometry.editFrame(for: chordLayout)
-        XCTAssertEqual(box.width, 15, accuracy: 0.001)
+        XCTAssertEqual(box.width, 7, accuracy: 0.001)
         XCTAssertEqual(box.height, 8, accuracy: 0.001)
         XCTAssertEqual(box.midY, chordLayout.frame.midY, accuracy: 0.001)
         let controls = LeadSheetChordEditOverlayGeometry.controlFrames(for: chordLayout)
@@ -58,9 +62,13 @@ final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
                 snapGuideTarget: CGPoint(x: 120 + width / 2, y: 132))
             let body = LeadSheetChordEditOverlayGeometry.bodySelectionFrame(for: chord)
             let controls = LeadSheetChordEditOverlayGeometry.controlFrames(for: chord)
-            for frame in [controls.delete, controls.trailingResize] {
-                let hit = frame.insetBy(dx: -LeadSheetChordEditOverlayGeometry.controlHitOutset,
-                    dy: -LeadSheetChordEditOverlayGeometry.controlHitOutset)
+            let hitFrames = [
+                controls.delete.insetBy(dx: -LeadSheetChordEditOverlayGeometry.controlHitOutset,
+                    dy: -LeadSheetChordEditOverlayGeometry.controlHitOutset),
+                LeadSheetChordEditOverlayGeometry.resizeHitFrame(for: controls.leadingResize, edge: .leading),
+                LeadSheetChordEditOverlayGeometry.resizeHitFrame(for: controls.trailingResize, edge: .trailing)
+            ]
+            for hit in hitFrames {
                 XCTAssertEqual(hit.size, CGSize(width: 42, height: 42))
                 XCTAssertFalse(hit.intersects(body), "A narrow chord needs a complete movement body")
             }
@@ -115,7 +123,7 @@ final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
         assertAction(moveTarget?.action, is: .move)
     }
 
-    func testLeadingChordResizeHandleIsDeprecated() {
+    func testLeadingChordResizeHandleRequiresSelectionAndUsesItsOwnTarget() {
         let measureID = UUID()
         let chordID = UUID()
         let chordLayout = LeadSheetChordLayout(
@@ -125,17 +133,22 @@ final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
             snapGuideTarget: CGPoint(x: 198, y: 132)
         )
         let pageLayout = pageLayout(measureID: measureID, chordLayout: chordLayout)
-        let controls = LeadSheetChordEditOverlayGeometry.controlFrames(for: chordLayout)
+        let controls = LeadSheetChordEditOverlayGeometry.controlFrames(for: chordLayout, in: pageLayout)
         let location = CGPoint(x: controls.leadingResize.midX, y: controls.leadingResize.midY)
 
         XCTAssertNil(
             LeadSheetChordEditOverlayGeometry.resizeHitTarget(
                 at: location,
                 in: pageLayout,
-                selectedChordID: chordID
+                selectedChordID: nil
             )
         )
-        XCTAssertNotEqual(
+        XCTAssertEqual(
+            LeadSheetChordEditOverlayGeometry.resizeHitTarget(
+                at: location, in: pageLayout, selectedChordID: chordID)?.action,
+            .resizeLeading
+        )
+        XCTAssertEqual(
             LeadSheetChordEditOverlayGeometry.hitTarget(at: location, in: pageLayout)?.action,
             .resizeLeading
         )
@@ -322,8 +335,8 @@ final class LeadSheetChordEditOverlayGeometryTests: XCTestCase {
         let editFrame = LeadSheetChordEditOverlayGeometry.editFrame(for: chordLayout)
 
         XCTAssertLessThan(editFrame.width, chordLayout.fitFrame.width * 0.6)
-        XCTAssertEqual(editFrame.minX, chordLayout.frame.minX - 6, accuracy: 0.001)
-        XCTAssertEqual(editFrame.maxX, chordLayout.frame.maxX + 6, accuracy: 0.001)
+        XCTAssertEqual(editFrame.minX, chordLayout.frame.minX - 2, accuracy: 0.001)
+        XCTAssertEqual(editFrame.maxX, chordLayout.frame.maxX + 2, accuracy: 0.001)
     }
 
     func testEditFrameWrapsVisibleChordHeightNotTallRhythmLane() {

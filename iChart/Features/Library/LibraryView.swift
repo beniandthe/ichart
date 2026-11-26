@@ -269,7 +269,7 @@ private enum IChartHelpTopic: String, CaseIterable, Identifiable {
         case .tutorial:
             "One short path to a first Simple Chord Sheet, plus an optional guide on the chart."
         case .howTo:
-            "Simple help for Select, Write & Render, Free Ink, Measures, Tools, and Export PDF."
+            "Simple help for Select, Write & Render, Free Ink, Measures, Repeats, Quick Actions, and Export PDF."
         case .faq:
             "Answers about Forums and why iChart uses accounts."
         case .userPolicy:
@@ -301,12 +301,12 @@ private struct IChartQuickStartStep: Identifiable {
         IChartQuickStartStep(
             id: "form",
             title: "Shape The Form",
-            detail: "Tap Measures, select a measure, then use Add, Layout, or Delete. Layout also moves measures between rows and evens their widths."
+            detail: "Tap Measures. Select a measure, then choose Add One After or a row action."
         ),
         IChartQuickStartStep(
             id: "cue",
             title: "Add A Cue And Review",
-            detail: "Open Tools > Text, select a measure, then choose Above or Below. Choose Keyboard to type, or choose Scribble and tap the field with Apple Pencil before writing. Tap Add, then tap Done for Select. Use Pencil to select items on the chart."
+            detail: "Tap Add Text in Quick Actions, tap where the cue should start, then choose Above or Below. Check the position in the Text panel. Choose Keyboard to type, or choose Scribble and tap the field with Apple Pencil before writing. Tap Add, then tap Done for Select."
         ),
         IChartQuickStartStep(
             id: "export",
@@ -381,10 +381,10 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "Use Select when you want to check the page or change something already on it.",
             bullets: [
                 "Tap Done to leave the current tool and return to Select.",
-                "You can switch directly between Write & Render, Free Ink, Measures, and Tools without returning to Select first.",
+                "You can switch directly between Write & Render, Free Ink, Measures, and Repeats, or choose a tool in Quick Actions.",
                 "Tap a chord, barline, text label, marker, or measure with Apple Pencil to show its buttons. Use a finger to scroll.",
                 "In Select, drag a chord with Apple Pencil, then lift to place it. You can start on the chord without selecting it first.",
-                "Tap a chord to show its controls. Tap the red X to delete it, or drag the width handle to change its width.",
+                "Tap a chord to show its controls. Drag a side handle to resize the chord or tap the red X to delete it.",
                 "In either chart style, tap an eligible divider, then its red X or Delete to merge the two measures. Rhythm divider deletion is limited to chord-only measures; notes, attached marks or a merge that could move staff handwriting keep the boundary protected.",
                 "On a Simple Chord Sheet or Rhythm Section Sheet, tap a converted mark to select it. Drag to move it or tap the red X to delete it.",
                 "While you drag, a line points to a nearby chord. On a Rhythm Section Sheet, it can also point to a rhythm note or staff ink. Release to attach when the line is visible.",
@@ -401,7 +401,7 @@ private struct IChartHelpArticleSection: Identifiable {
             bullets: [
                 "Use Apple Pencil to write in the highlighted lane above the staff. Keep suffixes close to their roots and leave space between chords.",
                 "Write chord-repeat symbols (%) in the lane alongside chords. Keep separate symbols apart and follow review prompts when offered.",
-                "Add measure repeats and repeat ranges with Tools > Repeats by selecting measures.",
+                "Add measure repeats and repeat ranges with Repeats by selecting measures.",
                 "On a Rhythm Section Sheet, the first chord in each measure renders on beat 1 wherever you write it in that measure.",
                 "In Automatic, keep each chord together and leave clear gaps before the next. Complete chords render between strokes as you move on; pause to finish the last chord. Barlines and ending brackets wait briefly for their own writing to settle while ready chords can render elsewhere.",
                 "If a triangle is unclear, the ink stays on the chart. Tap Review Chord in Automatic, or Review & Render in Manual, to enter the intended chord.",
@@ -422,10 +422,12 @@ private struct IChartHelpArticleSection: Identifiable {
             id: "editor-repeat-tools",
             title: "Chord and Measure Repeats",
             systemImageName: "repeat",
-            body: "Write chord-repeat symbols (%) in Write & Render. Use Tools > Repeats for measure repeats and repeat ranges.",
+            body: "Write chord-repeat symbols (%) in Write & Render. Use Repeats for measure repeats and repeat ranges.",
             bullets: [
-                "Select the first measure, then choose Repeat Measures > Start Repeat. Select the last measure and tap End Repeat.",
-                "Open Repeat Measures and choose Repeat This Measure for one measure, or Start Repeat for a range. Use Manage to remove repeats or edit and remove endings.",
+                "Select the first measure and tap Start Repeat in Quick Actions or Repeats. Tap the last measure and check the highlight. Tap End Repeat where you started. If Quick Actions is hidden, finish with End Repeat in Repeats. Tap Cancel in Repeats to discard the range.",
+                "Select a measure and choose Repeat This Measure to repeat it.",
+                "Select the first or last measure of a repeat, then tap Remove Repeat. If repeats share the measure, choose the range to remove.",
+                "Select a measure covered by an ending. Tap Edit Ending… to change it, or tap Remove Ending and confirm. If endings overlap, choose the ending by label and range.",
                 "Write & Render does not convert drawn bar-and-dot repeat barlines. Use Free Ink to keep those signs as handwriting."
             ]
         ),
@@ -469,29 +471,39 @@ private struct IChartHelpArticleSection: Identifiable {
             body: "In Select, use Apple Pencil to edit items on the chart. Use a finger to scroll.",
             bullets: [
                 "Double-tap a chord in Select to correct it. Tap once to show its controls.",
-                "Drag a chord body to move it, then lift to place it. The width handle changes width; the red X deletes.",
+                "Drag a chord body to move it, then lift to place it. Snap to beat 1 at the first guide, or keep dragging toward the left barline for tighter spacing. Cross the barline to move into the previous measure in the row.",
+                "Drag a side handle to resize the selected chord. Tap the red X to delete it.",
                 "If a selected chord has a custom width, Reset Width returns it to 100% width without changing its placement.",
                 "Tap text or roadmap markers in Select to move, resize, edit, or delete them.",
-                "Cues, endings, and form marks make room for one another. In Select, tap an item and drag Move Up or Down to adjust its height. Reset Position restores automatic spacing.",
+                "Tap a text cue with Apple Pencil, then tap Edit to change its wording. Press and hold the cue, then drag it in any direction. The blue line stays at the center of its measure until you cross a barline and disappears in the row margin. Staff spacing stays fixed.",
+                "While typing a cue, press Return for a new line in the same cue.",
+                "For endings and form marks in Select, drag Move Up or Down. Reset Position restores automatic height.",
                 "For an ending, use Move to shift its measure range or Lengthen to change the last measure.",
+                "Tap a measure in Select to use its Layout actions.",
                 "To remove an eligible chord-only divider, choose Select, tap the divider, then its red X or Delete. Protected Rhythm boundaries keep their content and remain in place."
             ]
         ),
         IChartHelpArticleSection(
             id: "editor-structure-tools",
-            title: "Measures And Tools",
+            title: "Measures, Repeats, And Quick Actions",
             systemImageName: "rectangle.split.3x1",
-            body: "Measures stays one tap away; less-frequent structure and annotation commands live under Tools.",
+            body: "Use Measures and Repeats in the toolbar. Start Repeat, Add Text, Form Markers, and Time Signature are in Quick Actions.",
             bullets: [
-                "Measures groups Add, Layout, and Delete actions for the selected measure.",
-                "On a Rhythm Section Sheet, choose Add > Add One After to insert a measure and give the row even widths, including when it’s already full.",
+                "Tap Measures and select a measure. Use Add One After to insert one measure or Add Multiple After… to choose how many. Use Add at Beginning to insert before the first measure or Add Double Barline to add a double boundary.",
+                "Select the last measure of a repeat. Add Inside Repeat includes the new measure in the loop and moves the closing repeat sign. Add After Repeat puts the new measure after the closing sign. If several repeats end there, adding inside extends the outermost repeat.",
+                "To add several measures at the end of a repeat, tap Add Multiple…, set the count, and choose Inside Repeat or After Repeat. The sheet opens with After Repeat selected.",
+                "Tap Delete Measure… and confirm the measure shown. When the first measure shows Reset Barline…, you can restore its right barline to a single line.",
+                "To delete a range, select the first measure and tap Delete Range… to start. Tap the last measure and check the highlighted range before choosing Delete To or Cancel.",
+                "On a Rhythm Section Sheet, adding one measure gives the row even widths, including when it’s already full.",
                 "On a Rhythm Section Sheet, select a measure to show its arrow handles. Use Apple Pencil to drag an inside handle to adjust the two neighboring widths, or drag the last measure’s right arrow left to shorten the row.",
                 "When you release, a lone measure on the next row moves up if its full width fits. Manual row or page breaks and key changes keep their boundaries.",
-                "Open Layout to compare Start New Row, Join Row Above, Move to Row Below, Even Row Widths, and Merge with Next Measure. The sheet explains each action and why an option is unavailable. Tap an available action to apply it.",
-                "Join Row Above moves from the start of the row through your selected measure. Move to Row Below moves from your selection through the end of the row. The rows adjust to fit.",
-                "Tools > Repeats groups Repeat Measures, Add Ending, and Manage. Add Ending offers 1st Ending…, 2nd Ending…, or Custom Ending… with a shared label and range editor.",
-                "Tools > Text uses the selected measure. Choose Above or Below, then choose Keyboard or Scribble. Before writing, tap the cue field with Apple Pencil. Tap Add or Apply.",
-                "Tools > Time Signature uses the selected measure. Tools > Form Markers opens a sheet: check the measure, choose a marker, then tap Add."
+                "Quick Actions holds the Layout controls to the left of the chart, or below the tool controls in narrow windows. Tap the left-pointing chevron beside Quick Actions to give the chart more room. Tap the right-pointing chevron to show the controls again. Tap a measure in Select or Measures to see which actions are available.",
+                "Start New Row begins a row at the selection. Join Row Above moves from the start of the row through your selected measure. Move to Row Below moves from your selection through the end of the row. The rows adjust to fit.",
+                "Even System Measures gives the measures in the selected row matching widths. Fill Row expands a lone measure on a Simple Chord Sheet. Merge with Next Measure removes an eligible divider.",
+                "Repeats shows Start Repeat and Repeat This Measure alongside Add Ending. Add Ending offers 1st Ending…, 2nd Ending…, or Custom Ending… with a shared label and range editor.",
+                "Tap Add Text in Quick Actions, then tap where the cue should start. The blue marker shows the beat. Choose Above or Below and check the destination in the Text panel. Use Keyboard to type, or choose Scribble and tap the cue field with Apple Pencil before writing. Tap Add or Apply.",
+                "Tap Form Markers in Quick Actions. Select a measure, then tap a marker above the chart to add it.",
+                "Tap Time Signature in Quick Actions and select the starting measure. Choose a preset above the chart or tap Custom… to set the numerator and denominator. Choose how far the change applies."
             ]
         ),
         IChartHelpArticleSection(
@@ -534,7 +546,9 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Export PDF creates the finished file. Your editable chart stays in Charts.",
                 "Personal PDF exports include rendered notation and saved Free Ink. Unresolved Write & Render ink stays in the editable chart.",
                 "If Export PDF is unavailable, tap Done and finish setup first."
-            ]
+            ] + (IChartProductAccessPolicy.current.offersPaidPurchases ? [
+                "Basic adds a small Made with iChart credit to the first page of each new chart PDF. Share and Print use that same PDF."
+            ] : [])
         ),
         IChartHelpArticleSection(
             id: "pdf-import", title: "Import a PDF", systemImageName: "square.and.arrow.down",
@@ -1926,7 +1940,9 @@ struct LibraryView: View {
         } label: {
             Label("Sort: \(order.wrappedValue.title)", systemImage: "arrow.up.arrow.down")
                 .frame(minHeight: 44)
+                .contentShape(Rectangle())
         }
+        .iChartMenuTapFeedback()
         .accessibilityLabel("Sort library")
     }
 
@@ -2571,8 +2587,9 @@ private struct NewChartLayoutPickerView: View {
                                     : IChartHomeBrand.paper.opacity(0.82)
                             )
                             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.iChartTapFeedback)
                         .tourActionHighlight(
                             isActive: isTourTarget,
                             cornerRadius: 10,
@@ -2645,7 +2662,7 @@ private struct IChartGuidedTourPrompt: View {
                     .frame(width: 30, height: 30)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iChartTapFeedback)
             .foregroundStyle(tourTitleColor.opacity(0.72))
             .accessibilityLabel("End Quick Start")
         }
@@ -3029,7 +3046,7 @@ private struct IChartLibrarySelectionRow: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iChartTapFeedback)
         .accessibilityLabel(title)
         .accessibilityValue(isSelected ? "Selected" : "Not selected")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
@@ -3154,7 +3171,7 @@ private struct IChartPDFLibraryRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        ZStack(alignment: .topTrailing) {
             Button(action: onOpen) {
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: "doc.richtext")
@@ -3181,9 +3198,13 @@ private struct IChartPDFLibraryRow: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .frame(minHeight: 44, alignment: .topLeading)
+                .padding(.trailing, 56)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iChartTapFeedback)
             .accessibilityLabel("Open \(item.displayTitle)")
             .accessibilityIdentifier("pdf.library.open.\(item.id.uuidString)")
 
@@ -3194,10 +3215,12 @@ private struct IChartPDFLibraryRow: View {
             } label: {
                 Image(systemName: "ellipsis.circle")
                     .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
             }
+            .iChartMenuTapFeedback()
+            .padding(12)
             .accessibilityLabel("Actions for \(item.displayTitle)")
         }
-        .padding(12)
         .overlay(alignment: .bottom) {
             Divider().overlay(theme.panelBorder.opacity(0.32))
         }
@@ -3834,8 +3857,9 @@ private struct IChartForumTopChartColumn: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(IChartHomeBrand.blue.opacity(theme.isDark ? 0.78 : 0.88))
                 .clipShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
+                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iChartTapFeedback)
             .disabled(!canExpand)
             .accessibilityLabel(canExpand ? "\(period.title) top charts \(isExpanded ? "collapse" : "expand")" : "\(period.title) top charts")
 
@@ -3883,8 +3907,9 @@ private struct IChartForumTopChartColumn: View {
                         .padding(.vertical, 7)
                         .background(IChartHomeBrand.blueSoft.opacity(theme.isDark ? 0.14 : 0.52))
                         .clipShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
+                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.iChartTapFeedback)
                 }
             }
         }
@@ -3964,7 +3989,7 @@ private struct IChartForumTopHeadlineRow: View {
             }
             .contentShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iChartTapFeedback)
         .accessibilityLabel("Open lead chart \(featuredPost.post.chartTitle)")
         .accessibilityValue(featuredPost.authorBadges.map(\.displayText).joined(separator: ", "))
     }
@@ -4013,7 +4038,7 @@ private struct IChartForumTopChartRow: View {
             }
             .contentShape(RoundedRectangle(cornerRadius: IChartForumPalette.cornerRadius, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iChartTapFeedback)
         .accessibilityLabel("Open \(featuredPost.post.chartTitle)")
         .accessibilityValue(featuredPost.authorBadges.map(\.displayText).joined(separator: ", "))
     }
@@ -4138,8 +4163,14 @@ private struct IChartForumEmptyPublishBar: View {
                     }
                 } label: {
                     Label("Submit To Forum", systemImage: "paperplane.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(IChartHomeBrand.blue, in: RoundedRectangle(cornerRadius: 8))
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.borderedProminent)
+                .iChartMenuTapFeedback()
                 .controlSize(.small)
                 .tint(IChartHomeBrand.blue)
             }
@@ -4303,7 +4334,7 @@ private struct IChartForumPostRow: View {
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iChartTapFeedback)
         .accessibilityLabel("Open \(post.chartTitle)")
         .accessibilityValue(authorBadges.map(\.displayText).joined(separator: ", "))
     }
@@ -4827,8 +4858,14 @@ private struct IChartForumPostDetailView: View {
                     }
                 } label: {
                     Label("Safety", systemImage: "flag")
+                        .foregroundStyle(isWorking ? theme.panelSecondary : theme.actionText)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(theme.actionText.opacity(isWorking ? 0.04 : 0.10),
+                            in: RoundedRectangle(cornerRadius: 8))
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.bordered)
+                .iChartMenuTapFeedback()
                 .disabled(isWorking)
             }
         }
@@ -5063,7 +5100,9 @@ private struct IChartForumCommentRow: View {
             } label: {
                 Image(systemName: "flag")
                     .frame(width: 30, height: 30)
+                    .contentShape(Rectangle())
             }
+            .iChartMenuTapFeedback()
             .accessibilityLabel("Comment safety options")
         }
         .padding(11)
@@ -5151,7 +5190,7 @@ private struct IChartHomeSidebar: View {
                 .frame(width: 30, height: 30)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iChartTapFeedback)
         .accessibilityLabel(isCollapsed ? "Open sidebar" : "Collapse sidebar")
     }
 }
@@ -5218,8 +5257,9 @@ private struct IChartHomeAppearanceModeSwitch: View {
                         .foregroundStyle(foregroundColor(for: mode))
                         .background(backgroundColor(for: mode))
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.iChartTapFeedback)
                 .accessibilityLabel(mode.accessibilityLabel)
                 .accessibilityAddTraits(selectedMode == mode ? .isSelected : [])
             }
@@ -5272,7 +5312,7 @@ private struct IChartHomeSidebarButton: View {
                     .stroke(borderColor, lineWidth: 1)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iChartTapFeedback)
         .accessibilityLabel(tab.title)
     }
 
@@ -5325,7 +5365,7 @@ private struct IChartHelpTopicRow: View {
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iChartTapFeedback)
         .accessibilityLabel(topic.title)
     }
 }
@@ -5546,7 +5586,7 @@ private struct IChartHelpArticleSectionView: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iChartTapFeedback)
             .accessibilityHint(isExpanded ? "Collapse section" : "Expand section")
 
             if isExpanded {
@@ -5873,7 +5913,7 @@ private struct IChartKeyboardFocusButton: View {
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iChartTapFeedback)
         .accessibilityLabel(accessibilityLabel)
     }
 }
@@ -6247,8 +6287,9 @@ struct IChartAccountSettings: View {
             } label: {
                 Label("Email Didn't Arrive?", systemImage: "questionmark.circle")
                     .font(.caption.weight(.semibold))
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iChartTapFeedback)
             .foregroundStyle(theme.actionText)
             .disabled(authStore.isWorking)
 
@@ -7633,8 +7674,9 @@ private struct IChartChartsWorkspaceModePicker: View {
                                     .fill(IChartHomeBrand.blue)
                             }
                         }
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.iChartTapFeedback)
                 .accessibilityLabel(mode.title)
                 .accessibilityValue(isSelected ? "Selected" : "Not selected")
             }
@@ -7793,7 +7835,9 @@ private struct IChartProjectCard: View {
                 .font(.title3.weight(.semibold))
                 .foregroundStyle(theme.panelSecondary)
                 .frame(width: 36, height: 36)
+                .contentShape(Rectangle())
         }
+        .iChartMenuTapFeedback()
         .accessibilityLabel("Project actions")
     }
 }
@@ -7808,7 +7852,7 @@ private struct IChartProjectChartRow: View {
     let onRemove: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
+        ZStack(alignment: .trailing) {
             Button(action: onOpen) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(chart.title)
@@ -7822,9 +7866,12 @@ private struct IChartProjectChartRow: View {
 
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minHeight: canManageProject ? 34 : 0, alignment: .leading)
+                .padding(.trailing, canManageProject ? 46 : 0)
+                .padding(12)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iChartTapFeedback)
             .accessibilityHint("Open this saved chart to edit or export it.")
 
             if canManageProject {
@@ -7842,11 +7889,13 @@ private struct IChartProjectChartRow: View {
                         .font(.body.weight(.semibold))
                         .foregroundStyle(theme.panelSecondary)
                         .frame(width: 34, height: 34)
+                        .contentShape(Rectangle())
                 }
+                .iChartMenuTapFeedback()
+                .padding(12)
                 .accessibilityLabel("Project chart actions")
             }
         }
-        .padding(12)
         .overlay(alignment: .bottom) {
             Divider().overlay(theme.panelBorder.opacity(0.25))
         }
@@ -7878,8 +7927,9 @@ private struct IChartPreviewModePicker: View {
                                     .fill(IChartHomeBrand.blue)
                             }
                         }
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.iChartTapFeedback)
                 .accessibilityLabel("\(mode.title) preview")
                 .accessibilityValue(isSelected ? "Selected" : "Not selected")
             }
@@ -8012,7 +8062,7 @@ private struct ProjectRowView: View {
     let onDelete: () -> Void
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
+        ZStack(alignment: .trailing) {
             Button(action: onOpen) {
                 VStack(alignment: .leading, spacing: previewMode == .collapsed ? 3 : 10) {
                     rowText
@@ -8021,16 +8071,20 @@ private struct ProjectRowView: View {
                         IChartLibraryChartPreview(chart: chart, mode: previewMode)
                     }
                 }
-                .contentShape(Rectangle())
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minHeight: 36, alignment: .leading)
+                .padding(.trailing, 48)
+                .padding(.horizontal, 16)
+                .padding(.vertical, previewMode == .collapsed ? 13 : 15)
+                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iChartTapFeedback)
             .accessibilityHint("Open this saved chart to edit or export it.")
+            .accessibilityIdentifier("chart.library.open.\(chart.id.uuidString)")
 
             rowActionControl
+                .padding(.trailing, 16)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, previewMode == .collapsed ? 13 : 15)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -8091,7 +8145,9 @@ private struct ProjectRowView: View {
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(theme.actionText)
                     .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
             }
+            .iChartMenuTapFeedback()
             .accessibilityLabel("Chart actions")
     }
 

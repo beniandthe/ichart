@@ -8,6 +8,8 @@ final class LeadSheetChordMoveOverlayView: UIView {
     private let selection = CAShapeLayer()
     private let guideField = CAShapeLayer()
     private let inactiveGuides = CAShapeLayer()
+    private let downbeatGuide = CAShapeLayer()
+    private let downbeatLabel = CATextLayer()
     private let activeGuide = CAShapeLayer()
     private let targetGuide = CAShapeLayer()
     private var sourceFrame: CGRect?
@@ -62,6 +64,7 @@ final class LeadSheetChordMoveOverlayView: UIView {
                 shape.bounds = canvasBounds
                 shape.contentsScale = image.scale
             }
+            downbeatLabel.contentsScale = image.scale
             glyph.bounds = CGRect(origin: .zero, size: imageFrame.size)
             glyph.contents = image.cgImage
             glyph.contentsScale = image.scale
@@ -80,7 +83,7 @@ final class LeadSheetChordMoveOverlayView: UIView {
         withoutAnimations {
             glyph.position = CGPoint(x: displayFrame.midX, y: displayFrame.midY)
             selection.path = UIBezierPath(
-                roundedRect: displayFrame.insetBy(dx: -6, dy: -2), cornerRadius: 5
+                roundedRect: displayFrame.insetBy(dx: -2, dy: -2), cornerRadius: 5
             ).cgPath
             selection.lineWidth = 1.4 / screenPointsPerDisplayedPoint
             updateGuides(positionPreview)
@@ -95,13 +98,14 @@ final class LeadSheetChordMoveOverlayView: UIView {
             sourceFrame = nil
             glyph.contents = nil
             for shape in shapeLayers { shape.path = nil }
+            downbeatLabel.isHidden = true
         }
     }
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool { false }
 
     private var shapeLayers: [CAShapeLayer] {
-        [guideField, inactiveGuides, activeGuide, targetGuide, selection]
+        [guideField, inactiveGuides, downbeatGuide, activeGuide, targetGuide, selection]
     }
 
     private func configure() {
@@ -115,6 +119,7 @@ final class LeadSheetChordMoveOverlayView: UIView {
         for (name, shape) in [
             ("chordMove.guideField", guideField),
             ("chordMove.inactiveGuides", inactiveGuides),
+            ("chordMove.downbeatGuide", downbeatGuide),
             ("chordMove.activeGuide", activeGuide),
             ("chordMove.targetGuide", targetGuide),
             ("chordMove.selection", selection)
@@ -128,11 +133,17 @@ final class LeadSheetChordMoveOverlayView: UIView {
         targetGuide.lineCap = .round
         glyph.name = "chordMove.glyph"
         layer.addSublayer(glyph)
+        downbeatLabel.name = "chordMove.downbeatLabel"
+        downbeatLabel.string = "1"
+        downbeatLabel.alignmentMode = .center
+        downbeatLabel.isHidden = true
+        layer.addSublayer(downbeatLabel)
     }
 
     private func updateGuides(_ preview: LeadSheetChordMovePositionPreview?) {
         guard let preview else {
-            for shape in [guideField, inactiveGuides, activeGuide, targetGuide] { shape.path = nil }
+            for shape in [guideField, inactiveGuides, downbeatGuide, activeGuide, targetGuide] { shape.path = nil }
+            downbeatLabel.isHidden = true
             return
         }
         let scale = screenPointsPerDisplayedPoint
@@ -147,10 +158,11 @@ final class LeadSheetChordMoveOverlayView: UIView {
         guideField.lineWidth = 1 / scale
 
         let inactivePath = CGMutablePath()
+        let downbeatPath = CGMutablePath()
         let activePath = CGMutablePath()
-        for x in preview.guideXs {
+        for (index, x) in preview.guideXs.enumerated() {
             let isActiveGuide = preview.activeGuideX.map { abs($0 - x) < 0.5 } ?? false
-            let path = isActiveGuide ? activePath : inactivePath
+            let path = isActiveGuide ? activePath : (index == 0 ? downbeatPath : inactivePath)
             path.move(to: CGPoint(x: x, y: fieldFrame.minY - 2))
             path.addLine(to: CGPoint(x: x, y: fieldFrame.maxY + 2))
         }
@@ -158,6 +170,20 @@ final class LeadSheetChordMoveOverlayView: UIView {
         inactiveGuides.strokeColor = UIColor(red: 0.16, green: 0.38, blue: 0.86, alpha: 0.24).cgColor
         inactiveGuides.lineWidth = 0.9 / scale
         inactiveGuides.lineDashPattern = [NSNumber(value: Double(3 / scale)), NSNumber(value: Double(6 / scale))]
+        let downbeatColor = UIColor(red: 0.16, green: 0.38, blue: 0.86, alpha: 1)
+        downbeatGuide.path = downbeatPath
+        downbeatGuide.strokeColor = downbeatColor.withAlphaComponent(0.65).cgColor
+        downbeatGuide.lineWidth = 1.3 / scale
+        if let downbeatX = preview.guideXs.first {
+            let isDownbeatAligned = preview.activeGuideX.map { abs($0 - downbeatX) < 0.5 } ?? false
+            downbeatLabel.frame = CGRect(x: downbeatX - 7 / scale, y: fieldFrame.minY - 16 / scale,
+                width: 14 / scale, height: 13 / scale)
+            downbeatLabel.fontSize = 11 / scale
+            downbeatLabel.foregroundColor = (isDownbeatAligned ? color : downbeatColor).cgColor
+            downbeatLabel.isHidden = false
+        } else {
+            downbeatLabel.isHidden = true
+        }
         activeGuide.path = activePath
         activeGuide.strokeColor = color.withAlphaComponent(0.82).cgColor
         activeGuide.lineWidth = 1.7 / scale

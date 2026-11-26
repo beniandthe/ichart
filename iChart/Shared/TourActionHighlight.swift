@@ -16,7 +16,8 @@ enum IChartTourStyle {
 /// Keep gold for guidance, blue for actions, and neutral bounds for inputs.
 #if canImport(UIKit)
 enum IChartInterfaceStyle {
-    static let actionBlue = Color(red: 0.10, green: 0.34, blue: 0.72)
+    static let actionUIColor = UIColor(red: 0.10, green: 0.34, blue: 0.72, alpha: 1)
+    static let actionBlue = Color(uiColor: actionUIColor)
     static let cardBackground = Color(uiColor: .systemBackground)
     static let cardBorder = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark

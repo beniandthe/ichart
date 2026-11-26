@@ -69,6 +69,7 @@ enum EditorCanvasMode: Hashable {
     case noteEdit
     case freeHand
     case textEdit
+    case formMarkerEdit
 
     var telemetryValue: String {
         switch self {
@@ -92,13 +93,15 @@ enum EditorCanvasMode: Hashable {
             return "free_hand"
         case .textEdit:
             return "text_edit"
+        case .formMarkerEdit:
+            return "form_marker_edit"
         }
     }
 
     var freeHandTabSymbol: String {
         switch self {
         case .browse, .measureEdit, .repeatEdit, .timeSignatureEdit, .rhythmicNotationEdit,
-                .headerEntry, .chordEntry, .noteEdit, .freeHand, .textEdit:
+                .headerEntry, .chordEntry, .noteEdit, .freeHand, .textEdit, .formMarkerEdit:
             return "pencil.and.scribble"
         }
     }
@@ -136,6 +139,8 @@ enum EditorCanvasMode: Hashable {
             return "Free Ink"
         case .textEdit:
             return "Text"
+        case .formMarkerEdit:
+            return "Form Markers"
         }
     }
 
@@ -161,6 +166,8 @@ enum EditorCanvasMode: Hashable {
             return "pencil.and.scribble"
         case .textEdit:
             return "text.bubble"
+        case .formMarkerEdit:
+            return "signpost.right"
         }
     }
 
@@ -210,18 +217,24 @@ enum EditorCanvasMode: Hashable {
     func toolGuidance(
         layoutStyle: ChartLayoutStyle,
         manualRenderWithPreview: Bool,
-        hasFreeInkArticulations: Bool = false
+        hasFreeInkArticulations: Bool = false,
+        isClosingRepeatSelected: Bool = false,
+        isLayoutMeasureSelected: Bool = false
     ) -> EditorToolGuidance {
         switch self {
         case .browse:
             var details = [EditorToolGuidanceSection(
                 title: "Chords and cues",
-                text: "Drag a chord with Apple Pencil, then lift to place it. Beat guides show its destination. Tap a chord to show its controls: tap the red X to delete or drag the width handle to change width. Double-tap a chord to correct it. Tap a measure or cue to see its actions."
+                text: "Drag a chord with Apple Pencil, then lift to place it. Snap to beat 1 at the first guide, or keep dragging toward the left barline for tighter spacing. Cross the barline to move into the previous measure in the row. Tap a chord to show its side handles. Drag a side handle to resize that chord or tap the red X to delete it. Double-tap a chord to correct it. Tap a cue to see its actions."
             ), .init(
-                title: "Space cues, endings, and form marks",
-                text: "Tap the item, then drag Move Up or Down to adjust its height. Reset Position restores automatic spacing. For endings, Move and Lengthen adjust the measures."
-            )]
+                title: "Moving text cues",
+                text: Self.cueMoveGuidance
+            ), .init(
+                title: "Space endings and form marks",
+                text: "Tap the item, then drag Move Up or Down to adjust its height. Reset Position restores automatic height. For endings, Move and Lengthen adjust the measures."
+            ), Self.layoutPlacementGuide]
             if layoutStyle == .simpleChordSheet || layoutStyle == .rhythmSectionSheet {
+                details.append(Self.measureRowActionsGuide(layoutStyle: layoutStyle))
                 details.append(.init(
                     title: "Merge measures",
                     text: "Tap an eligible divider, then its red X to merge the measures."
@@ -238,55 +251,64 @@ enum EditorCanvasMode: Hashable {
             }
             return .init(
                 title: "Edit items on the chart",
-                steps: ["Use Apple Pencil to select, move, or delete items on the chart. Scroll with a finger."],
+                steps: ["Use Apple Pencil to select, move, or delete items on the chart. Scroll with a finger.",
+                        isLayoutMeasureSelected
+                            ? "Use the Layout actions for the selected measure."
+                            : "Tap a chord for width handles. Drag its body to move it."],
                 detailsTitle: "Select guide",
                 details: details
             )
         case .measureEdit:
-            var steps = ["Tap a measure, then choose Add, Layout, or Delete."]
             var details: [EditorToolGuidanceSection] = [
-                .init(title: "Add measures", text: "Use Add to extend the chart beside the selected measure or onto another row."),
-                .init(title: "Change the layout", text: "Open Layout to compare each action and read why an option is unavailable. Tap an available action to apply it. Merge with Next Measure is available when the boundary can be removed safely."),
-                .init(title: "Delete a range", text: "Choose the first measure and start the range. Tap the last measure, then choose Delete To. Review the range before deleting.")
+                .init(title: "Add measures", text: "Select a measure and tap Add One After to insert one measure or Add Multiple After… to choose how many. Add at Beginning inserts before the first measure. Add Double Barline adds a double boundary."),
+                Self.layoutPlacementGuide,
+                .init(title: "Delete one measure", text: "Select the measure, tap Delete Measure…, and confirm the measure shown. When the first measure shows Reset Barline…, you can restore its right barline to a single line."),
+                .init(title: "Delete a range", text: "Select the first measure and tap Delete Range… to start. Tap the last measure and check the highlighted range, then tap Delete To or Cancel.")
             ]
             if layoutStyle == .simpleChordSheet || layoutStyle == .rhythmSectionSheet {
-                details.insert(.init(
-                    title: "Move between rows",
-                    text: "Select a measure and open Layout. Join Row Above moves from the start of the row through your selection. Move to Row Below moves from your selection through the end of the row. The rows adjust to fit."
-                ), at: 2)
+                details.insert(Self.measureRowActionsGuide(layoutStyle: layoutStyle), at: 2)
             }
             if layoutStyle == .rhythmSectionSheet {
-                steps = ["Tap a measure for Add, Layout, or Delete. Add One After fits the new measure in the row."]
                 details[0] = .init(
                     title: "Add measures",
-                    text: "Choose Add > Add One After to insert a measure and give the row even widths, including when it’s already full. Add Multiple After… can extend the chart onto more rows."
+                    text: "Adding one measure fits it in the row and evens the measure widths, including when the row is full. Add Multiple After… can extend the chart across rows. Add at Beginning inserts before the first measure. Add Double Barline adds a double boundary."
                 )
                 details.insert(Self.rhythmMeasureResizeGuide, at: 1)
             }
+            details.insert(.init(
+                title: "Add at the end of a repeat",
+                text: "Select the last measure of a repeat. Add Inside Repeat includes the new measure in the loop and moves the closing repeat sign. Add After Repeat puts the new measure after the closing sign. If several repeats end there, adding inside extends the outermost repeat. For several measures at the end of a repeat, tap Add Multiple… and choose the count and placement. After Repeat is selected when the sheet opens."
+            ), at: 1)
             return .init(
                 title: "Change measures and rows",
-                steps: steps,
+                steps: [isClosingRepeatSelected
+                    ? "Choose Add Inside Repeat or Add After Repeat."
+                    : "Tap a measure, then choose an action."],
                 detailsTitle: "Measures guide",
                 details: details
             )
         case .repeatEdit:
             return .init(
                 title: "Repeat measures or add an ending",
-                steps: ["Select a measure, then choose Repeat Measures or Add Ending."],
+                steps: ["Tap a measure, then choose a repeat or ending action."],
                 detailsTitle: "Repeats and endings",
                 details: [
-                    .init(title: "Repeat a range", text: "Select the first measure and choose Repeat Measures > Start Repeat. Tap the last measure, then choose End Repeat. Cancel leaves the chart unchanged."),
-                    .init(title: "Repeat one measure", text: "Choose Repeat Measures > Repeat This Measure to place repeat boundaries around the selected measure. This differs from a % chord-repeat symbol."),
+                    .init(title: "Repeat a range", text: "Select the first measure and tap Start Repeat in Quick Actions or Repeats. Tap the last measure and check the highlight. Tap End Repeat where you started. If Quick Actions is hidden, finish with End Repeat in Repeats. Tap Cancel in Repeats to discard the range."),
+                    .init(title: "Repeat one measure", text: "Select a measure and choose Repeat This Measure to place repeat boundaries around it. This differs from a % chord-repeat symbol."),
                     .init(title: "Endings", text: "Use Add Ending to choose a 1st, 2nd, or custom ending. Choose the label and first and last measures, then check the right edge and preview before applying. For a range selected on the page, choose Start 1st Ending Here or Start 2nd Ending Here, then tap the last measure and finish the ending."),
-                    .init(title: "Existing marks", text: "Use Manage to remove repeats or edit and remove endings.")
+                    .init(title: "Remove a repeat", text: "Select the first or last measure of a repeat, then tap Remove Repeat. If repeats share the measure, choose the range to remove."),
+                    .init(title: "Edit or remove an ending", text: "Select a measure covered by an ending. Tap Edit Ending… to change it, or tap Remove Ending and confirm. If endings overlap, choose the ending by label and range.")
                 ]
             )
         case .timeSignatureEdit:
             return .init(
                 title: "Change the meter from a measure",
-                steps: ["Tap the starting measure, then choose the meter and how far it applies."],
+                steps: ["Tap the starting measure, then choose a time signature above the chart."],
                 detailsTitle: "Time signature guide",
-                details: [.init(title: "Choose the scope", text: "The time-signature change starts at the selected measure. Check its scope before applying it.")]
+                details: [
+                    .init(title: "Choose a time signature", text: "Choose a preset or tap Custom… to set the numerator and denominator."),
+                    .init(title: "Choose the scope", text: "The time-signature change starts at the selected measure. Check its scope before applying it.")
+                ]
             )
         case .rhythmicNotationEdit:
             return .init(
@@ -354,13 +376,41 @@ enum EditorCanvasMode: Hashable {
             )
         case .textEdit:
             return .init(
-                title: "Add a typed cue beside a measure",
-                steps: ["Tap a measure, then choose Above or Below.",
+                title: "Place or edit a text cue",
+                steps: ["Tap where the cue should start, then choose Above or Below.",
                         "Choose Keyboard or Scribble. For Scribble, tap the field with Apple Pencil before writing. Tap Add or Apply."],
                 detailsTitle: "Text guide",
-                details: [.init(title: "Existing cues", text: "Tap an existing cue with Apple Pencil to edit it, change its size, or delete it. In Select, use Move Up or Down to adjust its height.")]
+                details: [
+                    .init(title: "Cue placement", text: "The blue marker shows the cue’s beat. Check the measure and placement in the Text panel before tapping Add."),
+                    .init(title: "Text entry", text: "In Keyboard, press Return for a new line. All lines stay in the same cue."),
+                    .init(title: "Existing cues", text: "Tap a cue with Apple Pencil, then use Edit, Larger, Smaller or Delete."),
+                    .init(title: "Moving cues", text: Self.cueMoveGuidance)
+                ]
+            )
+        case .formMarkerEdit:
+            return .init(
+                title: "Place a form marker",
+                steps: ["Tap a measure, then choose a form marker."],
+                detailsTitle: "Form Markers guide",
+                details: [
+                    .init(title: "Place and adjust", text: "Tap a marker button to add it to the selected measure and return to Select. In Select, drag the marker to move it, or use its controls to resize or delete it.")
+                ]
             )
         }
+    }
+
+    private static let cueMoveGuidance = "Press and hold the cue, then drag it in any direction. The blue line stays at the center of its measure until you cross a barline and disappears in the row margin. Lift to place the cue. Staff spacing stays fixed."
+
+    private static let layoutPlacementGuide = EditorToolGuidanceSection(
+        title: "Layout actions",
+        text: "Quick Actions holds the Layout controls to the left of the chart, or below the tool controls in narrow windows. Tap the left-pointing chevron beside Quick Actions to give the chart more room. Tap the right-pointing chevron to show the controls again. Tap a measure in Select or Measures to see which actions are available."
+    )
+
+    private static func measureRowActionsGuide(layoutStyle: ChartLayoutStyle) -> EditorToolGuidanceSection {
+        let move = "Start New Row begins a row at the selection. Join Row Above moves from the start of the row through your selection. Move to Row Below moves from your selection through the end of the row. The rows adjust to fit."
+        let align = "Even System Measures gives the measures in the selected row matching widths. Merge with Next Measure removes an eligible divider."
+        let fill = layoutStyle == .simpleChordSheet ? " Fill Row expands a lone measure to fill its row." : ""
+        return .init(title: "Move and resize rows", text: move + " " + align + fill)
     }
 
     private static let rhythmMeasureResizeGuide = EditorToolGuidanceSection(
@@ -399,7 +449,7 @@ enum EditorCanvasMode: Hashable {
         }
         details.append(.init(
             title: "Measure repeats",
-            text: "Use Tools > Repeats for measure repeats or ranges. Drawn bar-and-dot repeat signs are not recognized."
+            text: "Use Repeats for measure repeats or ranges. Drawn bar-and-dot repeat signs are not recognized."
         ))
         details.append(.init(
             title: "Ending brackets",

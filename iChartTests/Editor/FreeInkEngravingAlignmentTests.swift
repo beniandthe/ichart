@@ -326,6 +326,71 @@ final class FreeInkEngravingAlignmentTests: XCTestCase {
         }
     }
 
+    func testRhythmInkNearChordAboveStaffFollowsItsMeasureAfterRowMoveAndReopen() throws {
+        var chart = makeChart(.rhythmSectionSheet, preset: .balanced)
+        let measureIDs = chart.measures.map(\.id)
+        let inkMeasureID = measureIDs[5]
+        let chordID = try XCTUnwrap(chart.appendRecognizedChordEvent(
+            ChordSymbolParser.parse("G7"), rawInput: "G7", to: inkMeasureID, atFraction: 0
+        ))
+        let source = try geometry(chart)
+        let before = try XCTUnwrap(source.space.measureAnchors?.first {
+            $0.measureID == inkMeasureID
+        }?.staffFrame?.rect)
+        let chord = try XCTUnwrap(source.space.chordAnchors?.first { $0.chordID == chordID }?.frame.rect)
+        let cue = stroke([
+            CGPoint(x: chord.maxX + 29, y: chord.maxY + 6),
+            CGPoint(x: chord.maxX + 34, y: chord.maxY + 8)
+        ], seed: 410)
+        XCTAssertGreaterThan(cue.renderBounds.midX, chord.maxX + 6)
+        XCTAssertLessThan(cue.renderBounds.maxY, before.minY)
+        XCTAssertLessThan(cue.renderBounds.maxX, before.maxX)
+
+        let paper = PKDrawing(strokes: [
+            stroke([CGPoint(x: before.maxX - 25, y: chord.maxY + 6),
+                CGPoint(x: before.maxX - 17, y: chord.maxY + 8)], seed: 411),
+            stroke([CGPoint(x: 24, y: 16), CGPoint(x: 38, y: 16)], seed: 412)
+        ])
+        XCTAssertGreaterThan(paper.strokes[0].renderBounds.minX, chord.maxX + 80)
+        let original = PKDrawing(strokes: [cue] + paper.strokes)
+        let archive = original.dataRepresentation()
+        chart.pageHandwrittenNotationData = archive
+        chart.pageHandwrittenNotationCoordinateSpace = source.space
+
+        // Joining the first measure of the lower row to the upper row
+        // shifts the following measure and its cue within the lower row.
+        let move = try LeadSheetAdjacentRowMovePolicy.plan(for: measureIDs[4], direction: .above,
+            in: source.layout, chart: chart).get()
+        XCTAssertTrue(move.apply(to: &chart))
+        let reopened = try JSONDecoder().decode(Chart.self, from: JSONEncoder().encode(chart))
+        XCTAssertEqual(reopened.measures.map(\.id), measureIDs)
+        XCTAssertEqual(reopened.pageHandwrittenNotationData, archive)
+        XCTAssertEqual(reopened.pageHandwrittenNotationCoordinateSpace, source.space)
+        let target = try geometry(reopened)
+        XCTAssertEqual(target.staffSystems.map { $0.measures.compactMap(\.sourceMeasureID) },
+                       [Array(measureIDs.prefix(5)), Array(measureIDs.suffix(3))])
+        let after = try XCTUnwrap(target.space.measureAnchors?.first {
+            $0.measureID == inkMeasureID
+        }?.staffFrame?.rect)
+        XCTAssertGreaterThan(abs(before.minX - after.minX), 10)
+
+        let visible = try XCTUnwrap(LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
+            from: reopened.pageHandwrittenNotationData,
+            sourceCoordinateSpace: reopened.pageHandwrittenNotationCoordinateSpace,
+            targetCoordinateSpace: target.space))
+        XCTAssertEqual(visible.strokes.map(\.randomSeed), original.strokes.map(\.randomSeed))
+        let movedCue = try XCTUnwrap(visible.strokes.first)
+        XCTAssertEqual(movedCue.path.count, cue.path.count)
+        for (point, movedPoint) in zip(cue.path, movedCue.path) {
+            let originalLocation = point.location.applying(cue.transform)
+            let movedLocation = movedPoint.location.applying(movedCue.transform)
+            XCTAssertEqual((movedLocation.x - after.minX) / after.width,
+                           (originalLocation.x - before.minX) / before.width, accuracy: 0.002)
+            XCTAssertEqual(movedLocation.y - after.minY, originalLocation.y - before.minY, accuracy: 0.01)
+        }
+        assertSamePoints(paper, PKDrawing(strokes: Array(visible.strokes.dropFirst())))
+    }
+
     func testRhythmSingletonRowMergeMovesStaffInkAndKeepsPaperAnnotationsFixed() throws {
         var chart = Chart.draft(title: "Rhythm Row Merge", layoutStyle: .rhythmSectionSheet)
         chart.completeInitialSetup(title: chart.title, key: .cMajor,

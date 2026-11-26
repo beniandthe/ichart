@@ -7,7 +7,7 @@ struct InkToolModeTab: View {
     var body: some View {
         HStack(spacing: 4) {
             ForEach(EditorInkToolMode.allCases, id: \.self) { toolMode in
-                Button {
+                IChartTapFeedbackButton(isRaised: true) {
                     mode = toolMode
                     onModeSelected(toolMode)
                 } label: {
@@ -21,8 +21,8 @@ struct InkToolModeTab: View {
                         .foregroundStyle(mode == toolMode ? Color.white : Color.primary.opacity(0.74))
                         .background(buttonBackground(for: toolMode))
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
                 .accessibilityLabel(toolMode.accessibilityLabel)
                 .accessibilityAddTraits(mode == toolMode ? [.isSelected] : [])
             }

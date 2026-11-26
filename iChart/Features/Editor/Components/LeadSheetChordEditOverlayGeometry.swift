@@ -28,12 +28,7 @@ enum LeadSheetChordEditOverlayGeometry {
     static let controlHitOutset: CGFloat = 12
 
     static func editFrame(for chordLayout: LeadSheetChordLayout) -> CGRect {
-        CGRect(
-            x: chordLayout.frame.minX - 6,
-            y: chordLayout.frame.minY - 2,
-            width: chordLayout.frame.width + 12,
-            height: chordLayout.frame.height + 4
-        )
+        chordLayout.frame.insetBy(dx: -2, dy: -2)
     }
 
     static func bodySelectionFrame(for chordLayout: LeadSheetChordLayout) -> CGRect {
@@ -45,64 +40,83 @@ enum LeadSheetChordEditOverlayGeometry {
     }
 
     static func controlFrames(for chordLayout: LeadSheetChordLayout,
-        within canvasBounds: CGRect? = nil) -> LeadSheetChordEditControlFrames {
-        let editFrame = editFrame(for: chordLayout)
-        // Put the complete padded target outside the chord body. In particular,
-        // a one-letter C/G must remain draggable through its visible center.
-        let controlGap: CGFloat = 4
-        let originY = editFrame.minY - controlSize - controlHitOutset - controlGap
+        in pageLayout: LeadSheetPageLayout,
+        screenPointsPerDisplayedPoint: CGFloat = 1) -> LeadSheetChordEditControlFrames {
+        controlFrames(for: chordLayout, within: pageLayout.pageBounds,
+            avoiding: pageLayout.systems.flatMap(\.measures).flatMap(\.chordLayouts)
+                .filter { $0.id != chordLayout.id }.map { bodySelectionFrame(for: $0) },
+            screenPointsPerDisplayedPoint: screenPointsPerDisplayedPoint)
+    }
 
-        let frames = LeadSheetChordEditControlFrames(
-            delete: CGRect(
-                x: editFrame.minX - controlSize / 2,
-                y: originY,
-                width: controlSize,
-                height: controlSize
-            ),
-            leadingResize: CGRect(
-                x: editFrame.minX - controlSize / 2,
-                y: editFrame.midY - controlSize / 2,
-                width: controlSize,
-                height: controlSize
-            ),
-            trailingResize: CGRect(
-                x: editFrame.maxX + controlHitOutset + controlGap,
-                y: editFrame.midY - controlSize / 2,
-                width: controlSize,
-                height: controlSize
-            )
-        )
-        guard let canvasBounds,
-              canvasBounds.width >= 2 * (controlSize + 2 * controlHitOutset) + controlGap else { return frames }
-        func clampedX(_ x: CGFloat) -> CGFloat {
-            min(max(x, canvasBounds.minX + controlHitOutset),
-                canvasBounds.maxX - controlSize - controlHitOutset)
+    static func resizeHitFrame(for control: CGRect, edge: ActiveChordResizeDrag.Edge,
+        screenPointsPerDisplayedPoint: CGFloat = 1) -> CGRect {
+        let outset = controlHitOutset / max(0.05, screenPointsPerDisplayedPoint)
+        // Keep the generous target on the outside of the glyph instead of
+        // padding back across its move/select body. The visible grip stays
+        // directly beside the rendered edge.
+        return CGRect(x: edge == .leading ? control.minX - 2 * outset : control.minX,
+            y: control.minY - outset, width: control.width + 2 * outset,
+            height: control.height + 2 * outset)
+    }
+
+    static func controlFrames(for chordLayout: LeadSheetChordLayout,
+        within canvasBounds: CGRect? = nil, avoiding otherBodies: [CGRect] = [],
+        screenPointsPerDisplayedPoint: CGFloat = 1) -> LeadSheetChordEditControlFrames {
+        let editFrame = editFrame(for: chordLayout)
+        let scale = max(0.05, screenPointsPerDisplayedPoint)
+        let size = controlSize / scale
+        let outset = controlHitOutset / scale
+        let gap = 2 / scale
+        var delete = CGRect(x: editFrame.minX - size / 2,
+            y: editFrame.minY - size - outset - 8 / scale, width: size, height: size)
+        if let canvasBounds, canvasBounds.width >= size + 2 * outset {
+            delete.origin.x = min(max(delete.minX, canvasBounds.minX + outset),
+                canvasBounds.maxX - size - outset)
+            delete.origin.y = min(max(delete.minY, canvasBounds.minY + outset),
+                canvasBounds.maxY - size - outset)
         }
-        func hitFrame(_ frame: CGRect) -> CGRect {
-            frame.insetBy(dx: -controlHitOutset, dy: -controlHitOutset)
-        }
-        var delete = frames.delete
-        delete.origin.x = clampedX(delete.minX)
-        var resize = frames.trailingResize
-        if hitFrame(resize).minX < canvasBounds.minX || hitFrame(resize).maxX > canvasBounds.maxX {
-            // At the paper edge, move width control into the clear row above
-            // the chord. Never clamp it back through the glyph's move target.
-            resize.origin = CGPoint(x: clampedX(editFrame.maxX - controlSize), y: delete.minY)
-            if hitFrame(resize).intersects(hitFrame(delete)) {
-                let separation = controlSize + 2 * controlHitOutset + controlGap
-                let left = delete.minX - separation
-                let right = delete.minX + separation
-                if left >= canvasBounds.minX + controlHitOutset {
-                    resize.origin.x = left
-                } else if right <= canvasBounds.maxX - controlSize - controlHitOutset {
-                    resize.origin.x = right
-                } else {
-                    resize.origin.y = delete.minY - separation
-                }
+        let deleteHit = delete.insetBy(dx: -outset, dy: -outset)
+        let protected = [editFrame] + otherBodies + [deleteHit]
+
+        func placedHandle(edge: ActiveChordResizeDrag.Edge, avoiding occupied: [CGRect]) -> CGRect {
+            var preferred = CGRect(x: edge == .leading ? editFrame.minX - gap - size : editFrame.maxX + gap,
+                y: editFrame.midY - size / 2, width: size, height: size)
+            if let canvasBounds, canvasBounds.width >= size + 2 * outset {
+                // An edge grip may need to lift above the glyph, but its full
+                // touch target must remain on the page even at a paper edge.
+                let minimumX = canvasBounds.minX + (edge == .leading ? 2 * outset : 0)
+                let maximumX = canvasBounds.maxX - size - (edge == .trailing ? 2 * outset : 0)
+                preferred.origin.x = min(max(preferred.minX, minimumX), maximumX)
             }
+            let hit = resizeHitFrame(for: preferred, edge: edge, screenPointsPerDisplayedPoint: scale)
+            let obstacles = occupied.filter { $0.minX < hit.maxX && $0.maxX > hit.minX }
+            var ys = [preferred.minY]
+            for obstacle in obstacles {
+                ys.append(obstacle.minY - size - outset - gap)
+                ys.append(obstacle.maxY + outset + gap)
+            }
+            if let canvasBounds {
+                ys.append(canvasBounds.minY + outset)
+                ys.append(canvasBounds.maxY - size - outset)
+            }
+            ys.sort { lhs, rhs in
+                let leftDistance = abs(lhs - preferred.minY)
+                let rightDistance = abs(rhs - preferred.minY)
+                return leftDistance == rightDistance ? lhs < rhs : leftDistance < rightDistance
+            }
+            for y in ys {
+                let candidate = CGRect(x: preferred.minX, y: y, width: size, height: size)
+                let target = resizeHitFrame(for: candidate, edge: edge, screenPointsPerDisplayedPoint: scale)
+                if let canvasBounds, !canvasBounds.contains(target) { continue }
+                if !obstacles.contains(where: { $0.intersects(target) }) { return candidate }
+            }
+            return preferred
         }
+        let leading = placedHandle(edge: .leading, avoiding: protected)
+        let leadingHit = resizeHitFrame(for: leading, edge: .leading, screenPointsPerDisplayedPoint: scale)
+        let trailing = placedHandle(edge: .trailing, avoiding: protected + [leadingHit])
         return LeadSheetChordEditControlFrames(delete: delete,
-            leadingResize: frames.leadingResize, trailingResize: resize)
+            leadingResize: leading, trailingResize: trailing)
     }
 
     static func resizeHitTarget(
@@ -121,12 +135,16 @@ enum LeadSheetChordEditOverlayGeometry {
             }
 
             for chordLayout in measure.chordLayouts.reversed() where chordLayout.id == selectedChordID {
-                let controls = controlFrames(for: chordLayout, within: pageLayout.pageBounds)
-                if controls.trailingResize.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
+                let controls = controlFrames(for: chordLayout, in: pageLayout)
+                let handles: [(CGRect, ActiveChordResizeDrag.Edge, ChordEditHitTarget.Action)] = [
+                    (controls.leadingResize, .leading, .resizeLeading),
+                    (controls.trailingResize, .trailing, .resizeTrailing)
+                ]
+                for (frame, edge, action) in handles where resizeHitFrame(for: frame, edge: edge).contains(location) {
                     return ChordEditHitTarget(
                         measureID: measureID,
                         chordID: chordLayout.id,
-                        action: .resizeTrailing
+                        action: action
                     )
                 }
             }
@@ -146,11 +164,12 @@ enum LeadSheetChordEditOverlayGeometry {
             }
 
             for chordLayout in measure.chordLayouts.reversed() {
-                let controls = controlFrames(for: chordLayout, within: pageLayout.pageBounds)
+                let controls = controlFrames(for: chordLayout, in: pageLayout)
                 if controls.delete.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
                     continue
                 }
-                if controls.trailingResize.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
+                if resizeHitFrame(for: controls.leadingResize, edge: .leading).contains(location)
+                    || resizeHitFrame(for: controls.trailingResize, edge: .trailing).contains(location) {
                     continue
                 }
 
@@ -180,7 +199,7 @@ enum LeadSheetChordEditOverlayGeometry {
             }
 
             for chordLayout in measure.chordLayouts.reversed() {
-                let controlFrames = controlFrames(for: chordLayout, within: pageLayout.pageBounds)
+                let controlFrames = controlFrames(for: chordLayout, in: pageLayout)
                 if controlFrames.delete.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
                     return ChordEditHitTarget(
                         measureID: measureID,
@@ -188,7 +207,10 @@ enum LeadSheetChordEditOverlayGeometry {
                         action: .delete
                     )
                 }
-                if controlFrames.trailingResize.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
+                if resizeHitFrame(for: controlFrames.leadingResize, edge: .leading).contains(location) {
+                    return ChordEditHitTarget(measureID: measureID, chordID: chordLayout.id, action: .resizeLeading)
+                }
+                if resizeHitFrame(for: controlFrames.trailingResize, edge: .trailing).contains(location) {
                     return ChordEditHitTarget(
                         measureID: measureID,
                         chordID: chordLayout.id,
@@ -298,7 +320,69 @@ struct ActiveCueTextMoveDrag {
     var startLocation: CGPoint
     var initialFrame: CGRect
     var currentFrame: CGRect
-    var startingVerticalOffset: Double
+    var sourceChart: Chart
+    var sourcePageLayout: LeadSheetPageLayout
+    var sourcePageSize: CGSize
+    var sourceCue: CueText
+    var sourceMeasure: LeadSheetMeasureLayout
+    var sourceMeter: Meter
+    var screenPointsPerDisplayedPoint: CGFloat
+    var currentProjection: LeadSheetCueTextMoveProjection?
+    var lastProjectionKey: LeadSheetCueTextMoveProjectionKey?
+    var pageLayoutProjectionCount = 0
+    var previewTemplateKey: LeadSheetCueTextMoveTemplateKey?
+    var previewTemplate: LeadSheetCueTextMovePreviewTemplate?
+    var ownershipRows: [LeadSheetCueTextMoveRowGeometry]
+    var ownershipY: CGFloat?
+    var ownershipRowIndex: Int?
+
+    init?(cueTextID: UUID, chart: Chart, pageLayout: LeadSheetPageLayout, pageSize: CGSize,
+        startLocation: CGPoint, screenPointsPerDisplayedPoint: CGFloat = 1) {
+        guard let cue = chart.cueText(id: cueTextID), let sourceModel = chart.measure(id: cue.anchorMeasureID),
+              let measure = pageLayout.systems.flatMap(\.measures).first(where: {
+                  $0.sourceMeasureID == cue.anchorMeasureID
+              }), let layout = measure.cueTextLayouts.first(where: { $0.id == cueTextID }) else { return nil }
+        self.cueTextID = cueTextID
+        self.startLocation = startLocation
+        initialFrame = layout.frame
+        currentFrame = layout.frame
+        sourceChart = chart
+        sourcePageLayout = pageLayout
+        sourcePageSize = pageSize
+        sourceCue = cue
+        sourceMeasure = measure
+        sourceMeter = sourceModel.resolvedMeter(defaultMeter: chart.defaultMeter)
+        self.screenPointsPerDisplayedPoint = max(0.0001, screenPointsPerDisplayedPoint)
+        let meters = Dictionary(chart.measures.map { ($0.id, $0.resolvedMeter(defaultMeter: chart.defaultMeter)) },
+            uniquingKeysWith: { first, _ in first })
+        let paperBySystem = Dictionary(pageLayout.pages.flatMap { page in
+            page.systemIDs.map { ($0, page.frame) }
+        }, uniquingKeysWith: { first, _ in first })
+        ownershipRows = pageLayout.systems.compactMap { system in
+            let owned = system.measures.filter { $0.sourceMeasureID != nil }
+                .sorted { $0.staffFrame.minX < $1.staffFrame.minX }
+            guard let first = owned.first, let last = owned.last,
+                  let minimumY = owned.map({ $0.frame.minY }).min(),
+                  let maximumY = owned.map({ $0.frame.maxY }).max() else { return nil }
+            let measures = owned.compactMap { measure -> LeadSheetCueTextMoveMeasureGeometry? in
+                guard let id = measure.sourceMeasureID, let meter = meters[id] else { return nil }
+                return LeadSheetCueTextMoveMeasureGeometry(id: id, staffFrame: measure.staffFrame, meter: meter)
+            }
+            let paper = paperBySystem[system.id] ?? pageLayout.paperFrame
+            return LeadSheetCueTextMoveRowGeometry(minimumY: minimumY, maximumY: maximumY,
+                paper: paper, measures: measures,
+                leadingMargin: LeadSheetPageLayoutEngine.cueTextHorizontalOriginRange(for: .leadingMargin,
+                    measure: first, system: system, paperFrame: paper, cueWidth: layout.frame.width),
+                trailingMargin: LeadSheetPageLayoutEngine.cueTextHorizontalOriginRange(for: .trailingMargin,
+                    measure: last, system: system, paperFrame: paper, cueWidth: layout.frame.width))
+        }
+        currentProjection = LeadSheetCueTextMoveProjection(measureID: cue.anchorMeasureID,
+            fraction: cue.beatFraction, verticalOffset: cue.verticalOffset, cueLayout: layout,
+            horizontalPlacement: cue.horizontalPlacement,
+            attachmentGuide: cue.horizontalPlacement.map { $0.region != .measure } == true
+                ? nil : CGPoint(x: measure.staffFrame.midX, y: measure.staffFrame.midY),
+            manualVerticalOffset: cue.manualVerticalOffset)
+    }
 }
 
 struct LeadSheetCueTextEditControlFrames {
@@ -328,92 +412,101 @@ enum LeadSheetCueTextEditOverlayGeometry {
     static let editFrameHitOutset: CGFloat = 8
 
     static func editFrame(for cueTextLayout: LeadSheetCueTextLayout) -> CGRect {
-        let paddedFrame = cueTextLayout.frame.insetBy(dx: -5, dy: -4)
-        return CGRect(
-            x: paddedFrame.minX,
-            y: paddedFrame.minY,
-            width: max(32, paddedFrame.width),
-            height: max(22, paddedFrame.height)
-        )
+        cueTextLayout.frame.insetBy(dx: -2, dy: -2)
     }
 
     static func editHitFrame(for cueTextLayout: LeadSheetCueTextLayout) -> CGRect {
-        editFrame(for: cueTextLayout).insetBy(dx: -editFrameHitOutset, dy: -editFrameHitOutset)
+        let frame = editFrame(for: cueTextLayout).insetBy(dx: -editFrameHitOutset, dy: -editFrameHitOutset)
+        let width = max(44, frame.width), height = max(44, frame.height)
+        return CGRect(x: frame.midX - width / 2, y: frame.midY - height / 2,
+            width: width, height: height)
     }
 
-    static func controlFrames(for cueTextLayout: LeadSheetCueTextLayout) -> LeadSheetCueTextEditControlFrames {
+    static func controlFrames(for cueTextLayout: LeadSheetCueTextLayout,
+        within bounds: CGRect? = nil) -> LeadSheetCueTextEditControlFrames {
         let editFrame = editFrame(for: cueTextLayout)
-        let originY = editFrame.minY - controlSize - 4
-        let startX = editFrame.minX
         let controlStep = controlSize + controlGap
-
+        let rowWidth = controlSize * 4 + controlGap * 3
+        let gap = controlHitOutset + 1
+        var originY = editFrame.minY - controlSize - gap
+        var startX = editFrame.minX
+        if let bounds {
+            let usable = bounds.insetBy(dx: controlHitOutset, dy: controlHitOutset)
+            startX = min(max(startX, usable.minX), max(usable.minX, usable.maxX - rowWidth))
+            if originY < usable.minY { originY = editFrame.maxY + gap }
+            originY = min(max(originY, usable.minY), max(usable.minY, usable.maxY - controlSize))
+        }
         return LeadSheetCueTextEditControlFrames(
             edit: CGRect(x: startX, y: originY, width: controlSize, height: controlSize),
-            shrink: CGRect(
-                x: startX + controlStep,
-                y: originY,
-                width: controlSize,
-                height: controlSize
-            ),
-            grow: CGRect(
-                x: startX + controlStep * 2,
-                y: originY,
-                width: controlSize,
-                height: controlSize
-            ),
-            delete: CGRect(
-                x: startX + controlStep * 3,
-                y: originY,
-                width: controlSize,
-                height: controlSize
-            )
+            shrink: CGRect(x: startX + controlStep, y: originY, width: controlSize, height: controlSize),
+            grow: CGRect(x: startX + controlStep * 2, y: originY, width: controlSize, height: controlSize),
+            delete: CGRect(x: startX + controlStep * 3, y: originY, width: controlSize, height: controlSize)
         )
+    }
+
+    static func controlHitFrames(for cueTextLayout: LeadSheetCueTextLayout,
+        within bounds: CGRect? = nil) -> LeadSheetCueTextEditControlFrames {
+        let controls = controlFrames(for: cueTextLayout, within: bounds)
+        let frames = [controls.edit, controls.shrink, controls.grow, controls.delete]
+        let hits = frames.enumerated().map { index, frame in
+            let padded = frame.insetBy(dx: -controlHitOutset, dy: -controlHitOutset)
+            let minX = index == 0 ? padded.minX : (frames[index - 1].maxX + frame.minX) / 2
+            let maxX = index == frames.count - 1 ? padded.maxX : (frame.maxX + frames[index + 1].minX) / 2
+            return CGRect(x: minX, y: padded.minY, width: maxX - minX, height: padded.height)
+        }
+        return LeadSheetCueTextEditControlFrames(edit: hits[0], shrink: hits[1], grow: hits[2], delete: hits[3])
+    }
+
+    static func bodyHitTarget(
+        at location: CGPoint,
+        in cueTextLayouts: [LeadSheetCueTextLayout]
+    ) -> LeadSheetCueTextLayout? {
+        func nearest(in candidates: [LeadSheetCueTextLayout], frame: (LeadSheetCueTextLayout) -> CGRect) -> LeadSheetCueTextLayout? {
+            candidates.reduce(nil) { best, cue in
+                guard let best else { return cue }
+                let candidate = frame(cue), existing = frame(best)
+                let candidateDistance = hypot(candidate.midX - location.x, candidate.midY - location.y)
+                let existingDistance = hypot(existing.midX - location.x, existing.midY - location.y)
+                return candidateDistance < existingDistance ? cue : best
+            }
+        }
+        let visible = cueTextLayouts.filter { $0.frame.contains(location) }
+        if !visible.isEmpty { return nearest(in: visible, frame: { $0.frame }) }
+        return nearest(in: cueTextLayouts.filter { editHitFrame(for: $0).contains(location) },
+            frame: { editHitFrame(for: $0) })
     }
 
     static func hitTarget(
         at location: CGPoint,
         in cueTextLayouts: [LeadSheetCueTextLayout],
-        selectedCueTextID: UUID?
+        selectedCueTextID: UUID?,
+        controlBounds: CGRect? = nil
     ) -> CueTextEditHitTarget? {
-        for cueTextLayout in cueTextLayouts.reversed() {
-            let isSelected = selectedCueTextID == cueTextLayout.id
-            let controlFrames = controlFrames(for: cueTextLayout)
-
-            if isSelected {
-                if controlFrames.delete.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
-                    return CueTextEditHitTarget(cueTextID: cueTextLayout.id, action: .delete)
-                }
-                if controlFrames.edit.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
-                    return CueTextEditHitTarget(cueTextID: cueTextLayout.id, action: .edit)
-                }
-                if controlFrames.shrink.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
-                    return CueTextEditHitTarget(cueTextID: cueTextLayout.id, action: .shrink)
-                }
-                if controlFrames.grow.insetBy(dx: -controlHitOutset, dy: -controlHitOutset).contains(location) {
-                    return CueTextEditHitTarget(cueTextID: cueTextLayout.id, action: .grow)
-                }
+        let selected = cueTextLayouts.first { $0.id == selectedCueTextID }
+        func controlTarget(_ controls: LeadSheetCueTextEditControlFrames, cue: LeadSheetCueTextLayout) -> CueTextEditHitTarget? {
+            for (frame, action) in [(controls.edit, CueTextEditHitTarget.Action.edit),
+                (controls.shrink, .shrink), (controls.grow, .grow), (controls.delete, .delete)] {
+                if frame.contains(location) { return CueTextEditHitTarget(cueTextID: cue.id, action: action) }
             }
-
-            if editHitFrame(for: cueTextLayout).contains(location) {
-                return CueTextEditHitTarget(cueTextID: cueTextLayout.id, action: .select)
-            }
+            return nil
         }
-
-        return nil
+        if let selected, let control = controlTarget(controlFrames(for: selected, within: controlBounds), cue: selected) { return control }
+        if cueTextLayouts.contains(where: { $0.frame.contains(location) }),
+           let cue = bodyHitTarget(at: location, in: cueTextLayouts) {
+            return CueTextEditHitTarget(cueTextID: cue.id, action: .select)
+        }
+        if let selected, let control = controlTarget(controlHitFrames(for: selected, within: controlBounds), cue: selected) { return control }
+        guard let cue = bodyHitTarget(at: location, in: cueTextLayouts) else { return nil }
+        return CueTextEditHitTarget(cueTextID: cue.id, action: .select)
     }
 
     static func moveHitTarget(
         at location: CGPoint,
         in cueTextLayouts: [LeadSheetCueTextLayout]
     ) -> LeadSheetCueTextLayout? {
-        for cueTextLayout in cueTextLayouts.reversed() {
-            if editFrame(for: cueTextLayout).insetBy(dx: -editFrameHitOutset, dy: -editFrameHitOutset).contains(location) {
-                return cueTextLayout
-            }
-        }
-
-        return nil
+        bodyHitTarget(at: location, in: cueTextLayouts)
     }
+
 }
 
 enum LeadSheetRoadmapMarkerEditOverlayGeometry {

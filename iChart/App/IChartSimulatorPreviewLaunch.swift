@@ -8,4 +8,13 @@ enum IChartSimulatorPreviewLaunch {
         false
         #endif
     }
+
+    static var editorWidthLimit: CGFloat? {
+        #if DEBUG && targetEnvironment(simulator)
+        if showsEditorUIFixture, ProcessInfo.processInfo.arguments.contains("-iChartEditorUINarrow") {
+            return 360
+        }
+        #endif
+        return nil
+    }
 }

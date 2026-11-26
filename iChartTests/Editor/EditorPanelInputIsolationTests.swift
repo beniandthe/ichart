@@ -71,6 +71,44 @@ final class EditorPanelInputIsolationTests: XCTestCase {
         XCTAssertEqual(host.canvas.drawing.dataRepresentation(), sourceBytes)
     }
 
+    func testQueuedInkFocusWaitsForTheEditorUpdateAndRespectsPanelSuspension() async throws {
+        let host = try makeHost(style: .simpleChordSheet)
+        defer { host.window.isHidden = true }
+        XCTAssertFalse(host.canvas.isFirstResponder, "Focus must not reenter the canvas update")
+
+        host.view.isInteractionSuspended = true
+        await afterMainQueueUpdate()
+        XCTAssertFalse(host.canvas.isFirstResponder, "A review panel cancels the queued focus")
+
+        host.view.isInteractionSuspended = false
+        await afterMainQueueUpdate()
+        XCTAssertTrue(host.canvas.isFirstResponder, "Dismissing the review restores writing focus")
+
+        host.view.isInteractionSuspended = true
+        await afterMainQueueUpdate()
+        XCTAssertFalse(host.canvas.isFirstResponder, "An open panel releases established ink focus")
+
+        host.view.isInteractionSuspended = false
+        XCTAssertTrue(host.view.isUserInteractionEnabled)
+        XCTAssertFalse(host.canvas.canBecomeFirstResponder,
+            "Re-enabling a suspended canvas must not synchronously admit first-responder promotion during layout")
+        XCTAssertFalse(host.canvas.isFirstResponder,
+            "Re-enabling a suspended canvas must wait for the deferred turn before promoting focus")
+        await afterMainQueueUpdate()
+        XCTAssertTrue(host.canvas.canBecomeFirstResponder)
+        XCTAssertTrue(host.canvas.isFirstResponder)
+        host.view.interactionMode = .browse
+        await afterMainQueueUpdate()
+        XCTAssertFalse(host.canvas.isFirstResponder, "Leaving Write & Render releases ink focus")
+        XCTAssertTrue(host.canvas.isHidden)
+    }
+
+    private func afterMainQueueUpdate() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+    }
+
     func testSuspendedPanelPreventsFocusWhenAnInkToolIsActivated() throws {
         let host = try makeHost(style: .simpleChordSheet)
         defer { host.window.isHidden = true }

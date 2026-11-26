@@ -477,7 +477,7 @@ final class FreeInkFixedPaperEditorIntegrationTests: XCTestCase {
         let ancestorGeometry: [String]
     }
 
-    private let chromeLabels = ["Exit Chart", "Select", "Free Ink", "Measures", "Tools"]
+    private let chromeLabels = ["Exit Chart", "Select", "Free Ink", "Measures", "Repeats"]
 
     private func viewportChromeSnapshot(in mounted: MountedEditor) throws -> ViewportChromeSnapshot {
         let scroll = try parentScrollView(of: mounted.canvas)

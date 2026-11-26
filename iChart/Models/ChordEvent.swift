@@ -43,6 +43,9 @@ struct ChordEvent: Identifiable, Codable, Hashable {
     var manualLaneFraction: Double? = nil
     // Visual left edge within the chord band; never changes musical timing.
     var manualVisualLaneFraction: Double? = nil
+    // Explicit manual intent; absent on older/automatic placements, which keep
+    // their established downbeat inset even if their stored fraction is zero.
+    var manualVisualAllowsLeadingInset: Bool? = nil
 
     init(
         id: UUID,
@@ -64,7 +67,8 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         manualDisplayScale: Double? = nil,
         manualHorizontalScale: Double? = nil,
         manualLaneFraction: Double? = nil,
-        manualVisualLaneFraction: Double? = nil
+        manualVisualLaneFraction: Double? = nil,
+        manualVisualAllowsLeadingInset: Bool? = nil
     ) {
         self.id = id
         self.symbol = symbol
@@ -88,6 +92,7 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         self.manualHorizontalScale = manualHorizontalScale.map(Self.clampedManualHorizontalScale)
         self.manualLaneFraction = manualLaneFraction.map(Self.clampedManualLaneFraction)
         self.manualVisualLaneFraction = manualVisualLaneFraction.map(Self.clampedManualLaneFraction)
+        self.manualVisualAllowsLeadingInset = manualVisualLaneFraction != nil && manualVisualAllowsLeadingInset == true ? true : nil
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -111,6 +116,7 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         case manualHorizontalScale
         case manualLaneFraction
         case manualVisualLaneFraction
+        case manualVisualAllowsLeadingInset
     }
 
     init(from decoder: Decoder) throws {
@@ -156,6 +162,8 @@ struct ChordEvent: Identifiable, Codable, Hashable {
             .map(Self.clampedManualLaneFraction)
         manualVisualLaneFraction = try container.decodeIfPresent(Double.self, forKey: .manualVisualLaneFraction)
             .map(Self.clampedManualLaneFraction)
+        let allowsLeadingInset = try container.decodeIfPresent(Bool.self, forKey: .manualVisualAllowsLeadingInset)
+        manualVisualAllowsLeadingInset = manualVisualLaneFraction != nil && allowsLeadingInset == true ? true : nil
     }
 
     func encode(to encoder: Encoder) throws {
@@ -189,6 +197,9 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         try container.encodeIfPresent(manualHorizontalScale, forKey: .manualHorizontalScale)
         try container.encodeIfPresent(manualLaneFraction, forKey: .manualLaneFraction)
         try container.encodeIfPresent(manualVisualLaneFraction, forKey: .manualVisualLaneFraction)
+        if manualVisualLaneFraction != nil, manualVisualAllowsLeadingInset == true {
+            try container.encode(true, forKey: .manualVisualAllowsLeadingInset)
+        }
     }
 
     var displaySummary: String {

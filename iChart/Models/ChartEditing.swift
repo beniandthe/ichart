@@ -743,7 +743,7 @@ extension Chart {
             guard let offset = row.firstIndex(of: measureID),
                   let target = candidate.measure(id: measureID) else { return nil }
             let inserted = target.authoringState == .open
-                ? candidate.commitOpenMeasure(barlineAfter: barlineAfter)
+                ? candidate.commitOpenMeasure(barlineAfter: barlineAfter, explicitlyAddsNextMeasure: true)
                 : candidate.insertMeasure(after: measureID, barlineAfter: barlineAfter)
             guard let inserted else { return nil }
             insertedMeasureID = inserted
@@ -756,6 +756,67 @@ extension Chart {
         guard candidate.fitRhythmMeasureRows([row], availableWidths: [availableWidth]) else { return nil }
         self = candidate
         return insertedMeasureID
+    }
+
+    @discardableResult
+    mutating func insertOneMeasureAfterForEditing(
+        _ measureID: UUID,
+        barlineAfter: BarlineType = .single,
+        extendingRepeat repeatID: UUID? = nil,
+        rhythmRow: (measureIDs: [UUID], availableWidth: CGFloat)? = nil
+    ) -> UUID? {
+        guard let target = measure(id: measureID) else { return nil }
+        var candidate = self
+        let insertedID: UUID?
+        if let rhythmRow, layoutStyle == .rhythmSectionSheet {
+            insertedID = candidate.insertMeasure(inRhythmRow: rhythmRow.measureIDs,
+                availableWidth: rhythmRow.availableWidth, after: measureID, barlineAfter: barlineAfter)
+        } else if target.authoringState == .open {
+            insertedID = candidate.commitOpenMeasure(
+                barlineAfter: barlineAfter, explicitlyAddsNextMeasure: true)
+        } else {
+            insertedID = candidate.insertMeasure(after: measureID, barlineAfter: barlineAfter)
+        }
+        guard let insertedID,
+              candidate.extendClosingRepeat(repeatID, from: measureID, through: insertedID) else {
+            return nil
+        }
+        self = candidate
+        return insertedID
+    }
+
+    @discardableResult
+    mutating func insertMeasureStackAfterForEditing(
+        _ measureID: UUID,
+        count: Int,
+        extendingRepeat repeatID: UUID? = nil
+    ) -> [UUID]? {
+        guard count > 0, let target = measure(id: measureID) else { return nil }
+        var candidate = self
+        if target.authoringState == .open, candidate.commitOpenMeasure() == nil {
+            return nil
+        }
+        guard let insertedIDs = candidate.insertMeasures(after: measureID, count: count),
+              let lastID = insertedIDs.last,
+              candidate.extendClosingRepeat(repeatID, from: measureID, through: lastID) else {
+            return nil
+        }
+        self = candidate
+        return insertedIDs
+    }
+
+    // Moving an inner endpoint past an outer repeat would make the ranges cross.
+    // When several repeats share this boundary, only the outermost can extend alone.
+    private mutating func extendClosingRepeat(
+        _ repeatID: UUID?,
+        from oldEnd: UUID,
+        through newEnd: UUID
+    ) -> Bool {
+        guard let repeatID else { return true }
+        guard let outermost = closingRepeatSpans(at: oldEnd).first, outermost.id == repeatID else {
+            return false
+        }
+        return updateRepeatSpan(repeatID, startMeasureID: outermost.startMeasureID, endMeasureID: newEnd)
     }
 
     @discardableResult
@@ -862,6 +923,11 @@ extension Chart {
         )
         updatedAt = .now
         return firstNewMeasureID
+    }
+
+    func deletingMeasureResetsBarline(id measureID: UUID) -> Bool {
+        guard let location = measureLocation(id: measureID) else { return false }
+        return canClearFirstMeasureTrailingBarline(at: location)
     }
 
     func canDeleteMeasure(id measureID: UUID) -> Bool {
@@ -1198,6 +1264,18 @@ extension Chart {
             .map { $0.element }
 
         for cueTextIndex in cueTexts.indices {
+            if let placement = cueTexts[cueTextIndex].horizontalPlacement {
+                // Margin placement belongs to the surviving row. It keeps its
+                // margin fraction while the existing reference anchor is joined.
+                guard placement.region == .measure else { continue }
+                if cueTexts[cueTextIndex].anchorMeasureID == leftMeasure.id {
+                    cueTexts[cueTextIndex].horizontalPlacement = CueTextHorizontalPlacement(
+                        region: .measure, fraction: placement.fraction * leftScale, wrapWidth: placement.wrapWidth)
+                } else if cueTexts[cueTextIndex].anchorMeasureID == rightMeasure.id {
+                    cueTexts[cueTextIndex].horizontalPlacement = CueTextHorizontalPlacement(
+                        region: .measure, fraction: leftScale + placement.fraction * rightScale, wrapWidth: placement.wrapWidth)
+                }
+            }
             guard let beatFraction = cueTexts[cueTextIndex].beatFraction else {
                 continue
             }
@@ -1337,6 +1415,7 @@ extension Chart {
         var rightMeasure = originalMeasure
         rightMeasure.id = UUID()
         rightMeasure.index = originalMeasure.index + 1
+        rightMeasure.isExplicitlyAddedOpenMeasure = false
         rightMeasure.chordEvents = []
         rightMeasure.cueTextIDs = []
         rightMeasure.roadmapObjectIDs = []
@@ -1381,6 +1460,9 @@ extension Chart {
             leftMeasure.manualLayoutWidth = Double(max(1, CGFloat(manualLayoutWidth) * CGFloat(splitFraction)))
             rightMeasure.manualLayoutWidth = Double(max(1, CGFloat(manualLayoutWidth) * CGFloat(1 - splitFraction)))
         }
+
+        redistributeExplicitCuePlacementsAcrossSplit(from: originalMeasure.id,
+            fraction: splitFraction, left: &leftMeasure, right: &rightMeasure)
 
         // The following meter still begins after all of the original measure's
         // material. Move its existing receipt before rebuilding meter overrides
@@ -1946,6 +2028,7 @@ extension Chart {
             .measures[sourceLocation.measureIndex]
             .chordEvents[sourceLocation.chordIndex]
         chordEvent.manualVisualLaneFraction = nil
+        chordEvent.manualVisualAllowsLeadingInset = nil
 
         if sourceLocation.systemIndex == targetLocation.systemIndex,
            sourceLocation.measureIndex == targetLocation.measureIndex {
@@ -1988,11 +2071,16 @@ extension Chart {
         to targetMeasureID: UUID,
         atFraction fraction: Double?,
         visualFraction: Double? = nil,
-        preserveMusicalPlacement: Bool = false
+        preserveMusicalPlacement: Bool = false,
+        allowsLeadingVisualInset: Bool? = nil
     ) -> Bool {
         guard let visualSourceLocation = chordEventLocation(id: chordEventID),
               let visualTargetLocation = measureLocation(id: targetMeasureID) else { return false }
         let normalizedVisualFraction = visualFraction.map(ChordEvent.clampedManualLaneFraction)
+        let leadingInsetIntent = allowsLeadingVisualInset
+            ?? (systems[visualSourceLocation.systemIndex].measures[visualSourceLocation.measureIndex]
+                .chordEvents[visualSourceLocation.chordIndex].manualVisualAllowsLeadingInset == true)
+        let normalizedLeadingInsetIntent: Bool? = normalizedVisualFraction != nil && leadingInsetIntent ? true : nil
         if preserveMusicalPlacement,
            visualSourceLocation.systemIndex == visualTargetLocation.systemIndex,
            visualSourceLocation.measureIndex == visualTargetLocation.measureIndex {
@@ -2001,6 +2089,10 @@ extension Chart {
                 .measures[visualSourceLocation.measureIndex]
                 .chordEvents[visualSourceLocation.chordIndex]
                 .manualVisualLaneFraction = normalizedVisualFraction
+            systems[visualSourceLocation.systemIndex]
+                .measures[visualSourceLocation.measureIndex]
+                .chordEvents[visualSourceLocation.chordIndex]
+                .manualVisualAllowsLeadingInset = normalizedLeadingInsetIntent
             updatedAt = .now
             return true
         }
@@ -2012,6 +2104,10 @@ extension Chart {
                     .measures[movedLocation.measureIndex]
                     .chordEvents[movedLocation.chordIndex]
                     .manualVisualLaneFraction = normalizedVisualFraction
+                systems[movedLocation.systemIndex]
+                    .measures[movedLocation.measureIndex]
+                    .chordEvents[movedLocation.chordIndex]
+                    .manualVisualAllowsLeadingInset = normalizedLeadingInsetIntent
             }
         }
         guard layoutStyle == .simpleChordSheet,
@@ -2348,7 +2444,8 @@ extension Chart {
     @discardableResult
     mutating func commitOpenMeasure(
         barlineAfter: BarlineType? = nil,
-        normalizeSingleChordToMeasureStart: Bool = true
+        normalizeSingleChordToMeasureStart: Bool = true,
+        explicitlyAddsNextMeasure: Bool = false
     ) -> UUID? {
         guard let location = openMeasureLocation() else {
             return nil
@@ -2360,11 +2457,12 @@ extension Chart {
         if let barlineAfter {
             systems[location.systemIndex].measures[location.measureIndex].barlineAfter = barlineAfter
         }
-        let newMeasure = Self.makeMeasure(
+        var newMeasure = Self.makeMeasure(
             index: measures.count + 1,
             authoringState: .open,
             beatGridPreset: layoutStyle.profile.measureDefaults.beatGridPreset
         )
+        newMeasure.isExplicitlyAddedOpenMeasure = explicitlyAddsNextMeasure
         insertPreparedMeasure(newMeasure, after: location)
         if normalizeSingleChordToMeasureStart {
             anchorLoneChordsToMeasureStart(in: [closingMeasureID])
@@ -2526,7 +2624,10 @@ extension Chart {
             right.usesDrawnRhythmTailWidth = true
         }
 
-        for index in cueTexts.indices where cueTexts[index].anchorMeasureID == measureID {
+        redistributeExplicitCuePlacementsAcrossSplit(from: measureID,
+            fraction: fraction, left: &left, right: &right)
+        for index in cueTexts.indices where cueTexts[index].anchorMeasureID == measureID
+            && cueTexts[index].horizontalPlacement == nil {
             if cueTexts[index].position == .leadingEdge { continue }
             if cueTexts[index].position == .trailingEdge {
                 cueTexts[index].anchorMeasureID = right.id
@@ -2713,6 +2814,7 @@ extension Chart {
         var rightMeasure = originalMeasure
         rightMeasure.id = UUID()
         rightMeasure.index = originalMeasure.index + 1
+        rightMeasure.isExplicitlyAddedOpenMeasure = false
         rightMeasure.roadmapObjectIDs = []
 
         leftMeasure.authoringState = .committed
@@ -2782,6 +2884,7 @@ extension Chart {
                 positioned.mappedRhythmSlotIndex = start.mappedRhythmSlotIndex
                 positioned.manualLaneFraction = nil
                 positioned.manualVisualLaneFraction = nil
+                positioned.manualVisualAllowsLeadingInset = nil
                 systems[systemIndex].measures[measureIndex].chordEvents[0] = positioned
             }
         }
@@ -2873,7 +2976,8 @@ extension Chart {
         _ text: String,
         anchorMeasureID: UUID? = nil,
         position: CuePosition = .below,
-        emphasis: CueEmphasis = .normal
+        emphasis: CueEmphasis = .normal,
+        atFraction fraction: Double? = nil
     ) -> UUID? {
         let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedText.isEmpty else {
@@ -2882,7 +2986,8 @@ extension Chart {
 
         let resolvedMeasureID = anchorMeasureID ?? systems.first?.measures.first?.id
         guard let resolvedMeasureID,
-              measureLocation(id: resolvedMeasureID) != nil else {
+              let measure = measure(id: resolvedMeasureID),
+              fraction == nil || fraction?.isFinite == true else {
             return nil
         }
 
@@ -2892,6 +2997,7 @@ extension Chart {
             anchorMeasureID: resolvedMeasureID,
             position: position,
             emphasis: emphasis,
+            beatFraction: snappedCueTextBeatFraction(CueText.clampedBeatFraction(fraction), in: measure),
             rawInput: normalizedText
         )
 
@@ -2938,6 +3044,7 @@ extension Chart {
 
         if let verticalOffset {
             cueTexts[cueTextIndex].verticalOffset = CueText.clampedVerticalOffset(verticalOffset)
+            cueTexts[cueTextIndex].manualVerticalOffset = nil
         }
 
         updatedAt = .now
@@ -2962,9 +3069,23 @@ extension Chart {
         }
 
         let clampedOffset = CueText.clampedVerticalOffset(offset)
-        guard cueTexts[index].verticalOffset != clampedOffset else { return false }
+        guard cueTexts[index].verticalOffset != clampedOffset || cueTexts[index].manualVerticalOffset != nil else { return false }
 
         cueTexts[index].verticalOffset = clampedOffset
+        cueTexts[index].manualVerticalOffset = nil
+        updatedAt = .now
+        return true
+    }
+
+    @discardableResult
+    mutating func setCueTextManualVerticalOffset(_ cueTextID: UUID, to offset: Double) -> Bool {
+        guard offset.isFinite,
+              let index = cueTexts.firstIndex(where: { $0.id == cueTextID }),
+              measureLocation(id: cueTexts[index].anchorMeasureID) != nil else { return false }
+        let fallback = CueText.clampedVerticalOffset(offset)
+        guard cueTexts[index].manualVerticalOffset != offset || cueTexts[index].verticalOffset != fallback else { return false }
+        cueTexts[index].manualVerticalOffset = offset
+        cueTexts[index].verticalOffset = fallback
         updatedAt = .now
         return true
     }
@@ -2974,9 +3095,12 @@ extension Chart {
         _ cueTextID: UUID,
         to targetMeasureID: UUID,
         atFraction fraction: Double?,
-        verticalOffset: Double? = nil
+        verticalOffset: Double? = nil,
+        horizontalPlacement: CueTextHorizontalPlacement? = nil,
+        manualVerticalOffset: Double? = nil
     ) -> Bool {
-        guard let cueTextIndex = cueTexts.firstIndex(where: { $0.id == cueTextID }),
+        guard manualVerticalOffset == nil || manualVerticalOffset?.isFinite == true,
+              let cueTextIndex = cueTexts.firstIndex(where: { $0.id == cueTextID }),
               let targetLocation = measureLocation(id: targetMeasureID) else {
             return false
         }
@@ -2990,8 +3114,13 @@ extension Chart {
 
         cueTexts[cueTextIndex].anchorMeasureID = targetMeasureID
         cueTexts[cueTextIndex].beatFraction = snappedFraction
-        if let verticalOffset {
+        cueTexts[cueTextIndex].horizontalPlacement = horizontalPlacement
+        if let manualVerticalOffset {
+            cueTexts[cueTextIndex].manualVerticalOffset = manualVerticalOffset
+            cueTexts[cueTextIndex].verticalOffset = CueText.clampedVerticalOffset(manualVerticalOffset)
+        } else if let verticalOffset {
             cueTexts[cueTextIndex].verticalOffset = CueText.clampedVerticalOffset(verticalOffset)
+            cueTexts[cueTextIndex].manualVerticalOffset = nil
         }
 
         if previousMeasureID != targetMeasureID {
@@ -3032,6 +3161,38 @@ extension Chart {
 
         let meter = measure.resolvedMeter(defaultMeter: defaultMeter)
         return MeasurePlacementGrid.snappedFraction(fraction, in: meter)
+    }
+
+    private mutating func redistributeExplicitCuePlacementsAcrossSplit(
+        from measureID: UUID, fraction: Double, left: inout Measure, right: inout Measure
+    ) {
+        for index in cueTexts.indices where cueTexts[index].anchorMeasureID == measureID {
+            guard let placement = cueTexts[index].horizontalPlacement else { continue }
+            let movesRight: Bool
+            switch placement.region {
+            case .leadingMargin:
+                continue
+            case .trailingMargin:
+                movesRight = true
+            case .measure:
+                movesRight = placement.fraction >= fraction
+                let localFraction = movesRight
+                    ? (placement.fraction - fraction) / (1 - fraction)
+                    : placement.fraction / fraction
+                cueTexts[index].horizontalPlacement = CueTextHorizontalPlacement(
+                    region: .measure, fraction: localFraction, wrapWidth: placement.wrapWidth)
+                if let legacyFraction = cueTexts[index].beatFraction {
+                    cueTexts[index].beatFraction = CueText.clampedBeatFraction(movesRight
+                        ? (legacyFraction - fraction) / (1 - fraction)
+                        : legacyFraction / fraction)
+                }
+            }
+            if movesRight {
+                cueTexts[index].anchorMeasureID = right.id
+                left.cueTextIDs.removeAll { $0 == cueTexts[index].id }
+                if !right.cueTextIDs.contains(cueTexts[index].id) { right.cueTextIDs.append(cueTexts[index].id) }
+            }
+        }
     }
 
     @discardableResult
@@ -3523,6 +3684,18 @@ extension Chart {
         return true
     }
 
+    func closingRepeatSpans(at measureID: UUID) -> [RoadmapObject] {
+        guard let endIndex = flattenedMeasureIndex(id: measureID) else { return [] }
+        return roadmapObjects.compactMap { object -> (span: RoadmapObject, startIndex: Int)? in
+            guard object.type == .repeatSpan, object.endMeasureID == measureID,
+                  let startIndex = flattenedMeasureIndex(id: object.startMeasureID),
+                  startIndex <= endIndex else { return nil }
+            return (object, startIndex)
+        }.sorted {
+            ($0.startIndex, $0.span.id.uuidString) < ($1.startIndex, $1.span.id.uuidString)
+        }.map(\.span)
+    }
+
     func repeatSpanIDs(attachedTo measureID: UUID) -> [UUID] {
         roadmapObjects
             .filter {
@@ -3704,7 +3877,8 @@ extension Chart {
             return false
         }
 
-        return measure.chordEvents.isEmpty
+        return !measure.isExplicitlyAddedOpenMeasure
+            && measure.chordEvents.isEmpty
             && measure.rhythmMap == nil
             && measure.handwrittenRhythmicNotationData == nil
             && measure.cueTextIDs.isEmpty

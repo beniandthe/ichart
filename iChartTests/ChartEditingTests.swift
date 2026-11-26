@@ -511,6 +511,125 @@ final class ChartEditingTests: XCTestCase {
         XCTAssertTrue(chart.measure(id: endMeasureID)?.roadmapObjectIDs.contains(repeatID) == true)
     }
 
+    func testAddOneAfterOpenRepeatKeepsItsAnchorsAndTheNewMeasureAfterReopen() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            var chart = Chart.draft(title: "Last Measure Repeat", layoutStyle: style)
+            chart.completeInitialSetup(title: chart.title, key: .cMajor,
+                meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine)
+            let repeatMeasureID = try XCTUnwrap(chart.measures.first?.id)
+            let original = try XCTUnwrap(chart.measure(id: repeatMeasureID))
+            XCTAssertEqual(original.authoringState, .open)
+            XCTAssertFalse(original.isExplicitlyAddedOpenMeasure)
+            XCTAssertTrue(chart.appendRecognizedChord(try ChordSymbolParser.parse("C7"), rawInput: "C7",
+                to: repeatMeasureID, atFraction: 0.4))
+            let chordID = try XCTUnwrap(chart.measure(id: repeatMeasureID)?.chordEvents.first?.id)
+            let repeatID = try XCTUnwrap(
+                chart.addRepeatSpan(startMeasureID: repeatMeasureID, endMeasureID: repeatMeasureID)
+            )
+
+            let row = style == .rhythmSectionSheet
+                ? (measureIDs: [repeatMeasureID], availableWidth: CGFloat(720)) : nil
+            let insertedID = try XCTUnwrap(chart.insertOneMeasureAfterForEditing(repeatMeasureID, rhythmRow: row))
+
+            let reopened = try ChartPersistenceCoders.decoder.decode(Chart.self,
+                from: ChartPersistenceCoders.encoder.encode(chart))
+            XCTAssertEqual(reopened.measures.map(\.id), [repeatMeasureID, insertedID])
+            XCTAssertEqual(reopened.measures.map(\.authoringState), [.committed, .open])
+            XCTAssertEqual(reopened.measures[0].chordEvents.map(\.id), [chordID])
+            XCTAssertEqual(reopened.measures[0].roadmapObjectIDs, [repeatID])
+            XCTAssertTrue(reopened.measures[1].chordEvents.isEmpty)
+            XCTAssertTrue(reopened.measures[1].roadmapObjectIDs.isEmpty)
+            XCTAssertTrue(reopened.measures[1].isExplicitlyAddedOpenMeasure)
+            XCTAssertEqual(reopened.roadmapObject(id: repeatID)?.startMeasureID, repeatMeasureID)
+            XCTAssertEqual(reopened.roadmapObject(id: repeatID)?.endMeasureID, repeatMeasureID)
+        }
+    }
+
+    func testAddOneInsideLastRepeatMovesOnlyItsClosingEdgeAndPreservesSourceOnReopen() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            var chart = Chart.draft(title: "Extend the Repeat", layoutStyle: style)
+            chart.completeInitialSetup(title: chart.title, key: .cMajor,
+                meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine,
+                startingMeasureCount: 2)
+            let ids = chart.measures.map(\.id)
+            let anchor = ids[1]
+            let repeatID = try XCTUnwrap(chart.addRepeatSpan(startMeasureID: anchor, endMeasureID: anchor))
+            let endingID = try XCTUnwrap(chart.addEndingSpan(.ending1, startMeasureID: anchor,
+                endMeasureID: anchor, displayText: "1.", endStyle: .closed))
+            let originalEnding = try XCTUnwrap(chart.roadmapObject(id: endingID))
+            let source = Data([4, 3, 2, 1])
+            let chordID = try XCTUnwrap(chart.appendRecognizedChordEvent(try ChordSymbolParser.parse("C7"),
+                rawInput: "C7", to: anchor, atFraction: 0.4, sourceInkData: source))
+            let row = style == .rhythmSectionSheet ? (measureIDs: ids, availableWidth: CGFloat(720)) : nil
+
+            let inserted = try XCTUnwrap(chart.insertOneMeasureAfterForEditing(anchor,
+                extendingRepeat: repeatID, rhythmRow: row))
+            let reopened = try ChartPersistenceCoders.decoder.decode(Chart.self,
+                from: ChartPersistenceCoders.encoder.encode(chart))
+
+            XCTAssertEqual(reopened.measures.map(\.id), ids + [inserted])
+            XCTAssertEqual(reopened.roadmapObject(id: repeatID)?.startMeasureID, anchor)
+            XCTAssertEqual(reopened.roadmapObject(id: repeatID)?.endMeasureID, inserted)
+            XCTAssertEqual(reopened.roadmapObject(id: endingID), originalEnding)
+            XCTAssertEqual(reopened.measure(id: anchor)?.chordEvents.first?.id, chordID)
+            XCTAssertEqual(reopened.measure(id: anchor)?.chordEvents.first?.sourceInkData, source)
+            XCTAssertEqual(reopened.measure(id: inserted)?.authoringState, .open)
+            XCTAssertEqual(reopened.measure(id: inserted)?.roadmapObjectIDs, [repeatID])
+            XCTAssertTrue(reopened.measure(id: inserted)?.chordEvents.isEmpty == true)
+            if style == .rhythmSectionSheet {
+                let rowID = try XCTUnwrap(reopened.measure(id: anchor)?.rhythmFittedRowID)
+                XCTAssertTrue(reopened.measures.allSatisfy { $0.rhythmFittedRowID == rowID })
+            }
+        }
+    }
+
+    func testInsertStackAtSharedRepeatEndUsesOutermostAndPreservesOtherRanges() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            var chart = Chart.blank(title: "Shared Repeat End", measureCount: 5, layoutStyle: style)
+            let ids = chart.measures.map(\.id)
+            let anchor = ids[2]
+            let innerID = try XCTUnwrap(chart.addRepeatSpan(startMeasureID: ids[1], endMeasureID: anchor))
+            let outerID = try XCTUnwrap(chart.addRepeatSpan(startMeasureID: ids[0], endMeasureID: anchor))
+            let laterID = try XCTUnwrap(chart.addRepeatSpan(startMeasureID: anchor, endMeasureID: ids[4]))
+            XCTAssertEqual(chart.closingRepeatSpans(at: anchor).map(\.id), [outerID, innerID])
+            let before = chart
+            XCTAssertNil(chart.insertMeasureStackAfterForEditing(anchor, count: 2, extendingRepeat: innerID))
+            XCTAssertNil(chart.insertMeasureStackAfterForEditing(anchor, count: 2, extendingRepeat: laterID))
+            XCTAssertEqual(chart, before)
+
+            var outside = before
+            let outsideIDs = try XCTUnwrap(outside.insertMeasureStackAfterForEditing(anchor, count: 2))
+            XCTAssertEqual(outside.measures.map(\.id), Array(ids.prefix(3)) + outsideIDs + Array(ids.suffix(2)))
+            XCTAssertEqual(outside.roadmapObjects, before.roadmapObjects)
+
+            let insertedIDs = try XCTUnwrap(chart.insertMeasureStackAfterForEditing(anchor, count: 2,
+                extendingRepeat: outerID))
+            XCTAssertEqual(chart.measures.map(\.id), Array(ids.prefix(3)) + insertedIDs + Array(ids.suffix(2)))
+            XCTAssertEqual(chart.roadmapObject(id: outerID)?.id, outerID)
+            XCTAssertEqual(chart.roadmapObject(id: outerID)?.startMeasureID, ids[0])
+            XCTAssertEqual(chart.roadmapObject(id: outerID)?.endMeasureID, insertedIDs.last)
+            XCTAssertEqual(chart.roadmapObject(id: innerID), before.roadmapObject(id: innerID))
+            XCTAssertEqual(chart.roadmapObject(id: laterID), before.roadmapObject(id: laterID))
+            XCTAssertFalse(chart.measure(id: anchor)?.roadmapObjectIDs.contains(outerID) == true)
+            XCTAssertEqual(chart.measure(id: try XCTUnwrap(insertedIDs.last))?.roadmapObjectIDs, [outerID])
+        }
+    }
+
+    func testFailedRepeatInsertionDoesNotCommitOpenMeasureOrMoveRepeat() throws {
+        var chart = Chart.draft(title: "Failed Repeat Insertion", layoutStyle: .rhythmSectionSheet)
+        chart.completeInitialSetup(title: chart.title, key: .cMajor,
+            meter: Meter(numerator: 4, denominator: 4), staffStyle: .fiveLine)
+        let anchor = try XCTUnwrap(chart.measures.first?.id)
+        let repeatID = try XCTUnwrap(chart.addRepeatSpan(startMeasureID: anchor, endMeasureID: anchor))
+        let before = chart
+
+        XCTAssertNil(chart.insertOneMeasureAfterForEditing(anchor, extendingRepeat: repeatID,
+            rhythmRow: (measureIDs: [anchor], availableWidth: 0)))
+        XCTAssertEqual(chart, before)
+        XCTAssertNil(chart.insertOneMeasureAfterForEditing(anchor, extendingRepeat: UUID()))
+        XCTAssertEqual(chart, before)
+    }
+
     func testInsertMeasureAfterSelectedAddsMeasureWithoutMovingTrailingOpenMeasure() throws {
         var chart = Chart.draft(title: "New Chart")
         chart.completeInitialSetup(
@@ -851,11 +970,14 @@ final class ChartEditingTests: XCTestCase {
         let measureIDs = chart.measures.map(\.id)
         chart.systems[0].measures[0].barlineAfter = .double
 
+        XCTAssertTrue(chart.deletingMeasureResetsBarline(id: measureIDs[0]))
+        XCTAssertFalse(chart.deletingMeasureResetsBarline(id: measureIDs[1]))
         XCTAssertTrue(chart.canDeleteMeasure(id: measureIDs[0]))
         XCTAssertTrue(chart.deleteMeasure(id: measureIDs[0]))
 
         XCTAssertEqual(chart.measures.map(\.id), measureIDs)
         XCTAssertEqual(chart.measure(id: measureIDs[0])?.barlineAfter, .single)
+        XCTAssertFalse(chart.deletingMeasureResetsBarline(id: measureIDs[0]))
     }
 
     func testCanDeleteMeasureRequiresExistingMeasureAndSpareMeasure() throws {
