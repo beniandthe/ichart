@@ -38,3 +38,11 @@ Treat user-facing tool guidance as part of the feature. Whenever a change adds, 
 - For a UI change, check that the helper is visible on the tool screen, readable when it wraps, and consistent with the controls a user can reach. Verify that it does not push controls out of reach or make the writing canvas jump during input.
 - Run the relevant editor, routing, or workflow tests. Update existing expectations where the instructions change and add focused coverage for regressions the existing tests would miss.
 - In the handoff, identify the tool behavior and guidance updated together. Separate source review, automated tests, Simulator observation, and physical iPad results. A tool change is complete when the current behavior and the instructions agree.
+
+## Coordinate before editing
+
+Read [the shared coordination contract](docs/agent-coordination.md) before planning, editing, integration, or release work. Confirm the actual checkout, branch, full HEAD, dirty state, task owner, and owned paths; directory names and old handoffs are not proof of current ownership. Use a separate task checkout or worktree for each assistant and keep unrelated work recoverable.
+
+Hand off exact commits and verification receipts using the shared template. Only the recipient can acknowledge receipt of that exact head; a hook event, shared file, or another assistant's summary is not an acknowledgement. Report conflicts and missing evidence before combining work. Do not claim an automatic Codex/Gemini bridge without a verified round trip.
+
+Keep parked ML and the mixed original Documents checkout intact. Keep Supabase automatic production deployment OFF until a separately authorized backend rollout; a source merge does not authorize database migrations, paid activation, or Apple delivery. Preserve the existing saved-state and stopped-app backup gates for iPad updates.

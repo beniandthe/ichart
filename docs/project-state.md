@@ -1,6 +1,27 @@
 # Project state and next Apple build
 
-## Accepted baseline and v1.9 release candidate — November 6, 2026
+## Current source consolidation — November 26, 2026
+
+The normal public-beta candidate is **1.9.4 (199)**. GitHub `main` is the
+accepted source authority; the integration pull request is
+[Prepare iChart 1.9.4 (199) and reconcile editor CI](https://github.com/beniandthe/ichart/pull/113).
+Use its live checks and merge receipt for current readiness. The November 6 and
+older checkpoints below are historical, not the current build or deployment state.
+
+The candidate includes the active editor feature chain, the later keyboard-focus
+repair, test-fixture corrections, CI de-duplication, and the pending CodeQL action
+maintenance. See the [consolidation audit](repository-consolidation-2026-11-26.md)
+and [shared agent workflow](agent-coordination.md) before starting or handing off
+work. Every assistant uses an isolated task branch; unfinished private research
+and the mixed old checkout remain preserved outside the release lane.
+
+Public **Pro — Free** remains the release path. Keep Supabase GitHub **Deploy to
+production OFF** until a separately authorized backend rollout. Paid staging,
+local plan previews, paused ML work, archives/signing, physical iPad preservation,
+and Apple delivery retain their separate gates. Repository consolidation is not
+an Apple upload or a device-install receipt.
+
+## Historical accepted baseline and v1.9 release candidate — November 6, 2026
 
 The user accepted the installed local **Build 149** as the new main baseline
 and authorized GitHub integration, repository cleanup and an App Store **1.9**

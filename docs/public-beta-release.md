@@ -1,4 +1,8 @@
-# Normal public beta release: 1.9.4 (174)
+# Normal public beta release: 1.9.4 (199) candidate
+
+This is the ordinary production-backed free-beta candidate. Check the final
+merged source, current App Store Connect build availability, signing and CI
+receipts before archiving or delivering it. This procedure is not a delivery receipt.
 
 This is the ordinary production-backed free beta. Free Pro remains on. It uses
 `com.ichart.app`, the existing public library/preferences/auth namespace, and
@@ -37,10 +41,10 @@ env -u XCODE_XCCONFIG_FILE -u SWIFT_ACTIVE_COMPILATION_CONDITIONS \
   -configuration Release -destination 'generic/platform=iOS' \
   -derivedDataPath "$R/DerivedData" \
   -clonedSourcePackagesDirPath "$R/SourcePackages" \
-  -archivePath "$R/iChart-1.9.4-174.xcarchive" \
+  -archivePath "$R/iChart-1.9.4-199.xcarchive" \
   -resultBundlePath "$R/archive.xcresult" \
   -onlyUsePackageVersionsFromResolvedFile \
-  MARKETING_VERSION=1.9.4 CURRENT_PROJECT_VERSION=174 \
+  MARKETING_VERSION=1.9.4 CURRENT_PROJECT_VERSION=199 \
   ICHART_INCLUDE_PERSONAL_ML_COMPARISON=NO > "$R/archive.log" 2>&1
 ```
 
@@ -79,13 +83,13 @@ Write a fresh `ExportOptions.plist` with these values:
 
 ```sh
 xcodebuild -exportArchive \
-  -archivePath "$R/iChart-1.9.4-174.xcarchive" \
+  -archivePath "$R/iChart-1.9.4-199.xcarchive" \
   -exportPath "$R/export" -exportOptionsPlist "$R/ExportOptions.plist" \
   > "$R/export.log" 2>&1
 
 python3 "$S/scripts/verify_public_beta_archive.py" verify \
   --source "$S" --source-pin "$R/public-source-pin.json" \
-  --archive "$R/iChart-1.9.4-174.xcarchive" \
+  --archive "$R/iChart-1.9.4-199.xcarchive" \
   --derived-data "$R/DerivedData" --build-log "$R/archive.log" \
   --export-options "$R/ExportOptions.plist" --ipa "$R/export/iChart.ipa" \
   --output "$R/public-distribution-verification.json"

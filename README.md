@@ -29,7 +29,7 @@ or existing evidence.
 do not hand-edit generated project files.
 
 ```sh
-swift test
+./scripts/swiftpm-local.sh test
 xcodegen generate
 xcodebuild test -project iChart.xcodeproj -scheme iChart -onlyUsePackageVersionsFromResolvedFile -destination 'platform=iOS Simulator,name=<available iPad>' -resultBundlePath /private/tmp/iChart-<unique-run>.xcresult CODE_SIGNING_ALLOWED=NO
 xcrun xcresulttool get test-results summary --path /private/tmp/iChart-<unique-run>.xcresult
@@ -46,12 +46,24 @@ is tracked; the rest of the generated project stays ignored. Normal native CI
 and CodeQL builds require that graph. Update the lock deliberately and verify
 the changed dependencies rather than resolving a new graph implicitly.
 
-Normal CI runs SwiftPM and the iChart Simulator suite. The retained
-RecognitionStudy and Python/Core ML contracts run only when the CI workflow is
-manually dispatched with `run_recognition_research` enabled. Ordinary app
-changes do not require Python model training or a research artifact package.
-The ordinary app job also runs the seven dependency-free packaging guard tests
-that keep experimental comparison resources out of normal builds.
+Normal CI runs on pull requests targeting `main`, pushes to `main`, and manual
+dispatches. Open a pull request for every change; a draft is enough to start
+validation. Feature-branch pushes alone do not start a second copy of CI.
+Updating the pull request reruns its checks, and a merge starts the `main`
+integration check. Keep the required check names unchanged.
+
+SwiftPM and iChart Simulator jobs always report their required contexts. Their
+expensive steps can skip documentation, static-site, or analyzer-action-only
+changes; runtime package and build-input changes still run the tests. For an
+early check before opening a pull request, use **Actions > CI > Run workflow**
+and select the feature branch. Manual CI is a preflight, not a replacement for
+the pull request's CodeQL and dependency-review checks.
+
+The retained RecognitionStudy and Python/Core ML contracts run only when CI is
+manually dispatched with `run_recognition_research` enabled. Leave that input
+off for ordinary app work. Normal builds do not require model training or a
+research artifact package. The ordinary app job also runs dependency-free
+packaging guards that keep experimental comparison resources out of the app.
 
 ## Development policy
 
