@@ -293,10 +293,17 @@ extension Chart {
         moved.paperLayout?.needsSystemFit = false
         if collides {
             var ordered = peers.sorted { ($0.paperLayout?.startFraction ?? 0) < ($1.paperLayout?.startFraction ?? 0) }
-            let destination = ordered.firstIndex {
-                guard let other = $0.paperLayout else { return false }
-                return x < (other.startFraction + other.endFraction) / 2
-            } ?? ordered.count
+            let destination: Int
+            if x <= 0.0001 {
+                destination = 0
+            } else if x + width >= 0.9999 {
+                destination = ordered.count
+            } else {
+                destination = ordered.firstIndex {
+                    guard let other = $0.paperLayout else { return false }
+                    return x < (other.startFraction + other.endFraction) / 2
+                } ?? ordered.count
+            }
             ordered.insert(moved, at: destination)
             systems[row].measures = packedPaperMeasures(ordered, row: row)
         } else {
