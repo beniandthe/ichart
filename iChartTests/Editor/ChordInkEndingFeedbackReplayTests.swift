@@ -111,7 +111,8 @@ final class ChordInkEndingFeedbackReplayTests: XCTestCase {
         for horizontalOffset in [CGFloat(-7), 0, 7] {
             var chart = Chart.blank(title: "Ending near a terminal repeat", measureCount: 6,
                 layoutStyle: .simpleChordSheet)
-            let widths: [Double] = [91, 120, 50, 92, 92, 64]
+            // This case exercises true implicit continuation, not a saved-width measure.
+            let widths: [Double?] = [91, 120, 50, 92, 92, nil]
             let ids = chart.measures.map(\.id)
             for index in chart.systems[0].measures.indices {
                 chart.systems[0].measures[index].manualLayoutWidth = widths[index]
@@ -135,6 +136,9 @@ final class ChordInkEndingFeedbackReplayTests: XCTestCase {
                 paperFrame: layout.paperFrame(for: system)))
             let chordFrame = LeadSheetActiveInkScope.chordWritingRegion(for: layout).frame
             let fifth = try XCTUnwrap(system.measures.first { $0.sourceMeasureID == ids[4] })
+            let continuation = try XCTUnwrap(system.measures.first { $0.sourceMeasureID == ids[5] })
+            XCTAssertTrue(continuation.isOpen)
+            XCTAssertFalse(continuation.preservesOpenMeasureBoundary)
             let visibleClose = try XCTUnwrap(LeadSheetSimpleChordTerminalBarlineGeometry.terminalTrailingRepeatLineX(
                 after: fifth, in: system, paperFrame: layout.paperFrame(for: system), layoutStyle: chart.layoutStyle))
             let splitX = fifth.frame.minX + fifth.frame.width * 0.60

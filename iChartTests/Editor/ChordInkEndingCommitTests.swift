@@ -37,17 +37,31 @@ final class ChordInkEndingCommitTests: XCTestCase {
     }
 
     func testEndingAtRenderedTerminalRepeatUsesLastSplitSegmentAndExcludesOpenContinuation() throws {
+        try assertEndingAtRenderedRepeatBoundary(tailWidth: nil, explicitlyAdded: false)
+    }
+
+    func testEndingAtPreservedOpenMeasureBoundaryExcludesManualAndExplicitTails() throws {
+        try assertEndingAtRenderedRepeatBoundary(tailWidth: 64, explicitlyAdded: false)
+        try assertEndingAtRenderedRepeatBoundary(tailWidth: nil, explicitlyAdded: true)
+    }
+
+    private func assertEndingAtRenderedRepeatBoundary(tailWidth: Double?, explicitlyAdded: Bool) throws {
         for (spacing, endpointOffset) in ChordDraftBarlineSpacingMode.allCases.flatMap({ spacing in
             [CGFloat(8), 24].map { (spacing, $0) }
         }) {
             var chart = Chart.blank(title: "Repeat ending join", measureCount: 6, layoutStyle: .simpleChordSheet)
             let ids = chart.measures.map(\.id)
-            let widths: [Double] = [91, 120, 50, 92, 92, 64]
+            let preservesTailBoundary = tailWidth != nil || explicitlyAdded
+            // The preserved interior boundary needs enough roof length for
+            // both endpoint offsets; it no longer extends to the row edge.
+            let repeatedWidth: Double = preservesTailBoundary ? 180 : 92
+            let widths: [Double?] = [91, 120, 50, 92, repeatedWidth, tailWidth]
             for system in chart.systems.indices {
                 for measure in chart.systems[system].measures.indices {
                     let id = chart.systems[system].measures[measure].id
                     chart.systems[system].measures[measure].manualLayoutWidth = widths[try XCTUnwrap(ids.firstIndex(of: id))]
                     chart.systems[system].measures[measure].authoringState = id == ids.last ? .open : .committed
+                    chart.systems[system].measures[measure].isExplicitlyAddedOpenMeasure = id == ids.last && explicitlyAdded
                 }
             }
             let repeatID = try XCTUnwrap(chart.addRepeatSpan(startMeasureID: ids[3], endMeasureID: ids[4]))
@@ -58,33 +72,78 @@ final class ChordInkEndingCommitTests: XCTestCase {
             let existingEnding = chart.roadmapObject(id: existingEndingID)
             let fixture = try fixture(chart)
             let repeatedMeasure = try XCTUnwrap(fixture.system.measures.first { $0.sourceMeasureID == ids[4] })
-            let terminalX = try XCTUnwrap(LeadSheetSimpleChordTerminalBarlineGeometry.terminalTrailingRepeatLineX(
-                after: repeatedMeasure, in: fixture.system,
-                paperFrame: fixture.layout.paperFrame(for: fixture.system), layoutStyle: .simpleChordSheet))
-            let startX = repeatedMeasure.frame.minX + repeatedMeasure.frame.width * 0.603
+            let following = try XCTUnwrap(fixture.system.measures.first { $0.sourceMeasureID == ids[5] })
+            XCTAssertEqual(following.preservesOpenMeasureBoundary, preservesTailBoundary)
+            let paperFrame = fixture.layout.paperFrame(for: fixture.system)
+            let terminalX = LeadSheetSimpleChordTerminalBarlineGeometry.terminalTrailingRepeatLineX(
+                after: repeatedMeasure, in: fixture.system, paperFrame: paperFrame, layoutStyle: .simpleChordSheet)
+            let boundary = LeadSheetSimpleChordTerminalBarlineGeometry.renderedBoundary(
+                after: repeatedMeasure, before: following, excludingRepeatMarkerIDs: [],
+                in: fixture.system, paperFrame: paperFrame, layoutStyle: .simpleChordSheet)
+            guard case .repeatBoundary(let markers, let closingLineX) = boundary else {
+                return XCTFail("The ending fixture needs a visible closing repeat")
+            }
+            XCTAssertTrue(markers.contains { $0.roadmapObjectID == repeatID && $0.edge == .trailing })
+            let visibleClose = try XCTUnwrap(closingLineX)
+            if preservesTailBoundary {
+                XCTAssertNil(terminalX)
+                XCTAssertEqual(visibleClose, following.leadingBarlineX, accuracy: 0.001)
+            } else {
+                XCTAssertEqual(visibleClose, try XCTUnwrap(terminalX), accuracy: 0.001)
+                XCTAssertGreaterThan(visibleClose, following.leadingBarlineX)
+            }
+            // The preserved boundary is interior to the row. Start its new
+            // split earlier so both offsets leave a supported roof; retain the
+            // original 60.3% split for the implicit row-end continuation case.
+            let splitFraction: CGFloat = preservesTailBoundary ? 0.25 : 0.603
+            let startX = repeatedMeasure.frame.minX + repeatedMeasure.frame.width * splitFraction
+            let roofEndX = visibleClose - endpointOffset
+            if preservesTailBoundary {
+                let roofWidth = roofEndX - startX
+                let minimumRoofWidth = max(44, fixture.lane.height * 0.8)
+                XCTAssertGreaterThan(startX, repeatedMeasure.frame.minX,
+                    "The fixture's new barline must split the repeated measure's interior")
+                XCTAssertLessThan(startX, repeatedMeasure.frame.maxX,
+                    "The fixture's new barline must leave a following split segment")
+                XCTAssertGreaterThanOrEqual(roofWidth, minimumRoofWidth,
+                    "The preserved-boundary fixture must draw a supported ending roof")
+                guard startX > repeatedMeasure.frame.minX,
+                      startX < repeatedMeasure.frame.maxX,
+                      roofWidth >= minimumRoofWidth else {
+                    throw FixtureFailure.invalidPreservedEndingGeometry
+                }
+            }
             let drawing = PKDrawing(strokes: bracket(fixture: fixture,
-                left: startX, right: terminalX - endpointOffset).strokes + [barline(x: startX, fixture: fixture)])
+                left: startX, right: roofEndX).strokes + [barline(x: startX, fixture: fixture)])
             var state = try install(drawing, in: &chart, fixture: fixture)
+            // Bind outside an XCTest autoclosure: a missing ending must throw
+            // before commit/index assertions rather than causing a host restart.
+            let draftEnding = try XCTUnwrap(state.draftEndings.first)
             XCTAssertEqual(state.draftBarlines.count, 1)
             XCTAssertEqual(chart.draftEndingReviewMeasureCount(state: state), 7)
-            XCTAssertEqual(chart.draftEndingMeasureRange(for: try XCTUnwrap(state.draftEndings.first), state: state), 6...6)
+            XCTAssertEqual(chart.draftEndingMeasureRange(for: draftEnding, state: state), 6...6)
             try review(&state, chart: chart, label: "2–4", style: .open)
             let result = chart.commitChordInkDraftBatch(state, barlineSpacingMode: spacing)
             XCTAssertTrue(result.unresolvedDraftIDs.isEmpty, spacing.rawValue)
             XCTAssertFalse(result.didRejectIncompleteSourceCoverage, spacing.rawValue)
             XCTAssertEqual(result.renderedEndingCount, 1)
             XCTAssertEqual(chart.measures.count, 7)
-            let ending = try XCTUnwrap(chart.roadmapObjects.last { $0.type.isEnding })
-            XCTAssertEqual(ending.startMeasureID, chart.measures[5].id)
-            XCTAssertEqual(ending.endMeasureID, chart.measures[5].id)
-            XCTAssertEqual(chart.measures[6].id, ids[5], "The pre-existing open continuation stays outside")
+            let ending = try XCTUnwrap(chart.roadmapObjects.last { $0.type.isEnding && $0.id != existingEndingID })
+            let splitSegment = try XCTUnwrap(chart.measures.dropFirst(5).first)
+            let followingAfter = try XCTUnwrap(chart.measures.dropFirst(6).first)
+            XCTAssertEqual(ending.startMeasureID, splitSegment.id)
+            XCTAssertEqual(ending.endMeasureID, splitSegment.id)
+            XCTAssertEqual(followingAfter.id, ids[5], "The pre-existing open continuation stays outside")
+            XCTAssertEqual(followingAfter.authoringState, .open)
+            XCTAssertEqual(followingAfter.manualLayoutWidth, tailWidth)
+            XCTAssertEqual(followingAfter.isExplicitlyAddedOpenMeasure, explicitlyAdded)
             let repeatSpan = try XCTUnwrap(chart.roadmapObject(id: repeatID))
             XCTAssertEqual(repeatSpan.startMeasureID, ids[3])
-            XCTAssertEqual(repeatSpan.endMeasureID, chart.measures[5].id)
+            XCTAssertEqual(repeatSpan.endMeasureID, splitSegment.id)
             XCTAssertEqual(repeatSpan.sourceInkData, Data([7, 8, 9]))
             XCTAssertEqual(chart.roadmapObject(id: existingEndingID), existingEnding)
             XCTAssertFalse(chart.measure(id: ids[4])!.roadmapObjectIDs.contains(repeatID))
-            XCTAssertTrue(chart.measures[5].roadmapObjectIDs.contains(repeatID))
+            XCTAssertTrue(splitSegment.roadmapObjectIDs.contains(repeatID))
         }
     }
 
@@ -370,6 +429,10 @@ final class ChordInkEndingCommitTests: XCTestCase {
         XCTAssertFalse(outcome.canConsumeSource)
         XCTAssertTrue(outcome.result.didRejectIncompleteSourceCoverage)
         XCTAssertEqual(outcome.chart, chart)
+    }
+
+    private enum FixtureFailure: Error {
+        case invalidPreservedEndingGeometry
     }
 
     private struct Fixture {

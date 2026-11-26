@@ -265,7 +265,18 @@ final class DividerToolGuidanceTests: XCTestCase {
                 CGPoint(x: redX.midX, y: redX.midY), from: mounted.canvas), with: nil),
                 "The selected divider's red X must be reachable through the actual hit overlay")
         } else {
-            XCTAssertTrue(expected.referenceText.contains("Layout actions stay visible to the left of the chart"))
+            let layoutGuide = try XCTUnwrap(expected.details.first { $0.title == "Layout actions" })
+            XCTAssertTrue(layoutGuide.text.contains("Quick Actions holds the Layout controls"))
+            XCTAssertTrue(layoutGuide.text.contains("to the left of the chart"))
+            XCTAssertTrue(layoutGuide.text.contains("below the tool controls in narrow windows"),
+                "The guide must explain the responsive placement rather than promise a left-only sidebar")
+            let quickActions = try await node("Quick Actions", in: mounted.window)
+            assertVisible(quickActions, in: mounted.window)
+            let collapseQuickActions = try await node("Collapse Quick Actions", in: mounted.window, button: true)
+            assertVisible(collapseQuickActions, in: mounted.window)
+            XCTAssertTrue(collapseQuickActions.isEnabled)
+            XCTAssertGreaterThanOrEqual(collapseQuickActions.frame(in: mounted.window).height, 44,
+                "The visible Quick Actions control must remain reachable at the fixture's large text size")
             XCTAssertTrue(expected.referenceText.contains("Merge with Next Measure"))
             XCTAssertEqual(mounted.canvas.interactionMode, .measureEdit)
             for label in ["Add One After", "Delete Range…", "Done"] {
