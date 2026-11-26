@@ -38,6 +38,16 @@ enum LeadSheetManualInkEraseSamplingPolicy {
 }
 
 final class LeadSheetScopedInkCanvasView: PKCanvasView {
+    /// Gate first-responder eligibility until the host's deferred focus turn so
+    /// re-enabling interaction or unhiding the canvas during SwiftUI's
+    /// updateUIView cannot synchronously promote the canvas into UIKit's
+    /// responder chain and reenter SwiftUI's active AttributeGraph update.
+    var allowsFirstResponder = false
+
+    override var canBecomeFirstResponder: Bool {
+        allowsFirstResponder && super.canBecomeFirstResponder
+    }
+
     var manualEraseEnabled = false {
         didSet {
             guard oldValue != manualEraseEnabled else {

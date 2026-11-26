@@ -89,7 +89,14 @@ final class EditorPanelInputIsolationTests: XCTestCase {
         XCTAssertFalse(host.canvas.isFirstResponder, "An open panel releases established ink focus")
 
         host.view.isInteractionSuspended = false
+        XCTAssertTrue(host.view.isUserInteractionEnabled)
+        XCTAssertFalse(host.canvas.canBecomeFirstResponder,
+            "Re-enabling a suspended canvas must not synchronously admit first-responder promotion during layout")
+        XCTAssertFalse(host.canvas.isFirstResponder,
+            "Re-enabling a suspended canvas must wait for the deferred turn before promoting focus")
         await afterMainQueueUpdate()
+        XCTAssertTrue(host.canvas.canBecomeFirstResponder)
+        XCTAssertTrue(host.canvas.isFirstResponder)
         host.view.interactionMode = .browse
         await afterMainQueueUpdate()
         XCTAssertFalse(host.canvas.isFirstResponder, "Leaving Write & Render releases ink focus")

@@ -1897,9 +1897,18 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func updateInkCanvasFocus() {
-        let changesFocus = pageInkCanvasView.isFirstResponder != shouldOwnInkFocus
-        // Hiding or disabling a focused UIKit view also resigns it. Defer
-        // those updates together so the responder never reenters SwiftUI layout.
+        let wantsFocus = shouldOwnInkFocus
+        let changesFocus = pageInkCanvasView.isFirstResponder != wantsFocus
+        if !wantsFocus || !pageInkCanvasView.isFirstResponder {
+            pageInkCanvasView.allowsFirstResponder = false
+        } else {
+            pageInkCanvasView.allowsFirstResponder = true
+        }
+        // Hiding or disabling a focused UIKit view resigns it synchronously,
+        // and re-enabling or unhiding an eligible responder can synchronously
+        // promote it via UIView._promoteSelfOrDescendantToFirstResponderIfNecessary.
+        // Keep first-responder admission disabled until the deferred turn so
+        // responder changes never reenter SwiftUI's active AttributeGraph pass.
         if !pageInkCanvasView.isFirstResponder || !changesFocus {
             applyInkCanvasAvailability()
         }
@@ -1910,6 +1919,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             guard let self else { return }
             self.isInkFocusUpdatePending = false
             let wantsFocus = self.shouldOwnInkFocus
+            self.pageInkCanvasView.allowsFirstResponder = wantsFocus
             if !wantsFocus, self.pageInkCanvasView.isFirstResponder {
                 self.pageInkCanvasView.resignFirstResponder()
             }
