@@ -155,7 +155,7 @@ final class PaperMeasureGestureTests: XCTestCase {
         }
     }
 
-    func testInteriorReorderCommitsTheExactPreviewWithoutMovingOneMoreSlot() throws {
+    func testInteriorReorderCommitsTheDropGuideWhileTheGrabbedMeasureFollowsThePencil() throws {
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
             var original = Chart.blank(title: "Interior measure move", measureCount: 4, layoutStyle: style)
             original.hasCompletedInitialSetup = true
@@ -192,6 +192,10 @@ final class PaperMeasureGestureTests: XCTestCase {
             pan.simulatedState = .changed
             host.canvas.handleRenderedObjectMovePan(pan)
             let previewX = source.frame.minX + overlay.frame.minX - initialOverlayX
+            XCTAssertEqual(previewX, row.minX + row.width * 0.22, accuracy: 0.1)
+            let dropGuide = try XCTUnwrap(host.canvas.layer.sublayers?.first { $0.name == "measureMove.dropGuide" })
+            XCTAssertFalse(dropGuide.isHidden)
+            let dropX = dropGuide.frame.minX
             var expected = original
             XCTAssertTrue(expected.movePaperMeasure(movedID, toStartFraction: 0.22))
             XCTAssertEqual(expected.measures.map(\.id), [ids[0], ids[3], ids[1], ids[2]])
@@ -199,10 +203,160 @@ final class PaperMeasureGestureTests: XCTestCase {
             host.canvas.handleRenderedObjectMovePan(pan)
             XCTAssertEqual(host.canvas.chart.systems, expected.systems)
             let after = try XCTUnwrap(layout(host.canvas).systems.first?.measures.first { $0.sourceMeasureID == movedID })
-            XCTAssertEqual(after.frame.minX, previewX, accuracy: 0.1)
+            XCTAssertEqual(after.frame.minX, dropX, accuracy: 0.1)
+            XCTAssertNil(dropGuide.superlayer)
             for id in ids {
                 XCTAssertEqual(host.canvas.chart.measure(id: id)?.chordEvents, original.measure(id: id)?.chordEvents)
             }
+        }
+    }
+
+    func testPackedMeasureFollowsNinetySixSmallPencilSamplesWithinOneDropSlot() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            var original = Chart.blank(title: "Continuous packed measure drag", measureCount: 4, layoutStyle: style)
+            original.hasCompletedInitialSetup = true
+            let ids = original.measures.map(\.id)
+            for (index, id) in ids.enumerated() {
+                _ = original.appendRecognizedChordEvent(try ChordSymbolParser.parse(["C7", "D7", "E7", "F7"][index]),
+                    rawInput: ["C7", "D7", "E7", "F7"][index], to: id, atFraction: 0)
+            }
+            for row in original.systems.indices {
+                for index in original.systems[row].measures.indices {
+                    original.systems[row].measures[index].authoringState = .committed
+                }
+            }
+            let spans = Dictionary(uniqueKeysWithValues: ids.enumerated().map { index, id in
+                (id, (Double(index) / 4)...(Double(index + 1) / 4))
+            })
+            XCTAssertTrue(original.adoptPaperMeasureLayout([spans]))
+            let host = mount(original)
+            defer { host.close() }
+            let movedID = ids[3]
+            host.canvas.selectedMeasureID = movedID
+            let page = layout(host.canvas)
+            let system = try XCTUnwrap(page.systems.first)
+            let source = try XCTUnwrap(system.measures.first { $0.sourceMeasureID == movedID })
+            let row = try XCTUnwrap(system.paperWritingFrame)
+            let handle = LeadSheetMeasureResizeGeometry.moveHandleFrame(for: source)
+            let start = CGPoint(x: handle.midX, y: handle.midY)
+            XCTAssertTrue(host.canvas.beginRenderedObjectMoveTouch(at: start, touchType: .pencil))
+            let pan = PaperMeasurePan(point: start, movement: .zero, state: .began, view: host.canvas)
+            var writes = 0
+            host.canvas.onChartChanged = { _ in writes += 1 }
+            host.canvas.handleRenderedObjectMovePan(pan)
+            let image = try XCTUnwrap(host.canvas.layer.sublayers?.first { $0.name == "measureMove.snapshot" })
+            let contents = try XCTUnwrap(image.contents)
+            let initialImageX = image.frame.minX
+            let dropGuide = try XCTUnwrap(host.canvas.layer.sublayers?.first { $0.name == "measureMove.dropGuide" })
+            host.canvas.layer.displayIfNeeded()
+            pan.simulatedState = .changed
+            var lastImageX: CGFloat?
+            var requestedFraction = 0.0
+            for sample in 0..<96 {
+                requestedFraction = 0.22 + Double(sample) * 0.00015
+                let requestedX = row.minX + row.width * CGFloat(requestedFraction)
+                pan.point.x = start.x + requestedX - source.frame.minX
+                host.canvas.handleRenderedObjectMovePan(pan)
+                XCTAssertEqual(image.frame.minX - initialImageX, requestedX - source.frame.minX, accuracy: 0.001,
+                    "Every small Pencil movement must move the image even while the drop slot stays the same")
+                if let lastImageX { XCTAssertGreaterThan(image.frame.minX, lastImageX) }
+                lastImageX = image.frame.minX
+                XCTAssertEqual(dropGuide.frame.minX, row.minX + row.width * 0.25, accuracy: 0.1)
+                XCTAssertFalse(dropGuide.isHidden)
+                XCTAssertTrue(image.contents as AnyObject === contents as AnyObject)
+                XCTAssertFalse(host.canvas.layer.needsDisplay())
+                XCTAssertEqual(writes, 0)
+                XCTAssertEqual(host.canvas.chart, original)
+            }
+            let predictedDropX = dropGuide.frame.minX
+            var expected = original
+            XCTAssertTrue(expected.movePaperMeasure(movedID, toStartFraction: requestedFraction))
+            pan.simulatedState = .ended
+            host.canvas.handleRenderedObjectMovePan(pan)
+            XCTAssertEqual(writes, 1)
+            XCTAssertEqual(host.canvas.chart.systems, expected.systems)
+            let committed = try XCTUnwrap(layout(host.canvas).systems.first?.measures.first { $0.sourceMeasureID == movedID })
+            XCTAssertEqual(committed.frame.minX, predictedDropX, accuracy: 0.1)
+            XCTAssertNil(image.superlayer)
+            XCTAssertNil(dropGuide.superlayer)
+            for id in ids {
+                XCTAssertEqual(host.canvas.chart.measure(id: id)?.chordEvents, original.measure(id: id)?.chordEvents)
+            }
+        }
+    }
+
+    func testConcurrentDeletionCancelsTheMeasureResizeLayerAndCannotResurrectItsOwner() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            var original = Chart.blank(title: "Deleted resize owner", measureCount: 2, layoutStyle: style)
+            original.hasCompletedInitialSetup = true
+            let ids = original.measures.map(\.id)
+            for row in original.systems.indices {
+                for index in original.systems[row].measures.indices {
+                    original.systems[row].measures[index].authoringState = .committed
+                }
+            }
+            XCTAssertTrue(original.adoptPaperMeasureLayout([[
+                ids[0]: 0...0.5, ids[1]: 0.5...1
+            ]]))
+            let host = mount(original)
+            defer { host.close() }
+            host.canvas.selectedMeasureID = ids[1]
+            let measure = try XCTUnwrap(layout(host.canvas).systems.first?.measures.first { $0.sourceMeasureID == ids[1] })
+            let handle = LeadSheetMeasureResizeGeometry.handleFrames(for: measure).right
+            let start = CGPoint(x: handle.midX, y: handle.midY)
+            let pan = PaperMeasurePan(point: start, movement: .zero, state: .began, view: host.canvas)
+            let selector = NSSelectorFromString("handleMeasureResizePan:")
+            host.canvas.perform(selector, with: pan)
+            let preview = try XCTUnwrap(host.canvas.layer.sublayers?.first { $0.name == "measureResize.preview" })
+            var writes = 0
+            host.canvas.onChartChanged = { _ in writes += 1 }
+            pan.simulatedState = .changed
+            pan.point.x -= 20
+            pan.movement.x = -20
+            host.canvas.perform(selector, with: pan)
+            var removed = original
+            XCTAssertTrue(removed.deleteMeasure(id: ids[1]))
+            XCTAssertNil(removed.measure(id: ids[1]))
+            host.canvas.chart = removed
+            XCTAssertNil(preview.superlayer)
+            pan.simulatedState = .ended
+            host.canvas.perform(selector, with: pan)
+            XCTAssertEqual(host.canvas.chart, removed)
+            XCTAssertEqual(writes, 0, "A canceled resize must never restore its deleted owner")
+        }
+    }
+
+    func testChordResizeKeepsTheActiveGripWithThePencilAndClearsItOnCancel() throws {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            let original = try fixture(style)
+            let host = mount(original)
+            defer { host.close() }
+            let chordID = try XCTUnwrap(original.measures.first?.chordEvents.first?.id)
+            host.canvas.selectedChordID = chordID
+            let page = layout(host.canvas)
+            let context = RenderedEditContext(pageLayout: page, layoutStyle: style,
+                selection: RenderedEditSelectionState(selectedObjectID: .chord(chordID)),
+                allowsUnselectedChordMove: true, allowsSelectedMeasureMove: true)
+            let target = try XCTUnwrap(ChordRenderedEditHitTargetProvider().hitTargets(in: context)
+                .first { $0.objectID == .chord(chordID) && $0.action == .resizeTrailing })
+            let start = CGPoint(x: target.frame.midX, y: target.frame.midY)
+            XCTAssertTrue(host.canvas.beginRenderedObjectMoveTouch(at: start, touchType: .pencil))
+            let pan = PaperMeasurePan(point: start, movement: .zero, state: .began, view: host.canvas)
+            host.canvas.handleRenderedObjectMovePan(pan)
+            let grip = try XCTUnwrap(host.canvas.layer.sublayers?.first { $0.name == "chordResize.activeGrip" })
+            XCTAssertNotNil(grip.contents)
+            let initialGripX = grip.frame.midX
+            host.canvas.layer.displayIfNeeded()
+            pan.simulatedState = .changed
+            pan.point.x += 12
+            pan.movement.x = 12
+            host.canvas.handleRenderedObjectMovePan(pan)
+            XCTAssertGreaterThan(grip.frame.midX, initialGripX)
+            XCTAssertFalse(host.canvas.layer.needsDisplay())
+            pan.simulatedState = .cancelled
+            host.canvas.handleRenderedObjectMovePan(pan)
+            XCTAssertNil(grip.superlayer)
+            XCTAssertEqual(host.canvas.chart, original)
         }
     }
 

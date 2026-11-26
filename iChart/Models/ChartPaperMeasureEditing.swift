@@ -1,4 +1,5 @@
 import CoreGraphics
+import CryptoKit
 import Foundation
 #if canImport(UIKit) && canImport(PencilKit)
 import PencilKit
@@ -42,6 +43,56 @@ struct PaperMeasureLayout: Codable, Hashable {
         rowIndex >= 0 && startFraction.isFinite && endFraction.isFinite
             && startFraction >= 0 && endFraction <= 1
             && widthFraction > 0
+    }
+}
+
+/// A frozen row can be previewed without copying charts or decoding saved ink.
+enum PaperMeasureMoveProposal {
+    static func positions(
+        moving measureID: UUID, toStartFraction start: Double,
+        among positions: [UUID: PaperMeasureLayout]
+    ) -> [UUID: PaperMeasureLayout]? {
+        guard start.isFinite, let source = positions[measureID], source.isValid,
+              positions.values.allSatisfy(\.isValid) else { return nil }
+        let width = source.widthFraction
+        let x = min(max(start, 0), max(0, 1 - width))
+        let peers = positions.filter { $0.key != measureID }
+        let collides = peers.values.contains {
+            x < $0.endFraction - 0.0001 && x + width > $0.startFraction + 0.0001
+        }
+        var moved = source
+        moved.startFraction = x
+        moved.endFraction = x + width
+        moved.needsSystemFit = false
+        guard collides else {
+            var result = positions
+            result[measureID] = moved
+            return result
+        }
+        var ordered = peers.sorted { $0.value.startFraction < $1.value.startFraction }
+        let destination: Int
+        if x <= 0.0001 {
+            destination = 0
+        } else if x + width >= 0.9999 {
+            destination = ordered.count
+        } else {
+            destination = ordered.firstIndex {
+                x < ($0.value.startFraction + $0.value.endFraction) / 2
+            } ?? ordered.count
+        }
+        ordered.insert((key: measureID, value: moved), at: destination)
+        let total = max(0.0001, ordered.reduce(0) { $0 + $1.value.widthFraction })
+        var result: [UUID: PaperMeasureLayout] = [:]
+        var nextStart = 0.0
+        for (id, placement) in ordered {
+            var fitted = placement
+            fitted.startFraction = nextStart
+            fitted.endFraction = min(1, nextStart + placement.widthFraction / total)
+            fitted.needsSystemFit = false
+            nextStart = fitted.endFraction
+            result[id] = fitted
+        }
+        return result
     }
 }
 
@@ -140,6 +191,7 @@ extension Chart {
     mutating func ensurePaperChordTarget(inRow rowIndex: Int, at fraction: Double) -> (measureID: UUID, fraction: Double)? {
         guard fraction.isFinite, (0...1).contains(fraction),
               ensurePaperWritingRow(rowIndex) != nil else { return nil }
+        _ = repairEnclosedPaperMeasures()
         if let target = paperMeasureTarget(inRow: rowIndex, at: fraction) { return target }
         let placements = systems[rowIndex].measures.compactMap(\.paperLayout)
         let start = placements.filter { $0.endFraction <= fraction }.map(\.endFraction).max() ?? 0
@@ -171,8 +223,10 @@ extension Chart {
                    abs(previous.endFraction - fraction) <= tolerance {
                     systems[rowIndex].measures[index - 1].barlineAfter = resolvedKind
                 }
+                let measureID = systems[rowIndex].measures[index].id
                 updatedAt = .now
-                return systems[rowIndex].measures[index].id
+                _ = repairEnclosedPaperMeasures()
+                return measureID
             }
             if abs(placement.endFraction - fraction) <= tolerance {
                 let wasOpen = systems[rowIndex].measures[index].authoringState == .open
@@ -192,7 +246,9 @@ extension Chart {
                     anchorLoneChordsToMeasureStart(in: [systems[rowIndex].measures[index].id])
                 }
                 updatedAt = .now
-                return systems[rowIndex].measures[index].id
+                let measureID = systems[rowIndex].measures[index].id
+                _ = repairEnclosedPaperMeasures()
+                return measureID
             }
         }
         guard let target = ensurePaperChordTarget(inRow: rowIndex, at: fraction),
@@ -219,6 +275,7 @@ extension Chart {
             moved.paperLayout?.needsSystemFit = true
             systems[location.systemIndex].measures[location.measureIndex] = moved
             updatedAt = .now
+            _ = repairEnclosedPaperMeasures()
             return moved.id
         }
 
@@ -239,13 +296,14 @@ extension Chart {
             rightID = splitCommittedRhythmSectionMeasure(original.id, atFraction: target.fraction,
                 barlineAfter: kind, normalizeSingleChordToMeasureStart: normalizeSingleChords)
         }
+        if rightID != nil { _ = repairEnclosedPaperMeasures() }
         return rightID
     }
 
     @discardableResult
     mutating func finishPaperWritingRows() -> Bool {
         guard usesPaperMeasureLayout else { return false }
-        var changed = false
+        var changed = repairEnclosedPaperMeasures()
         for row in systems.indices {
             guard systems[row].measures.contains(where: { $0.paperLayout?.needsSystemFit == true }) else { continue }
             let complete = systems[row].measures.filter {
@@ -268,6 +326,7 @@ extension Chart {
             }
             changed = true
         }
+        changed = repairEnclosedPaperMeasures() || changed
         if changed {
             renumberPaperMeasures()
             updatedAt = .now
@@ -277,42 +336,32 @@ extension Chart {
 
     @discardableResult
     mutating func movePaperMeasure(_ id: UUID, toStartFraction start: Double) -> Bool {
-        guard usesPaperMeasureLayout, start.isFinite, let location = measureLocation(id: id),
-              let placement = measure(id: id)?.paperLayout else { return false }
+        guard let location = measureLocation(id: id),
+              let sourcePositions = paperMeasureMovePositions(for: id),
+              let proposal = PaperMeasureMoveProposal.positions(moving: id,
+                toStartFraction: start, among: sourcePositions) else { return false }
         let row = location.systemIndex
-        let width = placement.widthFraction
-        let x = min(max(start, 0), max(0, 1 - width))
-        let peers = systems[row].measures.filter { $0.id != id && ($0.authoringState == .committed || paperMeasureHasContent($0)) }
-        let collides = peers.contains {
-            guard let other = $0.paperLayout else { return false }
-            return x < other.endFraction - 0.0001 && x + width > other.startFraction + 0.0001
+        systems[row].measures = systems[row].measures.compactMap { measure in
+            guard let placement = proposal[measure.id] else { return nil }
+            var moved = measure
+            moved.paperLayout = placement
+            return moved
         }
-        var moved = systems[row].measures[location.measureIndex]
-        moved.paperLayout?.startFraction = x
-        moved.paperLayout?.endFraction = x + width
-        moved.paperLayout?.needsSystemFit = false
-        if collides {
-            var ordered = peers.sorted { ($0.paperLayout?.startFraction ?? 0) < ($1.paperLayout?.startFraction ?? 0) }
-            let destination: Int
-            if x <= 0.0001 {
-                destination = 0
-            } else if x + width >= 0.9999 {
-                destination = ordered.count
-            } else {
-                destination = ordered.firstIndex {
-                    guard let other = $0.paperLayout else { return false }
-                    return x < (other.startFraction + other.endFraction) / 2
-                } ?? ordered.count
-            }
-            ordered.insert(moved, at: destination)
-            systems[row].measures = packedPaperMeasures(ordered, row: row)
-        } else {
-            systems[row].measures = peers + [moved]
-            sortPaperRow(row)
-        }
+        sortPaperRow(row)
+        _ = repairEnclosedPaperMeasures()
         renumberPaperMeasures()
         updatedAt = .now
         return true
+    }
+
+    func paperMeasureMovePositions(for measureID: UUID) -> [UUID: PaperMeasureLayout]? {
+        guard usesPaperMeasureLayout, let location = measureLocation(id: measureID),
+              systems[location.systemIndex].measures[location.measureIndex].paperLayout != nil else { return nil }
+        return Dictionary(uniqueKeysWithValues: systems[location.systemIndex].measures.compactMap { measure in
+            guard measure.id == measureID || measure.authoringState == .committed || paperMeasureHasContent(measure),
+                  let placement = measure.paperLayout else { return nil }
+            return (measure.id, placement)
+        })
     }
 
     @discardableResult
@@ -349,8 +398,57 @@ extension Chart {
             sortPaperRow(row)
         }
         renumberPaperMeasures()
+        _ = repairEnclosedPaperMeasures()
         updatedAt = .now
         return true
+    }
+
+    /// Build 201 could leave an interval between two authored boundaries
+    /// without a selectable measure. Restore only those enclosed intervals.
+    /// Decode uses this without turning a layout repair into a new chart edit.
+    @discardableResult
+    mutating func repairEnclosedPaperMeasures() -> Bool {
+        guard usesPaperMeasureLayout else { return false }
+        var changed = false
+        let tolerance = 0.0001
+        for row in systems.indices {
+            let ordered = systems[row].measures.sorted {
+                ($0.paperLayout?.startFraction ?? 0) < ($1.paperLayout?.startFraction ?? 0)
+            }
+            var repaired: [Measure] = []
+            for source in ordered {
+                if let previous = repaired.last, previous.authoringState == .committed,
+                   let left = previous.paperLayout, let right = source.paperLayout,
+                   let closingBoundary = right.leadingBarline,
+                   right.startFraction - left.endFraction > tolerance {
+                    var enclosed = paperOpenMeasure(inRow: row,
+                        start: left.endFraction, end: right.startFraction)
+                    enclosed.id = paperEnclosedMeasureID(in: systems[row].id,
+                        after: previous.id, before: source.id)
+                    enclosed.authoringState = .committed
+                    enclosed.meterOverride = previous.meterOverride
+                    enclosed.beatGridPreset = previous.beatGridPreset
+                    enclosed.paperLayout?.leadingBarline = previous.barlineAfter
+                    enclosed.barlineAfter = closingBoundary
+                    repaired.append(enclosed)
+                    changed = true
+                }
+                repaired.append(source)
+            }
+            if repaired.count != systems[row].measures.count { systems[row].measures = repaired }
+        }
+        if changed { renumberPaperMeasures() }
+        return changed
+    }
+
+    private func paperEnclosedMeasureID(in systemID: UUID, after leftID: UUID, before rightID: UUID) -> UUID {
+        let identity = ["paper-gap-v1", id.uuidString, systemID.uuidString,
+            leftID.uuidString, rightID.uuidString].joined(separator: "|")
+        let bytes = Array(SHA256.hash(data: Data(identity.utf8)).prefix(16))
+        return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11],
+            bytes[12], bytes[13], bytes[14], bytes[15]))
     }
 
     /// Preserve row identity when ordinary notation edits rebuild the chart.

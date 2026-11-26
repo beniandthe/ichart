@@ -3,6 +3,23 @@ import XCTest
 @testable import iChart
 
 final class EditorToolGuidanceTests: XCTestCase {
+    func testPaperWritingGuideExplainsSelectableEnclosedSpacesInBothStyles() {
+        for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
+            for manual in [false, true] {
+                let guidance = EditorCanvasMode.chordEntry.toolGuidance(
+                    layoutStyle: style, manualRenderWithPreview: manual,
+                    usesPaperMeasureLayout: true)
+                XCTAssertTrue(guidance.referenceText.contains(
+                    "Space enclosed between drawn boundaries is a measure you can select."))
+                XCTAssertTrue(guidance.referenceText.contains(
+                    "A single measure written away from the left edge keeps its position."))
+                XCTAssertTrue(EditorCanvasMode.browse.toolGuidance(
+                    layoutStyle: style, manualRenderWithPreview: manual).referenceText.contains(
+                    "When measures reorder, the dashed outline shows where yours will land."))
+            }
+        }
+    }
+
     func testWritingGuidanceIdentifiesInputAndRenderingModeAcrossBothLayouts() {
         for style in [ChartLayoutStyle.simpleChordSheet, .rhythmSectionSheet] {
             for manual in [false, true] {

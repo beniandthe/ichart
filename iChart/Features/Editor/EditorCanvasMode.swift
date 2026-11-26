@@ -247,7 +247,7 @@ enum EditorCanvasMode: Hashable {
                 ))
                 details.append(.init(
                     title: "Move a measure",
-                    text: "Tap a measure, then drag its grab handle or an empty part of the selected measure with Apple Pencil. Lift to place it within the system. Chords and attached ink follow. Drag an edge handle to resize. Moving across other measures changes their order."
+                    text: "Tap a measure, then drag its grab handle or an empty part of the selected measure with Apple Pencil. Lift to place it within the system. Chords and attached ink follow. Drag an edge handle to resize. Moving across other measures changes their order. When measures reorder, the dashed outline shows where yours will land."
                 ))
                 if layoutStyle == .rhythmSectionSheet {
                     details.append(Self.rhythmMeasureResizeGuide)
@@ -504,7 +504,7 @@ enum EditorCanvasMode: Hashable {
             detailsTitle: "Write & Render guide",
             details: [
                 .init(title: "Start anywhere",
-                    text: "New charts have empty writing rows. A starting barline sets the left edge. Draw the next barline to close that measure. Two double barlines enclose one measure. Leave a gap between chords and barlines."),
+                    text: "New charts have empty writing rows. A starting barline sets the left edge. Draw the next barline to close that measure. Two double barlines enclose one measure. Space enclosed between drawn boundaries is a measure you can select. Leave a gap between chords and barlines."),
                 .init(title: "Finish the row",
                     text: "Tap Done to size the measures across the system. A single measure written away from the left edge keeps its position. In Select, tap a measure and drag its grab handle to move it, or drag an edge handle to resize."),
                 .init(title: "Keep writing",

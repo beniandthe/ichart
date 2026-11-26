@@ -27,7 +27,6 @@ struct ActivePaperMeasureMove {
     var startLocation: CGPoint
     var currentFrame: CGRect
     var snapshotFrame: CGRect
-    var previewChart: Chart? = nil
 }
 
 struct LeadSheetMeasureResizeHandleFrames {

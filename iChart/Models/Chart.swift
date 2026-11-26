@@ -638,6 +638,9 @@ struct Chart: Identifiable, Codable, Hashable {
             ?? .legacyLocal
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        // Build 201 could leave an unowned interval between two drawn
+        // boundaries. Restore that interval without moving saved content.
+        repairEnclosedPaperMeasures()
     }
 
     private static func coordinateSpace(

@@ -1610,6 +1610,15 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                       chart.chordEvent(id: admittedID) == nil {
                 cancelRenderedObjectGesture()
             }
+            let resizedMeasureWasRemoved = activeMeasureResizeDrag.map {
+                chart.id != oldValue.id || chart.measure(id: $0.measureID) == nil
+            } ?? false
+            let movedMarkerWasRemoved = activeRoadmapMarkerEditDrag.map {
+                chart.id != oldValue.id || chart.roadmapObject(id: $0.markerID) == nil
+            } ?? false
+            if chart.id != oldValue.id || resizedMeasureWasRemoved || movedMarkerWasRemoved {
+                cancelRenderedObjectGesture()
+            }
             if !endingEditInteraction.isCompatible(chart: chart, pageLayout: pageLayout,
                 selectedEndingID: selectedEndingSpanID) {
                 cancelEndingEditDrag()
@@ -2284,9 +2293,19 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
     }
     private var chordInkRecognitionRequestState = LeadSheetChordInkRecognitionRequestState()
-    private var activeMeasureResizeDrag: ActiveMeasureResizeDrag?
+    private var activeMeasureResizeDrag: ActiveMeasureResizeDrag? {
+        didSet {
+            if activeMeasureResizeDrag == nil { measureResizePreviewLayer.removeFromSuperlayer() }
+        }
+    }
+    private let measureResizePreviewLayer = CALayer()
+    private let measureResizePreviewSelection = CAShapeLayer()
+    private let measureResizePreviewGuides = CAShapeLayer()
+    private let measureResizeLeftHandle = CALayer()
+    private let measureResizeRightHandle = CALayer()
     private var activePaperMeasureMove: ActivePaperMeasureMove?
     private let measureMoveOverlay = CALayer()
+    private let measureMoveDropGuide = CAShapeLayer()
     private var measureMoveOriginalPageInk: PKDrawing?
     private var measureMoveOriginalPageInkHidden = true
     private var activeChordMoveDrag: ActiveChordMoveDrag? {
@@ -2295,9 +2314,41 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
     }
     private let chordMoveOverlayView = LeadSheetChordMoveOverlayView(frame: .zero)
-    private var activeChordResizeDrag: ActiveChordResizeDrag?
+    private var activeChordResizeDrag: ActiveChordResizeDrag? {
+        didSet {
+            if activeChordResizeDrag == nil {
+                chordResizePreview.end()
+                chordResizeGrip.removeFromSuperlayer()
+                chordResizeGripInitialFrame = nil
+            }
+        }
+    }
+    private let chordResizePreview = LeadSheetCachedDragPreview(name: "chordResize.preview")
+    private let chordResizeGrip = CALayer()
+    private var chordResizeGripInitialFrame: CGRect?
+    private let roadmapMovePreview = LeadSheetCachedDragPreview(name: "roadmapMove.preview")
+    private var roadmapMovePreviewSourceFrame: CGRect?
+    private let annotationMovePreview = LeadSheetCachedDragPreview(name: "annotationMove.preview")
+    private var annotationMovePreviewSourceFrame: CGRect?
+    private var paperMeasureMoveSourcePositions: [UUID: PaperMeasureLayout] = [:]
+    private var paperMeasureMoveRequestedFraction: Double?
+    #if DEBUG
+    private var interactionPerformanceCounters = [
+        "backing_draws": 0, "layout_builds": 0, "chart_writebacks": 0, "paper_move_model_updates": 0
+    ]
+    var interactionPerformanceTestSnapshot: [String: Int] { interactionPerformanceCounters }
+    func resetInteractionPerformanceTestCounters() {
+        for key in interactionPerformanceCounters.keys { interactionPerformanceCounters[key] = 0 }
+    }
+    #endif
     private var activeRoadmapMarkerEditDrag: ActiveRoadmapMarkerEditDrag? {
-        didSet { updateAnnotationPositionHandleFrames() }
+        didSet {
+            if activeRoadmapMarkerEditDrag == nil {
+                roadmapMovePreview.end()
+                roadmapMovePreviewSourceFrame = nil
+            }
+            updateAnnotationPositionHandleFrames()
+        }
     }
     private var activeCueTextMoveDrag: ActiveCueTextMoveDrag? {
         didSet {
@@ -2497,6 +2548,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
               let pageLayout else {
             return
         }
+        #if DEBUG
+        interactionPerformanceCounters["backing_draws", default: 0] += 1
+        #endif
 
         let drawStartedAt = ProcessInfo.processInfo.systemUptime
         let drawIndex = nextPerformanceDrawTraceIndex()
@@ -2610,7 +2664,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             drawSelectedCommittedChordBarline(in: pageLayout)
         }
 
-        if showsSelectedMeasureResizeHandles, activePaperMeasureMove == nil {
+        if showsSelectedMeasureResizeHandles, activePaperMeasureMove == nil, activeMeasureResizeDrag == nil {
             if let rowGroupAffordance = simpleRowGroupAffordance() {
                 drawSimpleRowGroupAffordance(rowGroupAffordance)
             }
@@ -3086,6 +3140,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         cancelAnnotationPositionDrag()
         chordInkEditedTargetState.reset()
         editorPerformanceMetrics.recordLayoutInvalidation()
+        #if DEBUG
+        interactionPerformanceCounters["layout_builds", default: 0] += 1
+        #endif
         guard bounds.width > 0, bounds.height > 0 else {
             pageLayout = nil
             syncPageInkCanvas()
@@ -3162,6 +3219,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         chart = updatedChart
         activeChartUpdateReason = previousReason
         editorPerformanceMetrics.recordChartWriteBack()
+        #if DEBUG
+        interactionPerformanceCounters["chart_writebacks", default: 0] += 1
+        #endif
         onChartChanged?(updatedChart)
     }
 
@@ -3183,6 +3243,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         for roadmapMarkerLayout in system.roadmapMarkerLayouts {
             if roadmapMarkerLayout.anchorMeasureID == activePaperMeasureMove?.measureID { continue }
+            if roadmapMovePreview.isActive, activeRoadmapMarkerEditDrag?.markerID == roadmapMarkerLayout.id { continue }
+            if annotationMovePreview.isActive,
+               activeAnnotationPositionDrag?.objectID == .roadmapMarker(roadmapMarkerLayout.id) { continue }
             let roadmapMarkerLayoutForDisplay = displayRoadmapMarkerLayout(for: roadmapMarkerLayout)
             renderer.drawRoadmapMarker(roadmapMarkerLayoutForDisplay)
             if roadmapMarkerLayoutForDisplay.id == selectedRoadmapMarkerID {
@@ -3191,6 +3254,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         for endingLayout in system.endingLayouts {
+            if annotationMovePreview.isActive,
+               activeAnnotationPositionDrag?.objectID == .endingSpan(endingLayout.roadmapObjectID) { continue }
             if endingLayout.roadmapObjectID == selectedEndingSpanID,
                endingEditInteraction.dragFeedback != nil,
                let context = UIGraphicsGetCurrentContext() {
@@ -3309,7 +3374,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             if interactionMode.allowsMeasureSelection,
                selectedRoadmapMarkerID == nil,
                measure.sourceMeasureID == selectedMeasureID,
-               activePaperMeasureMove == nil {
+               activePaperMeasureMove == nil, activeMeasureResizeDrag == nil {
                 drawMeasureSelection(measure, in: system)
             }
 
@@ -3323,6 +3388,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 if chordMoveOverlayView.isActive, activeChordMoveDrag?.chordID == chordLayout.id {
                     continue
                 }
+                if chordResizePreview.isActive, activeChordResizeDrag?.chordID == chordLayout.id { continue }
                 let chordLayoutForDisplay = displayChordLayout(for: chordLayout)
                 renderer.drawChord(chordLayoutForDisplay)
                 if interactionMode.allowsChordObjectEditing,
@@ -3341,6 +3407,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
             for cueTextLayout in measure.cueTextLayouts {
                 if cueTextMoveOverlayCueID == cueTextLayout.id { continue }
+                if annotationMovePreview.isActive,
+                   activeAnnotationPositionDrag?.objectID == .cueText(cueTextLayout.id) { continue }
                 let cueTextLayoutForDisplay = displayCueTextLayout(for: cueTextLayout)
                 if cueTextLayoutForDisplay.id == selectedCueTextID {
                     drawCueTextSelection(cueTextLayoutForDisplay)
@@ -5049,6 +5117,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         activeChordMoveDrag = nil
         cancelPaperMeasureMove()
         activeChordResizeDrag = nil
+        activeMeasureResizeDrag = nil
         activeCueTextMoveDrag = nil
         activeRoadmapMarkerEditDrag = nil
         cancelAnnotationPositionDrag()
@@ -6078,6 +6147,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 }
                 guard paperChart.adoptPaperMeasureLayout(rows) else { return }
             }
+            guard let positions = paperChart.paperMeasureMovePositions(for: measureID) else { return }
+            paperMeasureMoveSourcePositions = positions
+            paperMeasureMoveRequestedFraction = nil
             let measure = displayMeasureLayout(located.measure, in: located.system)
             let pageInk = paperMeasurePageInk(for: measureID, in: pageLayout)
             let inkFrame = pageInk.selected.bounds.isNull ? CGRect.null : pageInk.selected.bounds.offsetBy(
@@ -6085,7 +6157,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             let attachedFrames = measure.chordLayouts.map(\.naturalFrame)
                 + measure.noteLayouts.map(\.selectionFrame)
                 + measure.cueTextLayouts.map(\.frame)
-                + located.system.roadmapMarkerLayouts.filter { $0.anchorMeasureID == measureID }.map(\.frame)
+                + located.system.roadmapMarkerLayouts.filter { $0.anchorMeasureID == measureID }
+                    .map { LeadSheetCachedDragPreview.markerContentFrame(for: $0) }
                 + chart.freeInkArticulations.compactMap { mark -> CGRect? in
                     guard let target = FreeInkArticulationPlacement.target(for: mark, chart: chart, pageLayout: pageLayout),
                           target.measureID == measureID else { return nil }
@@ -6112,6 +6185,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             measureMoveOverlay.frame = snapshotFrame
             measureMoveOverlay.contents = image.cgImage
             measureMoveOverlay.contentsScale = image.scale
+            measureMoveDropGuide.name = "measureMove.dropGuide"
+            measureMoveDropGuide.fillColor = UIColor.systemBlue.withAlphaComponent(0.06).cgColor
+            measureMoveDropGuide.strokeColor = UIColor.systemBlue.withAlphaComponent(0.85).cgColor
+            measureMoveDropGuide.lineWidth = 1.5
+            measureMoveDropGuide.lineDashPattern = [5, 3]
+            layer.addSublayer(measureMoveDropGuide)
             layer.addSublayer(measureMoveOverlay)
             measureMoveOriginalPageInk = savedPageInkCanvasView.drawing
             measureMoveOriginalPageInkHidden = savedPageInkCanvasView.isHidden
@@ -6133,8 +6212,17 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 && LeadSheetMeasureResizePreviewPolicy.hasMeaningfulTranslation(
                     drag.currentFrame.minX - drag.initialFrame.minX,
                     screenPointsPerDisplayedPoint: canvasScreenPointsPerDisplayedPoint())
+            var updated = drag.paperChart
+            let requested = paperMeasureMoveRequestedFraction
+            var committed = false
+            if moved, let requested {
+                #if DEBUG
+                interactionPerformanceCounters["paper_move_model_updates", default: 0] += 1
+                #endif
+                committed = updated.movePaperMeasure(drag.measureID, toStartFraction: requested)
+            }
             cancelPaperMeasureMove()
-            if moved, let updated = drag.previewChart { applyUpdatedChart(updated, reason: .moveMeasure) }
+            if committed { applyUpdatedChart(updated, reason: .moveMeasure) }
         case .cancelled, .failed:
             cancelPaperMeasureMove()
         default:
@@ -6146,24 +6234,37 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         guard var drag = activePaperMeasureMove else { return }
         let proposedX = drag.initialFrame.minX + point.x - drag.startLocation.x
         let left = min(drag.rowFrame.maxX - drag.initialFrame.width, max(drag.rowFrame.minX, proposedX))
-        var preview = drag.paperChart
-        guard preview.movePaperMeasure(drag.measureID,
-                toStartFraction: Double((left - drag.rowFrame.minX) / drag.rowFrame.width)),
-              let placement = preview.measure(id: drag.measureID)?.paperLayout else { return }
+        let requested = Double((left - drag.rowFrame.minX) / drag.rowFrame.width)
+        guard let proposal = PaperMeasureMoveProposal.positions(moving: drag.measureID,
+                toStartFraction: requested, among: paperMeasureMoveSourcePositions),
+              let placement = proposal[drag.measureID] else { return }
         drag.currentFrame.origin.x = drag.rowFrame.minX + CGFloat(placement.startFraction) * drag.rowFrame.width
-        drag.previewChart = preview
+        drag.currentFrame.size.width = CGFloat(placement.widthFraction) * drag.rowFrame.width
+        paperMeasureMoveRequestedFraction = requested
         activePaperMeasureMove = drag
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        measureMoveOverlay.frame = drag.snapshotFrame.offsetBy(dx: drag.currentFrame.minX - drag.initialFrame.minX, dy: 0)
+        // The grabbed contents follow every Pencil sample. Packing/reordering
+        // only determines the dashed drop slot; snapping the image itself to
+        // that slot makes smooth input look like a low-frame-rate drag.
+        measureMoveOverlay.frame = drag.snapshotFrame.offsetBy(dx: left - drag.initialFrame.minX, dy: 0)
+        measureMoveDropGuide.frame = drag.currentFrame
+        measureMoveDropGuide.path = UIBezierPath(roundedRect: CGRect(origin: .zero,
+            size: drag.currentFrame.size).insetBy(dx: 2, dy: 10), cornerRadius: 6).cgPath
+        measureMoveDropGuide.isHidden = abs(drag.currentFrame.minX - left) < 0.5
+            && abs(drag.currentFrame.width - drag.initialFrame.width) < 0.5
         CATransaction.commit()
     }
 
     private func cancelPaperMeasureMove() {
         guard activePaperMeasureMove != nil else { return }
         activePaperMeasureMove = nil
+        paperMeasureMoveSourcePositions = [:]
+        paperMeasureMoveRequestedFraction = nil
         measureMoveOverlay.removeFromSuperlayer()
         measureMoveOverlay.contents = nil
+        measureMoveDropGuide.removeFromSuperlayer()
+        measureMoveDropGuide.path = nil
         if let drawing = measureMoveOriginalPageInk {
             savedPageInkCanvasView.drawing = drawing
         }
@@ -6264,6 +6365,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             activeMeasureResizeDrag = measureResizeHandleHitTarget(at: location)
             if activeMeasureResizeDrag != nil {
                 editorPerformanceMetrics.recordDragState(kind: .measureResize, state: recognizer.state)
+                beginMeasureResizePreview()
+                lockParentScrollForChordMove()
             }
             setNeedsDisplay()
         case .changed:
@@ -6289,11 +6392,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 )
             }
             self.activeMeasureResizeDrag = activeMeasureResizeDrag
-            setNeedsDisplay()
+            updateMeasureResizePreview()
         case .ended:
             guard let activeMeasureResizeDrag else {
                 return
             }
+            defer { unlockParentScrollForChordMove() }
 
             editorPerformanceMetrics.recordDragState(kind: .measureResize, state: recognizer.state)
             var updatedChart = chart
@@ -6353,10 +6457,82 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 editorPerformanceMetrics.recordDragState(kind: .measureResize, state: recognizer.state)
             }
             activeMeasureResizeDrag = nil
+            unlockParentScrollForChordMove()
             setNeedsDisplay()
         default:
             break
         }
+    }
+
+    private func beginMeasureResizePreview() {
+        guard let measure = selectedDisplayMeasureLayout() else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        measureResizePreviewLayer.name = "measureResize.preview"
+        measureResizePreviewLayer.frame = bounds
+        measureResizePreviewLayer.bounds = bounds
+        measureResizePreviewSelection.fillColor = UIColor.systemBlue.withAlphaComponent(0.08).cgColor
+        measureResizePreviewSelection.strokeColor = UIColor.systemBlue.withAlphaComponent(0.5).cgColor
+        measureResizePreviewSelection.lineWidth = 1.2
+        measureResizePreviewGuides.fillColor = nil
+        measureResizePreviewGuides.strokeColor = UIColor.systemBlue.withAlphaComponent(0.65).cgColor
+        measureResizePreviewGuides.lineWidth = 1.2
+        for shape in [measureResizePreviewSelection, measureResizePreviewGuides] {
+            shape.frame = bounds
+            shape.bounds = bounds
+            measureResizePreviewLayer.addSublayer(shape)
+        }
+        let frames = LeadSheetMeasureResizeGeometry.handleFrames(for: measure)
+        for (handle, frame, symbol) in [
+            (measureResizeLeftHandle, frames.left, "⇠"),
+            (measureResizeRightHandle, frames.right, "⇢")
+        ] {
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = window?.screen.scale ?? UIScreen.main.scale
+            let image = UIGraphicsImageRenderer(size: frame.size, format: format).image { context in
+                context.cgContext.translateBy(x: -frame.minX, y: -frame.minY)
+                drawMeasureResizeHandle(frame, symbol: symbol, using: notationRenderer)
+            }
+            handle.contents = image.cgImage
+            handle.contentsScale = image.scale
+            measureResizePreviewLayer.addSublayer(handle)
+        }
+        layer.addSublayer(measureResizePreviewLayer)
+        CATransaction.commit()
+        updateMeasureResizePreview()
+    }
+
+    private func updateMeasureResizePreview() {
+        guard let drag = activeMeasureResizeDrag, let selected = selectedDisplayMeasureLayout() else { return }
+        let frames = drag.currentPreview?.affectedMeasureIDs.compactMap {
+            drag.currentPreview?.measureFrames[$0]
+        } ?? [drag.currentFrame]
+        let selection = UIBezierPath()
+        for frame in frames { selection.append(UIBezierPath(roundedRect: frame.insetBy(dx: 2, dy: 10), cornerRadius: 6)) }
+        let guides = UIBezierPath()
+        for frame in frames {
+            for x in [frame.minX, frame.maxX] {
+                guides.move(to: CGPoint(x: x, y: frame.minY + 8))
+                guides.addLine(to: CGPoint(x: x, y: frame.maxY - 8))
+            }
+        }
+        if let preview = drag.currentPreview {
+            for x in preview.evenDivisionGuideXs {
+                guides.move(to: CGPoint(x: x, y: preview.rowFrame.minY - 6))
+                guides.addLine(to: CGPoint(x: x, y: preview.rowFrame.maxY + 6))
+            }
+        }
+        let aligned = drag.currentPreview?.activeEvenDivisionGuideX != nil
+        let color = aligned ? UIColor.systemGreen : UIColor.systemBlue
+        let handles = LeadSheetMeasureResizeGeometry.handleFrames(for: selected)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        measureResizePreviewSelection.path = selection.cgPath
+        measureResizePreviewGuides.path = guides.cgPath
+        measureResizePreviewGuides.strokeColor = color.withAlphaComponent(0.65).cgColor
+        measureResizeLeftHandle.frame = handles.left
+        measureResizeRightHandle.frame = handles.right
+        CATransaction.commit()
     }
 
     @objc
@@ -6587,6 +6763,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             modelOffset: modelOffset, startingOffsetFromDefault: visualOffset, startY: admitted.startLocation.y,
             screenPointsPerDisplayedPoint: canvasScreenPointsPerDisplayedPoint())
         annotationPositionDragY = point.y
+        beginAnnotationMovePreview(for: objectID)
+        updateAnnotationMovePreview()
         lockParentScrollForChordMove()
         setNeedsDisplay()
         return true
@@ -6597,7 +6775,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         annotationPositionDragY = recognizer.location(in: self).y
         switch recognizer.state {
         case .changed:
-            setNeedsDisplay()
+            updateAnnotationMovePreview()
         case .ended:
             var updated = chart
             let changed = drag.commit(in: &updated,
@@ -6614,6 +6792,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func cancelAnnotationPositionDrag() {
         guard activeAnnotationPositionDrag != nil else { return }
         activeAnnotationPositionDrag = nil
+        annotationMovePreview.end()
+        annotationMovePreviewSourceFrame = nil
         unlockParentScrollForChordMove()
         setNeedsDisplay()
     }
@@ -6621,6 +6801,49 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func annotationPositionPreviewTranslation(for objectID: RenderedEditObjectID) -> CGFloat? {
         guard let drag = activeAnnotationPositionDrag, drag.objectID == objectID else { return nil }
         return drag.previewTranslation(at: annotationPositionDragY)
+    }
+
+    private func beginAnnotationMovePreview(for objectID: RenderedEditObjectID) {
+        guard let pageLayout else { return }
+        let cues = pageLayout.systems.flatMap(\.measures).flatMap(\.cueTextLayouts).filter {
+            objectID == .cueText($0.id)
+        }
+        let markers = pageLayout.systems.flatMap(\.roadmapMarkerLayouts).filter {
+            objectID == .roadmapMarker($0.id)
+        }
+        let endings = pageLayout.systems.flatMap(\.endingLayouts).filter {
+            objectID == .endingSpan($0.roadmapObjectID)
+        }
+        let frames = cues.map(\.frame) + markers.map { LeadSheetCachedDragPreview.markerContentFrame(for: $0) }
+            + endings.map(\.occupiedFrame)
+        let source = frames.reduce(CGRect.null) { $0.union($1) }
+        guard !source.isNull, !source.isEmpty else { return }
+        annotationMovePreviewSourceFrame = source
+        let renderer = notationRenderer
+        annotationMovePreview.begin(contentFrame: source, in: layer,
+            scale: (window?.screen.scale ?? UIScreen.main.scale) * canvasScreenPointsPerDisplayedPoint(),
+            showsOutline: endings.isEmpty) {
+            for cue in cues { renderer.drawCueText(cue) }
+            for marker in markers { renderer.drawRoadmapMarker(marker) }
+            for ending in endings { renderer.drawEnding(ending) }
+        }
+    }
+
+    private func updateAnnotationMovePreview() {
+        guard let drag = activeAnnotationPositionDrag, let source = annotationMovePreviewSourceFrame else { return }
+        let dy = drag.previewTranslation(at: annotationPositionDragY)
+        annotationMovePreview.update(contentFrame: source.offsetBy(dx: 0, dy: dy))
+        let guides = UIBezierPath()
+        for placement in annotationPositionHandlePlacements {
+            let frame = placement.annotationFrame.offsetBy(dx: 0, dy: dy)
+            let handle = placement.frame
+            let start = CGPoint(x: min(max(frame.midX, handle.minX), handle.maxX),
+                y: min(max(frame.midY, handle.minY), handle.maxY))
+            guides.move(to: start)
+            guides.addLine(to: CGPoint(x: min(max(start.x, frame.minX), frame.maxX),
+                y: min(max(start.y, frame.minY), frame.maxY)))
+        }
+        annotationMovePreview.updateGuide(guides.cgPath)
     }
 
     private func updateAnnotationPositionSelection() {
@@ -6725,6 +6948,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func drawAnnotationPositionFeedback() {
+        if annotationMovePreview.isActive { return }
         guard let objectID = annotationPositionHandleID else { return }
         let scale = max(canvasScreenPointsPerDisplayedPoint(), 0.1)
         let dy = annotationPositionPreviewTranslation(for: objectID)
@@ -6952,6 +7176,37 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         applyTapSelection(ending.startMeasureID)
     }
 
+    private func beginChordResizeGripPreview(for drag: ActiveChordResizeDrag, glyph: LeadSheetChordLayout) {
+        let controls = LeadSheetChordEditOverlayGeometry.controlFrames(for: glyph,
+            in: drag.sourcePageLayout, screenPointsPerDisplayedPoint: drag.screenPointsPerDisplayedPoint)
+        let frame = drag.edge == .leading ? controls.leadingResize : controls.trailingResize
+        chordResizeGripInitialFrame = frame
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = window?.screen.scale ?? UIScreen.main.scale
+        let image = UIGraphicsImageRenderer(size: frame.size, format: format).image { context in
+            context.cgContext.translateBy(x: -frame.minX, y: -frame.minY)
+            drawChordResizeHandle(frame, isActive: true)
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        chordResizeGrip.name = "chordResize.activeGrip"
+        chordResizeGrip.contents = image.cgImage
+        chordResizeGrip.contentsScale = image.scale
+        layer.addSublayer(chordResizeGrip)
+        CATransaction.commit()
+    }
+
+    private func updateChordResizeGripPreview(for drag: ActiveChordResizeDrag) {
+        guard let initial = chordResizeGripInitialFrame else { return }
+        let dx = drag.edge == .leading
+            ? drag.currentFrame.minX - drag.initialFrame.minX
+            : drag.currentFrame.maxX - drag.initialFrame.maxX
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        chordResizeGrip.frame = initial.offsetBy(dx: dx, dy: 0)
+        CATransaction.commit()
+    }
+
     private func handleChordResizePan(_ recognizer: UIPanGestureRecognizer) {
         let location = recognizer.location(in: self)
         switch recognizer.state {
@@ -6972,6 +7227,16 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             drag.currentFrame = LeadSheetChordResizeDragPolicy.previewFrame(for: drag,
                 at: location, boundedBy: paperFrame(containing: drag.initialFrame, in: pageLayout))
             activeChordResizeDrag = drag
+            if let glyph = chordLayout(for: chordID, in: drag.sourcePageLayout) {
+                let renderer = notationRenderer
+                chordResizePreview.begin(contentFrame: glyph.frame, in: layer,
+                    scale: (window?.screen.scale ?? UIScreen.main.scale) * canvasScreenPointsPerDisplayedPoint()) {
+                    renderer.drawChord(glyph)
+                }
+                beginChordResizeGripPreview(for: drag, glyph: glyph)
+                chordResizePreview.update(contentFrame: drag.currentFrame)
+                updateChordResizeGripPreview(for: drag)
+            }
             editorPerformanceMetrics.recordDragState(kind: .chordResize, state: recognizer.state)
             lockParentScrollForChordMove()
             setNeedsDisplay()
@@ -6995,7 +7260,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 boundedBy: activePaperFrame
             )
             self.activeChordResizeDrag = activeChordResizeDrag
-            setNeedsDisplay()
+            chordResizePreview.update(contentFrame: activeChordResizeDrag.currentFrame)
+            updateChordResizeGripPreview(for: activeChordResizeDrag)
 
             if recognizer.state == .ended {
                 if LeadSheetChordResizeDragPolicy.hasMeaningfulTranslation(for: activeChordResizeDrag, at: location) {
@@ -7193,6 +7459,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 currentFrame: markerLayout.frame,
                 movementFrame: markerLayout.movementFrame
             )
+            let renderer = notationRenderer
+            let contentFrame = LeadSheetCachedDragPreview.markerContentFrame(for: markerLayout)
+            roadmapMovePreviewSourceFrame = contentFrame
+            roadmapMovePreview.begin(contentFrame: contentFrame, in: layer,
+                scale: (window?.screen.scale ?? UIScreen.main.scale) * canvasScreenPointsPerDisplayedPoint()) {
+                renderer.drawRoadmapMarker(markerLayout)
+            }
             editorPerformanceMetrics.recordDragState(kind: .roadmapMarkerMove, state: recognizer.state)
             lockParentScrollForChordMove()
             setNeedsDisplay()
@@ -7217,7 +7490,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             )
             activeRoadmapMarkerEditDrag.currentFrame = clampedFrame
             self.activeRoadmapMarkerEditDrag = activeRoadmapMarkerEditDrag
-            setNeedsDisplay()
+            if let source = roadmapMovePreviewSourceFrame {
+                roadmapMovePreview.update(contentFrame: source.offsetBy(
+                    dx: clampedFrame.minX - activeRoadmapMarkerEditDrag.initialFrame.minX, dy: 0))
+            }
 
             if recognizer.state == .ended {
                 self.activeRoadmapMarkerEditDrag = nil
