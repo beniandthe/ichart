@@ -175,6 +175,7 @@ final class ChordInkQualityRecoveryTests: XCTestCase {
         expected.rawInput = value.text
         expected.spellingIntent = .explicit
         expected.spellingOverrideSource = .userSelection
+        expected.spellingOverrideKey = chart.effectiveKey(forMeasureID: measureID)
         XCTAssertEqual(after, expected)
         XCTAssertEqual(after.sourceInkData, before.sourceInkData)
         XCTAssertEqual(after.sourceCandidateSignature, signature)

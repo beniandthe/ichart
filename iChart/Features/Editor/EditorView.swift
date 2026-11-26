@@ -1622,7 +1622,7 @@ struct EditorView: View {
         }
         Section("Key & Transposition") {
         Menu {
-            Text("Changes the key signature and transposes the chart's chords.")
+            Text("Changes the key and chord pitches. Spellings follow the new key and harmony.")
             Menu {
                 keySelectionMenuItems(selectedKey: chart.displayedDocumentKey) { key in
                     activateSelectTool(clearsMeasureSelection: true)
@@ -6422,7 +6422,7 @@ struct EditorView: View {
         }
 
         var updatedChart = chart
-        guard updatedChart.replaceChordEvent(
+        guard updatedChart.replaceDisplayedChordEvent(
             correction.chordEventID,
             with: match.symbol,
             rawInput: trimmedCandidateText

@@ -545,6 +545,7 @@ private struct IChartHelpArticleSection: Identifiable {
             bullets: [
                 "The chart-title menu groups Chart Details, Key & Transposition, and Appearance & Layout. Open the group for header, key, instrument view, transposition, fonts, engraving or spacing controls.",
                 "Chart Key changes the key and chord pitches. Transpose changes chord pitches immediately; repeated choices add further shifts. Instrument changes the display view. Reset Display Offset clears a display offset rather than undoing earlier pitch changes.",
+                "Chord roots and slash basses follow the active key and harmony. Double-tap a chord in Select to choose or type an alternate spelling. Your chosen spelling stays with that key; a key change recalculates it for the new key.",
                 "Engraving previews use the chart's Simple Chord Sheet or Rhythm Section Sheet layout. Preset changes apply to the chart and its exported PDF.",
                 "Export PDF creates the finished file. Your editable chart stays in Charts.",
                 "Personal PDF exports include rendered notation and saved Free Ink. Unresolved Write & Render ink stays in the editable chart.",

@@ -480,7 +480,9 @@ struct Chart: Identifiable, Codable, Hashable {
         self.hasCompletedInitialSetup = hasCompletedInitialSetup
         self.systems = Self.systemsApplyingChordTransposition(
             to: systems,
-            by: chordTranspositionSemitones
+            by: chordTranspositionSemitones,
+            keysByMeasureID: Self.effectiveKeysByMeasureID(in: systems,
+                documentKey: documentKey, keyChanges: keyChanges)
         )
         self.keyChanges = keyChanges
         self.keyChangeSystemBreakMeasureIDs = keyChangeSystemBreakMeasureIDs
@@ -589,11 +591,14 @@ struct Chart: Identifiable, Codable, Hashable {
         hasCompletedInitialSetup = try container.decodeIfPresent(Bool.self, forKey: .hasCompletedInitialSetup) ?? true
         let decodedSystems = try container.decode([ChartSystem].self, forKey: .systems)
         paperMeasureLayoutVersion = try container.decodeIfPresent(Int.self, forKey: .paperMeasureLayoutVersion)
+        let decodedKeyChanges = try container.decodeIfPresent([KeyChange].self, forKey: .keyChanges) ?? []
         systems = Self.systemsApplyingChordTransposition(
             to: decodedSystems,
-            by: decodedChordTranspositionSemitones
+            by: decodedChordTranspositionSemitones,
+            keysByMeasureID: Self.effectiveKeysByMeasureID(in: decodedSystems,
+                documentKey: documentKey, keyChanges: decodedKeyChanges)
         )
-        keyChanges = try container.decodeIfPresent([KeyChange].self, forKey: .keyChanges) ?? []
+        keyChanges = decodedKeyChanges
         keyChangeSystemBreakMeasureIDs = try container.decodeIfPresent(
             Set<UUID>.self,
             forKey: .keyChangeSystemBreakMeasureIDs
@@ -1160,9 +1165,26 @@ extension Chart {
         return modulo >= 0 ? modulo : modulo + 12
     }
 
+    /// Also available while decoding, before a complete Chart exists.
+    static func effectiveKeysByMeasureID(
+        in systems: [ChartSystem], documentKey: DocumentKey, keyChanges: [KeyChange]
+    ) -> [UUID: DocumentKey] {
+        let changes = Dictionary(grouping: keyChanges, by: \.measureID)
+        var activeKey = documentKey
+        var result: [UUID: DocumentKey] = [:]
+        for measure in systems.flatMap(\.measures) {
+            if let change = changes[measure.id]?.max(by: { $0.id.uuidString < $1.id.uuidString }) {
+                activeKey = change.key
+            }
+            result[measure.id] = activeKey
+        }
+        return result
+    }
+
     static func systemsApplyingChordTransposition(
         to systems: [ChartSystem],
-        by semitones: Int
+        by semitones: Int,
+        keysByMeasureID: [UUID: DocumentKey] = [:]
     ) -> [ChartSystem] {
         let normalizedSemitones = normalizedChordTranspositionSemitones(semitones)
         guard normalizedSemitones != 0 else {
@@ -1173,11 +1195,15 @@ extension Chart {
         for systemIndex in transposedSystems.indices {
             for measureIndex in transposedSystems[systemIndex].measures.indices {
                 for chordIndex in transposedSystems[systemIndex].measures[measureIndex].chordEvents.indices {
-                    let transposedSymbol = transposedSystems[systemIndex]
+                    var transposedSymbol = transposedSystems[systemIndex]
                         .measures[measureIndex]
                         .chordEvents[chordIndex]
                         .symbol
                         .transposedForChartDisplay(by: normalizedSemitones)
+                    let measureID = transposedSystems[systemIndex].measures[measureIndex].id
+                    if let key = keysByMeasureID[measureID] {
+                        transposedSymbol = transposedSymbol.spelledForChartDisplay(in: key)
+                    }
                     transposedSystems[systemIndex]
                         .measures[measureIndex]
                         .chordEvents[chordIndex]
@@ -1186,6 +1212,10 @@ extension Chart {
                         .measures[measureIndex]
                         .chordEvents[chordIndex]
                         .rawInput = transposedSymbol.displayText
+                    transposedSystems[systemIndex]
+                        .measures[measureIndex]
+                        .chordEvents[chordIndex]
+                        .spellingOverrideKey = nil
                 }
             }
         }
@@ -1245,21 +1275,19 @@ extension Chart {
     }
 
     func displayedChordSymbol(for chordEvent: ChordEvent, in measureID: UUID?) -> ChordSymbol {
-        let activeKey = measureID.map { displayedEffectiveKey(forMeasureID: $0) } ?? displayedDocumentKey
-        let transposedSymbol = chordEvent
-            .transposed(for: defaultTranspositionView)
-            .symbol
-            .transposedForChartDisplay(by: chordTranspositionSemitones)
-
-        guard chordEvent.spellingIntent == .automatic else {
+        let concertKey = measureID.map { effectiveKey(forMeasureID: $0) } ?? documentKey
+        let activeKey = concertKey.transposed(for: defaultTranspositionView)
+        let preservesSelection = chordEvent.spellingIntent == .explicit
+            && chordEvent.spellingOverrideSource == .userSelection
+            && chordEvent.spellingOverrideKey == concertKey
+        let transposedSymbol = chordEvent.symbol.transposedForChartDisplay(
+            by: defaultTranspositionView.semitoneOffsetFromConcert,
+            from: concertKey, to: activeKey, preservingSpelling: preservesSelection)
+        guard Self.normalizedChordTranspositionSemitones(chordTranspositionSemitones) != 0 else {
             return transposedSymbol
         }
-
-        guard let keySignature = activeKey.keySignature else {
-            return transposedSymbol
-        }
-
-        return transposedSymbol.spelledForChartDisplay(using: keySignature.spellingPreference)
+        return transposedSymbol.transposedForChartDisplay(by: chordTranspositionSemitones)
+            .spelledForChartDisplay(in: activeKey)
     }
 
     func enharmonicChordSpellingTexts(for chordEvent: ChordEvent, in measureID: UUID?) -> [String] {

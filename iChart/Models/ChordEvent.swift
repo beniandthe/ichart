@@ -23,6 +23,7 @@ struct ChordEvent: Identifiable, Codable, Hashable {
     var symbol: ChordSymbol
     var spellingIntent: ChordSpellingIntent
     var spellingOverrideSource: ChordSpellingOverrideSource?
+    var spellingOverrideKey: DocumentKey? = nil
     var startPosition: BeatPosition
     var duration: RhythmValue
     var rhythmPlacement: RhythmPlacement
@@ -68,7 +69,8 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         manualHorizontalScale: Double? = nil,
         manualLaneFraction: Double? = nil,
         manualVisualLaneFraction: Double? = nil,
-        manualVisualAllowsLeadingInset: Bool? = nil
+        manualVisualAllowsLeadingInset: Bool? = nil,
+        spellingOverrideKey: DocumentKey? = nil
     ) {
         self.id = id
         self.symbol = symbol
@@ -76,6 +78,7 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         self.spellingOverrideSource = spellingIntent == .explicit
             ? (spellingOverrideSource ?? .userSelection)
             : nil
+        self.spellingOverrideKey = spellingIntent == .explicit ? spellingOverrideKey : nil
         self.startPosition = startPosition
         self.duration = duration
         self.rhythmPlacement = rhythmPlacement
@@ -100,6 +103,7 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         case symbol
         case spellingIntent
         case spellingOverrideSource
+        case spellingOverrideKey
         case startPosition
         case duration
         case rhythmPlacement
@@ -136,6 +140,8 @@ struct ChordEvent: Identifiable, Codable, Hashable {
             spellingIntent = decodedSpellingIntent
             spellingOverrideSource = decodedSpellingOverrideSource
         }
+        spellingOverrideKey = spellingIntent == .explicit && spellingOverrideSource == .userSelection
+            ? try container.decodeIfPresent(DocumentKey.self, forKey: .spellingOverrideKey) : nil
         startPosition = try container.decode(BeatPosition.self, forKey: .startPosition)
         duration = try container.decode(RhythmValue.self, forKey: .duration)
         rhythmPlacement = try container.decode(RhythmPlacement.self, forKey: .rhythmPlacement)
@@ -173,6 +179,7 @@ struct ChordEvent: Identifiable, Codable, Hashable {
         if spellingIntent != .automatic {
             try container.encode(spellingIntent, forKey: .spellingIntent)
             try container.encodeIfPresent(spellingOverrideSource, forKey: .spellingOverrideSource)
+            try container.encodeIfPresent(spellingOverrideKey, forKey: .spellingOverrideKey)
         }
         try container.encode(startPosition, forKey: .startPosition)
         try container.encode(duration, forKey: .duration)
@@ -445,19 +452,7 @@ struct ChordSymbol: Codable, Hashable {
     }
 
     func spelledForChartDisplay(using preference: PitchSpellingPreference) -> ChordSymbol {
-        guard kind == .rooted else { return self }
-
-        let pitch = ChordPitch(root: root, accidental: accidental).spelled(using: preference)
-        var copy = self
-        copy.root = pitch.root
-        copy.accidental = pitch.accidental
-
-        if let slashBass,
-           let parsedBass = ChordPitch.parse(slashBass) {
-            copy.slashBass = parsedBass.spelled(using: preference).displayText
-        }
-
-        return copy
+        KeyAwareChordSpelling.spelled(self, using: preference)
     }
 
     func enharmonicDisplayTexts() -> [String] {
