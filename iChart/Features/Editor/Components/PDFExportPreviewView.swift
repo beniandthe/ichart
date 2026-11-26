@@ -60,10 +60,15 @@ struct PDFExportPreviewView: View {
         }
         .sheet(isPresented: $showingEditableChartReview) {
             if let pdfItemID, let onSaveEditableChart {
-                PDFEditableChartReviewView(url: exportedPDF.url, title: exportedPDF.navigationTitle,
+                let review = PDFEditableChartReviewView(url: exportedPDF.url, title: exportedPDF.navigationTitle,
                     sourcePDFLibraryItemID: pdfItemID,
                     conversionUnavailableMessage: editableChartConversionUnavailableMessage,
                     onSave: onSaveEditableChart)
+                if #available(iOS 18, *) {
+                    review.presentationSizing(.page)
+                } else {
+                    review
+                }
             }
         }
     }
@@ -117,7 +122,7 @@ struct PDFExportPreviewView: View {
                     ?? "Review the chords and measures before saving a new Simple Chord Sheet.")
                 .accessibilityIdentifier("pdf.preview.create-editable-chart")
                 Text(editableChartConversionUnavailableMessage
-                    ?? "For selectable chords above full-width staff rows in one column, or in a one-page chord grid. Drawn repeats and endings are not copied.")
+                    ?? "For printed chord grids and selectable chords above full-width staff rows in one column.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -167,6 +172,19 @@ struct PDFExportPreviewView: View {
 
 struct PDFDocumentView: UIViewRepresentable {
     let url: URL
+    var pageRequest: PageRequest? = nil
+
+    struct PageRequest: Equatable {
+        let number: Int
+        let selectionID: Int
+    }
+
+    final class Coordinator {
+        var previousURL: URL?
+        var previousPageRequest: PageRequest?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> PDFView {
         let pdfView = PDFView()
@@ -180,11 +198,18 @@ struct PDFDocumentView: UIViewRepresentable {
     }
 
     func updateUIView(_ pdfView: PDFView, context: Context) {
-        guard pdfView.document?.documentURL != url else {
-            return
+        let coordinator = context.coordinator
+        if coordinator.previousURL != url {
+            pdfView.document = PDFDocument(url: url)
+            coordinator.previousURL = url
+            coordinator.previousPageRequest = nil
         }
-
-        pdfView.document = PDFDocument(url: url)
+        guard coordinator.previousPageRequest != pageRequest else { return }
+        coordinator.previousPageRequest = pageRequest
+        guard let pageRequest, pageRequest.number > 0,
+              let page = pdfView.document?.page(at: pageRequest.number - 1),
+              pdfView.currentPage != page else { return }
+        pdfView.go(to: page)
     }
 }
 

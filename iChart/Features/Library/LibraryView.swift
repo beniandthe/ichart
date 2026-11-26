@@ -557,8 +557,8 @@ private struct IChartHelpArticleSection: Identifiable {
                 "Open PDFs, choose Import PDF, then choose a PDF in Files. iChart saves a local copy; the original file stays where it is.",
                 "Check the preview after import. Choose Share to send a copy, or Add to Setlist to arrange it with other songs.",
                 "PDF reading and sharing stay available on Basic. Pro includes Create Editable Chart for personal imports with selectable chords and clear barlines; it is also included in free Pro during Beta.",
-                "Staff conversion needs full-width staff rows in one column. Printed notes, drawn repeat signs, and ending brackets are not copied. Add needed notation in the new chart.",
-                "Choose Create Editable Chart, compare the draft with Original PDF, correct each measure, then choose Save as New Chart. Use View Original PDF in the new chart's Actions menu to revisit the saved original. If Pro access changes during review, the review stays open and saving waits until access returns.",
+                "Convert a printed chord grid or full-width staff rows in one column. The new Simple Chord Sheet uses 4/4 and even chord spacing. Add any needed notes, repeat signs, or ending brackets in the new chart.",
+                "Choose Create Editable Chart. Compare the chart with Original PDF and tap a measure to fix its chords. Choose Save as New Chart when ready. View Original PDF in the new chart's Actions menu opens the saved source. If Pro access changes during review, you can keep editing and save when access returns.",
                 "Use Search PDFs to find a title or file name. Choose Sort: Recent or Name to change the displayed order.",
                 "Cancel an import while it is preparing if you chose the wrong file. If a PDF cannot be opened, check that the original is a readable PDF and import it again."
             ]

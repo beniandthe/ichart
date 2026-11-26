@@ -37,7 +37,7 @@ final class PDFConversionAccessUITests: XCTestCase {
         attemptActivation(conversion)
         try await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertTrue(try NativeAccessibilityLookup.nodes(in: window).allSatisfy {
-            $0.identifier != "pdf.editable-chart.measure.1"
+            $0.identifier != "pdf.editable-chart.select-measure.1"
         }, "A disabled conversion must not open a review")
         XCTAssertTrue(access.savedCharts.isEmpty)
 
@@ -65,6 +65,11 @@ final class PDFConversionAccessUITests: XCTestCase {
 
         let conversion = try await node(identifier: "pdf.preview.create-editable-chart", in: window, buttonsOnly: true)
         try activate(conversion)
+        let firstMeasure = try await node(identifier: "pdf.editable-chart.select-measure.1", in: window, buttonsOnly: true)
+        XCTAssertTrue(try NativeAccessibilityLookup.nodes(in: window).allSatisfy {
+            $0.identifier != "pdf.editable-chart.measure.1"
+        }, "The preview opens as measures, with the text editor available on selection")
+        try activate(firstMeasure)
         let input = try await measureField(in: window)
         XCTAssertEqual(input.text, "Cmaj7")
         input.text = "Ebmaj7"
