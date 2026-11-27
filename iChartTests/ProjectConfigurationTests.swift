@@ -2156,7 +2156,21 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(storeKitText.contains("\"storekit-subscription-claims\""))
         XCTAssertTrue(storeKitText.contains("loadRemoteSubscriptionEntitlement"))
         XCTAssertTrue(appText.contains("@StateObject private var subscriptionStore"))
-        XCTAssertTrue(appText.contains("IChartStoreKitSubscriptionStore.live(clients: supabaseClients)"))
+        XCTAssertTrue(appText.contains("""
+        let productAccessStore = IChartBetaProStore.live(clients: supabaseClients)
+                _betaProStore = StateObject(wrappedValue: productAccessStore)
+                _subscriptionStore = StateObject(wrappedValue: IChartStoreKitSubscriptionStore.live(
+                    clients: supabaseClients, productAccessStore: productAccessStore))
+        """))
+        XCTAssertEqual(appText.components(separatedBy: "IChartBetaProStore.live(").count - 1, 1,
+                       "App and checkout must share one observed account-scoped phase store")
+        let billingStart = try XCTUnwrap(appText.range(of: "private func applySubscriptionState("))
+        let billingEnd = try XCTUnwrap(appText.range(of: "private func cloudAuthState(",
+            range: billingStart.upperBound..<appText.endIndex))
+        let billingApplication = String(appText[billingStart.lowerBound..<billingEnd.lowerBound])
+        XCTAssertTrue(billingApplication.contains("IChartProductAccessResolver.billingForLibrary(subscription: entitlement"))
+        XCTAssertTrue(billingApplication.contains("verifiedOwnerID: subscriptionStore.billingObservationOwnerID"))
+        XCTAssertTrue(billingApplication.contains("currentOwnerID: betaProStore.ownerID"))
         XCTAssertTrue(appText.contains("await subscriptionStore.bootstrap()"))
         XCTAssertTrue(appText.contains("await subscriptionStore.refreshEntitlements()"))
         XCTAssertTrue(appText.contains("applySubscriptionState(subscriptionStore.entitlement)"))

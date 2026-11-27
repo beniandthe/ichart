@@ -36,7 +36,9 @@ final class IChartFreeProProductCopyTests: XCTestCase {
         XCTAssertFalse(freeControls.contains("refundHelpURL"))
         XCTAssertTrue(freeControls.contains("IChartBetaProControls(store: betaProStore)"))
         XCTAssertTrue(freeControls.contains("IChartLegalLinks.existingBillingNotice"))
-        XCTAssertTrue(sheet.contains("if IChartProductAccessPolicy.current.isFreeBeta {"))
+        XCTAssertTrue(sheet.contains("IChartPlanAccessReader(fallbackPolicy: store.entitlements.accessPolicy) { presentation in"))
+        XCTAssertTrue(sheet.contains("IChartUpgradeSheetContent(feature: feature, presentation: presentation)"))
+        XCTAssertTrue(sheet.contains("else if presentation.isFreeBeta {"))
         XCTAssertTrue(sheet.contains("IChartLegalLinks.freeProNotice"))
     }
 
