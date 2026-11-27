@@ -48,11 +48,21 @@ struct IChartBetaProNotice: Identifiable, Equatable, Sendable {
 /// The server still derives the actual row owner from its authenticated session.
 protocol IChartBetaProService {
     func fetchStatus(for ownerID: UUID) async throws -> IChartBetaProStatus
+    func fetchProductAccessStatus(for ownerID: UUID) async throws -> IChartProductAccessStatus
     func setParticipation(_ participating: Bool, for ownerID: UUID) async throws -> IChartBetaProStatus
 }
 
-enum IChartBetaProServiceError: Error {
+extension IChartBetaProService {
+    // Old/free test providers do not silently invent a paid activation response.
+    func fetchProductAccessStatus(for ownerID: UUID) async throws -> IChartProductAccessStatus {
+        throw IChartBetaProServiceError.unsupportedProductAccess
+    }
+}
+
+enum IChartBetaProServiceError: Error, Equatable {
     case accountChanged
     case inconsistentStatus
     case participationNotConfirmed
+    case unsupportedProductAccess
+    case staleProductAccess
 }

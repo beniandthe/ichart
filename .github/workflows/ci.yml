@@ -64,6 +64,12 @@ jobs:
           command -v pg_config >/dev/null || { echo "PostgreSQL server binaries are required for the Forum concurrency regression." >&2; exit 1; }
           ICHART_POSTGRES_BIN="$(pg_config --bindir)" node --test scripts/test_forum_publish_concurrency.mjs
 
+      - name: Verify coordinated paid phases and legacy compatibility in PostgreSQL
+        run: |
+          set -euo pipefail
+          command -v pg_config >/dev/null || { echo "PostgreSQL server binaries are required for coordinated access validation." >&2; exit 1; }
+          ICHART_POSTGRES_BIN="$(pg_config --bindir)" node --test scripts/test_coordinated_paid_activation.mjs scripts/test_coordinated_paid_activation_concurrency.mjs
+
       - name: Verify telemetry incident pipeline in isolated PostgreSQL
         run: ICHART_POSTGRES_BIN="$(pg_config --bindir)" node --test scripts/test_telemetry_pipeline.mjs
 

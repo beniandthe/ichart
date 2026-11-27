@@ -29,12 +29,17 @@ Keep the existing strict public-beta verifier intact; its Build 199 procedure
 is historical and does not certify this paid candidate. Use the separate paid
 validation and packaging procedures for this artifact.
 
-**Hold paid distribution.** The paid client applies paid gates immediately and
-skips the free-beta status path. It does not honor a future server activation
-date. Do not assign it to an automatic TestFlight group, install it, publish it,
-or describe it as preactivation-safe. Artifact integrity can pass while
-delivery readiness remains false. Source integration does not authorize
-changing that hold.
+**Hold paid distribution pending coordinated validation.** The earlier static
+paid candidate selected paid gates immediately and skipped beta reconciliation;
+its retained signed archives are prior attempts, not final artifacts. The
+coordinated production client uses the authenticated runtime phase described in
+[the coordination procedure](paid-rollout-coordination.md). Its library gates,
+Plan, Upgrade, How To and fresh checkout admission must agree on the phase.
+Missing or unsupported status blocks checkout without deleting saved work.
+Only same-head native evidence and the separately verified installed backend can
+establish preactivation safety. Do not assign an unverified candidate to an
+automatic TestFlight group, install or publish it. Artifact integrity and
+delivery authorization remain separate.
 
 ## Live readback on November 27
 
@@ -74,6 +79,11 @@ change Apple's catalog, existing customers' bills, or foreign storefronts.
 Price decreases on existing subscriptions affect renewal pricing; review that
 effect before scheduling changes. See [Apple's subscription pricing guide](https://developer.apple.com/help/app-store-connect/manage-subscriptions/manage-pricing-for-auto-renewable-subscriptions).
 
+A later November 27 read-only preview confirmed that **$60.00** is an available
+US price point for the actual production annual product under **See Additional
+Prices**. The preview was cancelled without choosing a price or date and without
+saving a schedule. This proves availability of the exact target, not live pricing.
+
 ## Access and saved-content requirements
 
 Both chart styles and core writing/editing/export remain Free. Basic's
@@ -83,6 +93,13 @@ before saved content opens. Existing Projects remain visible and read-only;
 their charts remain editable and exportable. Preserve original ink, applied
 Pro fonts, converted charts, downloaded/original PDFs and local setlists after
 downgrade, expiry, unavailable billing, restore, relaunch and reopening.
+
+Phase caching and paid billing verification are separate. The coordinated client
+retains the existing strict billing-unavailable policy: an ownerless paid value
+from archived chart JSON is not current-account proof after restart. New Pro
+creation/tools can require renewed owner-bound verification, while the saved-work
+rights above remain intact. This preparation does not add an offline paid
+billing-authority cache. Unknown phase uses a nonmodal checking state.
 
 No billing change creates an iPad data migration. Do not re-enable the older
 destructive retention/pruning workflow as part of this rollout. Keep the
@@ -120,11 +137,13 @@ grace is disabled. See [Apple's billing grace guide](https://developer.apple.com
    paid-through, expiry and re-upgrade evidence for the final policy. Historical
    staging success is separate evidence; annual expiry was not established.
    Sandbox does not prove that a production customer has been billed correctly.
-6. Resolve compatibility for older free-beta clients before removing their
-   server grant. Those clients cannot become complete paid clients from a
-   backend-only flag and may show Basic for genuine paid accounts. A held new
-   artifact does not repair already installed older clients. Include the update
-   and customer recovery path in final approval.
+6. Verify the user-approved bounded legacy compatibility: strictly verified
+   paid owners retain old local Pro gates without rewriting beta membership or
+   billing; expired or unverified owners do not. New clients consume truthful
+   phase status, and server service authority must never consume compatibility
+   JSON. Older free builds retain **Pro — Free** labels and lack modern paid
+   controls until updated. Include these limits and the update path in final
+   approval; the bridge does not make old binaries complete paid clients.
 7. Review the actual Apple price schedules, equal service levels, metadata,
    review notes and manual release controls before any Apple changes/submission.
    State explicitly which customers and renewals change. A desired date is not
@@ -152,11 +171,14 @@ not cancel customers' Apple subscriptions, refund, delete content, reverse
 schema blindly, restore an old iPad writer or change live prices as an implicit
 rollback. Each affected surface needs its own verified rollback action.
 
-Database rollback alone cannot restore free Pro UI in this static paid binary,
-because it skips the beta-status path. It restores the old free-client server
-grant only. A reviewed compensating client/build or other explicitly validated
-client recovery plan is a release gate; do not describe the backend transaction
-as a complete rollback of the distributed paid client.
+Coordinated rollback must advance the protected policy revision and return the
+compatible client to the real beta policy, preserving voluntary Basic choices
+and billing truth. Verify it in an existing Plan/Upgrade view and before a new
+checkout; a database readback alone is not client proof. Disconnected clients
+converge on their next successful refresh. Earlier static-paid binaries require
+an update and remain outside the remote rollback guarantee. Restore, Manage and
+accepted transaction verification continue through rollback; already opened
+Apple sheets and completed charges cannot be undone by an access flag.
 
 No new physical iPad install or restart is authorized here. The current device
 is development Build 205 with newer saved data. A later direct or automatic

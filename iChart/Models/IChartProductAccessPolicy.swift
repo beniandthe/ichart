@@ -20,6 +20,14 @@ enum IChartProductAccessPolicy: Hashable {
     static let current: Self = .freeAllFeatures
     #endif
 
+    /// This build can follow the reviewed server phase; fixed free and QA lanes
+    /// keep their existing semantics and never become paid through an RPC.
+    #if ICHART_PAID_SUBSCRIPTION && !ICHART_STAGING_STOREKIT_PRODUCTS && !ICHART_LOCAL_PLAN_QA && !ICHART_LOCAL_QA_PLAN_PREVIEW
+    static let usesCoordinatedActivation = true
+    #else
+    static let usesCoordinatedActivation = false
+    #endif
+
     var includesAllFeatures: Bool { self == .freeAllFeatures }
     var isFreeBeta: Bool { self != .paidSubscription }
     var offersPaidPurchases: Bool { self == .paidSubscription }

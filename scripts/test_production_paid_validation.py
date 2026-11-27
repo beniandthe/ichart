@@ -1,6 +1,7 @@
 import copy
 import importlib.util
 import json
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -33,10 +34,12 @@ class ProductionPaidValidationTests(unittest.TestCase):
         }} for name in ("iChart", "iChartTests")]
 
     def result(self):
-        summary = {"result": "Passed", "passedTests": len(paid.TEST_CLASSES), "failedTests": 0, "skippedTests": 0,
-                   "devicesAndConfigurations": [{"passedTests": len(paid.TEST_CLASSES), "device": {"deviceId": "ABC"}}]}
-        tree = {"testNodes": [{"nodeType": "Test Case", "nodeIdentifier": name + "/testFixture()", "result": "Passed"}
-                              for name in paid.TEST_CLASSES]}
+        identifiers = [name + "/testFixture" for name in paid.selected_classes() if name not in paid.COORDINATED_TEST_CLASSES]
+        identifiers += list(paid.REQUIRED_COORDINATED_TESTS)
+        summary = {"result": "Passed", "passedTests": len(identifiers), "failedTests": 0, "skippedTests": 0,
+                   "devicesAndConfigurations": [{"passedTests": len(identifiers), "device": {"deviceId": "ABC"}}]}
+        tree = {"testNodes": [{"nodeType": "Test Case", "nodeIdentifier": name + "()", "result": "Passed"}
+                              for name in identifiers]}
         return summary, tree
 
     def testProjectTransformationDoesNotMutateNormalSpecOrDependencies(self):
@@ -49,13 +52,26 @@ class ProductionPaidValidationTests(unittest.TestCase):
         self.assertEqual(set(result["targets"]), {"iChart", "iChartTests"})
         self.assertEqual(result["targets"]["iChart"]["info"]["path"], "/private/tmp/isolated-paid/iChart-Info.plist")
         self.assertIn("App/Info.plist", result["targets"]["iChart"]["sources"][0]["excludes"])
-        self.assertEqual([item["path"] for item in result["targets"]["iChartTests"]["sources"]], list(paid.TEST_SOURCES))
+        self.assertEqual([item["path"] for item in result["targets"]["iChartTests"]["sources"]], list(paid.selected_sources()))
 
     def testSelectedReleaseSourceFilesContainEveryRequiredClass(self):
         source = Path(__file__).resolve().parents[1]
-        text = "\n".join((source / name).read_text() for name in paid.TEST_SOURCES)
-        for name in paid.TEST_CLASSES:
+        text = "\n".join((source / name).read_text() for name in paid.selected_sources())
+        for name in paid.selected_classes():
             self.assertIn("final class " + name + ": XCTestCase", text)
+
+    def testReviewedCoordinationMethodInventoryMatchesItsSourceExactly(self):
+        source = Path(__file__).resolve().parents[1]
+        methods = []
+        for name in paid.COORDINATED_TEST_CLASSES:
+            path = source / ("iChartTests/" + name + ".swift")
+            methods += [name + "/" + method for method in re.findall(r"^    func (test\w+)\(", path.read_text(), re.M)]
+        self.assertTrue(paid.COORDINATION_CONTRACT_FINALIZED)
+        self.assertEqual(len(methods), len(set(methods)))
+        self.assertEqual(set(methods), set(paid.REQUIRED_COORDINATED_TESTS))
+        for lane in paid.LANES:
+            self.assertTrue(set(paid.COORDINATED_TEST_CLASSES) <= set(paid.selected_classes(lane)))
+            self.assertTrue(set(paid.COORDINATED_TEST_SOURCES) <= set(paid.selected_sources(lane)))
 
     def testGlobalPaidConditionsAreRejected(self):
         original = self.original()
@@ -168,7 +184,7 @@ class ProductionPaidValidationTests(unittest.TestCase):
 
     def testEverySelectedClassMustActuallyExecute(self):
         summary, tree = self.result()
-        self.assertEqual(sum(paid.validate_results(summary, tree, "ABC").values()), len(paid.TEST_CLASSES))
+        self.assertEqual(sum(paid.validate_results(summary, tree, "ABC").values()), summary["passedTests"])
         tree["testNodes"].pop()
         with self.assertRaises(ValueError): paid.validate_results(summary, tree, "ABC")
 
@@ -186,6 +202,97 @@ class ProductionPaidValidationTests(unittest.TestCase):
         summary, tree = self.result()
         tree["testNodes"][0]["nodeIdentifier"] = "UnselectedSuite/testUnexpected()"
         with self.assertRaises(ValueError): paid.validate_results(summary, tree, "ABC")
+
+    def testPublicFreeLaneHasNoPaidOrValidationDefinesInEitherTarget(self):
+        original = self.original()
+        result = paid.make_spec(original, Path("/private/tmp/free-proof"), "public-free")
+        for name in ("iChart", "iChartTests"):
+            flags = result["targets"][name]["settings"]["configs"]["Release"]["SWIFT_ACTIVE_COMPILATION_CONDITIONS"]
+            self.assertEqual(flags.strip(), "$(inherited)")
+        self.assertNotIn("ProductionPaidAccessPolicyTests", paid.selected_classes("public-free"))
+        rows = self.settings()
+        for row in rows:
+            row["buildSettings"]["SWIFT_ACTIVE_COMPILATION_CONDITIONS"] = ""
+        paid.validate_build_settings(rows, "public-free")
+        for name in ("iChart", "iChartTests"):
+            contaminated = copy.deepcopy(rows)
+            next(row for row in contaminated if row["target"] == name)["buildSettings"]["SWIFT_ACTIVE_COMPILATION_CONDITIONS"] = paid.PAID_FLAG
+            with self.assertRaises(ValueError): paid.validate_build_settings(contaminated, "public-free")
+
+    def testUnknownAppAndTestDefinesFailClosedInBothLanes(self):
+        for lane in paid.LANES:
+            for name in ("iChart", "iChartTests"):
+                rows = self.settings()
+                for row in rows:
+                    row["buildSettings"]["SWIFT_ACTIVE_COMPILATION_CONDITIONS"] = " ".join(paid.expected_defines(row["target"], lane))
+                next(row for row in rows if row["target"] == name)["buildSettings"]["SWIFT_ACTIVE_COMPILATION_CONDITIONS"] += " UNREVIEWED_FEATURE"
+                with self.subTest(lane=lane, target=name), self.assertRaises(ValueError): paid.validate_build_settings(rows, lane)
+
+    def testDuplicateMethodsAndInconsistentDeviceTotalsAreRejected(self):
+        summary, tree = self.result()
+        tree["testNodes"].append(copy.deepcopy(tree["testNodes"][0]))
+        summary["passedTests"] += 1
+        summary["devicesAndConfigurations"][0]["passedTests"] += 1
+        with self.assertRaises(ValueError): paid.validate_results(summary, tree, "ABC")
+        summary, tree = self.result()
+        summary["devicesAndConfigurations"][0]["passedTests"] -= 1
+        with self.assertRaises(ValueError): paid.validate_results(summary, tree, "ABC")
+
+    def testResultBundleInventoryRejectsSymlinksAndObservesByteChanges(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bundle = Path(directory) / "example.xcresult"
+            bundle.mkdir()
+            evidence = bundle / "data"
+            evidence.write_bytes(b"first")
+            first = paid.result_bundle_hashes(bundle)
+            evidence.write_bytes(b"second")
+            self.assertNotEqual(first, paid.result_bundle_hashes(bundle))
+            (bundle / "escape").symlink_to("/etc/passwd")
+            with self.assertRaises(ValueError): paid.result_bundle_hashes(bundle)
+
+    def testActualCompilerRequiresRuntimeAndSelectedTestFileBindings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, derived = root / "source", root / "DerivedData"
+            derived.mkdir()
+            lines = []
+            for module, paths in (("iChart", paid.REQUIRED_RUNTIME_APP_SOURCES), ("iChartTests", paid.selected_sources())):
+                required = [str(source / p) for p in paths]
+                for name in required:
+                    path = Path(name)
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text("// synthetic compiled source")
+                mapping = derived / (module + ".json")
+                mapping.write_text(json.dumps({p: {} for p in required}))
+                lines.append("builtin-SwiftDriver -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name " + module + " -target arm64-apple-ios17.0-simulator -O -output-file-map " + str(mapping) + " " + " ".join(required) + " " + " ".join("-D " + p for p in paid.expected_defines(module)))
+            manifest = {str(p.relative_to(source)): paid.hashlib.sha256(p.read_bytes()).hexdigest() for p in source.rglob("*") if p.is_file()}
+            self.assertTrue(paid.validate_compiler_commands("\n".join(lines), derived, source=source, source_inputs=manifest))
+            mapping.write_text("{}")
+            with self.assertRaises(ValueError): paid.validate_compiler_commands("\n".join(lines), derived, source=source, source_inputs=manifest)
+
+    def testUnmanifestedIgnoredExternalAndChangedSwiftInputsFailClosed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source, derived = root / "source", root / "DerivedData"
+            source.mkdir(); derived.mkdir()
+            tracked = source / "Tracked.swift"
+            tracked.write_text("// frozen")
+            manifest = {"Tracked.swift": paid.hashlib.sha256(tracked.read_bytes()).hexdigest()}
+            self.assertEqual(paid.bind_swift_inputs([str(tracked)], source, derived, manifest)["sourceInputHashes"], manifest)
+            ignored = source / "Ignored.swift"
+            ignored.write_text("// ignored and absent from Git manifest")
+            with self.assertRaises(ValueError): paid.bind_swift_inputs([str(tracked), str(ignored)], source, derived, manifest)
+            external = root / "External.swift"
+            external.write_text("// external")
+            with self.assertRaises(ValueError): paid.bind_swift_inputs([str(tracked), str(external)], source, derived, manifest)
+            tracked.write_text("// changed during compilation")
+            with self.assertRaises(ValueError): paid.bind_swift_inputs([str(tracked)], source, derived, manifest)
+            tracked.write_text("// frozen")
+            generated = derived / "GeneratedAssetSymbols.swift"
+            generated.write_text("// generated first")
+            first = paid.bind_swift_inputs([str(tracked), str(generated)], source, derived, manifest)
+            generated.write_text("// generated second")
+            self.assertNotEqual(first, paid.bind_swift_inputs([str(tracked), str(generated)], source, derived, manifest))
 
 
 if __name__ == "__main__": unittest.main()

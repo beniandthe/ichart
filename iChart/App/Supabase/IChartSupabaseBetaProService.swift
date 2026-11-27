@@ -13,6 +13,14 @@ struct IChartSupabaseBetaProService: IChartBetaProService {
         return status
     }
 
+    func fetchProductAccessStatus(for ownerID: UUID) async throws -> IChartProductAccessStatus {
+        try await verifyOwner(ownerID)
+        let status: IChartProductAccessStatus = try await client.rpc("product_access_status").execute().value
+        try await verifyOwner(ownerID)
+        guard status.ownerID == ownerID else { throw IChartBetaProServiceError.accountChanged }
+        return status
+    }
+
     func setParticipation(_ participating: Bool, for ownerID: UUID) async throws -> IChartBetaProStatus {
         try await verifyOwner(ownerID)
         let status: IChartBetaProStatus = try await client.rpc("set_free_pro_beta_participation",

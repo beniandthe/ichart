@@ -305,10 +305,13 @@ any existing subscription renewal. App Store Connect remains the authority for
 localized product prices. The exact activation time and production changes
 require release review; keep public free Pro on until that cutover.
 
-Prepare the production-paid artifact separately and hold its distribution until
-the cutover is authorized. Its paid compilation condition applies client gates
-immediately; the server flag alone does not coordinate that client activation.
-Keep the normal free-beta package and its strict verifier unchanged.
+Prepare the production-paid artifact separately and hold distribution until the
+coordinated runtime phase, checkout and rollback paths pass same-head validation
+and the compatible backend is separately approved and verified. The earlier
+static-paid candidate cannot be remotely returned to beta; do not reuse its
+archive or receipts. See [coordinated rollout](paid-rollout-coordination.md) for
+truthful new-client status and the bounded legacy paid-access bridge. Keep the
+normal free-beta package and its strict verifier unchanged.
 
 Keep Apple Billing Grace Period disabled while the implemented grace policy
 pauses cloud and Forum services. Enabling Apple's billing grace requires a

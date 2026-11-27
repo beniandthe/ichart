@@ -645,11 +645,14 @@ Do not initialize `StoreKitTest.SKTestSession` inside the app process. It expect
 ## App Store Connect Production Gate
 
 For the December 1, 2026 preparation, preserve public free Pro and hold the
-production-paid artifact's distribution until the reviewed cutover. Its client
-gates apply immediately when compiled with `ICHART_PAID_SUBSCRIPTION`; changing
-only the server switch does not coordinate activation. Do not change live Apple
-price schedules or existing renewals as a side effect of source preparation.
-Confirm the exact activation time before scheduling any change.
+production-paid artifact's distribution until the coordinated runtime paths and
+installed backend pass their separate gates. Production paid capability uses
+authenticated phase status; a receipt, cached flag or notice date cannot start
+new checkout. The earlier static paid candidate applied gates immediately and
+is not a remotely reversible package. See [coordinated rollout](paid-rollout-coordination.md).
+Do not change live Apple price schedules or existing renewals as a side effect
+of source preparation. The selected target is 09:00 PST / 17:00 UTC on December
+1, 2026, subject to final explicit activation approval; it creates no schedule.
 
 Keep Billing Grace Period disabled while the current client/server policy
 pauses cloud and Forum services in grace. Enabling it requires separately

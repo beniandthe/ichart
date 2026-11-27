@@ -51,7 +51,22 @@ struct IChartComplimentaryPurchaseFeedbackView: View {
 
 struct UpgradeSheetView: View {
     let feature: EntitledFeature
+    @EnvironmentObject private var store: ChartLibraryStore
+    @Environment(\.betaProStore) private var betaProStore
 
+    var body: some View {
+        IChartPlanAccessReader(fallbackPolicy: store.entitlements.accessPolicy) { presentation in
+            IChartUpgradeSheetContent(feature: feature, presentation: presentation)
+        }
+        .task {
+            if betaProStore?.isCoordinatedActivation == true { await betaProStore?.refresh() }
+        }
+    }
+}
+
+struct IChartUpgradeSheetContent: View {
+    let feature: EntitledFeature
+    let presentation: IChartPlanAccessPresentation
     @EnvironmentObject private var store: ChartLibraryStore
     @EnvironmentObject private var subscriptionStore: IChartStoreKitSubscriptionStore
     @Environment(\.betaProStore) private var betaProStore
@@ -60,116 +75,123 @@ struct UpgradeSheetView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 20) {
-                if IChartProductAccessPolicy.current.isFreeBeta {
-                    Text(IChartLegalLinks.freeProTitle)
-                        .font(.largeTitle.weight(.semibold))
-                    Text(IChartLegalLinks.freeProNotice)
-                    Text(feature.upgradeMessage)
-                        .foregroundStyle(.secondary)
-                    Text(IChartLegalLinks.futurePricingNotice)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    if presentation.isAccessChecking {
+                        IChartPlanAccessCheckView(presentation: presentation)
+                        Text("Keep editing and exporting your saved charts while access is checked.")
+                            .foregroundStyle(.secondary)
+                    } else if presentation.isFreeBeta {
+                        Text(IChartLegalLinks.freeProTitle)
+                            .font(.largeTitle.weight(.semibold))
+                        Text(IChartLegalLinks.freeProNotice)
+                        Text(feature.upgradeMessage).foregroundStyle(.secondary)
+                        Text(IChartLegalLinks.futurePricingNotice)
+                            .font(.footnote).foregroundStyle(.secondary)
+                        if let betaProStore {
+                            IChartBetaProControls(store: betaProStore, allowsLeaving: false, didJoin: { dismiss() })
+                        }
+                    } else {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Unlock Pro").font(.largeTitle.weight(.semibold))
+                            Text(feature.displayText).font(.title3.weight(.semibold)).foregroundStyle(.secondary)
+                            Text(feature.upgradeMessage).foregroundStyle(.secondary)
+                        }
+                        VStack(alignment: .leading, spacing: 12) {
+                            benefitRow("Unlimited local charts")
+                            benefitRow("Editable charts from PDFs")
+                            benefitRow("Projects for song variants")
+                            benefitRow("Chart and setlist cloud backup")
+                            benefitRow("Forum downloads and participation")
+                            benefitRow("Premium chart fonts")
+                        }
+                        if presentation.showsPaidPlans {
+                            storeKitPurchaseControls
+                        } else {
+                            Text("New purchases are unavailable until account access is refreshed. Restore and subscription management remain available below.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                    }
+
                     if let betaProStore {
-                        IChartBetaProControls(store: betaProStore, allowsLeaving: false, didJoin: { dismiss() })
+                        IChartCoordinatedAccessNoticeView(store: betaProStore)
                     }
-                    Button("Done") { dismiss() }
-                        .buttonStyle(.borderedProminent)
-                } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Unlock Pro")
-                        .font(.largeTitle.weight(.semibold))
+                    billingRecoveryControls
 
-                    Text(feature.displayText)
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(IChartLegalLinks.subscriptionNotice)
+                            .font(.footnote).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        IChartLegalLinksView()
+                    }
 
-                    Text(feature.upgradeMessage)
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                }
-
-                VStack(alignment: .leading, spacing: 12) {
-                    benefitRow("Unlimited local charts")
-                    benefitRow("Editable charts from PDFs")
-                    benefitRow("Projects for song variants")
-                    benefitRow("Chart and setlist cloud backup")
-                    benefitRow("Forum downloads and participation")
-                    benefitRow("Premium chart fonts")
-                }
-
-                storeKitPurchaseControls
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(IChartLegalLinks.subscriptionNotice)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    IChartLegalLinksView()
-                }
-
-                #if DEBUG && targetEnvironment(simulator)
-                Text("Pro Preview unlocks Pro locally on this device. Purchases and restore still use the normal subscription flow.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                #endif
-
-                Spacer()
-
-                VStack(spacing: 12) {
                     #if DEBUG && targetEnvironment(simulator)
-                    Button {
-                        store.applySubscriptionState(.activePro(verifiedAt: Date()))
-                        dismiss()
-                    } label: {
-                        Label("Use Pro Preview", systemImage: "star.fill")
-                            .frame(maxWidth: .infinity)
+                    if !presentation.isFreeBeta && !presentation.isAccessChecking {
+                        Text("Pro Preview unlocks Pro locally on this device. Purchases and restore still use the normal subscription flow.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                        Button {
+                            store.applySubscriptionState(.activePro(verifiedAt: Date()))
+                            dismiss()
+                        } label: {
+                            Label("Use Pro Preview", systemImage: "star.fill").frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
                     }
-                    .buttonStyle(.borderedProminent)
                     #endif
 
-                    Button {
-                        complimentaryPurchaseFeedback = nil
-                        Task {
-                            await subscriptionStore.restorePurchases()
-                            store.applySubscriptionState(subscriptionStore.entitlement)
-                            if subscriptionStore.entitlement.status == .proActive {
-                                dismiss()
-                            }
-                        }
-                    } label: {
-                        Label("Restore Purchases", systemImage: "arrow.clockwise")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(subscriptionStore.state.isWorking)
-
-                    Button {
-                        complimentaryPurchaseFeedback = nil
-                        Task {
-                            await subscriptionStore.manageSubscriptions()
-                            store.applySubscriptionState(subscriptionStore.entitlement)
-                            if subscriptionStore.entitlement.status == .proActive {
-                                dismiss()
-                            }
-                        }
-                    } label: {
-                        Label("Manage Subscription", systemImage: "person.crop.circle")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(subscriptionStore.state.isWorking)
-
-                    Button("Not Now") {
-                        dismiss()
-                    }
-                    .buttonStyle(.bordered)
+                    Button(presentation.isFreeBeta || presentation.isAccessChecking ? "Done" : "Not Now") { dismiss() }
+                        .buttonStyle(.bordered)
                 }
-                }
+                .padding(24)
             }
-            .padding(24)
-            .navigationTitle(IChartProductAccessPolicy.current.isFreeBeta ? "Pro Access" : "Upgrade")
+            .navigationTitle(presentation.isAccessChecking ? "Plan Access" : (presentation.isFreeBeta ? "Pro Access" : "Upgrade"))
             .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    private var billingRecoveryControls: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Existing Apple Purchases").font(.headline)
+            Text("App access and existing Apple billing are separate. Restoring or managing a subscription does not remove saved charts, PDFs or setlists.")
+                .font(.footnote).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if !presentation.isAccessChecking || store.subscriptionState.status != .basic {
+                Text("Subscription status: \(store.subscriptionState.displayTitle)")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            Button {
+                complimentaryPurchaseFeedback = nil
+                Task {
+                    await subscriptionStore.restorePurchases()
+                    store.applySubscriptionState(subscriptionStore.entitlementForLibrary(
+                        ownerID: betaProStore?.ownerID, currentLibraryEntitlement: store.subscriptionState))
+                    if store.subscriptionState.status == .proActive,
+                       !presentation.isFreeBeta, !presentation.isAccessChecking { dismiss() }
+                }
+            } label: {
+                Label("Restore Purchases", systemImage: "arrow.clockwise").frame(maxWidth: .infinity)
+                    .accessibilityIdentifier("upgrade_restore")
+            }
+            .buttonStyle(.bordered)
+            .disabled(subscriptionStore.state.isWorking)
+            Button {
+                complimentaryPurchaseFeedback = nil
+                Task {
+                    await subscriptionStore.manageSubscriptions()
+                    store.applySubscriptionState(subscriptionStore.entitlementForLibrary(
+                        ownerID: betaProStore?.ownerID, currentLibraryEntitlement: store.subscriptionState))
+                    if store.subscriptionState.status == .proActive,
+                       !presentation.isFreeBeta, !presentation.isAccessChecking { dismiss() }
+                }
+            } label: {
+                Label("Manage Subscription", systemImage: "person.crop.circle").frame(maxWidth: .infinity)
+                    .accessibilityIdentifier("upgrade_manage")
+            }
+            .buttonStyle(.bordered)
+            .disabled(subscriptionStore.state.isWorking)
+            if let status = subscriptionStore.state.statusText {
+                Text(status).font(.footnote).fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -200,8 +222,9 @@ struct UpgradeSheetView: View {
                                 completed: completed,
                                 state: subscriptionStore.state
                             )
-                            store.applySubscriptionState(subscriptionStore.entitlement)
-                            if completed, subscriptionStore.entitlement.status == .proActive {
+                            store.applySubscriptionState(subscriptionStore.entitlementForLibrary(
+                        ownerID: betaProStore?.ownerID, currentLibraryEntitlement: store.subscriptionState))
+                            if completed, store.subscriptionState.status == .proActive {
                                 dismiss()
                             }
                         }
@@ -211,7 +234,7 @@ struct UpgradeSheetView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(.green)
-                    .disabled(subscriptionStore.state.isWorking)
+                    .disabled(subscriptionStore.state.isWorking || !presentation.canOfferPaidPurchases)
 
                     if let complimentaryPurchaseFeedback,
                        complimentaryPurchaseFeedback.productID == offer.productID {
@@ -253,8 +276,9 @@ struct UpgradeSheetView: View {
                         complimentaryPurchaseFeedback = nil
                         Task {
                             await subscriptionStore.purchase(product)
-                            store.applySubscriptionState(subscriptionStore.entitlement)
-                            if subscriptionStore.entitlement.status == .proActive {
+                            store.applySubscriptionState(subscriptionStore.entitlementForLibrary(
+                        ownerID: betaProStore?.ownerID, currentLibraryEntitlement: store.subscriptionState))
+                            if store.subscriptionState.status == .proActive {
                                 dismiss()
                             }
                         }
@@ -285,7 +309,7 @@ struct UpgradeSheetView: View {
                         .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(subscriptionStore.state.isWorking)
+                    .disabled(subscriptionStore.state.isWorking || !presentation.canOfferPaidPurchases)
                 }
             }
 
