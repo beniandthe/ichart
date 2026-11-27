@@ -388,6 +388,7 @@ final class ChordInkAutomaticEditableCandidateTests: XCTestCase {
         expected.rawInput = "B7"
         expected.spellingIntent = .explicit
         expected.spellingOverrideSource = .userSelection
+        expected.spellingOverrideKey = .cMajor
         XCTAssertEqual(changed, expected, "Editing replaces the label on the same source-owning musical event")
         let reopened = try JSONDecoder().decode(Chart.self, from: JSONEncoder().encode(edited))
         XCTAssertEqual(reopened.chordEvent(id: id), expected)

@@ -458,9 +458,10 @@ final class PDFChartExporterTests: XCTestCase {
             layoutStyle: .simpleChordSheet
         )
         let measureIDs = chart.measures.map(\.id)
+        let sourceSymbol = try ChordSymbolParser.parse("Db7/F")
         _ = try XCTUnwrap(
             chart.appendRecognizedChordEvent(
-                try ChordSymbolParser.parse("Db7/F"),
+                sourceSymbol,
                 rawInput: "Db7/F",
                 to: measureIDs[0],
                 atFraction: 0.1,
@@ -469,13 +470,24 @@ final class PDFChartExporterTests: XCTestCase {
         )
         _ = try XCTUnwrap(
             chart.appendRecognizedChordEvent(
-                try ChordSymbolParser.parse("Db7/F"),
+                sourceSymbol,
                 rawInput: "Db7/F",
                 to: measureIDs[1],
                 atFraction: 0.1,
                 spellingIntent: .explicit
             )
         )
+
+        let automaticEvent = try XCTUnwrap(chart.measure(id: measureIDs[0])?.chordEvents.first)
+        let explicitEvent = try XCTUnwrap(chart.measure(id: measureIDs[1])?.chordEvents.first)
+        XCTAssertEqual(automaticEvent.symbol, sourceSymbol)
+        XCTAssertEqual(explicitEvent.symbol, sourceSymbol)
+        // Respelling Db as C# keeps its slash-bass third as E#, the same pitch as F.
+        XCTAssertEqual(chart.displayedChordSymbol(for: automaticEvent, in: measureIDs[0]).displayText,
+            "C#7/E#")
+        XCTAssertEqual(chart.displayedChordSymbol(for: explicitEvent, in: measureIDs[1]).displayText,
+            "Db7/F")
+        let originalChordEvents = chart.measures.map(\.chordEvents)
 
         defer {
             try? FileManager.default.removeItem(at: exportDirectory)
@@ -484,8 +496,9 @@ final class PDFChartExporterTests: XCTestCase {
         let exportedURL = try await exporter.exportPDF(for: chart).url
         let documentText = PDFDocument(url: exportedURL)?.string ?? ""
 
-        XCTAssertPDFExtractedTextContains(documentText, visibleChordText: "C#7/F")
+        XCTAssertPDFExtractedTextContains(documentText, visibleChordText: "C#7/E#")
         XCTAssertPDFExtractedTextContains(documentText, visibleChordText: "Db7/F")
+        XCTAssertEqual(chart.measures.map(\.chordEvents), originalChordEvents)
     }
 
     func testExportPDFUsesProductReadyReadableFileNames() async throws {
