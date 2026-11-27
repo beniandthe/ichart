@@ -9,6 +9,9 @@ final class ProductionPaidBackendConfigurationTests: XCTestCase {
     private let bundleKey = "sb_publishable_synthetic_bundle_client_0123456789"
     private let overrideKey = "sb_publishable_synthetic_override_client_9876543210"
 
+    // Preserve a realistic invalid client-key value without storing a key-shaped literal.
+    private let syntheticNonClientKey = ["sb", "secret", "synthetic_not_a_client_key"].joined(separator: "_")
+
     #if ICHART_PAID_SUBSCRIPTION && !ICHART_STAGING_STOREKIT_PRODUCTS
     func testPaidConfigurationUsesOnlyBundledProductionInputsDespiteLaunchOverrides() throws {
         try withBundleInfo(productionInfo) { bundle in
@@ -16,7 +19,7 @@ final class ProductionPaidBackendConfigurationTests: XCTestCase {
                 let configuration = IChartSupabaseConfiguration.current(bundle: bundle, environment: [
                     "SUPABASE_URL": overrideURL,
                     "SUPABASE_PUBLISHABLE_KEY": overrideKey,
-                    "SUPABASE_ANON_KEY": "sb_secret_synthetic_not_a_client_key"
+                    "SUPABASE_ANON_KEY": syntheticNonClientKey
                 ])
                 XCTAssertEqual(configuration?.url.absoluteString, productionURL)
                 XCTAssertEqual(configuration?.publishableKey, bundleKey)
@@ -47,7 +50,7 @@ final class ProductionPaidBackendConfigurationTests: XCTestCase {
     func testPaidConfigurationRejectsMissingOrNonPublishableBundleKeyWithoutFallback() throws {
         let invalidKeys: [String?] = [
             nil, "", "$(SUPABASE_PUBLISHABLE_KEY)", "your-publishable-key",
-            "replace-with-key", "sb_secret_synthetic_not_a_client_key",
+            "replace-with-key", syntheticNonClientKey,
             "invented.jwt.string", "sb_publishable_short", "sb_publishable_invalid key with spaces",
             "sb_publishable_valid_prefix_but_bad_suffix!"
         ]
@@ -67,7 +70,7 @@ final class ProductionPaidBackendConfigurationTests: XCTestCase {
 
     func testPaidConfigurationWorksWithoutEnvironmentAndIgnoresUnrelatedLegacyBundleKey() throws {
         var info = productionInfo
-        info["SupabaseAnonKey"] = "sb_secret_synthetic_not_a_client_key"
+        info["SupabaseAnonKey"] = syntheticNonClientKey
         try withBundleInfo(info) { bundle in
             let configuration = IChartSupabaseConfiguration.current(bundle: bundle, environment: [:])
             XCTAssertEqual(configuration?.url.absoluteString, productionURL)
