@@ -261,10 +261,16 @@ final class PaperWritingRenderTests: XCTestCase {
             return true
         }
         XCTAssertTrue(drew)
-        return stride(from: 0, to: pixels.count, by: 4).filter {
-            Int(pixels[$0 + 2]) > Int(pixels[$0]) + 8
-                && Int(pixels[$0 + 2]) > Int(pixels[$0 + 1]) + 3
-        }.count
+        var bluePixels = 0
+        for offset in stride(from: 0, to: pixels.count, by: 4) {
+            let red = Int(pixels[offset])
+            let green = Int(pixels[offset + 1])
+            let blue = Int(pixels[offset + 2])
+            if blue > red + 8 && blue > green + 3 {
+                bluePixels += 1
+            }
+        }
+        return bluePixels
     }
 
     private func attach(_ image: UIImage, name: String) {

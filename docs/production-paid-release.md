@@ -52,12 +52,20 @@ These observations expire; repeat them before the final decision.
 | Billing Grace Period | UI offers Set Up Billing Grace Period | Preserve unconfigured; inspect any existing grace entitlements |
 | Agreements | Free and Paid Apps Agreements Active; payment/tax status Active | Recheck without changing legal or payment details |
 | Notifications | Production and Sandbox URLs both point to production notification handler | Preserve routing; verify deployed code, permissions and Apple-verified processing |
-| Advance pricing notice | Notice ID/title/body and ending date are all NULL | Review and publish an advance in-app notice; current privacy/terms promise it |
+| Advance pricing notice | Initially NULL; owner-approved notice `paid-plans-2026-12-01-v1` published November 27 and verified at 10:06 a.m. PST | Verify notice availability; do not claim every user has seen or acknowledged it |
 
 Existing production grace entitlement counts were zero. The absence of current
 grace does not authorize enabling grace with a partial-service policy. The beta
 notice acknowledgement is stored locally per account/iPad; there is no server
 acknowledgement count proving that every user has read a notice.
+
+The approved 752-character notice distinguishes future iChart 2.0/offline
+recognition plans from this verified 1.9.4 (206) candidate. Its publication changed
+only the four notice fields. Live readback confirmed the exact body, free Pro
+still enabled, paid policy still absent, and the beta RPC returning notice fields.
+The ending timestamp remains informational. No prices, billing, build delivery or
+paid activation changed. Installed clients append their existing fixed footer;
+changing that footer in a draft does not change those installed clients.
 
 The production product IDs remain `com.ichart.app.pro.monthly` and
 `com.ichart.app.pro.annual`. Source targets are 699 and 6000 US cents. Product
