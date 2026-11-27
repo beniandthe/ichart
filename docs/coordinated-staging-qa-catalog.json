@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "qa_project_ref": "yiuxduqhhbucsmooevxz",
+  "qa_origin": "https://yiuxduqhhbucsmooevxz.supabase.co",
+  "publishable_key_sha256": "bfdf9049a7237013fea1b1f18d137e4d58daa34078fec4290b78a9676e9038e2",
+  "namespace": {
+    "mode": "coordinatedStagingQA",
+    "directory": "iChart Coordinated QA yiuxduqhhbucsmooevxz",
+    "defaults_suite": "com.ichart.app.coordinated-qa.yiuxduqhhbucsmooevxz",
+    "auth_prefix": "coordinated-qa.yiuxduqhhbucsmooevxz."
+  },
+  "staging_product_ids": {
+    "monthly": "com.ichart.app.staging.fix036.monthly",
+    "annual": "com.ichart.app.staging.fix036.annual"
+  },
+  "currency": "USD",
+  "requested_prices": {
+    "monthly": {
+      "period": "P1M",
+      "amount": "6.99",
+      "minor_units": 699
+    },
+    "annual": {
+      "period": "P1Y",
+      "amount": "60.00",
+      "minor_units": 6000
+    }
+  },
+  "billing_environment": "Sandbox",
+  "app_store_connect_observation": {
+    "observed_at_utc": "2026-11-27T20:12:44Z",
+    "evidence_sha256": "6abbac086ef2d489452a942989cc9985e27028d2a01f08027115588d6d8014e8",
+    "monthly_us_price": "6.99",
+    "annual_us_price": "60.00",
+    "monthly_service_level": 1,
+    "annual_service_level": 1,
+    "availability": "United States only",
+    "state": "Prepare for Submission",
+    "upcoming_price_changes": false,
+    "device_fetched_prices_verified": false,
+    "purchase_restore_notifications_verified": false
+  },
+  "production_resources_changed_by_packager": false
+}

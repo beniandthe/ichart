@@ -206,6 +206,12 @@ jobs:
           python3 scripts/test_production_paid_distribution.py
           python3 scripts/test_production_paid_validation.py
 
+      - name: Verify coordinated-QA package and validation guards
+        if: steps.app_changes.outputs.run_tests == 'true'
+        run: |
+          python3 scripts/test_coordinated_staging_qa_distribution.py
+          python3 scripts/test_coordinated_staging_qa_validation.py
+
       - name: Verify simulator selection with mocked devices
         if: steps.app_changes.outputs.run_tests == 'true'
         run: python3 .github/scripts/test_simulator_selection.py -v

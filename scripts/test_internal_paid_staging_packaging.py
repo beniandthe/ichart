@@ -114,9 +114,20 @@ class InternalPaidStagingPackagingTests(unittest.TestCase):
             log.write_text("echo " + real)
             with self.assertRaises(packaging.GuardError):
                 packaging.compilation_evidence(log, root)
+
             log.write_text("SWIFT_ACTIVE_COMPILATION_CONDITIONS = ICHART_PAID_SUBSCRIPTION\n")
             with self.assertRaises(packaging.GuardError):
                 packaging.compilation_evidence(log, root)
+
+    def test_historical_staging_cannot_certify_mixed_coordinated_qa_code_and_old_info(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            # The old Info policy alone accepts its original host; the compiler
+            # gate must independently reject the newly introduced QA capability.
+            self.assertEqual(packaging.check_info(self.info(), "2.0.0", "999", self.key)["url"], packaging.STAGING_URL)
+            flags = "-DICHART_PAID_SUBSCRIPTION -DICHART_STAGING_STOREKIT_PRODUCTS -DICHART_COORDINATED_STAGING_QA"
+            with self.assertRaises(packaging.GuardError):
+                packaging.compilation_evidence(self.compiler(root, flags), root)
 
     def test_real_xcode27_archive_wrappers_keep_flag_and_source_binding(self):
         # Redacted from archive173-locked-dependencies/archive.log line2099.
