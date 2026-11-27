@@ -14,6 +14,9 @@ final class ProductionPaidBuildScopeTests: XCTestCase {
         #if ICHART_PRODUCTION_PAID_VALIDATION
         XCTAssertEqual(IChartProductAccessPolicy.current, .paidSubscription,
                        "The app target, not only the test bundle, must use paid policy")
+        #if DEBUG
+        XCTFail("Dedicated production-paid validation must compile without Debug preview paths")
+        #endif
         #endif
         #if ICHART_STAGING_STOREKIT_PRODUCTS || ICHART_INTERNAL_STAGING || ICHART_LOCAL_PLAN_QA || ICHART_LOCAL_QA_PLAN_PREVIEW
         XCTFail("Production paid validation must not use staging or local plan overrides")

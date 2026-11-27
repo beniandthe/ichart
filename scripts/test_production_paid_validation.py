@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 import unittest
 
 spec = importlib.util.spec_from_file_location("paid_validation", Path(__file__).with_name("run_production_paid_validation.py"))
@@ -16,7 +17,8 @@ class ProductionPaidValidationTests(unittest.TestCase):
         return {
             "settings": {"configs": {"Debug": {"SWIFT_ACTIVE_COMPILATION_CONDITIONS": "DEBUG"}}},
             "targets": {
-                "iChart": {"info": {"path": "iChart/App/Info.plist"}, "dependencies": [{"package": "Supabase"}]},
+                "iChart": {"info": {"path": "iChart/App/Info.plist"}, "sources": [{"path": "iChart"}],
+                           "dependencies": [{"package": "Supabase"}]},
                 "iChartTests": {}, "RecognitionStudy": {},
             },
             "packages": {"Supabase": {"url": "https://github.com/supabase/supabase-swift.git"}},
@@ -46,6 +48,7 @@ class ProductionPaidValidationTests(unittest.TestCase):
         self.assertEqual(result["packages"], original["packages"])
         self.assertEqual(set(result["targets"]), {"iChart", "iChartTests"})
         self.assertEqual(result["targets"]["iChart"]["info"]["path"], "/private/tmp/isolated-paid/iChart-Info.plist")
+        self.assertIn("App/Info.plist", result["targets"]["iChart"]["sources"][0]["excludes"])
 
     def testGlobalPaidConditionsAreRejected(self):
         original = self.original()
@@ -92,6 +95,66 @@ class ProductionPaidValidationTests(unittest.TestCase):
     def testDependencyContaminationIsRejected(self):
         rows = self.settings() + [{"target": "Supabase", "buildSettings": {"SWIFT_ACTIVE_COMPILATION_CONDITIONS": paid.PAID_FLAG}}]
         with self.assertRaises(ValueError): paid.validate_build_settings(rows)
+
+    def testOtherSwiftFlagsCannotSmuggleCompileTimeOverrides(self):
+        for flags in ["-DDEBUG", "-D DEBUG", "-Xfrontend -DDEBUG", "-DICHART_LOCAL_PLAN_QA",
+                      "-D ICHART_STAGING_STOREKIT_PRODUCTS", "-DICHART_PAID_SUBSCRIPTION"]:
+            for index in (0, 1):
+                rows = self.settings()
+                rows[index]["buildSettings"]["OTHER_SWIFT_FLAGS"] = flags
+                with self.subTest(flags=flags, target=index), self.assertRaises(ValueError):
+                    paid.validate_build_settings(rows)
+
+    def testBuildEnvironmentDoesNotInheritCompilerXcconfigBackendOrQAOverrides(self):
+        environment = {"PATH": "/usr/bin", "HOME": "/Users/example", "TMPDIR": "/private/tmp",
+                       "XCODE_XCCONFIG_FILE": "/private/tmp/injected.xcconfig",
+                       "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "DEBUG", "OTHER_SWIFT_FLAGS": "-DDEBUG",
+                       "SUPABASE_URL": "https://staging.invalid", "ICHART_LOCAL_PLAN_QA": "YES",
+                       "SWIFT_EXEC": "/private/tmp/custom-swift", "SDKROOT": "/private/tmp/sdk"}
+        self.assertEqual(paid.build_environment(environment),
+                         {"PATH": "/usr/bin", "HOME": "/Users/example", "TMPDIR": "/private/tmp"})
+
+    def testActualCompilerEvidenceRequiresBothModulesAndExactProductionDefines(self):
+        app = "builtin-SwiftDriver -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name iChart -target arm64-apple-ios17.0-simulator -O -D ICHART_PAID_SUBSCRIPTION"
+        tests = app.replace("-module-name iChart", "-module-name iChartTests") + " -D ICHART_PRODUCTION_PAID_VALIDATION"
+        derived = Path("/private/tmp/paid-derived-fixture")
+        self.assertEqual(set(paid.validate_compiler_commands(app + "\n" + tests, derived)), {"iChart", "iChartTests"})
+        self.assertTrue(paid.validate_compiler_commands(app + " -Xcc -D_LIBCPP_HARDENING_MODE=1\n" + tests, derived))
+        for bad in [app, app + "\n" + tests + " -DDEBUG", app + " -Xfrontend -D -Xfrontend DEBUG\n" + tests,
+                    app + "\n" + tests.replace("ICHART_PAID_SUBSCRIPTION", "ICHART_INTERNAL_STAGING"),
+                    app.replace("-simulator", "") + "\n" + tests, app.replace("-O", "-Onone") + "\n" + tests,
+                    "echo " + app + "\n" + tests]:
+            with self.subTest(log=bad), self.assertRaises(ValueError): paid.validate_compiler_commands(bad, derived)
+
+    def testCompilerResponsesAreBoundedWithinRunAndExposeHiddenDefines(self):
+        with tempfile.TemporaryDirectory() as directory:
+            derived = Path(directory)
+            response = derived / "flags.rsp"
+            response.write_text("-D ICHART_PAID_SUBSCRIPTION -DDEBUG")
+            receipts = {}
+            self.assertEqual(paid.expand_responses(["@" + str(response)], derived, receipts),
+                             ["-D", "ICHART_PAID_SUBSCRIPTION", "-DDEBUG"])
+            self.assertIn(str(response.resolve()), receipts)
+            with self.assertRaises(ValueError): paid.expand_responses(["@/etc/passwd"], derived, {})
+
+    def testCleanHeadRejectsDirtyUntrackedInputsAndChangedCommit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory)
+            def git(*args):
+                return subprocess.check_output(["git", *args], cwd=source, text=True, stderr=subprocess.DEVNULL).strip()
+            git("init", "-q")
+            (source / "project.yml").write_text("name: test\n")
+            git("add", "project.yml")
+            git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "Fixture")
+            head = paid.require_clean_head(source)
+            (source / "untracked.swift").write_text("// uncommitted input\n")
+            with self.assertRaises(ValueError): paid.require_clean_head(source)
+            (source / "untracked.swift").unlink()
+            (source / "project.yml").write_text("name: changed\n")
+            with self.assertRaises(ValueError): paid.require_clean_head(source)
+            git("add", "project.yml")
+            git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "Changed")
+            with self.assertRaises(ValueError): paid.require_clean_head(source, head)
         rows = self.settings()
         rows[0]["buildSettings"]["SWIFT_ACTIVE_COMPILATION_CONDITIONS"] += " " + paid.VALIDATION_FLAG
         with self.assertRaises(ValueError): paid.validate_build_settings(rows)

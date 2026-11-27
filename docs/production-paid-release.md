@@ -52,6 +52,12 @@ These observations expire; repeat them before the final decision.
 | Billing Grace Period | UI offers Set Up Billing Grace Period | Preserve unconfigured; inspect any existing grace entitlements |
 | Agreements | Free and Paid Apps Agreements Active; payment/tax status Active | Recheck without changing legal or payment details |
 | Notifications | Production and Sandbox URLs both point to production notification handler | Preserve routing; verify deployed code, permissions and Apple-verified processing |
+| Advance pricing notice | Notice ID/title/body and ending date are all NULL | Review and publish an advance in-app notice; current privacy/terms promise it |
+
+Existing production grace entitlement counts were zero. The absence of current
+grace does not authorize enabling grace with a partial-service policy. The beta
+notice acknowledgement is stored locally per account/iPad; there is no server
+acknowledgement count proving that every user has read a notice.
 
 The production product IDs remain `com.ichart.app.pro.monthly` and
 `com.ichart.app.pro.annual`. Source targets are 699 and 6000 US cents. Product
@@ -137,6 +143,12 @@ transaction/notification records, and leave destructive retention paused. Do
 not cancel customers' Apple subscriptions, refund, delete content, reverse
 schema blindly, restore an old iPad writer or change live prices as an implicit
 rollback. Each affected surface needs its own verified rollback action.
+
+Database rollback alone cannot restore free Pro UI in this static paid binary,
+because it skips the beta-status path. It restores the old free-client server
+grant only. A reviewed compensating client/build or other explicitly validated
+client recovery plan is a release gate; do not describe the backend transaction
+as a complete rollback of the distributed paid client.
 
 No new physical iPad install or restart is authorized here. The current device
 is development Build 205 with newer saved data. A later direct or automatic
