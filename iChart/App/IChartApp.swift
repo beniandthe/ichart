@@ -82,11 +82,19 @@ struct IChartApp: App {
                 #if ICHART_STAGING_STOREKIT_PRODUCTS
                 .safeAreaInset(edge: .top, spacing: 0) {
                     VStack(alignment: .leading, spacing: 2) {
+                        #if ICHART_COORDINATED_STAGING_QA
+                        Text("Internal coordinated QA")
+                            .font(.caption.weight(.semibold))
+                        Text("Isolated Sandbox billing and phase testing. Separate QA charts, PDFs and account; public free Pro is unchanged.")
+                            .font(.caption2)
+                            .fixedSize(horizontal: false, vertical: true)
+                        #else
                         Text("Internal staging")
                             .font(.caption.weight(.semibold))
                         Text("Separate QA charts, PDFs and account. Your public app data stays separate.")
                             .font(.caption2)
                             .fixedSize(horizontal: false, vertical: true)
+                        #endif
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal)

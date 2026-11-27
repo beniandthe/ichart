@@ -349,7 +349,7 @@ final class IChartBetaProStore: ObservableObject {
     }
 
     private func productCacheKey(ownerID: UUID) -> String {
-        "iChart.productAccess.v1.pausvvwoazbvmzyrebwl.\(ownerID.uuidString.lowercased())"
+        "iChart.productAccess.v1.\(IChartStorageNamespace.productAccessCacheProjectRef).\(ownerID.uuidString.lowercased())"
     }
 
     private func isCurrent(_ requestOwner: UUID, _ requestGeneration: UInt64) -> Bool {

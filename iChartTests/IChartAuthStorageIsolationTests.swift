@@ -13,7 +13,9 @@ final class IChartAuthStorageIsolationTests: XCTestCase {
         "supabase.auth.token",
         "sb-pausvvwoazbvmzyrebwl-auth-token",
         "sb-gfqpbikqvdgtjjgxrkgo-auth-token",
-        "sb-gfqpbikqvdgtjjgxrkgo-auth-token-code-verifier"
+        "sb-gfqpbikqvdgtjjgxrkgo-auth-token-code-verifier",
+        "sb-yiuxduqhhbucsmooevxz-auth-token",
+        "sb-yiuxduqhhbucsmooevxz-auth-token-code-verifier"
     ]
 
     func testAllAuthKeysUseTheSelectedNamespaceForReadWriteAndRemoval() throws {
@@ -98,6 +100,31 @@ final class IChartAuthStorageIsolationTests: XCTestCase {
         XCTAssertThrowsError(try storage.retrieve(key: key))
         XCTAssertThrowsError(try storage.store(key: key, value: Data()))
         XCTAssertEqual(try fallback.retrieve(key: scoped), original)
+    }
+
+    func testCoordinatedQAReadsWritesAndRemovesNeitherPublicNorHistoricStagingSessions() throws {
+        #if ICHART_COORDINATED_STAGING_QA
+        let original = Data("synthetic protected session".utf8)
+        var protected: [String: Data] = [:]
+        for key in authKeys {
+            protected[key] = original
+            protected[IChartStorageNamespace.authStorageKey(key, mode: .internalStaging)] = original
+        }
+        let primary = IsolationAuthStorage(values: protected)
+        let suiteName = "IChartQAAuthStorageIsolationTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let storage = IChartSupabaseAuthLocalStorage(primary: primary,
+            fallback: IChartUserDefaultsAuthLocalStorage(defaults: defaults), allowsInsecureFallback: false)
+        for key in authKeys {
+            XCTAssertNil(try storage.retrieve(key: key))
+            try storage.store(key: key, value: Data("new synthetic QA session".utf8))
+            try storage.remove(key: key)
+            for protectedKey in [key, IChartStorageNamespace.authStorageKey(key, mode: .internalStaging)] {
+                XCTAssertEqual(try primary.retrieve(key: protectedKey), original)
+            }
+        }
+        #endif
     }
 
     func testStagingNetworkingHasNoSharedPersistentStores() {

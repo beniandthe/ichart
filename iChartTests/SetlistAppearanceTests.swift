@@ -386,8 +386,7 @@ private final class SetlistAppearanceFixture {
         // The views explicitly select the active app namespace, which takes
         // precedence over SwiftUI's defaultAppStorage environment override.
         defaults = IChartStorageNamespace.defaults
-        let defaultsDomain = try XCTUnwrap(IChartStorageNamespace.isInternalStaging
-            ? IChartStorageNamespace.stagingDefaultsSuiteName : Bundle.main.bundleIdentifier)
+        let defaultsDomain = try XCTUnwrap(IChartStorageNamespace.activeDefaultsSuiteName ?? Bundle.main.bundleIdentifier)
         originalAppearanceValue = defaults.persistentDomain(forName: defaultsDomain)?[IChartAppAppearance.preferenceKey]
         setlistStore = store
         pdfStore = IChartPDFLibraryStore(baseDirectory: root.appendingPathComponent("PDF Library"))

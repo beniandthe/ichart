@@ -15,9 +15,9 @@ struct IChartSupabaseConfiguration: Equatable {
         bundle: Bundle = .main,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> IChartSupabaseConfiguration? {
-        #if ICHART_PAID_SUBSCRIPTION && !ICHART_STAGING_STOREKIT_PRODUCTS
-        // A production paid package is pinned to its reviewed bundle inputs.
-        // Launch-time QA overrides must never redirect purchases or account data.
+        #if ICHART_COORDINATED_STAGING_QA || (ICHART_PAID_SUBSCRIPTION && !ICHART_STAGING_STOREKIT_PRODUCTS)
+        // Production and coordinated QA packages is pinned to its reviewed bundle inputs.
+        // Launch-time overrides must never redirect purchases or account data.
         let configuredURL = configuredValue(bundle.object(forInfoDictionaryKey: urlInfoKey) as? String)
         let configuredKey = configuredValue(bundle.object(forInfoDictionaryKey: publishableKeyInfoKey) as? String)
         #else
@@ -38,7 +38,12 @@ struct IChartSupabaseConfiguration: Equatable {
             return nil
         }
 
-        #if ICHART_PAID_SUBSCRIPTION && !ICHART_STAGING_STOREKIT_PRODUCTS
+        #if ICHART_COORDINATED_STAGING_QA
+        guard url.absoluteString == "https://yiuxduqhhbucsmooevxz.supabase.co",
+              key.range(of: #"^sb_publishable_[A-Za-z0-9_-]{16,}$"#, options: .regularExpression) != nil else {
+            return nil
+        }
+        #elseif ICHART_PAID_SUBSCRIPTION && !ICHART_STAGING_STOREKIT_PRODUCTS
         guard url.absoluteString == "https://pausvvwoazbvmzyrebwl.supabase.co",
               key.range(of: #"^sb_publishable_[A-Za-z0-9_-]{16,}$"#, options: .regularExpression) != nil else {
             return nil

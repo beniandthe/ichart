@@ -233,7 +233,7 @@ final class CoordinatedProductAccessStoreTests: XCTestCase {
         defaultStore.authStateChanged(ownerID: fixture.ownerA)
         await defaultStore.refresh()
 
-        #if ICHART_PAID_SUBSCRIPTION && !ICHART_STAGING_STOREKIT_PRODUCTS && !ICHART_LOCAL_PLAN_QA && !ICHART_LOCAL_QA_PLAN_PREVIEW
+        #if ICHART_COORDINATED_STAGING_QA || (ICHART_PAID_SUBSCRIPTION && !ICHART_STAGING_STOREKIT_PRODUCTS && !ICHART_LOCAL_PLAN_QA && !ICHART_LOCAL_QA_PLAN_PREVIEW)
         XCTAssertTrue(defaultStore.isCoordinatedActivation)
         XCTAssertEqual(fixture.service.productRequests, [fixture.ownerA])
         XCTAssertTrue(fixture.service.legacyRequests.isEmpty)

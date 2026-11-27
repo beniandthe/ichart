@@ -12,7 +12,23 @@ final class ProductionPaidBackendConfigurationTests: XCTestCase {
     // Preserve a realistic invalid client-key value without storing a key-shaped literal.
     private let syntheticNonClientKey = ["sb", "secret", "synthetic_not_a_client_key"].joined(separator: "_")
 
-    #if ICHART_PAID_SUBSCRIPTION && !ICHART_STAGING_STOREKIT_PRODUCTS
+    #if ICHART_COORDINATED_STAGING_QA
+    func testCoordinatedQABundleDoesNotAcceptHistoricStageEnvironmentAsConfiguration() throws {
+        let qaURL = "https://yiuxduqhhbucsmooevxz.supabase.co"
+        try withBundleInfo(["SupabaseURL": qaURL, "SupabasePublishableKey": bundleKey]) { bundle in
+            let configuration = IChartSupabaseConfiguration.current(bundle: bundle, environment: [
+                "SUPABASE_URL": stagingURL, "SUPABASE_PUBLISHABLE_KEY": overrideKey
+            ])
+            XCTAssertEqual(configuration?.url.absoluteString, qaURL)
+            XCTAssertEqual(configuration?.publishableKey, bundleKey)
+        }
+        try withBundleInfo(productionInfo) { bundle in
+            XCTAssertNil(IChartSupabaseConfiguration.current(bundle: bundle, environment: [
+                "SUPABASE_URL": qaURL, "SUPABASE_PUBLISHABLE_KEY": overrideKey
+            ]), "A QA launch override cannot repair a production-bound bundle")
+        }
+    }
+    #elseif ICHART_PAID_SUBSCRIPTION && !ICHART_STAGING_STOREKIT_PRODUCTS
     func testPaidConfigurationUsesOnlyBundledProductionInputsDespiteLaunchOverrides() throws {
         try withBundleInfo(productionInfo) { bundle in
             for overrideURL in [productionURL, stagingURL, "https://unexpected.invalid", "http://localhost:54321"] {

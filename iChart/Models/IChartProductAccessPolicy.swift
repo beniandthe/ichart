@@ -1,5 +1,9 @@
 import Foundation
 
+#if ICHART_COORDINATED_STAGING_QA && (!ICHART_PAID_SUBSCRIPTION || !ICHART_STAGING_STOREKIT_PRODUCTS || DEBUG || ICHART_LOCAL_PLAN_QA || ICHART_LOCAL_QA_PLAN_PREVIEW)
+#error("Coordinated staging QA requires Release paid access and isolated products without Debug or local plan overrides.")
+#endif
+
 /// Product access is independent of verified Apple billing history.
 ///
 /// The current release includes all shipped features without a purchase,
@@ -20,9 +24,11 @@ enum IChartProductAccessPolicy: Hashable {
     static let current: Self = .freeAllFeatures
     #endif
 
-    /// This build can follow the reviewed server phase; fixed free and QA lanes
-    /// keep their existing semantics and never become paid through an RPC.
-    #if ICHART_PAID_SUBSCRIPTION && !ICHART_STAGING_STOREKIT_PRODUCTS && !ICHART_LOCAL_PLAN_QA && !ICHART_LOCAL_QA_PLAN_PREVIEW
+    /// Production and the explicitly isolated QA route share one coordinator.
+    /// Fixed free and historic staging keep their existing semantics.
+    #if ICHART_COORDINATED_STAGING_QA
+    static let usesCoordinatedActivation = true
+    #elseif ICHART_PAID_SUBSCRIPTION && !ICHART_STAGING_STOREKIT_PRODUCTS && !ICHART_LOCAL_PLAN_QA && !ICHART_LOCAL_QA_PLAN_PREVIEW
     static let usesCoordinatedActivation = true
     #else
     static let usesCoordinatedActivation = false

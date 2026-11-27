@@ -17,7 +17,7 @@ a different signing/namespace contract.
 
 Start from the final reviewed, committed, clean source after combined CI. Version
 and build are read from the quoted literals in authoritative `project.yml`; the
-current preparation chooses 1.9.4 (206), subject to the release owner's live Apple
+current preparation chooses 1.9.4 (208), subject to the release owner's live Apple
 reservation check. A local device build is not an Apple reservation.
 
 Generate from `project.yml`, then pin the generated project, native dependency
@@ -55,7 +55,7 @@ Fill the full final source head/tree and the exact version/build from that sourc
   "source_head": "FULL_FINAL_COMMIT",
   "source_tree": "FULL_FINAL_TREE",
   "version": "1.9.4",
-  "build": "206",
+  "build": "208",
   "distribution_held": true,
   "apple_delivery_held": true,
   "automatic_activation": false,

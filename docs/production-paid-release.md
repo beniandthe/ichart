@@ -16,10 +16,14 @@ The final release head will also include the reviewed pricing, packaging and
 production-backend routing changes. Feature receipts do not certify that later
 combined head; execute its hosted checks and paid validation separately.
 
-The selected distribution identity is **1.9.4 (206)**. Apple showed uploaded
-1.9.4 builds 173 and 199 on November 27, and the current App Store version was
-1.9.3 (161), Ready for Distribution. Development Build 205 was an override,
-not an Apple reservation. Recheck upload reservations before delivery.
+The selected production identity is **1.9.4 (208)**. A separate, internal-only
+isolated billing-QA artifact uses **1.9.4 (207)** through its reviewed build
+override. Apple’s TestFlight upload history on November 27 showed 199 as the
+newest uploaded build, with no newer or pending
+upload visible. The current App Store version remained 1.9.3 (161), Ready for
+Distribution. Build 206 belongs to retained prior held attempts; development
+Build 205 was an override. These source allocations are not Apple reservations.
+Recheck upload reservations before delivery.
 
 `project.yml` keeps the normal free-beta defaults. A separately generated and
 verified production-paid Release project enables `ICHART_PAID_SUBSCRIPTION`
@@ -49,7 +53,7 @@ These observations expire; repeat them before the final decision.
 | --- | --- | --- |
 | Supabase free access | Free Pro enabled; deferred paid migrations absent | Preserve free access until final reviewed sequence |
 | GitHub integration | Deploy to production OFF; automatic branching OFF | Keep both OFF; deploy reviewed backend changes explicitly |
-| Temporary backend | Only the default production branch remains | Do not recreate billable staging without a concrete approved need |
+| Temporary backend | Owner approved a new data-less QA branch and teardown; `yiuxduqhhbucsmooevxz` was created November 27 at 19:52 UTC | Verify its schema, disable inherited scheduled jobs, and use only synthetic QA data; restore any separately approved Sandbox routing before teardown |
 | App Store products | Both production products Approved | Recheck availability, metadata and fetched prices |
 | US monthly | $7.99; no upcoming change | Reviewed $6.99 schedule |
 | US annual | $64.99; no upcoming change | Reviewed exactly $60.00 schedule; no $59.99 substitution |
@@ -65,7 +69,8 @@ notice acknowledgement is stored locally per account/iPad; there is no server
 acknowledgement count proving that every user has read a notice.
 
 The approved 752-character notice distinguishes future iChart 2.0/offline
-recognition plans from this verified 1.9.4 (206) candidate. Its publication changed
+recognition plans from the 1.9.4 release preparation. The alert publication
+preceded the later coordinated candidate and build-number allocation. Its publication changed
 only the four notice fields. Live readback confirmed the exact body, free Pro
 still enabled, paid policy still absent, and the beta RPC returning notice fields.
 The ending timestamp remains informational. No prices, billing, build delivery or
@@ -83,6 +88,26 @@ A later November 27 read-only preview confirmed that **$60.00** is an available
 US price point for the actual production annual product under **See Additional
 Prices**. The preview was cancelled without choosing a price or date and without
 saving a schedule. This proves availability of the exact target, not live pricing.
+
+## Review-access clarification and isolated QA
+
+The owner approved sending the exact prepared review-access question. Apple
+Developer Support accepted it under **case 103026634749** on November 27 through
+App Review → Other App Review questions. It explains that ordinary production
+review access remains in the free phase, with purchase controls and PDF/setlist
+cloud unavailable, and asks whether clearly labeled isolated evidence is
+sufficient or direct access in the submitted binary is required. No answer or
+App Store submission is claimed. Do not create a hidden reviewer override or
+activate customers to resolve this question.
+
+The new QA branch is authorized at $0.01344/hour plus normal storage/usage charges,
+with teardown after verification. The coordinated QA capability, separate
+namespace, exact endpoint and Sandbox product routing require their own reviewed
+source and artifact checks. Historical static staging evidence does not certify
+this lane. Public free Pro, production pricing, production notification routing
+and automatic production-deployment settings stay unchanged. App-wide temporary
+Sandbox routing and a tester purchase-history reset require separate explicit
+approval before those actions.
 
 ## Access and saved-content requirements
 
