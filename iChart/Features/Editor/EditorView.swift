@@ -16,6 +16,19 @@ struct ChordInkAutomaticFeedbackPresentation: Equatable {
 enum ChordInkAutomaticFeedbackPresentationPolicy {
     static let progressDelay: TimeInterval = 0.18
 
+    /// A page-level source or placement refusal must remain visible even when
+    /// the same source also contains recognized chord drafts.
+    static func prefersGlobalStatus(for reason: ChordInkAutomaticRenderReason?) -> Bool {
+        guard let reason else { return false }
+        switch reason {
+        case .needsSpace, .needsSourceRefresh, .placementUnavailable, .barlinePlacementUnavailable,
+             .endingReview, .adjacentWriting, .unrepresentedInk, .restoredInk:
+            return true
+        default:
+            return false
+        }
+    }
+
     static func status(
         for draft: ChordInkDraft, activity: ChordInkAutomaticActivity?,
         feedback: ChordInkAutomaticRenderFeedback, now: Date,
@@ -79,10 +92,16 @@ enum ChordInkAutomaticFeedbackPresentationPolicy {
             $0 == .needsSpace || $0 == .needsSourceRefresh || $0 == .placementUnavailable || $0 == .barlinePlacementUnavailable
                 || $0 == .endingReview || $0 == .adjacentWriting || $0 == .unrepresentedInk
         } ?? false
-        if !hasSafetyRefusal, activity?.phase == .reading || restored || activity == nil {
-            return reading(restored ? "Reading saved writing…" : "Reading ink…")
+        if !hasSafetyRefusal,
+           (activity?.phase == .reading || (activity == nil && providedReason != .restoredInk)) {
+            return reading("Reading ink…")
         }
-        if !restored, elapsed < requiredIdleDelay {
+        if (restored && providedReason == nil) || providedReason == .restoredInk {
+            let detail = "Your handwriting is saved. Keep writing, or tap Fix Writing to check it."
+            return .init(title: "Saved handwriting", detail: detail,
+                accessibilityLabel: "Saved handwriting. \(detail)", canReview: true, isReading: false)
+        }
+        if !restored, !hasSafetyRefusal, elapsed < requiredIdleDelay {
             return reading("Finishing ink…")
         }
         let reason = providedReason ?? (restored ? .restoredInk : .unrepresentedInk)
@@ -2988,8 +3007,7 @@ struct EditorView: View {
     private var primaryAutomaticChordFeedback: (draftID: UUID?, status: ChordInkAutomaticFeedbackPresentation, globalReason: ChordInkAutomaticRenderReason?)? {
         let global = automaticChordFeedback.globalReason ?? automaticChordActivity?.feedback.globalReason
         let usesGlobal = chordPreviewState.draftChords.isEmpty || automaticChordActivity?.phase == .waiting
-            || global == .unrepresentedInk || global == .needsSourceRefresh || global == .endingReview
-            || global == .barlinePlacementUnavailable
+            || ChordInkAutomaticFeedbackPresentationPolicy.prefersGlobalStatus(for: global)
         if usesGlobal, let status = ChordInkAutomaticFeedbackPresentationPolicy.globalStatus(
             activity: automaticChordActivity, feedback: automaticChordFeedback,
             hasSourceInk: hasAutomaticSourceInk, now: automaticChordFeedbackNow,
@@ -3053,6 +3071,9 @@ struct EditorView: View {
     private var barlineRecoveryMessage: String {
         // The presence of a converted mark does not identify the failed guard.
         // Committed Rhythm splits preserve marks and their source anchors.
+        if chart.usesPaperMeasureLayout {
+            return "Your barline is still on the page. Keep writing in the lane, or use Erase to change just that mark."
+        }
         if chart.layoutStyle == .rhythmSectionSheet {
             return "Draw barlines on their own at the empty end of a row, or at a rhythmic boundary inside a measure. A note cannot sustain across the split. Use Measures for other form edits."
         }

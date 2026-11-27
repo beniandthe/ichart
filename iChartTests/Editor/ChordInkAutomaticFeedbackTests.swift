@@ -235,7 +235,7 @@ final class ChordInkAutomaticFeedbackTests: XCTestCase {
             ChordInkAutomaticRenderReason.needsSourceRefresh.rawValue]))
     }
 
-    func testNoTargetOffersRecoveryWhileRestoredSourceRemainsReading() throws {
+    func testNoTargetOffersRecoveryWhileRestoredSourceReportsSavedHandwriting() throws {
         let chart = makeChart()
         let unknown = ChordInkAutomaticRenderFeedback(globalReason: .unrepresentedInk)
         let noTarget = try XCTUnwrap(ChordInkAutomaticFeedbackPresentationPolicy.globalStatus(
@@ -248,9 +248,15 @@ final class ChordInkAutomaticFeedbackTests: XCTestCase {
         let restored = activity(chart, phase: .restored, age: nil)
         let saved = try XCTUnwrap(ChordInkAutomaticFeedbackPresentationPolicy.globalStatus(
             activity: restored, feedback: .init(globalReason: .restoredInk), hasSourceInk: true, now: now))
-        XCTAssertFalse(saved.canReview)
-        XCTAssertTrue(saved.isReading)
-        XCTAssertEqual(saved.title, "Reading saved writing…")
+        XCTAssertTrue(saved.canReview)
+        XCTAssertFalse(saved.isReading)
+        XCTAssertEqual(saved.title, "Saved handwriting")
+
+        let reading = try XCTUnwrap(ChordInkAutomaticFeedbackPresentationPolicy.globalStatus(
+            activity: activity(chart, phase: .reading, pending: 1, age: 4),
+            feedback: .init(globalReason: .restoredInk), hasSourceInk: true, now: now))
+        XCTAssertTrue(reading.isReading, "Only an active read should show progress for saved ink")
+        XCTAssertFalse(reading.canReview)
     }
 
     func testOverduePendingFallbackRemainsReadingAndNeverOffersBatchReview() throws {

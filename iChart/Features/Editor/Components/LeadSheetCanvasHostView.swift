@@ -1731,6 +1731,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
 
             if !recognizesChordInk {
+                automaticChordPreparationSource = nil
                 chordInkRecognitionRequestState.cancelPendingRequest()
                 inkSerializationSession.cancelPendingWork()
                 chordInkPreparationSession.cancelPendingWork()
@@ -2182,12 +2183,56 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private lazy var chordInkPreparationSession = ChordInkRecognitionPreparationSession(
         queue: chordInkPreparationQueue
     )
+    #if DEBUG
+    var chordInkPreparationTestHook: ((ChordInkRecognitionPreparationResult) -> Void)? {
+        get { chordInkPreparationSession.beforeCompletionForTesting }
+        set { chordInkPreparationSession.beforeCompletionForTesting = newValue }
+    }
+    var chordInkPreparationDebugState: [String: String] {
+        var result: [String: String] = [:]
+        result["sourceRevision"] = String(inkDrawingRevision)
+        result["censusRevision"] = incrementalChordCensusRevision.map { String($0) } ?? "nil"
+        result["currentCensus"] = String(hasCurrentAutomaticChordCensus)
+        result["prefixCount"] = unchangedAutomaticChordPrefixCount.map { String($0) } ?? "nil"
+        result["contextMatches"] = String(automaticChordCensusContextMatches)
+        result["preparationInFlight"] = String(automaticChordPreparationSource != nil)
+        result["usingPencil"] = String(isUsingInkTool)
+        result["deferredGeometry"] = String(hasDeferredActiveInkGeometrySync)
+        result["strokeCount"] = String(pageInkCanvasView.drawing.strokes.count)
+        result["sourceFrame"] = String(describing: activeInkScope()?.frame)
+        let maturityDeadline: Date? = chordDraftRenderCoordinator?.structuralMaturity.nextDeadline
+        result["maturityNext"] = maturityDeadline.map { String($0.timeIntervalSinceNow) } ?? "nil"
+        let input: Date? = chordDraftRenderCoordinator?.lastInputAt
+        result["inputAge"] = input.map { String(-$0.timeIntervalSinceNow) } ?? "nil"
+        let lastFeedback = chordDraftRenderCoordinator?.lastAutomaticAttempt?.feedback
+        result["globalFeedback"] = lastFeedback?.globalReason?.rawValue ?? "nil"
+        result["draftFeedback"] = String(describing: lastFeedback?.reasonsByDraftID.mapValues { $0.rawValue })
+        result["drafts"] = String(describing: chordPreviewState.draftChords.map { draft in
+            (draft.previewText ?? "nil") + ":" + String(describing: draft.targetLifecycle?.stage)
+        })
+        result["barlines"] = String(describing: chordPreviewState.draftBarlines.map { barline in
+            "\(barline.fraction):\(barline.kind):\(barline.isRenderable):\(barline.ownedSourceStrokeIndices.sorted())"
+        })
+        return result
+    }
+
+    #endif
     private var chordInkEditedTargetState = ChordInkEditedTargetSessionState()
     private var incrementalChordDraftState = ChordInkIncrementalDraftState()
     private var incrementalChordCensusRevision: UInt64?
+    private var incrementalChordCensusDrawing: PKDrawing?
     private var incrementalChordCensusScope: ChordInkEditedTargetSessionState.Scope?
     private var incrementalChordProfileRevision: UUID?
     private var incrementalChordOptions: ChordInkRecognitionOptions?
+    private struct AutomaticChordPreparationSource {
+        var requestID: UUID
+        var revision: UInt64
+        var drawing: PKDrawing
+        var scope: ChordInkEditedTargetSessionState.Scope
+        var options: ChordInkRecognitionOptions
+        var profileRevision: UUID?
+    }
+    private var automaticChordPreparationSource: AutomaticChordPreparationSource?
 
     private var currentChordProfileRevision: UUID? {
         HandwritingPersonalizationProductPolicy.isAvailable
@@ -8410,7 +8455,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         strokeCount: Int,
         activeRole: LeadSheetInkAuthoringSessionRole?
     ) {
-        cancelPendingInkSessionScheduledWork(preservesIncrementalTargets: usesIncrementalChordRecognition)
+        cancelPendingInkSessionScheduledWork(preservesIncrementalTargets: usesIncrementalChordRecognition,
+            preservesAutomaticPreparation: usesIncrementalChordRecognition)
         guard !hasDeferredActiveInkGeometrySync else { return }
         let evaluationRequestID: UUID?
         if activeRole == .chord {
@@ -8440,11 +8486,16 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         )
     }
 
-    private func cancelPendingInkSessionScheduledWork(preservesIncrementalTargets: Bool = false) {
+    private func cancelPendingInkSessionScheduledWork(
+        preservesIncrementalTargets: Bool = false, preservesAutomaticPreparation: Bool = false
+    ) {
         inkSchedulingCoordinator.cancelAll()
-        chordInkRecognitionRequestState.cancelPendingRequest()
-        inkSerializationSession.cancelPendingWork()
-        chordInkPreparationSession.cancelPendingWork()
+        if !preservesAutomaticPreparation || !usesIncrementalChordRecognition {
+            automaticChordPreparationSource = nil
+            chordInkRecognitionRequestState.cancelPendingRequest()
+            inkSerializationSession.cancelPendingWork()
+            chordInkPreparationSession.cancelPendingWork()
+        }
         if preservesIncrementalTargets {
             chordInkRecognitionSession.cancelBatchWork()
         } else {
@@ -8458,6 +8509,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         chordDraftRenderCoordinator?.renderSessionReadyAt = nil
         incrementalChordDraftState.reset()
         incrementalChordCensusRevision = nil
+        incrementalChordCensusDrawing = nil
         incrementalChordCensusScope = nil
         incrementalChordProfileRevision = nil
         incrementalChordOptions = nil
@@ -8555,6 +8607,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
               recognizesChordInk,
               (!usesIncrementalChordRecognition || !isUsingInkTool),
               case .chords = activeInkScope() else { return }
+        // Keep one immutable pass in flight. Its completion drains the newest
+        // live revision; a stream of new strokes must not continually cancel
+        // preparation of already completed, independent earlier targets.
+        if usesIncrementalChordRecognition, automaticChordPreparationSource != nil { return }
         inkSchedulingCoordinator.cancelPersistence()
 
         ChordLaneLocalBreadcrumbs.record(
@@ -8702,6 +8758,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         inkSchedulingCoordinator.cancelInputCoalescing()
 
         if cancelPendingRecognition {
+            automaticChordPreparationSource = nil
             inkSchedulingCoordinator.cancelPersistence()
             chordInkRecognitionRequestState.cancelPendingRequest()
             inkSerializationSession.cancelPendingWork()
@@ -8861,6 +8918,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         let drawing = pageInkCanvasView.drawing
+        if flow == .draftPreview, usesIncrementalChordRecognition {
+            automaticChordPreparationSource = AutomaticChordPreparationSource(
+                requestID: requestID, revision: scheduledInkRevision, drawing: drawing,
+                scope: .init(chartID: chart.id, chordFrame: activeInkScope.frame,
+                    pageLayout: pageLayout, layoutStyle: chart.layoutStyle),
+                options: chordInkRecognitionOptions, profileRevision: currentChordProfileRevision)
+        }
         let captureDurationMilliseconds =
             (ProcessInfo.processInfo.systemUptime - captureStartedAt) * 1_000
         IChartPerformanceTrace.record(
@@ -8886,6 +8950,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         ) { [weak self] result in
             self?.finishChordInkSerialization(
                 result,
+                capturedDrawing: drawing,
                 requestID: requestID,
                 scheduledAt: scheduledAt,
                 requestedDelay: requestedDelay,
@@ -8897,14 +8962,19 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func finishChordInkSerialization(
         _ result: LeadSheetInkSerializationResult,
+        capturedDrawing: PKDrawing,
         requestID: UUID,
         scheduledAt: Date,
         requestedDelay: TimeInterval,
         scheduledInkRevision: UInt64,
         flow: ChordInkRecognitionFlow
     ) {
+        var startedPreparation = false
+        defer {
+            if !startedPreparation { finishAutomaticChordPreparation(requestID: requestID) }
+        }
         guard chordInkRecognitionRequestState.isActive(requestID),
-              scheduledInkRevision == inkDrawingRevision,
+              automaticChordSourcePassIsUsable(requestID: requestID, revision: scheduledInkRevision),
               interactionMode.allowsChordInkEditing,
               recognizesChordInk,
               let activeInkScope = activeInkScope(),
@@ -8912,21 +8982,29 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        inkSerializationCache.record(
-            result.serialization,
-            drawingRevision: scheduledInkRevision,
-            scopeIdentity: activeInkScope.identity
-        )
+        let isCurrentSource = scheduledInkRevision == inkDrawingRevision
+            && ChordInkAutomaticSourcePrefixPolicy.hasIdenticalOrderedSource(
+                snapshot: capturedDrawing, current: pageInkCanvasView.drawing)
+        guard isCurrentSource || (usesIncrementalChordRecognition
+            && ChordInkAutomaticSourcePrefixPolicy.unchangedLeadingStrokeCount(
+                snapshot: capturedDrawing, current: pageInkCanvasView.drawing) != nil) else { return }
+        if isCurrentSource {
+            inkSerializationCache.record(result.serialization, drawingRevision: scheduledInkRevision,
+                scopeIdentity: activeInkScope.identity)
+        }
 
         recordInkSerializationPerformance(result, role: .chord)
         persistActiveInkIfNeeded(
             cancelPendingRecognition: false,
             activeInkScope: activeInkScope,
             clearsDirtyAuthoringRole: flow != .draftPreview,
-            knownSerialization: result.serialization
+            // Never write an older source over ink drawn while serialization
+            // ran. A prefix pass persists the current resident drawing.
+            knownSerialization: isCurrentSource ? result.serialization
+                : LeadSheetPersistentInkColorPolicy.serialization(for: pageInkCanvasView.drawing)
         )
         guard chordInkRecognitionRequestState.isActive(requestID),
-              scheduledInkRevision == inkDrawingRevision else {
+              automaticChordSourcePassIsUsable(requestID: requestID, revision: scheduledInkRevision) else {
             return
         }
 
@@ -8958,6 +9036,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             allowsPausedSuffixContinuation: manualRenderWithPreview,
             capturesEvaluationSource: chordInkEvaluationSourceContext?.requestID == requestID
         )
+        startedPreparation = true
         chordInkPreparationSession.start(request: preparationRequest) { [weak self] result in
             self?.finishChordInkPreparation(
                 result,
@@ -8976,8 +9055,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         editScope: ChordInkEditedTargetSessionState.Scope,
         manualPreview: ManualChordPreviewContext?
     ) {
+        defer { finishAutomaticChordPreparation(requestID: result.requestID) }
         guard chordInkRecognitionRequestState.isActive(result.requestID),
-              scheduledInkRevision == inkDrawingRevision else {
+              automaticChordSourcePassIsUsable(requestID: result.requestID, revision: scheduledInkRevision) else {
             return
         }
         guard editScope.chartID == chart.id,
@@ -8988,6 +9068,33 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
               editScope.chordFrame == currentFrame else {
             chordInkRecognitionRequestState.clearActiveRequest()
             return
+        }
+        var result = result
+        let capturedSource = automaticChordPreparationSource?.requestID == result.requestID
+            ? automaticChordPreparationSource?.drawing : nil
+        let isCurrentPreparedSource = scheduledInkRevision == inkDrawingRevision
+            && (capturedSource.map { ChordInkAutomaticSourcePrefixPolicy.hasIdenticalOrderedSource(
+                snapshot: $0, current: pageInkCanvasView.drawing) } ?? true)
+        if !isCurrentPreparedSource {
+            guard let capturedSource,
+                  let unchangedCount = ChordInkAutomaticSourcePrefixPolicy.unchangedLeadingStrokeCount(
+                    snapshot: capturedSource, current: pageInkCanvasView.drawing) else { return }
+            let prefix = PKDrawing(strokes: Array(pageInkCanvasView.drawing.strokes.prefix(unchangedCount)))
+            result.barlines.removeAll { !$0.ownedSourceStrokeIndices.allSatisfy { $0 < unchangedCount } }
+            result.endings.removeAll { !$0.sourceStrokeIndices.allSatisfy { $0 < unchangedCount } }
+            switch result.outcome {
+            case .ready(let requests, let usesBatch):
+                result.outcome = .ready(requests: requests.filter {
+                    ChordInkAutomaticSourcePrefixPolicy.containsTargetDrawing($0.drawingData, in: prefix)
+                }, usesBatch: usesBatch)
+            case .noRecognitionData where !result.barlines.isEmpty || !result.endings.isEmpty:
+                break
+            default:
+                // An obsolete empty/error pass must never clear the current
+                // preview or classify newly appended live ink as unread.
+                return
+            }
+            result.nextEditOwnership = nil
         }
         if let manualPreview, manualPreview != currentManualChordPreviewContext {
             chordInkRecognitionRequestState.clearActiveRequest()
@@ -9050,7 +9157,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
             if flow == .draftPreview, usesIncrementalChordRecognition {
                 chordInkRecognitionRequestState.clearActiveRequest()
-                if installAutomaticChordCensus(requests, forInkRevision: scheduledInkRevision) {
+                if installAutomaticChordCensus(requests, forInkRevision: scheduledInkRevision,
+                    sourceDrawing: capturedSource) {
                     // Record first validated source observation synchronously.
                     // The next Pencil stroke can begin before SwiftUI runs its
                     // queued render attempt; that must not postpone this age.
@@ -9105,7 +9213,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             chordInkRecognitionRequestState.clearActiveRequest()
             // A barline-only source has a valid empty chord census. The
             // ordinary full-source coverage check still owns its consumption.
-            if installAutomaticChordCensus([], forInkRevision: scheduledInkRevision) {
+            if installAutomaticChordCensus([], forInkRevision: scheduledInkRevision,
+                sourceDrawing: capturedSource) {
                 _ = chordDraftRenderCoordinator?.structuralMaturity.observe(chartID: chart.id,
                     state: .init(draftBarlines: result.barlines, draftEndings: result.endings,
                         layoutPageSize: pageLayout?.pageBounds.size),
@@ -9131,15 +9240,68 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
     }
 
-    /// Installs ownership from a current preparation pass, independently of
-    /// whether each target's reader has finished. No old target result can
-    /// authorize consumption while a newer source revision is still pending.
+    private func automaticChordSourcePassIsUsable(requestID: UUID, revision: UInt64) -> Bool {
+        guard let source = automaticChordPreparationSource, source.requestID == requestID else {
+            return revision == inkDrawingRevision
+        }
+        guard usesIncrementalChordRecognition,
+              source.revision == revision, source.options == chordInkRecognitionOptions,
+              source.profileRevision == currentChordProfileRevision,
+              let scope = activeInkScope(), case .chords(let frame, _) = scope,
+              source.scope == .init(chartID: chart.id, chordFrame: frame,
+                pageLayout: pageLayout, layoutStyle: chart.layoutStyle) else { return false }
+        return ChordInkAutomaticSourcePrefixPolicy.unchangedLeadingStrokeCount(
+            snapshot: source.drawing, current: pageInkCanvasView.drawing) != nil
+    }
+
+    private func finishAutomaticChordPreparation(requestID: UUID) {
+        guard let source = automaticChordPreparationSource, source.requestID == requestID else { return }
+        automaticChordPreparationSource = nil
+        _ = chordInkRecognitionRequestState.finishActiveRequest(requestID)
+        let sourceChanged = source.revision != inkDrawingRevision
+            || !ChordInkAutomaticSourcePrefixPolicy.hasIdenticalOrderedSource(
+                snapshot: source.drawing, current: pageInkCanvasView.drawing)
+        guard sourceChanged, usesIncrementalChordRecognition,
+              !isUsingInkTool, !hasDeferredActiveInkGeometrySync, activeCanvasStrokeCount > 0 else { return }
+        // Drain the newest source now rather than waiting for a passage-wide
+        // idle. At most one immutable preparation is in flight at a time.
+        startDraftChordInkPreviewIfStable(scheduledInkRevision: inkDrawingRevision, scheduledAt: Date())
+    }
+
+    private var unchangedAutomaticChordPrefixCount: Int? {
+        guard !hasCurrentAutomaticChordCensus, automaticChordCensusContextMatches,
+              let snapshot = incrementalChordCensusDrawing else { return nil }
+        return ChordInkAutomaticSourcePrefixPolicy.unchangedLeadingStrokeCount(
+            snapshot: snapshot, current: pageInkCanvasView.drawing)
+    }
+
+    private var hasUsableAutomaticChordCensus: Bool {
+        hasCurrentAutomaticChordCensus || unchangedAutomaticChordPrefixCount != nil
+    }
+
+    private func automaticPayloadsForCurrentSource(
+        _ payloads: [ChordInkRecognitionProposalPayload]
+    ) -> [ChordInkRecognitionProposalPayload] {
+        guard !hasCurrentAutomaticChordCensus else { return payloads }
+        guard let count = unchangedAutomaticChordPrefixCount else { return [] }
+        let prefix = PKDrawing(strokes: Array(pageInkCanvasView.drawing.strokes.prefix(count)))
+        return payloads.filter { ChordInkAutomaticSourcePrefixPolicy.containsTargetDrawing($0.drawingData, in: prefix) }
+    }
+
+    /// Installs current ownership or a separately validated unchanged leading
+    /// source. A prefix stays explicitly noncurrent, and may only enter the
+    /// partial path which preserves and revalidates every newer live stroke.
     @discardableResult
     func installAutomaticChordCensus(
-        _ requests: [ChordInkRecognitionSessionRequest], forInkRevision revision: UInt64
+        _ requests: [ChordInkRecognitionSessionRequest], forInkRevision revision: UInt64,
+        sourceDrawing: PKDrawing? = nil
     ) -> Bool {
-        guard usesIncrementalChordRecognition, revision == inkDrawingRevision,
+        guard usesIncrementalChordRecognition,
               let scope = activeInkScope(), case .chords(let frame, _) = scope else { return false }
+        guard revision == inkDrawingRevision || sourceDrawing.map({
+            ChordInkAutomaticSourcePrefixPolicy.unchangedLeadingStrokeCount(
+                snapshot: $0, current: pageInkCanvasView.drawing) != nil
+        }) == true else { return false }
         let context = ChordInkEditedTargetSessionState.Scope(
             chartID: chart.id, chordFrame: frame, pageLayout: pageLayout, layoutStyle: chart.layoutStyle)
         let profileRevision = currentChordProfileRevision
@@ -9156,6 +9318,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
         incrementalChordCensusScope = context
         incrementalChordCensusRevision = revision
+        incrementalChordCensusDrawing = sourceDrawing ?? pageInkCanvasView.drawing
         incrementalChordProfileRevision = profileRevision
         incrementalChordOptions = chordInkRecognitionOptions
         if chordDraftRenderCoordinator?.lastInputAt == nil,
@@ -9163,7 +9326,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             chordDraftRenderCoordinator?.renderSessionReadyAt = Date()
         }
         let payloads = incrementalChordDraftState.acceptCensus(requests, contextRevision: profileRevision)
-        onChordInkDraftPreviewChanged?(payloads)
+        onChordInkDraftPreviewChanged?(automaticPayloadsForCurrentSource(payloads))
         publishAutomaticChordActivity(
             phase: incrementalChordDraftState.pendingRequests.isEmpty ? .settled : .reading)
         chordInkRecognitionSession.startIncremental(requests: requests) { [weak self] payload in
@@ -9176,9 +9339,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         guard usesIncrementalChordRecognition,
               incrementalChordProfileRevision == currentChordProfileRevision,
               let payloads = incrementalChordDraftState.accept(payload) else { return }
-        // Keep the completed read even while a neighbor is changing, but wait
-        // for a census of the new live revision before publishing it to render.
-        guard hasCurrentAutomaticChordCensus else { return }
+        // An unchanged completed target may progress while a later target is
+        // changing. A prefix publication never grants whole-source clearing.
+        guard hasUsableAutomaticChordCensus else { return }
         LeadSheetChordInkRecognitionTimingLogger.log(payload.timing, result: payload.result)
         let primaryDecision = ChordInkRecognitionPolicy.decision(for: payload.result)
         // Opt-in DEBUG breadcrumbs are local support evidence. These fields
@@ -9190,13 +9353,21 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             "hasSupportedRead": payload.result.match != nil,
             "pendingTargets": incrementalChordDraftState.pendingRequests.count
         ])
-        onChordInkDraftPreviewChanged?(payloads)
+        onChordInkDraftPreviewChanged?(automaticPayloadsForCurrentSource(payloads))
         publishAutomaticChordActivity(
             phase: incrementalChordDraftState.pendingRequests.isEmpty ? .settled : .reading)
     }
 
     var hasCurrentAutomaticChordCensus: Bool {
-        guard incrementalChordCensusRevision == inkDrawingRevision,
+        incrementalChordCensusRevision == inkDrawingRevision && automaticChordCensusContextMatches
+            && incrementalChordCensusDrawing.map {
+                ChordInkAutomaticSourcePrefixPolicy.hasIdenticalOrderedSource(
+                    snapshot: $0, current: pageInkCanvasView.drawing)
+            } == true
+    }
+
+    private var automaticChordCensusContextMatches: Bool {
+        guard incrementalChordCensusRevision != nil,
               incrementalChordProfileRevision == currentChordProfileRevision,
               incrementalChordOptions == chordInkRecognitionOptions,
               let scope = activeInkScope(), case .chords(let frame, _) = scope else { return false }
@@ -10083,7 +10254,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         guard chordDraftRenderCoordinator?.automaticRenderReferenceAt == lastInputAt else {
             return .init(feedback: .init(globalReason: .needsSourceRefresh))
         }
-        guard !usesIncrementalChordRecognition || hasCurrentAutomaticChordCensus else {
+        let prefixCount = unchangedAutomaticChordPrefixCount
+        guard !usesIncrementalChordRecognition || hasCurrentAutomaticChordCensus || prefixCount != nil else {
             let feedback: ChordInkAutomaticRenderFeedback
             if let activity = currentAutomaticChordActivity, activity.sourceRevision == inkDrawingRevision,
                activity.phase == .settled, activity.feedback.globalReason != nil {
@@ -10095,14 +10267,18 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
               activeCanvasScope?.identity == scope.identity else {
             return .init(feedback: .init(globalReason: .needsSourceRefresh))
         }
+        let currentState = prefixCount.map {
+            ChordInkAutomaticSourcePrefixPolicy.retainingUnchangedTargets(
+                in: state, current: pageInkCanvasView.drawing, prefixCount: $0)
+        } ?? state
         let matureStructuralIDs = chordDraftRenderCoordinator?.structuralMaturity.observe(
-            chartID: incomingChart.id, state: state, drawing: pageInkCanvasView.drawing, now: now) ?? []
+            chartID: incomingChart.id, state: currentState, drawing: pageInkCanvasView.drawing, now: now) ?? []
         let attempt = ChordInkDraftRenderCoordinator.prepareAutomaticAttempt(
-            chart: incomingChart, state: state, currentDrawing: pageInkCanvasView.drawing,
+            chart: incomingChart, state: currentState, currentDrawing: pageInkCanvasView.drawing,
             coordinateSpace: persistedCoordinateSpace(for: scope), now: now, lastInputAt: lastInputAt,
             isUsingTool: isUsingInkTool, allowsImmediateSpatialCompletion: usesIncrementalChordRecognition,
             sourcePageLayout: pageLayout, sourceChordFrame: scope.frame,
-            matureStructuralIDs: matureStructuralIDs)
+            matureStructuralIDs: matureStructuralIDs, allowsIndependentTrailingInk: prefixCount != nil)
         if let outcome = attempt.outcome { consumeAutomaticChordOutcome(outcome, scope: scope) }
         publishAutomaticChordActivity(
             phase: incrementalChordDraftState.pendingRequests.isEmpty ? .settled : .reading,
@@ -10158,6 +10334,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         advanceInkDrawingRevision()
         incrementalChordDraftState.retainTargets(in: state)
         incrementalChordCensusRevision = nil
+        incrementalChordCensusDrawing = nil
         chordPreviewState = state
         inkAuthoringSessionState.markDirty(.chord)
         chart = updatedChart

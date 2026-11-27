@@ -696,6 +696,11 @@ final class ChordInkRecognitionPreparationSession {
     private let queue: DispatchQueue
     private let operationLock = NSLock()
     private var activeOperationID: UUID?
+    #if DEBUG
+    /// Captured before dispatch so tests can hold one immutable preparation
+    /// result while normal Pencil callbacks continue on the main thread.
+    var beforeCompletionForTesting: ((ChordInkRecognitionPreparationResult) -> Void)?
+    #endif
 
     init(queue: DispatchQueue) {
         self.queue = queue
@@ -706,6 +711,9 @@ final class ChordInkRecognitionPreparationSession {
         completion: @escaping (ChordInkRecognitionPreparationResult) -> Void
     ) {
         let operationID = beginOperation()
+        #if DEBUG
+        let beforeCompletion = beforeCompletionForTesting
+        #endif
         queue.async { [weak self] in
             guard let self,
                   self.isActive(operationID) else {
@@ -714,6 +722,9 @@ final class ChordInkRecognitionPreparationSession {
             let result = ChordInkRecognitionPreparation.prepare(request) { [weak self] in
                 self?.isActive(operationID) == true
             }
+            #if DEBUG
+            beforeCompletion?(result)
+            #endif
             guard self.isActive(operationID) else {
                 return
             }

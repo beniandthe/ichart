@@ -508,7 +508,9 @@ enum EditorCanvasMode: Hashable {
                 .init(title: "Finish the row",
                     text: "Tap Done to size the measures across the system. A single measure written away from the left edge keeps its position. In Select, tap a measure and drag its grab handle to move it, or drag an edge handle to resize."),
                 .init(title: "Keep writing",
-                    text: "Write in any empty row, including its right end. Keep chord suffixes close to their roots. A lone chord in a newly formed measure sits on beat 1."),
+                    text: manualRenderWithPreview
+                        ? "Write in any empty row, including its right end. Keep chord suffixes close to their roots. Check the previews before rendering. A lone chord in a newly formed measure sits on beat 1."
+                        : "Write chords and barlines in the same pass, including at the right end of a row. Keep suffixes close to their roots. Completed marks render while unfinished writing stays on the page. A lone chord in a newly formed measure sits on beat 1."),
                 .init(title: "Review writing",
                     text: manualRenderWithPreview
                         ? "Use Review & Render to check chord guesses, correct a chord, or choose an ending's label and measures."

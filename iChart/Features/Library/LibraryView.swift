@@ -400,7 +400,7 @@ private struct IChartHelpArticleSection: Identifiable {
             systemImageName: "pencil",
             body: "Use Write & Render to turn handwritten chords, chord-repeat symbols (%), barlines, and ending brackets into chart notation.",
             bullets: [
-                "Use Apple Pencil to write in the highlighted lane above the staff. Keep suffixes close to their roots and leave space between chords.",
+                "Use Apple Pencil to write in a highlighted blue lane. Keep suffixes close to their roots and leave space between chords.",
                 "Write chord-repeat symbols (%) in the lane alongside chords. Keep separate symbols apart and follow review prompts when offered.",
                 "Add measure repeats and repeat ranges with Repeats by selecting measures.",
                 "On a Rhythm Section Sheet, the first chord in each measure renders on beat 1 wherever you write it in that measure.",
@@ -413,7 +413,7 @@ private struct IChartHelpArticleSection: Identifiable {
                 "When barlines form measures around rendered chords in either style, each resulting measure with just one chord moves that chord to beat 1. Measures with multiple chords keep their relative placement.",
                 "On a Rhythm Section Sheet, a handwritten barline can split a measure at a rhythmic boundary in Automatic or Manual. If a note crosses that boundary, the line stays as draft ink and the tool shows feedback above the controls. Use Measures for other form edits.",
                 "Draw the line near an existing note onset when splitting a measure that already has rhythms. Both new measures use the current meter. Written notes keep their lengths, and rests fill the unused beats.",
-                "To add measures at the end of a short row, draw tall barlines on their own in the empty lane and leave space between them.",
+                "Write chords and barlines in the same pass, including at the right end of a row. In Automatic, completed marks render while unfinished writing stays on the page. In Manual, check the previews before tapping Render Chords or Review & Render.",
                 "If a barline cannot be placed, it stays on the page while chords that can be placed independently render. Keep writing, or use Erase to remove the line and redraw it.",
                 "Splits in Simple measures and supported splits in committed Rhythm measures keep converted marks and their original handwriting. An open Rhythm measure may require Restore Ink in Free Ink before splitting when it holds a converted mark or its original writing.",
                 "When Review Chords opens, check each Recognition guess. Type a correction or choose a suggestion to mark the row Your edit. You can also rewrite just that chord.",
