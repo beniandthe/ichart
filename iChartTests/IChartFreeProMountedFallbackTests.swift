@@ -60,10 +60,21 @@ final class IChartFreeProMountedFallbackTests: XCTestCase {
         XCTAssertTrue(done.isEnabled, file: file, line: line)
         XCTAssertTrue(try NativeAccessibilityLookup.matching("Unlock Pro", in: window).isEmpty, file: file, line: line)
 
+        for (label, identifier) in [("Restore Purchases", "upgrade_restore"), ("Manage Subscription", "upgrade_manage")] {
+            let matches = try NativeAccessibilityLookup.matching(label, in: window, buttonsOnly: true)
+            XCTAssertEqual(matches.count, 1, "Expected one existing-billing recovery control: \(label)", file: file, line: line)
+            let recovery = try XCTUnwrap(matches.first,
+                "Free access must keep existing Apple billing recovery available", file: file, line: line)
+            XCTAssertEqual(recovery.identifier, identifier, file: file, line: line)
+            XCTAssertTrue(recovery.isEnabled, file: file, line: line)
+        }
+
         let checkoutWords = ["monthly", "annual", "trial", "subscribe", "purchase", "one month", "claim", "unlock", "restore"]
+        let recoveryControls = ["restore purchases": "upgrade_restore", "manage subscription": "upgrade_manage"]
         let buttons = try NativeAccessibilityLookup.nodes(in: window).filter(\.isButton)
         for button in buttons {
             let label = button.element.accessibilityLabel?.lowercased() ?? ""
+            if let identifier = recoveryControls[label], button.identifier == identifier { continue }
             XCTAssertFalse(checkoutWords.contains(where: label.contains),
                 "A free fallback must not expose a paid/offer control: \(label)", file: file, line: line)
         }
