@@ -346,6 +346,18 @@ export async function handleAppStoreServerNotificationRequest(request, dependenc
     });
   }
 
+  // Apple's signed TEST is a transport probe, not a subscription event. The
+  // verifier above still enforces the expected app/environment and Apple chain.
+  // It has no transaction owner to map and must never enter the authority writer
+  // (including its replay ledger), even if extra nested fields are present.
+  if (decodedNotification?.notificationType === "TEST") {
+    return jsonResponse(200, {
+      accepted: true,
+      test_notification: true,
+      stored: false,
+    });
+  }
+
   let transactionInfo;
   let renewalInfo;
   try {
