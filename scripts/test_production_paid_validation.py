@@ -49,6 +49,13 @@ class ProductionPaidValidationTests(unittest.TestCase):
         self.assertEqual(set(result["targets"]), {"iChart", "iChartTests"})
         self.assertEqual(result["targets"]["iChart"]["info"]["path"], "/private/tmp/isolated-paid/iChart-Info.plist")
         self.assertIn("App/Info.plist", result["targets"]["iChart"]["sources"][0]["excludes"])
+        self.assertEqual([item["path"] for item in result["targets"]["iChartTests"]["sources"]], list(paid.TEST_SOURCES))
+
+    def testSelectedReleaseSourceFilesContainEveryRequiredClass(self):
+        source = Path(__file__).resolve().parents[1]
+        text = "\n".join((source / name).read_text() for name in paid.TEST_SOURCES)
+        for name in paid.TEST_CLASSES:
+            self.assertIn("final class " + name + ": XCTestCase", text)
 
     def testGlobalPaidConditionsAreRejected(self):
         original = self.original()

@@ -33,6 +33,17 @@ TEST_CLASSES = (
     "IChartRemoteSubscriptionRecordTests", "PDFLibraryCloudRestoreTests", "PDFSetlistStoreTests",
     "PDFSetlistCloudSyncTests",
 )
+TEST_SOURCES = (
+    "iChartTests/ProductionPaidAccessPolicyTests.swift",
+    "iChartTests/ProductionPaidBackendConfigurationTests.swift",
+    "iChartTests/LocalChartDowngradeAccessTests.swift",
+    "iChartTests/ChartFontSelectionPolicyTests.swift",
+    "iChartTests/IChartStoreKitProductCatalogTests.swift",
+    "iChartTests/IChartSubscriptionAccessRecoveryTests.swift",
+    "iChartTests/IChartRemoteSubscriptionRecordTests.swift",
+    "iChartTests/PDFLibraryCloudRestoreTests.swift",
+    "iChartTests/PDFSetlistStoreTests.swift",
+)
 
 
 def build_environment(environment: dict[str, str]) -> dict[str, str]:
@@ -72,6 +83,10 @@ def source_manifest(source: Path) -> dict[str, str]:
 def make_spec(original: dict, output: Path) -> dict:
     spec = copy.deepcopy(original)
     spec["targets"] = {name: spec["targets"][name] for name in ("iChart", "iChartTests")}
+    # The ordinary test target includes editor fixtures that intentionally call
+    # DEBUG-only hooks. Compile this focused Release gate's selected sources;
+    # do not change or weaken the normal free Debug test target.
+    spec["targets"]["iChartTests"]["sources"] = [{"path": path} for path in TEST_SOURCES]
     for name, target in spec["targets"].items():
         release = target.setdefault("settings", {}).setdefault("configs", {}).setdefault("Release", {})
         existing = str(release.get("SWIFT_ACTIVE_COMPILATION_CONDITIONS", ""))

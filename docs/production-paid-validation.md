@@ -4,6 +4,8 @@ The normal project and ordinary CI remain the free public-beta build. Keep their
 
 `scripts/run_production_paid_validation.py` generates a separate project outside the checkout, using the authoritative `project.yml` sources and pinned package resolution. Its Release app and test targets alone receive `ICHART_PAID_SUBSCRIPTION`; only the test target receives `ICHART_PRODUCTION_PAID_VALIDATION`. The original project, shared/global settings and package dependencies do not receive paid conditions. Release testability is enabled for native assertions; this Simulator test host is not a distribution artifact.
 
+The separate test target compiles the nine source files containing all twelve selected policy, billing-recovery and preservation classes. The full ordinary test target also contains editor fixtures that require Debug-only test hooks, so it cannot compile unchanged against a Release app. This explicit Release scope preserves every selected class and leaves the ordinary free Debug test target and full CI unchanged.
+
 Choose a dedicated Simulator and a new local output directory outside iCloud. Prepare without starting a build:
 
 ```sh
