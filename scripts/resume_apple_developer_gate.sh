@@ -106,8 +106,8 @@ Supabase Edge Function secrets for sandbox:
 
 App Store Connect setup to confirm:
 - Subscription group: iChart Pro
-- Monthly product ID: ${monthly_product_id}, price \$7.99
-- Annual product ID: ${annual_product_id}, price \$64.99
+- Monthly product ID: ${monthly_product_id}, price \$6.99
+- Annual product ID: ${annual_product_id}, price \$60.00
 - App Store Server Notifications sandbox URL, Version 2:
   ${webhook_url}
 

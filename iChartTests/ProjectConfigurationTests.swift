@@ -1862,7 +1862,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(projectText.contains("product: Supabase"))
         XCTAssertTrue(projectText.contains("path: iChart/App/Info.plist"))
         XCTAssertTrue(projectText.contains("MARKETING_VERSION: \"1.9.4\""))
-        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"199\""))
+        XCTAssertTrue(projectText.contains("CURRENT_PROJECT_VERSION: \"206\""))
         // The requested build identity is pinned above. Also validate the
         // strictly positive numeric format required by the bundle contract.
         XCTAssertNotNil(projectText.range(
@@ -2115,8 +2115,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(catalogText.contains("IChartStoreKitEntitlementResolver"))
         XCTAssertTrue(storeKitConfigText.contains("\"productID\": \"com.ichart.app.pro.monthly\""))
         XCTAssertTrue(storeKitConfigText.contains("\"productID\": \"com.ichart.app.pro.annual\""))
-        XCTAssertTrue(storeKitConfigText.contains("\"displayPrice\": \"7.99\""))
-        XCTAssertTrue(storeKitConfigText.contains("\"displayPrice\": \"64.99\""))
+        XCTAssertTrue(storeKitConfigText.contains("\"displayPrice\": \"6.99\""))
+        XCTAssertTrue(storeKitConfigText.contains("\"displayPrice\": \"60.00\""))
         XCTAssertTrue(storeKitConfigText.contains("\"recurringSubscriptionPeriod\": \"P1M\""))
         XCTAssertTrue(storeKitConfigText.contains("\"recurringSubscriptionPeriod\": \"P1Y\""))
         XCTAssertEqual(
@@ -2219,8 +2219,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(planPolicyText.contains("Supabase subscription rows are read-only from the app and are updated only by trusted server-side purchase verification"))
         XCTAssertTrue(storeKitRunbookText.contains("com.ichart.app.pro.monthly"))
         XCTAssertTrue(storeKitRunbookText.contains("com.ichart.app.pro.annual"))
-        XCTAssertTrue(storeKitRunbookText.contains("$7.99/month"))
-        XCTAssertTrue(storeKitRunbookText.contains("$64.99/year"))
+        XCTAssertTrue(storeKitRunbookText.contains("$6.99/month"))
+        XCTAssertTrue(storeKitRunbookText.contains("$60.00/year"))
         XCTAssertTrue(storeKitRunbookText.contains("StoreKit/iChartProSubscriptions.storekit"))
         XCTAssertTrue(storeKitRunbookText.contains("App Store Connect Production Gate"))
         XCTAssertTrue(storeKitRunbookText.contains("subscription group for iChart Pro"))

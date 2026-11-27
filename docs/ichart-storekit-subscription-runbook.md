@@ -616,8 +616,8 @@ introductory dates unset until these gates and release approval are complete.
 
 The first Pro subscription products are:
 
-- `com.ichart.app.pro.monthly`: $7.99/month
-- `com.ichart.app.pro.annual`: $64.99/year
+- `com.ichart.app.pro.monthly`: $6.99/month
+- `com.ichart.app.pro.annual`: $60.00/year
 
 These IDs must match:
 
@@ -636,13 +636,24 @@ Local simulator purchase testing uses:
 
 Run `xcodegen generate` after changing the StoreKit file or project spec. The generated `iChart` scheme should include a `StoreKitConfigurationFileReference` for `StoreKit/iChartProSubscriptions.storekit`.
 
-Local prices in the `.storekit` file should mirror the current target launch pricing until App Store Connect becomes the production pricing authority. At $7.99 monthly and $64.99 annual, the annual plan is roughly 32% less than twelve monthly payments.
+Local prices in the `.storekit` file should mirror the current target launch pricing until App Store Connect becomes the production pricing authority. At $6.99 monthly and $60.00 annual, the annual plan is 28% less than twelve monthly payments.
 
 Xcode's normal Run action reads the scheme StoreKit configuration and should exercise real local StoreKit purchase dialogs. Command-line/MCP simulator launches build and launch the app outside that Run action, so the Debug simulator app also bundles the `.storekit` file, reads it for product button metadata, and treats fallback button taps as a local Pro entitlement preview. That fallback is compile-gated to Debug simulator builds and is not a production entitlement source.
 
 Do not initialize `StoreKitTest.SKTestSession` inside the app process. It expects an XCTest configuration and aborts the app when launched normally.
 
 ## App Store Connect Production Gate
+
+For the December 1, 2026 preparation, preserve public free Pro and hold the
+production-paid artifact's distribution until the reviewed cutover. Its client
+gates apply immediately when compiled with `ICHART_PAID_SUBSCRIPTION`; changing
+only the server switch does not coordinate activation. Do not change live Apple
+price schedules or existing renewals as a side effect of source preparation.
+Confirm the exact activation time before scheduling any change.
+
+Keep Billing Grace Period disabled while the current client/server policy
+pauses cloud and Forum services in grace. Enabling it requires separately
+verified full-service access throughout Apple's grace period.
 
 Apple-side products must remain configured as follows before App Store/TestFlight subscription QA:
 
@@ -652,7 +663,7 @@ Apple-side products must remain configured as follows before App Store/TestFligh
 - Use app bundle ID `com.ichart.app`.
 - Set App Store Server Notifications Version 2 sandbox URL to `https://pausvvwoazbvmzyrebwl.supabase.co/functions/v1/app-store-server-notifications`.
 - Add product display names, descriptions, durations, review metadata, screenshots if required by App Review, and localization records.
-- Set the monthly starting price to $7.99 and the annual starting price to $64.99 in the United States storefront, then review the App Store Connect comparable prices for other countries and regions.
+- Set the monthly starting price to $6.99 and the annual starting price to $60.00 in the United States storefront, then review the App Store Connect comparable prices for other countries and regions.
 - Leave both products in a state where StoreKit can fetch them in sandbox/TestFlight. Keep the local StoreKit configuration only for local Debug simulator QA; Release/TestFlight entitlement authority must come from Apple StoreKit plus the server-side claim path.
 - Allow for App Store Connect metadata propagation; Apple notes product metadata changes can take up to 1 hour to appear in the sandbox environment.
 
@@ -811,7 +822,22 @@ StoreKit transaction/current entitlement
 -> Library, Projects, cloud sync, Forums, chart-cap behavior
 ```
 
-`proActive` unlocks cloud backup, Projects, Forums, and unlimited local charts. Apple billing grace keeps local chart access and Projects available while cloud backup and Forums pause. Basic, expired, and unavailable states use Basic local limits.
+`proActive` unlocks Pro creation capacity, Projects, premium fonts, PDF-to-editable
+conversion, and the verified Pro cloud and Forum actions. Basic, expired, and
+unavailable states apply the three-chart cap only to new chart creation and
+duplication. Every saved chart, including converted charts and charts above the
+cap, remains editable, saveable, renameable, and exportable in both styles.
+Already applied Pro fonts remain in saved charts. Existing Projects remain
+visible as read-only groups while their member charts remain editable and
+exportable. Original and downloaded PDFs and local setlists stay available;
+local setlist editing and playback continue while cloud sync pauses. Downgrade
+does not delete local content, prune charts, or enqueue deletion tombstones.
+
+The implemented `proGrace` policy retains local Pro tools and Projects while
+pausing cloud backup and Pro Forum actions. Keep Apple Billing Grace Period
+disabled until a separately verified client and server policy provides the full
+subscription service throughout grace. This policy is not approval to enable
+Apple's grace setting or restart parked destructive cloud-retention work.
 
 ## Production Follow-Up
 
@@ -819,7 +845,7 @@ Before production launch:
 
 - Create monthly and annual auto-renewing subscription products in App Store Connect.
 - Confirm App Store Connect product IDs match the code and local StoreKit file.
-- Configure App Store Connect pricing to the current target: $7.99 monthly and $64.99 annual, unless launch pricing changes before release.
+- Configure App Store Connect pricing to the current target: $6.99 monthly and $60.00 annual, unless launch pricing changes before release.
 - Replace or sync the local StoreKit configuration if App Store Connect product metadata becomes the source.
 - Configure and validate Apple signed-payload verification plus server-only App Store Server Notification handling before trusting Supabase subscription rows as production authority.
 - Have the verified server path write the subscription authority metadata in `subscriptions`; the iOS app remains select-only.

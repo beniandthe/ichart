@@ -247,8 +247,8 @@ Chart sync states should communicate the user's real situation:
 ## 10. Subscription And Payment Policy
 
 - Pro should launch as monthly and annual auto-renewing subscriptions.
-- Current target launch pricing is $7.99 monthly and $64.99 annual.
-- Annual should be positioned as the best value at roughly 32% savings against twelve monthly payments.
+- Current target launch pricing is $6.99 monthly and $60.00 annual.
+- Annual should be positioned as the best value at 28% savings against twelve monthly payments.
 - No raw card data is collected or stored by iChart.
 - Settings should not expose user-editable payment fields.
 - Billing UI should route through StoreKit/provider-managed purchase and restore flows; any customer references remain backend metadata only and are not client-writable profile fields.
@@ -298,6 +298,21 @@ Before production cloud rollout:
 - Apply the Basic chart cap only to creation and duplication. Preserve opening, editing, saving, renaming, and exporting at every library size.
 - Replace the older mandatory downgrade-pruning, over-cap editing lock, and Forum download cleanup rules wherever implemented.
 - Verify upgrade, downgrade, purchase restore, and existing saved-content access for each capability and each chart style.
+
+The December 1, 2026 production targets are $6.99/month and exactly $60.00/year
+in the United States. These source targets do not change live Apple prices or
+any existing subscription renewal. App Store Connect remains the authority for
+localized product prices. The exact activation time and production changes
+require release review; keep public free Pro on until that cutover.
+
+Prepare the production-paid artifact separately and hold its distribution until
+the cutover is authorized. Its paid compilation condition applies client gates
+immediately; the server flag alone does not coordinate that client activation.
+Keep the normal free-beta package and its strict verifier unchanged.
+
+Keep Apple Billing Grace Period disabled while the implemented grace policy
+pauses cloud and Forum services. Enabling Apple's billing grace requires a
+separately verified full-service client and server policy throughout grace.
 
 The current free beta continues until a separately validated paid rollout.
 Client gates, service authorization, hosted rollout, billing configuration, and

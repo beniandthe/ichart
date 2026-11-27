@@ -19,8 +19,8 @@ final class IChartStoreKitProductCatalogTests: XCTestCase {
         #else
         XCTAssertEqual(monthlyID, "com.ichart.app.pro.monthly")
         XCTAssertEqual(annualID, "com.ichart.app.pro.annual")
-        XCTAssertEqual(IChartStoreKitProductCatalog.targetMonthlyPriceCents, 799)
-        XCTAssertEqual(IChartStoreKitProductCatalog.targetAnnualPriceCents, 6_499)
+        XCTAssertEqual(IChartStoreKitProductCatalog.targetMonthlyPriceCents, 699)
+        XCTAssertEqual(IChartStoreKitProductCatalog.targetAnnualPriceCents, 6_000)
         XCTAssertFalse(IChartStoreKitProductCatalog.isProProductID("com.ichart.app.staging.fix036.monthly"))
         XCTAssertFalse(IChartStoreKitProductCatalog.isProProductID("com.ichart.app.staging.fix036.annual"))
         #endif
@@ -43,15 +43,11 @@ final class IChartStoreKitProductCatalogTests: XCTestCase {
     func testAnnualBadgePreservesLocalPreviewTargetSaving() {
         let monthly = Decimal(IChartStoreKitProductCatalog.targetMonthlyPriceCents) / 100
         let annual = Decimal(IChartStoreKitProductCatalog.targetAnnualPriceCents) / 100
-        #if ICHART_STAGING_STOREKIT_PRODUCTS
         let expectedBadge = "Save 28%"
-        #else
-        let expectedBadge = "Save 32%"
-        #endif
         XCTAssertEqual(valueBadge([price(monthlyID, monthly, .months(1)), price(annualID, annual, .years(1))]), expectedBadge)
         #if DEBUG && targetEnvironment(simulator)
         XCTAssertEqual(IChartStoreKitProductCatalog.localPreviewProductOptions.first { $0.id == annualID }?.valueBadge,
-                       "Save 32%")
+                       "Save 28%")
         XCTAssertNil(IChartStoreKitProductCatalog.localPreviewProductOptions.first { $0.id == monthlyID }?.valueBadge)
         #endif
     }

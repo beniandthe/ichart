@@ -10,7 +10,7 @@ settings:
   base:
     DEVELOPMENT_TEAM: N6G8X4K46U
     MARKETING_VERSION: "1.9.4"
-    CURRENT_PROJECT_VERSION: "199"
+    CURRENT_PROJECT_VERSION: "206"
     TARGETED_DEVICE_FAMILY: "2"
     SWIFT_VERSION: "5.10"
     ALWAYS_SEARCH_USER_PATHS: false
@@ -44,8 +44,10 @@ targets:
         SUPABASE_URL: https://pausvvwoazbvmzyrebwl.supabase.co
         SUPABASE_PUBLISHABLE_KEY: sb_publishable_ZyyagOMS_Dfyf9pASisrtQ_9Dei0_x7
         SUPABASE_ANON_KEY: ""
+        ICHART_RELEASE_ACCESS_CONDITIONS: ""
       configs:
         Release:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) $(ICHART_RELEASE_ACCESS_CONDITIONS)"
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: Apple Distribution
           PROVISIONING_PROFILE_SPECIFIER: iChart App Store
