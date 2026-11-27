@@ -85,6 +85,7 @@ enum ChordDraftBarlinePresentationPolicy {
     static func previewText(for kind: DraftBarlineKind) -> String {
         switch kind {
         case .single: return "|"
+        case .double: return "||"
         }
     }
 }
@@ -100,7 +101,9 @@ enum ChordDraftBarlinePreviewDrawing {
         let x = frame.minX + frame.width * CGFloat(barline.laneFraction)
         let metrics = LeadSheetRepeatReadabilityMetrics(chart: chart, staffHeight: frame.height)
         let lineWidth = selected ? max(3, metrics.lineWidth) : max(2, metrics.lineWidth)
-        return Geometry(boundaryX: x, barXs: [x], lineWidth: lineWidth)
+        let separation = max(4, lineWidth * 2)
+        let xs = barline.kind == .double ? [x - separation / 2, x + separation / 2] : [x]
+        return Geometry(boundaryX: x, barXs: xs, lineWidth: lineWidth)
     }
 
     static func draw(_ barline: DraftBarline, in frame: CGRect, chart: Chart, color: UIColor, selected: Bool) {
@@ -726,6 +729,7 @@ enum LeadSheetCanvasChartUpdateReason {
     case deleteCueText
     case deleteRoadmapMarker
     case resizeMeasure
+    case moveMeasure
     case resizeChord
     case moveChord
     case moveCueText
@@ -755,6 +759,7 @@ enum LeadSheetCanvasChartUpdateReason {
              .deleteCueText,
              .deleteRoadmapMarker,
              .resizeMeasure,
+             .moveMeasure,
              .resizeChord,
              .moveChord,
              .moveCueText,
@@ -1595,11 +1600,23 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             guard oldValue != chart else {
                 return
             }
+            if activePaperMeasureMove != nil {
+                cancelPaperMeasureMove()
+            }
             let movingChordID = activeChordMoveDrag?.chordID ?? activeChordResizeDrag?.chordID
             if let movingChordID, chart.chordEvent(id: movingChordID) == nil {
                 cancelRenderedObjectGesture()
             } else if case .chord(let admittedID)? = renderedObjectMoveAdmittedDrag?.target.objectID,
                       chart.chordEvent(id: admittedID) == nil {
+                cancelRenderedObjectGesture()
+            }
+            let resizedMeasureWasRemoved = activeMeasureResizeDrag.map {
+                chart.id != oldValue.id || chart.measure(id: $0.measureID) == nil
+            } ?? false
+            let movedMarkerWasRemoved = activeRoadmapMarkerEditDrag.map {
+                chart.id != oldValue.id || chart.roadmapObject(id: $0.markerID) == nil
+            } ?? false
+            if chart.id != oldValue.id || resizedMeasureWasRemoved || movedMarkerWasRemoved {
                 cancelRenderedObjectGesture()
             }
             if !endingEditInteraction.isCompatible(chart: chart, pageLayout: pageLayout,
@@ -1714,6 +1731,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
 
             if !recognizesChordInk {
+                automaticChordPreparationSource = nil
                 chordInkRecognitionRequestState.cancelPendingRequest()
                 inkSerializationSession.cancelPendingWork()
                 chordInkPreparationSession.cancelPendingWork()
@@ -2165,12 +2183,56 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private lazy var chordInkPreparationSession = ChordInkRecognitionPreparationSession(
         queue: chordInkPreparationQueue
     )
+    #if DEBUG
+    var chordInkPreparationTestHook: ((ChordInkRecognitionPreparationResult) -> Void)? {
+        get { chordInkPreparationSession.beforeCompletionForTesting }
+        set { chordInkPreparationSession.beforeCompletionForTesting = newValue }
+    }
+    var chordInkPreparationDebugState: [String: String] {
+        var result: [String: String] = [:]
+        result["sourceRevision"] = String(inkDrawingRevision)
+        result["censusRevision"] = incrementalChordCensusRevision.map { String($0) } ?? "nil"
+        result["currentCensus"] = String(hasCurrentAutomaticChordCensus)
+        result["prefixCount"] = unchangedAutomaticChordPrefixCount.map { String($0) } ?? "nil"
+        result["contextMatches"] = String(automaticChordCensusContextMatches)
+        result["preparationInFlight"] = String(automaticChordPreparationSource != nil)
+        result["usingPencil"] = String(isUsingInkTool)
+        result["deferredGeometry"] = String(hasDeferredActiveInkGeometrySync)
+        result["strokeCount"] = String(pageInkCanvasView.drawing.strokes.count)
+        result["sourceFrame"] = String(describing: activeInkScope()?.frame)
+        let maturityDeadline: Date? = chordDraftRenderCoordinator?.structuralMaturity.nextDeadline
+        result["maturityNext"] = maturityDeadline.map { String($0.timeIntervalSinceNow) } ?? "nil"
+        let input: Date? = chordDraftRenderCoordinator?.lastInputAt
+        result["inputAge"] = input.map { String(-$0.timeIntervalSinceNow) } ?? "nil"
+        let lastFeedback = chordDraftRenderCoordinator?.lastAutomaticAttempt?.feedback
+        result["globalFeedback"] = lastFeedback?.globalReason?.rawValue ?? "nil"
+        result["draftFeedback"] = String(describing: lastFeedback?.reasonsByDraftID.mapValues { $0.rawValue })
+        result["drafts"] = String(describing: chordPreviewState.draftChords.map { draft in
+            (draft.previewText ?? "nil") + ":" + String(describing: draft.targetLifecycle?.stage)
+        })
+        result["barlines"] = String(describing: chordPreviewState.draftBarlines.map { barline in
+            "\(barline.fraction):\(barline.kind):\(barline.isRenderable):\(barline.ownedSourceStrokeIndices.sorted())"
+        })
+        return result
+    }
+
+    #endif
     private var chordInkEditedTargetState = ChordInkEditedTargetSessionState()
     private var incrementalChordDraftState = ChordInkIncrementalDraftState()
     private var incrementalChordCensusRevision: UInt64?
+    private var incrementalChordCensusDrawing: PKDrawing?
     private var incrementalChordCensusScope: ChordInkEditedTargetSessionState.Scope?
     private var incrementalChordProfileRevision: UUID?
     private var incrementalChordOptions: ChordInkRecognitionOptions?
+    private struct AutomaticChordPreparationSource {
+        var requestID: UUID
+        var revision: UInt64
+        var drawing: PKDrawing
+        var scope: ChordInkEditedTargetSessionState.Scope
+        var options: ChordInkRecognitionOptions
+        var profileRevision: UUID?
+    }
+    private var automaticChordPreparationSource: AutomaticChordPreparationSource?
 
     private var currentChordProfileRevision: UUID? {
         HandwritingPersonalizationProductPolicy.isAvailable
@@ -2276,16 +2338,62 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
     }
     private var chordInkRecognitionRequestState = LeadSheetChordInkRecognitionRequestState()
-    private var activeMeasureResizeDrag: ActiveMeasureResizeDrag?
+    private var activeMeasureResizeDrag: ActiveMeasureResizeDrag? {
+        didSet {
+            if activeMeasureResizeDrag == nil { measureResizePreviewLayer.removeFromSuperlayer() }
+        }
+    }
+    private let measureResizePreviewLayer = CALayer()
+    private let measureResizePreviewSelection = CAShapeLayer()
+    private let measureResizePreviewGuides = CAShapeLayer()
+    private let measureResizeLeftHandle = CALayer()
+    private let measureResizeRightHandle = CALayer()
+    private var activePaperMeasureMove: ActivePaperMeasureMove?
+    private let measureMoveOverlay = CALayer()
+    private let measureMoveDropGuide = CAShapeLayer()
+    private var measureMoveOriginalPageInk: PKDrawing?
+    private var measureMoveOriginalPageInkHidden = true
     private var activeChordMoveDrag: ActiveChordMoveDrag? {
         didSet {
             if activeChordMoveDrag == nil { chordMoveOverlayView.end() }
         }
     }
     private let chordMoveOverlayView = LeadSheetChordMoveOverlayView(frame: .zero)
-    private var activeChordResizeDrag: ActiveChordResizeDrag?
+    private var activeChordResizeDrag: ActiveChordResizeDrag? {
+        didSet {
+            if activeChordResizeDrag == nil {
+                chordResizePreview.end()
+                chordResizeGrip.removeFromSuperlayer()
+                chordResizeGripInitialFrame = nil
+            }
+        }
+    }
+    private let chordResizePreview = LeadSheetCachedDragPreview(name: "chordResize.preview")
+    private let chordResizeGrip = CALayer()
+    private var chordResizeGripInitialFrame: CGRect?
+    private let roadmapMovePreview = LeadSheetCachedDragPreview(name: "roadmapMove.preview")
+    private var roadmapMovePreviewSourceFrame: CGRect?
+    private let annotationMovePreview = LeadSheetCachedDragPreview(name: "annotationMove.preview")
+    private var annotationMovePreviewSourceFrame: CGRect?
+    private var paperMeasureMoveSourcePositions: [UUID: PaperMeasureLayout] = [:]
+    private var paperMeasureMoveRequestedFraction: Double?
+    #if DEBUG
+    private var interactionPerformanceCounters = [
+        "backing_draws": 0, "layout_builds": 0, "chart_writebacks": 0, "paper_move_model_updates": 0
+    ]
+    var interactionPerformanceTestSnapshot: [String: Int] { interactionPerformanceCounters }
+    func resetInteractionPerformanceTestCounters() {
+        for key in interactionPerformanceCounters.keys { interactionPerformanceCounters[key] = 0 }
+    }
+    #endif
     private var activeRoadmapMarkerEditDrag: ActiveRoadmapMarkerEditDrag? {
-        didSet { updateAnnotationPositionHandleFrames() }
+        didSet {
+            if activeRoadmapMarkerEditDrag == nil {
+                roadmapMovePreview.end()
+                roadmapMovePreviewSourceFrame = nil
+            }
+            updateAnnotationPositionHandleFrames()
+        }
     }
     private var activeCueTextMoveDrag: ActiveCueTextMoveDrag? {
         didSet {
@@ -2485,6 +2593,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
               let pageLayout else {
             return
         }
+        #if DEBUG
+        interactionPerformanceCounters["backing_draws", default: 0] += 1
+        #endif
 
         let drawStartedAt = ProcessInfo.processInfo.systemUptime
         let drawIndex = nextPerformanceDrawTraceIndex()
@@ -2568,7 +2679,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         for page in pageLayout.pages where page.frame.intersects(rect) {
             renderer.drawFreeInkArticulations(for: page, pageLayout: pageLayout, in: context,
-                excludingMarkID: freeInkArticulationDrag?.mark.id)
+                excludingMarkID: freeInkArticulationDrag?.mark.id,
+                excludingMeasureID: activePaperMeasureMove?.measureID)
         }
         if let selection = selectedFreeInkArticulationTarget() {
             let scale = max(canvasScreenPointsPerDisplayedPoint(), 0.1)
@@ -2597,7 +2709,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             drawSelectedCommittedChordBarline(in: pageLayout)
         }
 
-        if showsSelectedMeasureResizeHandles {
+        if showsSelectedMeasureResizeHandles, activePaperMeasureMove == nil, activeMeasureResizeDrag == nil {
             if let rowGroupAffordance = simpleRowGroupAffordance() {
                 drawSimpleRowGroupAffordance(rowGroupAffordance)
             }
@@ -2606,6 +2718,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
             if let selectedMeasure = selectedDisplayMeasureLayout() {
                 drawMeasureResizeHandles(for: selectedMeasure, using: renderer)
+                if interactionMode == .browse, !selectedMeasure.isPaperWritingPlaceholder {
+                    drawMeasureMoveHandle(for: selectedMeasure)
+                }
             }
         }
     }
@@ -3041,7 +3156,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 switch target {
                 case .rendered(let rendered) where rendered.priority == .measureSelect:
                     // A measure can own a tap without owning a vertical drag.
-                    break
+                    if renderedEditDragTarget(at: point)?.objectID == rendered.objectID,
+                       renderedEditDragTarget(at: point)?.action == .move { return false }
                 default:
                     return false
                 }
@@ -3069,6 +3185,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         cancelAnnotationPositionDrag()
         chordInkEditedTargetState.reset()
         editorPerformanceMetrics.recordLayoutInvalidation()
+        #if DEBUG
+        interactionPerformanceCounters["layout_builds", default: 0] += 1
+        #endif
         guard bounds.width > 0, bounds.height > 0 else {
             pageLayout = nil
             syncPageInkCanvas()
@@ -3145,6 +3264,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         chart = updatedChart
         activeChartUpdateReason = previousReason
         editorPerformanceMetrics.recordChartWriteBack()
+        #if DEBUG
+        interactionPerformanceCounters["chart_writebacks", default: 0] += 1
+        #endif
         onChartChanged?(updatedChart)
     }
 
@@ -3165,6 +3287,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         for roadmapMarkerLayout in system.roadmapMarkerLayouts {
+            if roadmapMarkerLayout.anchorMeasureID == activePaperMeasureMove?.measureID { continue }
+            if roadmapMovePreview.isActive, activeRoadmapMarkerEditDrag?.markerID == roadmapMarkerLayout.id { continue }
+            if annotationMovePreview.isActive,
+               activeAnnotationPositionDrag?.objectID == .roadmapMarker(roadmapMarkerLayout.id) { continue }
             let roadmapMarkerLayoutForDisplay = displayRoadmapMarkerLayout(for: roadmapMarkerLayout)
             renderer.drawRoadmapMarker(roadmapMarkerLayoutForDisplay)
             if roadmapMarkerLayoutForDisplay.id == selectedRoadmapMarkerID {
@@ -3173,6 +3299,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         for endingLayout in system.endingLayouts {
+            if annotationMovePreview.isActive,
+               activeAnnotationPositionDrag?.objectID == .endingSpan(endingLayout.roadmapObjectID) { continue }
             if endingLayout.roadmapObjectID == selectedEndingSpanID,
                endingEditInteraction.dragFeedback != nil,
                let context = UIGraphicsGetCurrentContext() {
@@ -3261,7 +3389,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         var drawnRepeatMarkerIDs = Set<String>()
-        if let firstMeasure = system.measures.first {
+        if !system.usesPaperMeasureLayout, let firstMeasure = system.measures.first {
             let leadingMarkers = LeadSheetRepeatBoundaryPolicy.leadingMarkers(atStartOf: firstMeasure)
             if leadingMarkers.isEmpty {
                 renderer.drawLeadingBarline(
@@ -3277,9 +3405,21 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         for (measureIndex, measure) in system.measures.enumerated() {
+            let context = UIGraphicsGetCurrentContext()
+            context?.saveGState()
+            if activePaperMeasureMove?.measureID == measure.sourceMeasureID {
+                context?.setAlpha(0.12)
+            }
+            defer { context?.restoreGState() }
+            let previous = measureIndex > 0 ? system.measures[measureIndex - 1] : nil
+            if let leadingBarline = measure.explicitPaperLeadingBarline(after: previous) {
+                renderer.drawLeadingBarline(leadingBarline, at: measure.leadingBarlineX,
+                    from: measure.staffFrame.minY, to: measure.staffFrame.maxY)
+            }
             if interactionMode.allowsMeasureSelection,
                selectedRoadmapMarkerID == nil,
-               measure.sourceMeasureID == selectedMeasureID {
+               measure.sourceMeasureID == selectedMeasureID,
+               activePaperMeasureMove == nil, activeMeasureResizeDrag == nil {
                 drawMeasureSelection(measure, in: system)
             }
 
@@ -3293,6 +3433,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 if chordMoveOverlayView.isActive, activeChordMoveDrag?.chordID == chordLayout.id {
                     continue
                 }
+                if chordResizePreview.isActive, activeChordResizeDrag?.chordID == chordLayout.id { continue }
                 let chordLayoutForDisplay = displayChordLayout(for: chordLayout)
                 renderer.drawChord(chordLayoutForDisplay)
                 if interactionMode.allowsChordObjectEditing,
@@ -3311,6 +3452,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
             for cueTextLayout in measure.cueTextLayouts {
                 if cueTextMoveOverlayCueID == cueTextLayout.id { continue }
+                if annotationMovePreview.isActive,
+                   activeAnnotationPositionDrag?.objectID == .cueText(cueTextLayout.id) { continue }
                 let cueTextLayoutForDisplay = displayCueTextLayout(for: cueTextLayout)
                 if cueTextLayoutForDisplay.id == selectedCueTextID {
                     drawCueTextSelection(cueTextLayoutForDisplay)
@@ -3353,7 +3496,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             case .normalBarline(let barline, let frame):
                 renderer.drawBarline(barline, in: frame)
             case .none:
-                if measure.isOpen && chart.layoutStyle != .simpleChordSheet {
+                if measure.isOpen && !measure.usesPaperMeasureLayout && chart.layoutStyle != .simpleChordSheet {
                     renderer.drawOpenMeasureHint(measure)
                 }
             }
@@ -3571,6 +3714,23 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             color: UIColor(red: 0.16, green: 0.33, blue: 0.68, alpha: 1),
             alignment: .center
         )
+    }
+
+    private func drawMeasureMoveHandle(for measure: LeadSheetMeasureLayout) {
+        let frame = LeadSheetMeasureResizeGeometry.moveHandleFrame(for: measure)
+        let path = UIBezierPath(roundedRect: frame, cornerRadius: 5)
+        UIColor.systemBlue.withAlphaComponent(0.12).setFill()
+        path.fill()
+        for index in 0..<2 {
+            let ridge = UIBezierPath()
+            let y = frame.midY - 2 + CGFloat(index) * 4
+            ridge.move(to: CGPoint(x: frame.minX + 7, y: y))
+            ridge.addLine(to: CGPoint(x: frame.maxX - 7, y: y))
+            UIColor.systemBlue.withAlphaComponent(0.85).setStroke()
+            ridge.lineWidth = 1.5
+            ridge.lineCapStyle = .round
+            ridge.stroke()
+        }
     }
 
     private func drawMeasureResizePreviewGuides(_ preview: LeadSheetMeasureResizePreview) {
@@ -4480,6 +4640,17 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
         let measure = measureAndSystem.measure
         let system = measureAndSystem.system
+        if measure.usesPaperMeasureLayout, let rowFrame = system.paperWritingFrame {
+            let edge: ActiveMeasureResizeDrag.Edge
+            switch hitTarget.action {
+            case .resizeLeft: edge = .left
+            case .resizeRight: edge = .right
+            default: return nil
+            }
+            return ActiveMeasureResizeDrag(measureID: measureID, edge: edge,
+                initialWidth: measure.frame.width, initialFrame: measure.frame,
+                currentFrame: measure.frame, paperRowFrame: rowFrame)
+        }
         switch hitTarget.action {
         case .resizeLeft:
             let displayMeasure = selectedDisplayMeasureLayout() ?? measure
@@ -4629,7 +4800,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             selection: renderedEditSelectionState(),
             committedChordBarlineMeasures: committedBarlineMeasures,
             screenPointsPerDisplayedPoint: canvasScreenPointsPerDisplayedPoint(),
-            allowsUnselectedChordMove: interactionMode == .browse
+            allowsUnselectedChordMove: interactionMode == .browse,
+            allowsSelectedMeasureMove: interactionMode == .browse
         )
     }
 
@@ -4988,7 +5160,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         clearRenderedObjectMoveTouch()
         renderedEditTapIntent.cancelForDrag()
         activeChordMoveDrag = nil
+        cancelPaperMeasureMove()
         activeChordResizeDrag = nil
+        activeMeasureResizeDrag = nil
         activeCueTextMoveDrag = nil
         activeRoadmapMarkerEditDrag = nil
         cancelAnnotationPositionDrag()
@@ -5389,6 +5563,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             in: pageLayout,
             layoutStyle: chart.layoutStyle
         )
+        if interactionMode == .browse, tappedMeasure?.isPaperWritingPlaceholder == true {
+            applyTapSelection(nil)
+            return
+        }
         let tappedMeasureID = tappedMeasure?.sourceMeasureID
 
         if shouldFinalizeRhythmicNotationTap(at: location, nextMeasureID: tappedMeasureID),
@@ -5973,6 +6151,257 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         setNeedsDisplay()
     }
 
+    private func paperMeasureResizeFrame(
+        _ drag: ActiveMeasureResizeDrag, translationX: CGFloat, rowFrame: CGRect
+    ) -> CGRect {
+        let minimumWidth = min(drag.initialFrame.width, max(12, rowFrame.width * 0.015))
+        var frame = drag.initialFrame
+        if drag.edge == .left {
+            let left = min(frame.maxX - minimumWidth, max(rowFrame.minX, frame.minX + translationX))
+            frame.size.width = frame.maxX - left
+            frame.origin.x = left
+        } else {
+            frame.size.width = max(minimumWidth, min(rowFrame.maxX, frame.maxX + translationX) - frame.minX)
+        }
+        return frame
+    }
+
+    private func handlePaperMeasureMovePan(_ recognizer: UIPanGestureRecognizer) {
+        let point = recognizer.location(in: self)
+        switch recognizer.state {
+        case .began:
+            guard interactionMode == .browse,
+                  let target = renderedObjectMoveAdmittedDrag?.target,
+                  case .measure(let measureID) = target.objectID,
+                  target.action == .move, let pageLayout,
+                  let located = measureAndSystemLayout(for: measureID),
+                  !located.measure.isPaperWritingPlaceholder,
+                  let rowFrame = located.system.paperMeasurePositioningFrame(
+                    in: pageLayout.paperFrame(for: located.system)) else { return }
+            var paperChart = chart
+            if !chart.usesPaperMeasureLayout {
+                let rows = pageLayout.systems.compactMap { system -> [UUID: ClosedRange<Double>]? in
+                    guard let row = system.paperMeasurePositioningFrame(in: pageLayout.paperFrame(for: system)),
+                          row.width > 0 else { return nil }
+                    return Dictionary(uniqueKeysWithValues: system.measures.compactMap { measure in
+                        guard let id = measure.sourceMeasureID else { return nil }
+                        let left = max(0, min(1, Double((measure.staffFrame.minX - row.minX) / row.width)))
+                        let right = max(left, min(1, Double((measure.staffFrame.maxX - row.minX) / row.width)))
+                        return (id, left...right)
+                    })
+                }
+                guard paperChart.adoptPaperMeasureLayout(rows) else { return }
+            }
+            guard let positions = paperChart.paperMeasureMovePositions(for: measureID) else { return }
+            paperMeasureMoveSourcePositions = positions
+            paperMeasureMoveRequestedFraction = nil
+            let measure = displayMeasureLayout(located.measure, in: located.system)
+            let pageInk = paperMeasurePageInk(for: measureID, in: pageLayout)
+            let inkFrame = pageInk.selected.bounds.isNull ? CGRect.null : pageInk.selected.bounds.offsetBy(
+                dx: pageInk.frame.minX, dy: pageInk.frame.minY)
+            let attachedFrames = measure.chordLayouts.map(\.naturalFrame)
+                + measure.noteLayouts.map(\.selectionFrame)
+                + measure.cueTextLayouts.map(\.frame)
+                + located.system.roadmapMarkerLayouts.filter { $0.anchorMeasureID == measureID }
+                    .map { LeadSheetCachedDragPreview.markerContentFrame(for: $0) }
+                + chart.freeInkArticulations.compactMap { mark -> CGRect? in
+                    guard let target = FreeInkArticulationPlacement.target(for: mark, chart: chart, pageLayout: pageLayout),
+                          target.measureID == measureID else { return nil }
+                    return target.markFrame
+                }
+            let snapshotFrame = attachedFrames.reduce(measure.frame.union(inkFrame)) { $0.union($1) }
+                .insetBy(dx: -12, dy: -12).intersection(bounds)
+            guard !snapshotFrame.isEmpty else { return }
+            layer.displayIfNeeded()
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = min(3, max(1, window?.screen.scale ?? UIScreen.main.scale))
+            let image = UIGraphicsImageRenderer(size: snapshotFrame.size, format: format).image { output in
+                output.cgContext.translateBy(x: -snapshotFrame.minX, y: -snapshotFrame.minY)
+                drawPaperMeasureSnapshot(measure, in: located.system, pageLayout: pageLayout,
+                    selectedPageInk: pageInk.selected, pageInkFrame: pageInk.frame)
+            }
+            activePaperMeasureMove = ActivePaperMeasureMove(measureID: measureID, originalChart: chart,
+                paperChart: paperChart, rowFrame: rowFrame, initialFrame: measure.frame,
+                startLocation: renderedObjectMoveStartLocation(for: recognizer), currentFrame: measure.frame,
+                snapshotFrame: snapshotFrame)
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            measureMoveOverlay.name = "measureMove.snapshot"
+            measureMoveOverlay.frame = snapshotFrame
+            measureMoveOverlay.contents = image.cgImage
+            measureMoveOverlay.contentsScale = image.scale
+            measureMoveDropGuide.name = "measureMove.dropGuide"
+            measureMoveDropGuide.fillColor = UIColor.systemBlue.withAlphaComponent(0.06).cgColor
+            measureMoveDropGuide.strokeColor = UIColor.systemBlue.withAlphaComponent(0.85).cgColor
+            measureMoveDropGuide.lineWidth = 1.5
+            measureMoveDropGuide.lineDashPattern = [5, 3]
+            layer.addSublayer(measureMoveDropGuide)
+            layer.addSublayer(measureMoveOverlay)
+            measureMoveOriginalPageInk = savedPageInkCanvasView.drawing
+            measureMoveOriginalPageInkHidden = savedPageInkCanvasView.isHidden
+            savedPageInkPreparationSession.cancelPendingWork()
+            pendingSavedPageInkCanvasState = nil
+            savedPageInkCanvasView.frame = pageInk.frame
+            savedPageInkCanvasView.drawing = pageInk.remaining
+            savedPageInkCanvasView.isHidden = pageInk.remaining.strokes.isEmpty
+            CATransaction.commit()
+            lockParentScrollForChordMove()
+            updatePaperMeasureMove(to: point)
+            setNeedsDisplay()
+        case .changed:
+            updatePaperMeasureMove(to: point)
+        case .ended:
+            updatePaperMeasureMove(to: point)
+            guard let drag = activePaperMeasureMove else { return }
+            let moved = chart == drag.originalChart
+                && LeadSheetMeasureResizePreviewPolicy.hasMeaningfulTranslation(
+                    drag.currentFrame.minX - drag.initialFrame.minX,
+                    screenPointsPerDisplayedPoint: canvasScreenPointsPerDisplayedPoint())
+            var updated = drag.paperChart
+            let requested = paperMeasureMoveRequestedFraction
+            var committed = false
+            if moved, let requested {
+                #if DEBUG
+                interactionPerformanceCounters["paper_move_model_updates", default: 0] += 1
+                #endif
+                committed = updated.movePaperMeasure(drag.measureID, toStartFraction: requested)
+            }
+            cancelPaperMeasureMove()
+            if committed { applyUpdatedChart(updated, reason: .moveMeasure) }
+        case .cancelled, .failed:
+            cancelPaperMeasureMove()
+        default:
+            break
+        }
+    }
+
+    private func updatePaperMeasureMove(to point: CGPoint) {
+        guard var drag = activePaperMeasureMove else { return }
+        let proposedX = drag.initialFrame.minX + point.x - drag.startLocation.x
+        let left = min(drag.rowFrame.maxX - drag.initialFrame.width, max(drag.rowFrame.minX, proposedX))
+        let requested = Double((left - drag.rowFrame.minX) / drag.rowFrame.width)
+        guard let proposal = PaperMeasureMoveProposal.positions(moving: drag.measureID,
+                toStartFraction: requested, among: paperMeasureMoveSourcePositions),
+              let placement = proposal[drag.measureID] else { return }
+        drag.currentFrame.origin.x = drag.rowFrame.minX + CGFloat(placement.startFraction) * drag.rowFrame.width
+        drag.currentFrame.size.width = CGFloat(placement.widthFraction) * drag.rowFrame.width
+        paperMeasureMoveRequestedFraction = requested
+        activePaperMeasureMove = drag
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        // The grabbed contents follow every Pencil sample. Packing/reordering
+        // only determines the dashed drop slot; snapping the image itself to
+        // that slot makes smooth input look like a low-frame-rate drag.
+        measureMoveOverlay.frame = drag.snapshotFrame.offsetBy(dx: left - drag.initialFrame.minX, dy: 0)
+        measureMoveDropGuide.frame = drag.currentFrame
+        measureMoveDropGuide.path = UIBezierPath(roundedRect: CGRect(origin: .zero,
+            size: drag.currentFrame.size).insetBy(dx: 2, dy: 10), cornerRadius: 6).cgPath
+        measureMoveDropGuide.isHidden = abs(drag.currentFrame.minX - left) < 0.5
+            && abs(drag.currentFrame.width - drag.initialFrame.width) < 0.5
+        CATransaction.commit()
+    }
+
+    private func cancelPaperMeasureMove() {
+        guard activePaperMeasureMove != nil else { return }
+        activePaperMeasureMove = nil
+        paperMeasureMoveSourcePositions = [:]
+        paperMeasureMoveRequestedFraction = nil
+        measureMoveOverlay.removeFromSuperlayer()
+        measureMoveOverlay.contents = nil
+        measureMoveDropGuide.removeFromSuperlayer()
+        measureMoveDropGuide.path = nil
+        if let drawing = measureMoveOriginalPageInk {
+            savedPageInkCanvasView.drawing = drawing
+        }
+        savedPageInkCanvasView.isHidden = measureMoveOriginalPageInkHidden
+        measureMoveOriginalPageInk = nil
+        syncSavedPageInkCanvas()
+        unlockParentScrollForChordMove()
+        setNeedsDisplay()
+    }
+
+    private func drawPaperMeasureSnapshot(
+        _ measure: LeadSheetMeasureLayout, in system: LeadSheetSystemLayout,
+        pageLayout: LeadSheetPageLayout, selectedPageInk: PKDrawing, pageInkFrame: CGRect
+    ) {
+        let renderer = notationRenderer
+        drawMeasureSelection(measure, in: system)
+        for chord in renderer.fittedChordLayouts(measure.chordLayouts) { renderer.drawChord(chord) }
+        for note in measure.noteLayouts { renderer.drawNote(note) }
+        for cue in measure.cueTextLayouts { renderer.drawCueText(cue) }
+        if let measureID = measure.sourceMeasureID, let source = chart.measure(id: measureID) {
+            LeadSheetSavedInkRenderer.drawRhythmicNotationInk(source.handwrittenRhythmicNotationData,
+                coordinateSpace: source.handwrittenRhythmicNotationCoordinateSpace, in: measure)
+            for marker in system.roadmapMarkerLayouts where marker.anchorMeasureID == measureID {
+                renderer.drawRoadmapMarker(marker)
+            }
+            for mark in chart.freeInkArticulations {
+                guard let target = FreeInkArticulationPlacement.target(for: mark, chart: chart, pageLayout: pageLayout),
+                      target.measureID == measureID else { continue }
+                renderer.drawFreeInkArticulation(mark.kind, at: target)
+            }
+        }
+        if !selectedPageInk.strokes.isEmpty {
+            let bounds = selectedPageInk.bounds.insetBy(dx: -2, dy: -2)
+            selectedPageInk.image(from: bounds, scale: window?.screen.scale ?? UIScreen.main.scale)
+                .draw(in: bounds.offsetBy(dx: pageInkFrame.minX, dy: pageInkFrame.minY))
+        }
+        if let meter = measure.meterChange, let frame = measure.meterChangeFrame {
+            renderer.drawTimeSignature(meter, in: frame)
+        }
+        if let leading = measure.leadingBarline {
+            renderer.drawLeadingBarline(leading, at: measure.leadingBarlineX,
+                from: measure.staffFrame.minY, to: measure.staffFrame.maxY)
+        }
+        if !measure.isOpen {
+            renderer.drawBarline(measure.barlineAfter, in: measure.trailingBarlineFrame)
+        }
+        renderer.drawRepeatBoundary(measure.repeatMarkerLayouts)
+        drawMeasureResizeHandles(for: measure, using: renderer)
+        drawMeasureMoveHandle(for: measure)
+    }
+
+    private func paperMeasurePageInk(
+        for measureID: UUID, in pageLayout: LeadSheetPageLayout
+    ) -> (selected: PKDrawing, remaining: PKDrawing, frame: CGRect) {
+        let frame = LeadSheetActiveInkScope.pageWritingFrame(for: pageLayout)
+        guard let sourceSpace = LeadSheetPersistentInkCoordinateSpacePolicy.pageCoordinateSpace(
+                for: pageLayout, relativeTo: frame),
+              let visible = LeadSheetPersistentInkCoordinateSpacePolicy.drawing(
+                from: chart.pageHandwrittenNotationData,
+                sourceCoordinateSpace: LeadSheetPersistentInkCoordinateSpacePolicy.pageSourceCoordinateSpace(
+                    chart.pageHandwrittenNotationCoordinateSpace, chart: chart),
+                targetCoordinateSpace: sourceSpace) else { return (PKDrawing(), PKDrawing(), frame) }
+        var probeSpace = sourceSpace
+        probeSpace.measureAnchors = sourceSpace.measureAnchors?.map { anchor in
+            var moved = anchor
+            if anchor.measureID == measureID {
+                moved.frame.x += 1
+                if moved.staffFrame != nil { moved.staffFrame?.x += 1 }
+            }
+            return moved
+        }
+        probeSpace.chordAnchors = sourceSpace.chordAnchors?.map { anchor in
+            var moved = anchor
+            if anchor.measureID == measureID {
+                moved.frame.x += 1
+                if moved.registrationPoint != nil { moved.registrationPoint?.x += 1 }
+            }
+            return moved
+        }
+        // Reuse the saved-ink ownership rules to keep connected phrases and
+        // neighboring chord ink with the same owner during preview and commit.
+        let projected = LeadSheetPersistentInkCoordinateSpacePolicy.drawing(visible,
+            sourceCoordinateSpace: sourceSpace, targetCoordinateSpace: probeSpace)
+        var selected: [PKStroke] = []
+        var remaining: [PKStroke] = []
+        for (original, moved) in zip(visible.strokes, projected.strokes) {
+            if original.renderBounds != moved.renderBounds { selected.append(original) }
+            else { remaining.append(original) }
+        }
+        return (PKDrawing(strokes: selected), PKDrawing(strokes: remaining), frame)
+    }
+
     @objc
     private func handleMeasureResizePan(_ recognizer: UIPanGestureRecognizer) {
         switch recognizer.state {
@@ -5981,6 +6410,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             activeMeasureResizeDrag = measureResizeHandleHitTarget(at: location)
             if activeMeasureResizeDrag != nil {
                 editorPerformanceMetrics.recordDragState(kind: .measureResize, state: recognizer.state)
+                beginMeasureResizePreview()
+                lockParentScrollForChordMove()
             }
             setNeedsDisplay()
         case .changed:
@@ -5990,7 +6421,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
             editorPerformanceMetrics.recordDragState(kind: .measureResize, state: recognizer.state)
             let translationX = recognizer.translation(in: self).x
-            if let transaction = activeMeasureResizeDrag.transaction {
+            if let rowFrame = activeMeasureResizeDrag.paperRowFrame {
+                activeMeasureResizeDrag.currentFrame = paperMeasureResizeFrame(
+                    activeMeasureResizeDrag, translationX: translationX, rowFrame: rowFrame)
+            } else if let transaction = activeMeasureResizeDrag.transaction {
                 let preview = transaction.preview(for: translationX)
                 activeMeasureResizeDrag.currentPreview = preview
                 activeMeasureResizeDrag.currentFrame = preview.frame(for: activeMeasureResizeDrag.measureID)
@@ -6003,11 +6437,12 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 )
             }
             self.activeMeasureResizeDrag = activeMeasureResizeDrag
-            setNeedsDisplay()
+            updateMeasureResizePreview()
         case .ended:
             guard let activeMeasureResizeDrag else {
                 return
             }
+            defer { unlockParentScrollForChordMove() }
 
             editorPerformanceMetrics.recordDragState(kind: .measureResize, state: recognizer.state)
             var updatedChart = chart
@@ -6018,6 +6453,17 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                     ?? canvasScreenPointsPerDisplayedPoint()
             ) else {
                 self.activeMeasureResizeDrag = nil
+                setNeedsDisplay()
+                return
+            }
+            if let rowFrame = activeMeasureResizeDrag.paperRowFrame {
+                let frame = paperMeasureResizeFrame(activeMeasureResizeDrag,
+                    translationX: translationX, rowFrame: rowFrame)
+                let changed = updatedChart.resizePaperMeasure(activeMeasureResizeDrag.measureID,
+                    startFraction: Double((frame.minX - rowFrame.minX) / rowFrame.width),
+                    endFraction: Double((frame.maxX - rowFrame.minX) / rowFrame.width))
+                self.activeMeasureResizeDrag = nil
+                if changed { applyUpdatedChart(updatedChart, reason: .resizeMeasure) }
                 setNeedsDisplay()
                 return
             }
@@ -6056,10 +6502,82 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 editorPerformanceMetrics.recordDragState(kind: .measureResize, state: recognizer.state)
             }
             activeMeasureResizeDrag = nil
+            unlockParentScrollForChordMove()
             setNeedsDisplay()
         default:
             break
         }
+    }
+
+    private func beginMeasureResizePreview() {
+        guard let measure = selectedDisplayMeasureLayout() else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        measureResizePreviewLayer.name = "measureResize.preview"
+        measureResizePreviewLayer.frame = bounds
+        measureResizePreviewLayer.bounds = bounds
+        measureResizePreviewSelection.fillColor = UIColor.systemBlue.withAlphaComponent(0.08).cgColor
+        measureResizePreviewSelection.strokeColor = UIColor.systemBlue.withAlphaComponent(0.5).cgColor
+        measureResizePreviewSelection.lineWidth = 1.2
+        measureResizePreviewGuides.fillColor = nil
+        measureResizePreviewGuides.strokeColor = UIColor.systemBlue.withAlphaComponent(0.65).cgColor
+        measureResizePreviewGuides.lineWidth = 1.2
+        for shape in [measureResizePreviewSelection, measureResizePreviewGuides] {
+            shape.frame = bounds
+            shape.bounds = bounds
+            measureResizePreviewLayer.addSublayer(shape)
+        }
+        let frames = LeadSheetMeasureResizeGeometry.handleFrames(for: measure)
+        for (handle, frame, symbol) in [
+            (measureResizeLeftHandle, frames.left, "⇠"),
+            (measureResizeRightHandle, frames.right, "⇢")
+        ] {
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = window?.screen.scale ?? UIScreen.main.scale
+            let image = UIGraphicsImageRenderer(size: frame.size, format: format).image { context in
+                context.cgContext.translateBy(x: -frame.minX, y: -frame.minY)
+                drawMeasureResizeHandle(frame, symbol: symbol, using: notationRenderer)
+            }
+            handle.contents = image.cgImage
+            handle.contentsScale = image.scale
+            measureResizePreviewLayer.addSublayer(handle)
+        }
+        layer.addSublayer(measureResizePreviewLayer)
+        CATransaction.commit()
+        updateMeasureResizePreview()
+    }
+
+    private func updateMeasureResizePreview() {
+        guard let drag = activeMeasureResizeDrag, let selected = selectedDisplayMeasureLayout() else { return }
+        let frames = drag.currentPreview?.affectedMeasureIDs.compactMap {
+            drag.currentPreview?.measureFrames[$0]
+        } ?? [drag.currentFrame]
+        let selection = UIBezierPath()
+        for frame in frames { selection.append(UIBezierPath(roundedRect: frame.insetBy(dx: 2, dy: 10), cornerRadius: 6)) }
+        let guides = UIBezierPath()
+        for frame in frames {
+            for x in [frame.minX, frame.maxX] {
+                guides.move(to: CGPoint(x: x, y: frame.minY + 8))
+                guides.addLine(to: CGPoint(x: x, y: frame.maxY - 8))
+            }
+        }
+        if let preview = drag.currentPreview {
+            for x in preview.evenDivisionGuideXs {
+                guides.move(to: CGPoint(x: x, y: preview.rowFrame.minY - 6))
+                guides.addLine(to: CGPoint(x: x, y: preview.rowFrame.maxY + 6))
+            }
+        }
+        let aligned = drag.currentPreview?.activeEvenDivisionGuideX != nil
+        let color = aligned ? UIColor.systemGreen : UIColor.systemBlue
+        let handles = LeadSheetMeasureResizeGeometry.handleFrames(for: selected)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        measureResizePreviewSelection.path = selection.cgPath
+        measureResizePreviewGuides.path = guides.cgPath
+        measureResizePreviewGuides.strokeColor = color.withAlphaComponent(0.65).cgColor
+        measureResizeLeftHandle.frame = handles.left
+        measureResizeRightHandle.frame = handles.right
+        CATransaction.commit()
     }
 
     @objc
@@ -6099,6 +6617,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
         let location = recognizer.location(in: self)
+        if activePaperMeasureMove != nil {
+            handlePaperMeasureMovePan(recognizer)
+            return
+        }
         if activeAnnotationPositionDrag != nil {
             handleAnnotationPositionPan(recognizer)
             return
@@ -6130,6 +6652,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
 
             switch (dragState.target.objectID, dragState.target.action) {
+            case (.measure(_), .move):
+                handlePaperMeasureMovePan(recognizer)
+                return
             case (_, .moveVertically):
                 if beginAnnotationPositionDrag(dragState, at: location) { return }
             case (.endingSpan(_), .move), (.endingSpan(_), .resizeTrailing):
@@ -6283,6 +6808,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             modelOffset: modelOffset, startingOffsetFromDefault: visualOffset, startY: admitted.startLocation.y,
             screenPointsPerDisplayedPoint: canvasScreenPointsPerDisplayedPoint())
         annotationPositionDragY = point.y
+        beginAnnotationMovePreview(for: objectID)
+        updateAnnotationMovePreview()
         lockParentScrollForChordMove()
         setNeedsDisplay()
         return true
@@ -6293,7 +6820,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         annotationPositionDragY = recognizer.location(in: self).y
         switch recognizer.state {
         case .changed:
-            setNeedsDisplay()
+            updateAnnotationMovePreview()
         case .ended:
             var updated = chart
             let changed = drag.commit(in: &updated,
@@ -6310,6 +6837,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func cancelAnnotationPositionDrag() {
         guard activeAnnotationPositionDrag != nil else { return }
         activeAnnotationPositionDrag = nil
+        annotationMovePreview.end()
+        annotationMovePreviewSourceFrame = nil
         unlockParentScrollForChordMove()
         setNeedsDisplay()
     }
@@ -6317,6 +6846,49 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     private func annotationPositionPreviewTranslation(for objectID: RenderedEditObjectID) -> CGFloat? {
         guard let drag = activeAnnotationPositionDrag, drag.objectID == objectID else { return nil }
         return drag.previewTranslation(at: annotationPositionDragY)
+    }
+
+    private func beginAnnotationMovePreview(for objectID: RenderedEditObjectID) {
+        guard let pageLayout else { return }
+        let cues = pageLayout.systems.flatMap(\.measures).flatMap(\.cueTextLayouts).filter {
+            objectID == .cueText($0.id)
+        }
+        let markers = pageLayout.systems.flatMap(\.roadmapMarkerLayouts).filter {
+            objectID == .roadmapMarker($0.id)
+        }
+        let endings = pageLayout.systems.flatMap(\.endingLayouts).filter {
+            objectID == .endingSpan($0.roadmapObjectID)
+        }
+        let frames = cues.map(\.frame) + markers.map { LeadSheetCachedDragPreview.markerContentFrame(for: $0) }
+            + endings.map(\.occupiedFrame)
+        let source = frames.reduce(CGRect.null) { $0.union($1) }
+        guard !source.isNull, !source.isEmpty else { return }
+        annotationMovePreviewSourceFrame = source
+        let renderer = notationRenderer
+        annotationMovePreview.begin(contentFrame: source, in: layer,
+            scale: (window?.screen.scale ?? UIScreen.main.scale) * canvasScreenPointsPerDisplayedPoint(),
+            showsOutline: endings.isEmpty) {
+            for cue in cues { renderer.drawCueText(cue) }
+            for marker in markers { renderer.drawRoadmapMarker(marker) }
+            for ending in endings { renderer.drawEnding(ending) }
+        }
+    }
+
+    private func updateAnnotationMovePreview() {
+        guard let drag = activeAnnotationPositionDrag, let source = annotationMovePreviewSourceFrame else { return }
+        let dy = drag.previewTranslation(at: annotationPositionDragY)
+        annotationMovePreview.update(contentFrame: source.offsetBy(dx: 0, dy: dy))
+        let guides = UIBezierPath()
+        for placement in annotationPositionHandlePlacements {
+            let frame = placement.annotationFrame.offsetBy(dx: 0, dy: dy)
+            let handle = placement.frame
+            let start = CGPoint(x: min(max(frame.midX, handle.minX), handle.maxX),
+                y: min(max(frame.midY, handle.minY), handle.maxY))
+            guides.move(to: start)
+            guides.addLine(to: CGPoint(x: min(max(start.x, frame.minX), frame.maxX),
+                y: min(max(start.y, frame.minY), frame.maxY)))
+        }
+        annotationMovePreview.updateGuide(guides.cgPath)
     }
 
     private func updateAnnotationPositionSelection() {
@@ -6421,6 +6993,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
     }
 
     private func drawAnnotationPositionFeedback() {
+        if annotationMovePreview.isActive { return }
         guard let objectID = annotationPositionHandleID else { return }
         let scale = max(canvasScreenPointsPerDisplayedPoint(), 0.1)
         let dy = annotationPositionPreviewTranslation(for: objectID)
@@ -6648,6 +7221,37 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         applyTapSelection(ending.startMeasureID)
     }
 
+    private func beginChordResizeGripPreview(for drag: ActiveChordResizeDrag, glyph: LeadSheetChordLayout) {
+        let controls = LeadSheetChordEditOverlayGeometry.controlFrames(for: glyph,
+            in: drag.sourcePageLayout, screenPointsPerDisplayedPoint: drag.screenPointsPerDisplayedPoint)
+        let frame = drag.edge == .leading ? controls.leadingResize : controls.trailingResize
+        chordResizeGripInitialFrame = frame
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = window?.screen.scale ?? UIScreen.main.scale
+        let image = UIGraphicsImageRenderer(size: frame.size, format: format).image { context in
+            context.cgContext.translateBy(x: -frame.minX, y: -frame.minY)
+            drawChordResizeHandle(frame, isActive: true)
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        chordResizeGrip.name = "chordResize.activeGrip"
+        chordResizeGrip.contents = image.cgImage
+        chordResizeGrip.contentsScale = image.scale
+        layer.addSublayer(chordResizeGrip)
+        CATransaction.commit()
+    }
+
+    private func updateChordResizeGripPreview(for drag: ActiveChordResizeDrag) {
+        guard let initial = chordResizeGripInitialFrame else { return }
+        let dx = drag.edge == .leading
+            ? drag.currentFrame.minX - drag.initialFrame.minX
+            : drag.currentFrame.maxX - drag.initialFrame.maxX
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        chordResizeGrip.frame = initial.offsetBy(dx: dx, dy: 0)
+        CATransaction.commit()
+    }
+
     private func handleChordResizePan(_ recognizer: UIPanGestureRecognizer) {
         let location = recognizer.location(in: self)
         switch recognizer.state {
@@ -6668,6 +7272,16 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             drag.currentFrame = LeadSheetChordResizeDragPolicy.previewFrame(for: drag,
                 at: location, boundedBy: paperFrame(containing: drag.initialFrame, in: pageLayout))
             activeChordResizeDrag = drag
+            if let glyph = chordLayout(for: chordID, in: drag.sourcePageLayout) {
+                let renderer = notationRenderer
+                chordResizePreview.begin(contentFrame: glyph.frame, in: layer,
+                    scale: (window?.screen.scale ?? UIScreen.main.scale) * canvasScreenPointsPerDisplayedPoint()) {
+                    renderer.drawChord(glyph)
+                }
+                beginChordResizeGripPreview(for: drag, glyph: glyph)
+                chordResizePreview.update(contentFrame: drag.currentFrame)
+                updateChordResizeGripPreview(for: drag)
+            }
             editorPerformanceMetrics.recordDragState(kind: .chordResize, state: recognizer.state)
             lockParentScrollForChordMove()
             setNeedsDisplay()
@@ -6691,7 +7305,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 boundedBy: activePaperFrame
             )
             self.activeChordResizeDrag = activeChordResizeDrag
-            setNeedsDisplay()
+            chordResizePreview.update(contentFrame: activeChordResizeDrag.currentFrame)
+            updateChordResizeGripPreview(for: activeChordResizeDrag)
 
             if recognizer.state == .ended {
                 if LeadSheetChordResizeDragPolicy.hasMeaningfulTranslation(for: activeChordResizeDrag, at: location) {
@@ -6889,6 +7504,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
                 currentFrame: markerLayout.frame,
                 movementFrame: markerLayout.movementFrame
             )
+            let renderer = notationRenderer
+            let contentFrame = LeadSheetCachedDragPreview.markerContentFrame(for: markerLayout)
+            roadmapMovePreviewSourceFrame = contentFrame
+            roadmapMovePreview.begin(contentFrame: contentFrame, in: layer,
+                scale: (window?.screen.scale ?? UIScreen.main.scale) * canvasScreenPointsPerDisplayedPoint()) {
+                renderer.drawRoadmapMarker(markerLayout)
+            }
             editorPerformanceMetrics.recordDragState(kind: .roadmapMarkerMove, state: recognizer.state)
             lockParentScrollForChordMove()
             setNeedsDisplay()
@@ -6913,7 +7535,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             )
             activeRoadmapMarkerEditDrag.currentFrame = clampedFrame
             self.activeRoadmapMarkerEditDrag = activeRoadmapMarkerEditDrag
-            setNeedsDisplay()
+            if let source = roadmapMovePreviewSourceFrame {
+                roadmapMovePreview.update(contentFrame: source.offsetBy(
+                    dx: clampedFrame.minX - activeRoadmapMarkerEditDrag.initialFrame.minX, dy: 0))
+            }
 
             if recognizer.state == .ended {
                 self.activeRoadmapMarkerEditDrag = nil
@@ -7830,7 +8455,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         strokeCount: Int,
         activeRole: LeadSheetInkAuthoringSessionRole?
     ) {
-        cancelPendingInkSessionScheduledWork(preservesIncrementalTargets: usesIncrementalChordRecognition)
+        cancelPendingInkSessionScheduledWork(preservesIncrementalTargets: usesIncrementalChordRecognition,
+            preservesAutomaticPreparation: usesIncrementalChordRecognition)
         guard !hasDeferredActiveInkGeometrySync else { return }
         let evaluationRequestID: UUID?
         if activeRole == .chord {
@@ -7860,11 +8486,16 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         )
     }
 
-    private func cancelPendingInkSessionScheduledWork(preservesIncrementalTargets: Bool = false) {
+    private func cancelPendingInkSessionScheduledWork(
+        preservesIncrementalTargets: Bool = false, preservesAutomaticPreparation: Bool = false
+    ) {
         inkSchedulingCoordinator.cancelAll()
-        chordInkRecognitionRequestState.cancelPendingRequest()
-        inkSerializationSession.cancelPendingWork()
-        chordInkPreparationSession.cancelPendingWork()
+        if !preservesAutomaticPreparation || !usesIncrementalChordRecognition {
+            automaticChordPreparationSource = nil
+            chordInkRecognitionRequestState.cancelPendingRequest()
+            inkSerializationSession.cancelPendingWork()
+            chordInkPreparationSession.cancelPendingWork()
+        }
         if preservesIncrementalTargets {
             chordInkRecognitionSession.cancelBatchWork()
         } else {
@@ -7878,6 +8509,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         chordDraftRenderCoordinator?.renderSessionReadyAt = nil
         incrementalChordDraftState.reset()
         incrementalChordCensusRevision = nil
+        incrementalChordCensusDrawing = nil
         incrementalChordCensusScope = nil
         incrementalChordProfileRevision = nil
         incrementalChordOptions = nil
@@ -7975,6 +8607,10 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
               recognizesChordInk,
               (!usesIncrementalChordRecognition || !isUsingInkTool),
               case .chords = activeInkScope() else { return }
+        // Keep one immutable pass in flight. Its completion drains the newest
+        // live revision; a stream of new strokes must not continually cancel
+        // preparation of already completed, independent earlier targets.
+        if usesIncrementalChordRecognition, automaticChordPreparationSource != nil { return }
         inkSchedulingCoordinator.cancelPersistence()
 
         ChordLaneLocalBreadcrumbs.record(
@@ -8122,6 +8758,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         inkSchedulingCoordinator.cancelInputCoalescing()
 
         if cancelPendingRecognition {
+            automaticChordPreparationSource = nil
             inkSchedulingCoordinator.cancelPersistence()
             chordInkRecognitionRequestState.cancelPendingRequest()
             inkSerializationSession.cancelPendingWork()
@@ -8281,6 +8918,13 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
 
         let drawing = pageInkCanvasView.drawing
+        if flow == .draftPreview, usesIncrementalChordRecognition {
+            automaticChordPreparationSource = AutomaticChordPreparationSource(
+                requestID: requestID, revision: scheduledInkRevision, drawing: drawing,
+                scope: .init(chartID: chart.id, chordFrame: activeInkScope.frame,
+                    pageLayout: pageLayout, layoutStyle: chart.layoutStyle),
+                options: chordInkRecognitionOptions, profileRevision: currentChordProfileRevision)
+        }
         let captureDurationMilliseconds =
             (ProcessInfo.processInfo.systemUptime - captureStartedAt) * 1_000
         IChartPerformanceTrace.record(
@@ -8306,6 +8950,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         ) { [weak self] result in
             self?.finishChordInkSerialization(
                 result,
+                capturedDrawing: drawing,
                 requestID: requestID,
                 scheduledAt: scheduledAt,
                 requestedDelay: requestedDelay,
@@ -8317,14 +8962,19 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
 
     private func finishChordInkSerialization(
         _ result: LeadSheetInkSerializationResult,
+        capturedDrawing: PKDrawing,
         requestID: UUID,
         scheduledAt: Date,
         requestedDelay: TimeInterval,
         scheduledInkRevision: UInt64,
         flow: ChordInkRecognitionFlow
     ) {
+        var startedPreparation = false
+        defer {
+            if !startedPreparation { finishAutomaticChordPreparation(requestID: requestID) }
+        }
         guard chordInkRecognitionRequestState.isActive(requestID),
-              scheduledInkRevision == inkDrawingRevision,
+              automaticChordSourcePassIsUsable(requestID: requestID, revision: scheduledInkRevision),
               interactionMode.allowsChordInkEditing,
               recognizesChordInk,
               let activeInkScope = activeInkScope(),
@@ -8332,21 +8982,29 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             return
         }
 
-        inkSerializationCache.record(
-            result.serialization,
-            drawingRevision: scheduledInkRevision,
-            scopeIdentity: activeInkScope.identity
-        )
+        let isCurrentSource = scheduledInkRevision == inkDrawingRevision
+            && ChordInkAutomaticSourcePrefixPolicy.hasIdenticalOrderedSource(
+                snapshot: capturedDrawing, current: pageInkCanvasView.drawing)
+        guard isCurrentSource || (usesIncrementalChordRecognition
+            && ChordInkAutomaticSourcePrefixPolicy.unchangedLeadingStrokeCount(
+                snapshot: capturedDrawing, current: pageInkCanvasView.drawing) != nil) else { return }
+        if isCurrentSource {
+            inkSerializationCache.record(result.serialization, drawingRevision: scheduledInkRevision,
+                scopeIdentity: activeInkScope.identity)
+        }
 
         recordInkSerializationPerformance(result, role: .chord)
         persistActiveInkIfNeeded(
             cancelPendingRecognition: false,
             activeInkScope: activeInkScope,
             clearsDirtyAuthoringRole: flow != .draftPreview,
-            knownSerialization: result.serialization
+            // Never write an older source over ink drawn while serialization
+            // ran. A prefix pass persists the current resident drawing.
+            knownSerialization: isCurrentSource ? result.serialization
+                : LeadSheetPersistentInkColorPolicy.serialization(for: pageInkCanvasView.drawing)
         )
         guard chordInkRecognitionRequestState.isActive(requestID),
-              scheduledInkRevision == inkDrawingRevision else {
+              automaticChordSourcePassIsUsable(requestID: requestID, revision: scheduledInkRevision) else {
             return
         }
 
@@ -8378,6 +9036,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             allowsPausedSuffixContinuation: manualRenderWithPreview,
             capturesEvaluationSource: chordInkEvaluationSourceContext?.requestID == requestID
         )
+        startedPreparation = true
         chordInkPreparationSession.start(request: preparationRequest) { [weak self] result in
             self?.finishChordInkPreparation(
                 result,
@@ -8396,8 +9055,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         editScope: ChordInkEditedTargetSessionState.Scope,
         manualPreview: ManualChordPreviewContext?
     ) {
+        defer { finishAutomaticChordPreparation(requestID: result.requestID) }
         guard chordInkRecognitionRequestState.isActive(result.requestID),
-              scheduledInkRevision == inkDrawingRevision else {
+              automaticChordSourcePassIsUsable(requestID: result.requestID, revision: scheduledInkRevision) else {
             return
         }
         guard editScope.chartID == chart.id,
@@ -8408,6 +9068,33 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
               editScope.chordFrame == currentFrame else {
             chordInkRecognitionRequestState.clearActiveRequest()
             return
+        }
+        var result = result
+        let capturedSource = automaticChordPreparationSource?.requestID == result.requestID
+            ? automaticChordPreparationSource?.drawing : nil
+        let isCurrentPreparedSource = scheduledInkRevision == inkDrawingRevision
+            && (capturedSource.map { ChordInkAutomaticSourcePrefixPolicy.hasIdenticalOrderedSource(
+                snapshot: $0, current: pageInkCanvasView.drawing) } ?? true)
+        if !isCurrentPreparedSource {
+            guard let capturedSource,
+                  let unchangedCount = ChordInkAutomaticSourcePrefixPolicy.unchangedLeadingStrokeCount(
+                    snapshot: capturedSource, current: pageInkCanvasView.drawing) else { return }
+            let prefix = PKDrawing(strokes: Array(pageInkCanvasView.drawing.strokes.prefix(unchangedCount)))
+            result.barlines.removeAll { !$0.ownedSourceStrokeIndices.allSatisfy { $0 < unchangedCount } }
+            result.endings.removeAll { !$0.sourceStrokeIndices.allSatisfy { $0 < unchangedCount } }
+            switch result.outcome {
+            case .ready(let requests, let usesBatch):
+                result.outcome = .ready(requests: requests.filter {
+                    ChordInkAutomaticSourcePrefixPolicy.containsTargetDrawing($0.drawingData, in: prefix)
+                }, usesBatch: usesBatch)
+            case .noRecognitionData where !result.barlines.isEmpty || !result.endings.isEmpty:
+                break
+            default:
+                // An obsolete empty/error pass must never clear the current
+                // preview or classify newly appended live ink as unread.
+                return
+            }
+            result.nextEditOwnership = nil
         }
         if let manualPreview, manualPreview != currentManualChordPreviewContext {
             chordInkRecognitionRequestState.clearActiveRequest()
@@ -8470,7 +9157,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             }
             if flow == .draftPreview, usesIncrementalChordRecognition {
                 chordInkRecognitionRequestState.clearActiveRequest()
-                if installAutomaticChordCensus(requests, forInkRevision: scheduledInkRevision) {
+                if installAutomaticChordCensus(requests, forInkRevision: scheduledInkRevision,
+                    sourceDrawing: capturedSource) {
                     // Record first validated source observation synchronously.
                     // The next Pencil stroke can begin before SwiftUI runs its
                     // queued render attempt; that must not postpone this age.
@@ -8525,7 +9213,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             chordInkRecognitionRequestState.clearActiveRequest()
             // A barline-only source has a valid empty chord census. The
             // ordinary full-source coverage check still owns its consumption.
-            if installAutomaticChordCensus([], forInkRevision: scheduledInkRevision) {
+            if installAutomaticChordCensus([], forInkRevision: scheduledInkRevision,
+                sourceDrawing: capturedSource) {
                 _ = chordDraftRenderCoordinator?.structuralMaturity.observe(chartID: chart.id,
                     state: .init(draftBarlines: result.barlines, draftEndings: result.endings,
                         layoutPageSize: pageLayout?.pageBounds.size),
@@ -8551,15 +9240,68 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
     }
 
-    /// Installs ownership from a current preparation pass, independently of
-    /// whether each target's reader has finished. No old target result can
-    /// authorize consumption while a newer source revision is still pending.
+    private func automaticChordSourcePassIsUsable(requestID: UUID, revision: UInt64) -> Bool {
+        guard let source = automaticChordPreparationSource, source.requestID == requestID else {
+            return revision == inkDrawingRevision
+        }
+        guard usesIncrementalChordRecognition,
+              source.revision == revision, source.options == chordInkRecognitionOptions,
+              source.profileRevision == currentChordProfileRevision,
+              let scope = activeInkScope(), case .chords(let frame, _) = scope,
+              source.scope == .init(chartID: chart.id, chordFrame: frame,
+                pageLayout: pageLayout, layoutStyle: chart.layoutStyle) else { return false }
+        return ChordInkAutomaticSourcePrefixPolicy.unchangedLeadingStrokeCount(
+            snapshot: source.drawing, current: pageInkCanvasView.drawing) != nil
+    }
+
+    private func finishAutomaticChordPreparation(requestID: UUID) {
+        guard let source = automaticChordPreparationSource, source.requestID == requestID else { return }
+        automaticChordPreparationSource = nil
+        _ = chordInkRecognitionRequestState.finishActiveRequest(requestID)
+        let sourceChanged = source.revision != inkDrawingRevision
+            || !ChordInkAutomaticSourcePrefixPolicy.hasIdenticalOrderedSource(
+                snapshot: source.drawing, current: pageInkCanvasView.drawing)
+        guard sourceChanged, usesIncrementalChordRecognition,
+              !isUsingInkTool, !hasDeferredActiveInkGeometrySync, activeCanvasStrokeCount > 0 else { return }
+        // Drain the newest source now rather than waiting for a passage-wide
+        // idle. At most one immutable preparation is in flight at a time.
+        startDraftChordInkPreviewIfStable(scheduledInkRevision: inkDrawingRevision, scheduledAt: Date())
+    }
+
+    private var unchangedAutomaticChordPrefixCount: Int? {
+        guard !hasCurrentAutomaticChordCensus, automaticChordCensusContextMatches,
+              let snapshot = incrementalChordCensusDrawing else { return nil }
+        return ChordInkAutomaticSourcePrefixPolicy.unchangedLeadingStrokeCount(
+            snapshot: snapshot, current: pageInkCanvasView.drawing)
+    }
+
+    private var hasUsableAutomaticChordCensus: Bool {
+        hasCurrentAutomaticChordCensus || unchangedAutomaticChordPrefixCount != nil
+    }
+
+    private func automaticPayloadsForCurrentSource(
+        _ payloads: [ChordInkRecognitionProposalPayload]
+    ) -> [ChordInkRecognitionProposalPayload] {
+        guard !hasCurrentAutomaticChordCensus else { return payloads }
+        guard let count = unchangedAutomaticChordPrefixCount else { return [] }
+        let prefix = PKDrawing(strokes: Array(pageInkCanvasView.drawing.strokes.prefix(count)))
+        return payloads.filter { ChordInkAutomaticSourcePrefixPolicy.containsTargetDrawing($0.drawingData, in: prefix) }
+    }
+
+    /// Installs current ownership or a separately validated unchanged leading
+    /// source. A prefix stays explicitly noncurrent, and may only enter the
+    /// partial path which preserves and revalidates every newer live stroke.
     @discardableResult
     func installAutomaticChordCensus(
-        _ requests: [ChordInkRecognitionSessionRequest], forInkRevision revision: UInt64
+        _ requests: [ChordInkRecognitionSessionRequest], forInkRevision revision: UInt64,
+        sourceDrawing: PKDrawing? = nil
     ) -> Bool {
-        guard usesIncrementalChordRecognition, revision == inkDrawingRevision,
+        guard usesIncrementalChordRecognition,
               let scope = activeInkScope(), case .chords(let frame, _) = scope else { return false }
+        guard revision == inkDrawingRevision || sourceDrawing.map({
+            ChordInkAutomaticSourcePrefixPolicy.unchangedLeadingStrokeCount(
+                snapshot: $0, current: pageInkCanvasView.drawing) != nil
+        }) == true else { return false }
         let context = ChordInkEditedTargetSessionState.Scope(
             chartID: chart.id, chordFrame: frame, pageLayout: pageLayout, layoutStyle: chart.layoutStyle)
         let profileRevision = currentChordProfileRevision
@@ -8576,6 +9318,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         }
         incrementalChordCensusScope = context
         incrementalChordCensusRevision = revision
+        incrementalChordCensusDrawing = sourceDrawing ?? pageInkCanvasView.drawing
         incrementalChordProfileRevision = profileRevision
         incrementalChordOptions = chordInkRecognitionOptions
         if chordDraftRenderCoordinator?.lastInputAt == nil,
@@ -8583,7 +9326,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             chordDraftRenderCoordinator?.renderSessionReadyAt = Date()
         }
         let payloads = incrementalChordDraftState.acceptCensus(requests, contextRevision: profileRevision)
-        onChordInkDraftPreviewChanged?(payloads)
+        onChordInkDraftPreviewChanged?(automaticPayloadsForCurrentSource(payloads))
         publishAutomaticChordActivity(
             phase: incrementalChordDraftState.pendingRequests.isEmpty ? .settled : .reading)
         chordInkRecognitionSession.startIncremental(requests: requests) { [weak self] payload in
@@ -8596,9 +9339,9 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         guard usesIncrementalChordRecognition,
               incrementalChordProfileRevision == currentChordProfileRevision,
               let payloads = incrementalChordDraftState.accept(payload) else { return }
-        // Keep the completed read even while a neighbor is changing, but wait
-        // for a census of the new live revision before publishing it to render.
-        guard hasCurrentAutomaticChordCensus else { return }
+        // An unchanged completed target may progress while a later target is
+        // changing. A prefix publication never grants whole-source clearing.
+        guard hasUsableAutomaticChordCensus else { return }
         LeadSheetChordInkRecognitionTimingLogger.log(payload.timing, result: payload.result)
         let primaryDecision = ChordInkRecognitionPolicy.decision(for: payload.result)
         // Opt-in DEBUG breadcrumbs are local support evidence. These fields
@@ -8610,13 +9353,21 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
             "hasSupportedRead": payload.result.match != nil,
             "pendingTargets": incrementalChordDraftState.pendingRequests.count
         ])
-        onChordInkDraftPreviewChanged?(payloads)
+        onChordInkDraftPreviewChanged?(automaticPayloadsForCurrentSource(payloads))
         publishAutomaticChordActivity(
             phase: incrementalChordDraftState.pendingRequests.isEmpty ? .settled : .reading)
     }
 
     var hasCurrentAutomaticChordCensus: Bool {
-        guard incrementalChordCensusRevision == inkDrawingRevision,
+        incrementalChordCensusRevision == inkDrawingRevision && automaticChordCensusContextMatches
+            && incrementalChordCensusDrawing.map {
+                ChordInkAutomaticSourcePrefixPolicy.hasIdenticalOrderedSource(
+                    snapshot: $0, current: pageInkCanvasView.drawing)
+            } == true
+    }
+
+    private var automaticChordCensusContextMatches: Bool {
+        guard incrementalChordCensusRevision != nil,
               incrementalChordProfileRevision == currentChordProfileRevision,
               incrementalChordOptions == chordInkRecognitionOptions,
               let scope = activeInkScope(), case .chords(let frame, _) = scope else { return false }
@@ -9503,7 +10254,8 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         guard chordDraftRenderCoordinator?.automaticRenderReferenceAt == lastInputAt else {
             return .init(feedback: .init(globalReason: .needsSourceRefresh))
         }
-        guard !usesIncrementalChordRecognition || hasCurrentAutomaticChordCensus else {
+        let prefixCount = unchangedAutomaticChordPrefixCount
+        guard !usesIncrementalChordRecognition || hasCurrentAutomaticChordCensus || prefixCount != nil else {
             let feedback: ChordInkAutomaticRenderFeedback
             if let activity = currentAutomaticChordActivity, activity.sourceRevision == inkDrawingRevision,
                activity.phase == .settled, activity.feedback.globalReason != nil {
@@ -9515,14 +10267,18 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
               activeCanvasScope?.identity == scope.identity else {
             return .init(feedback: .init(globalReason: .needsSourceRefresh))
         }
+        let currentState = prefixCount.map {
+            ChordInkAutomaticSourcePrefixPolicy.retainingUnchangedTargets(
+                in: state, current: pageInkCanvasView.drawing, prefixCount: $0)
+        } ?? state
         let matureStructuralIDs = chordDraftRenderCoordinator?.structuralMaturity.observe(
-            chartID: incomingChart.id, state: state, drawing: pageInkCanvasView.drawing, now: now) ?? []
+            chartID: incomingChart.id, state: currentState, drawing: pageInkCanvasView.drawing, now: now) ?? []
         let attempt = ChordInkDraftRenderCoordinator.prepareAutomaticAttempt(
-            chart: incomingChart, state: state, currentDrawing: pageInkCanvasView.drawing,
+            chart: incomingChart, state: currentState, currentDrawing: pageInkCanvasView.drawing,
             coordinateSpace: persistedCoordinateSpace(for: scope), now: now, lastInputAt: lastInputAt,
             isUsingTool: isUsingInkTool, allowsImmediateSpatialCompletion: usesIncrementalChordRecognition,
             sourcePageLayout: pageLayout, sourceChordFrame: scope.frame,
-            matureStructuralIDs: matureStructuralIDs)
+            matureStructuralIDs: matureStructuralIDs, allowsIndependentTrailingInk: prefixCount != nil)
         if let outcome = attempt.outcome { consumeAutomaticChordOutcome(outcome, scope: scope) }
         publishAutomaticChordActivity(
             phase: incrementalChordDraftState.pendingRequests.isEmpty ? .settled : .reading,
@@ -9578,6 +10334,7 @@ final class LeadSheetCanvasUIKitView: UIView, PKCanvasViewDelegate, UIGestureRec
         advanceInkDrawingRevision()
         incrementalChordDraftState.retainTargets(in: state)
         incrementalChordCensusRevision = nil
+        incrementalChordCensusDrawing = nil
         chordPreviewState = state
         inkAuthoringSessionState.markDirty(.chord)
         chart = updatedChart

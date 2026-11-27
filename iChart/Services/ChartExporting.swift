@@ -130,7 +130,7 @@ struct PDFChartExporter: ChartExporting {
         )
         do {
             let outputURL = outputDirectory.appendingPathComponent(exportFileName(for: chart), isDirectory: false)
-            let renderer = ChartPDFRenderer(chart: chart, exportContext: context)
+            let renderer = ChartPDFRenderer(chart: chartForPDF(chart), exportContext: context)
             let pdfData = await MainActor.run {
                 renderer.render()
             }
@@ -166,6 +166,26 @@ struct PDFChartExporter: ChartExporting {
         }
 
         return "\(components.joined(separator: " - ")).pdf"
+    }
+
+    private func chartForPDF(_ chart: Chart) -> Chart {
+        guard chart.usesPaperMeasureLayout,
+              chart.pageHandwrittenNotationData == nil, chart.pageHandwrittenChordData == nil,
+              chart.freeInkArticulations.isEmpty, chart.freehandSymbols.isEmpty,
+              chart.sectionLabels.isEmpty, chart.cueTexts.isEmpty, chart.roadmapObjects.isEmpty,
+              chart.keyChanges.isEmpty, chart.timeSignatureChanges.isEmpty else { return chart }
+        let lastAuthoredRow = chart.systems.lastIndex { system in
+            system.startsNewPage || system.measures.contains { measure in
+                measure.authoringState == .committed
+                    || measure.paperLayout?.leadingBarline != nil
+                    || !measure.chordEvents.isEmpty || !measure.pitchedNoteEvents.isEmpty
+                    || measure.rhythmMap != nil || measure.handwrittenRhythmicNotationData != nil
+                    || measure.meterOverride != nil || !measure.cueTextIDs.isEmpty || !measure.roadmapObjectIDs.isEmpty
+            }
+        } ?? 0
+        var exported = chart
+        exported.systems = Array(chart.systems.prefix(lastAuthoredRow + 1))
+        return exported
     }
 
     static func sanitizedFileNameStem(from title: String) -> String {
@@ -369,7 +389,7 @@ private struct ChartPDFRenderer {
         }
 
         var drawnRepeatMarkerIDs = Set<String>()
-        if let firstMeasure = system.measures.first {
+        if let firstMeasure = system.measures.first, !firstMeasure.usesPaperMeasureLayout {
             let leadingMarkers = LeadSheetRepeatBoundaryPolicy.leadingMarkers(atStartOf: firstMeasure)
             if leadingMarkers.isEmpty {
                 renderer.drawLeadingBarline(
@@ -385,6 +405,15 @@ private struct ChartPDFRenderer {
         }
 
         for (measureIndex, measure) in system.measures.enumerated() {
+            let precedingMeasure = measureIndex > 0 ? system.measures[measureIndex - 1] : nil
+            if let leadingBarline = measure.explicitPaperLeadingBarline(after: precedingMeasure) {
+                renderer.drawLeadingBarline(
+                    leadingBarline,
+                    at: measure.leadingBarlineX,
+                    from: measure.staffFrame.minY,
+                    to: measure.staffFrame.maxY
+                )
+            }
             let nextMeasureIndex = measureIndex + 1
             let nextMeasure = system.measures.indices.contains(nextMeasureIndex)
                 ? system.measures[nextMeasureIndex]
@@ -461,7 +490,7 @@ private struct ChartPDFRenderer {
         case .normalBarline(let barline, let frame):
             renderer.drawBarline(barline, in: frame)
         case .none:
-            if measure.isOpen && chart.layoutStyle != .simpleChordSheet {
+            if measure.isOpen && !measure.usesPaperMeasureLayout && chart.layoutStyle != .simpleChordSheet {
                 renderer.drawOpenMeasureHint(measure)
             }
         }

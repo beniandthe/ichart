@@ -68,6 +68,7 @@ struct ChordInkDraftVisibleDrawingContext {
     var drawing: PKDrawing
     var originalStrokeIndices: [Int]
     var invisibleStrokeIndices: Set<Int>
+    var unmaskedSourceStrokeIndices: Set<Int> = []
 
     var visibleStrokeCount: Int {
         Set(originalStrokeIndices).count
@@ -151,6 +152,8 @@ struct ChordInkDraftVisibleDrawingContext {
                 }
                 let originalIndex = originalStrokeIndices[visibleIndex]
                 return visibleFragmentCountByOriginalIndex[originalIndex] == 1
+                    && (!barline.requiresCompleteUnmaskedSource
+                        || unmaskedSourceStrokeIndices.contains(originalIndex))
             }
         }
 
@@ -183,7 +186,8 @@ enum ChordInkDraftVisibleStrokePolicy {
         let fullContext = ChordInkDraftVisibleDrawingContext(
             drawing: PKDrawing(strokes: fragments),
             originalStrokeIndices: originalIndices,
-            invisibleStrokeIndices: []
+            invisibleStrokeIndices: [],
+            unmaskedSourceStrokeIndices: Set(drawing.strokes.indices.filter { drawing.strokes[$0].mask == nil })
         )
         let allStrokes = PencilKitInkAdapter.inkStrokes(from: fullContext.drawing)
         let structures = ChordDraftEndingRecognizer.recognizeStructure(
@@ -198,7 +202,8 @@ enum ChordInkDraftVisibleStrokePolicy {
         return ChordInkDraftVisibleDrawingContext(
             drawing: PKDrawing(strokes: included.map { fragments[$0] }),
             originalStrokeIndices: keptOriginalIndices,
-            invisibleStrokeIndices: Set(drawing.strokes.indices).subtracting(keptOriginalIndices)
+            invisibleStrokeIndices: Set(drawing.strokes.indices).subtracting(keptOriginalIndices),
+            unmaskedSourceStrokeIndices: fullContext.unmaskedSourceStrokeIndices
         )
     }
 
@@ -221,7 +226,8 @@ enum ChordInkDraftVisibleStrokePolicy {
         return ChordInkDraftVisibleDrawingContext(
             drawing: PKDrawing(strokes: visibleStrokes),
             originalStrokeIndices: originalStrokeIndices,
-            invisibleStrokeIndices: invisibleStrokeIndices
+            invisibleStrokeIndices: invisibleStrokeIndices,
+            unmaskedSourceStrokeIndices: Set(drawing.strokes.indices.filter { drawing.strokes[$0].mask == nil })
         )
     }
 
@@ -696,8 +702,11 @@ enum DraftBarlineAmbiguity: String, Hashable {
 
 enum DraftBarlineKind: String, Hashable {
     case single
+    case double
 
-    var displayName: String { "Barline" }
+    var displayName: String { self == .double ? "Double Barline" : "Barline" }
+
+    var barlineType: BarlineType { self == .double ? .double : .single }
 }
 
 /// Admission at an existing divider confirms that divider rather than
@@ -729,6 +738,10 @@ struct DraftBarline: Identifiable, Hashable {
     var sourceStrokeGeometry: [InkStroke]
     var metrics: DraftBarlineGestureMetrics
     var ambiguity: DraftBarlineAmbiguity
+    /// Contextual short dividers and the full-lane width allowance require
+    /// complete original source. Old strict and rendered-gap mask behavior
+    /// remains unchanged.
+    var requiresCompleteUnmaskedSource: Bool
 
     init(
         id: UUID = UUID(),
@@ -742,7 +755,8 @@ struct DraftBarline: Identifiable, Hashable {
         ambiguity: DraftBarlineAmbiguity = .none,
         kind: DraftBarlineKind = .single,
         sourceStrokeIndices: Set<Int> = [],
-        sourceStrokeGeometry: [InkStroke] = []
+        sourceStrokeGeometry: [InkStroke] = [],
+        requiresCompleteUnmaskedSource: Bool = false
     ) {
         self.id = id
         self.measureID = measureID
@@ -756,6 +770,7 @@ struct DraftBarline: Identifiable, Hashable {
         self.sourceStrokeGeometry = sourceStrokeGeometry
         self.metrics = metrics
         self.ambiguity = ambiguity
+        self.requiresCompleteUnmaskedSource = requiresCompleteUnmaskedSource
     }
 
     var laneFraction: Double {
@@ -800,7 +815,23 @@ struct ChordDraftBarlineIdentitySignature: Hashable {
         self.kind = kind
         self.sourceStrokeIndices = sourceStrokeIndices.isEmpty
             ? Set(sourceStrokeIndex.map { [$0] } ?? []) : sourceStrokeIndices
-        self.sourceStrokeGeometry = sourceStrokeGeometry
+        // The adapter's chronology is relative to the entire drawing. A
+        // selected subset can remove its earliest unrelated stroke without
+        // changing this compound mark. Its identity retains exact owned
+        // paths and inter-stroke timing, relative only to this owned group.
+        // Raw geometry and PencilKit source receipts remain unchanged.
+        let creationOffsets = sourceStrokeGeometry.compactMap(\.creationTimeOffset)
+        if creationOffsets.count == sourceStrokeGeometry.count,
+           creationOffsets.allSatisfy(\.isFinite), let origin = creationOffsets.min(),
+           creationOffsets.allSatisfy({ ($0 - origin).isFinite }) {
+            self.sourceStrokeGeometry = sourceStrokeGeometry.map { stroke in
+                var relative = stroke
+                relative.creationTimeOffset = stroke.creationTimeOffset.map { $0 - origin }
+                return relative
+            }
+        } else {
+            self.sourceStrokeGeometry = sourceStrokeGeometry
+        }
     }
 }
 
@@ -1137,7 +1168,8 @@ enum ChordDraftPreviewImplicitBarlinePolicy {
         for state: ChordPreviewState,
         chart: Chart
     ) -> [ChordDraftPreviewImplicitBarline] {
-        guard !state.isEmpty,
+        guard !chart.usesPaperMeasureLayout,
+              !state.isEmpty,
               let pageSize = state.layoutPageSize else {
             return []
         }
@@ -1341,10 +1373,13 @@ enum ChordDraftBarlineRecognizer {
         static let maximumWidthRatio = 0.24
         static let maximumAbsoluteWidth: CGFloat = 12
         static let minimumLaneCoverage = 0.62
+        static let shortDividerMinimumLaneCoverage = 0.45
+        static let shortDividerMinimumStraightness = 0.90
         static let gapMaximumAngleDegreesFromVertical = 24.0
         static let gapMaximumWidthRatio = 0.45
         static let gapMinimumStraightness = 0.90
         static let gapMinimumLaneCoverage = 0.78
+        static let fullLaneMinimumCoverage = 0.88
     }
 
     static func recognize(
@@ -1372,7 +1407,8 @@ enum ChordDraftBarlineRecognizer {
 
         let candidateIndices = Set(candidateBarlines.map(\.strokeIndex))
         let acceptedBarlines = candidateBarlines.filter { candidate in
-            !isOwnedByNeighboringInk(
+            !isOwnedByChordRepeat(candidate.strokeIndex, strokes: strokes)
+                && !isOwnedByNeighboringInk(
                 candidate,
                 strokes: strokes,
                 candidateIndices: candidateIndices,
@@ -1385,6 +1421,87 @@ enum ChordDraftBarlineRecognizer {
             barlines: barlines,
             strokeIndices: barlines.reduce(into: Set<Int>()) { $0.formUnion($1.ownedSourceStrokeIndices) }
         )
+    }
+
+    /// The supported dot/slash/dot chord repeat can have a steep slash. Keep
+    /// a complete compact token in chord recognition before its slash can be
+    /// claimed as a full-lane divider. Retraced dots may own several source
+    /// strokes; their compact bounds are used only for this rejection check.
+    /// No source is merged or removed and no range-repeat reader is added.
+    private static func isOwnedByChordRepeat(_ index: Int, strokes: [InkStroke]) -> Bool {
+        guard strokes.count >= 3 else { return false }
+        let first = max(0, index - 2)
+        let last = min(index, strokes.count - 3)
+        guard first <= last else { return false }
+        if (first...last).contains(where: { start in
+            let dots = (start..<(start + 3)).filter { $0 != index }.map { strokes[$0] }
+            return formsCompactChordRepeat(slash: strokes[index], dots: dots)
+        }) { return true }
+
+        let slash = strokes[index]
+        let height = slash.bounds.height
+        let centerX = (slash.bounds.minX + slash.bounds.maxX) / 2
+        let centerY = (slash.bounds.minY + slash.bounds.maxY) / 2
+        let maximumDotSize = min(22, max(4, height * 0.25))
+        let nearby = strokes.enumerated().filter { offset, stroke in
+            let bounds = stroke.bounds
+            return offset != index && !stroke.points.isEmpty
+                && bounds.width <= maximumDotSize && bounds.height <= maximumDotSize
+                && abs((bounds.minX + bounds.maxX) / 2 - centerX) <= height * 0.8
+                && abs((bounds.minY + bounds.maxY) / 2 - centerY) <= height * 0.75
+        }
+        guard nearby.count >= 3, nearby.count <= 32 else { return false }
+        let tolerance = min(3, max(1, height * 0.04))
+        var components: [(bounds: InkBounds, sourceCount: Int)] = []
+        for (_, stroke) in nearby {
+            var combined = (bounds: stroke.bounds, sourceCount: 1)
+            var scan = 0
+            while scan < components.count {
+                let other = components[scan].bounds
+                let horizontalGap = max(combined.bounds.minX - other.maxX, other.minX - combined.bounds.maxX)
+                let verticalGap = max(combined.bounds.minY - other.maxY, other.minY - combined.bounds.maxY)
+                if horizontalGap <= tolerance && verticalGap <= tolerance {
+                    combined.bounds = combined.bounds.union(other)
+                    combined.sourceCount += components.remove(at: scan).sourceCount
+                    scan = 0
+                } else { scan += 1 }
+            }
+            components.append(combined)
+        }
+        components.sort { $0.bounds.minX + $0.bounds.maxX < $1.bounds.minX + $1.bounds.maxX }
+        guard components.count == 2, components.contains(where: { $0.sourceCount > 1 }),
+              components.allSatisfy({ $0.bounds.width <= maximumDotSize && $0.bounds.height <= maximumDotSize }),
+              (components[0].bounds.minX + components[0].bounds.maxX) / 2 < centerX,
+              (components[1].bounds.minX + components[1].bounds.maxX) / 2 > centerX else { return false }
+        let dots = components.map { component in
+            InkStroke(points: [
+                InkPoint(x: component.bounds.minX, y: component.bounds.minY),
+                InkPoint(x: component.bounds.maxX, y: component.bounds.minY),
+                InkPoint(x: component.bounds.maxX, y: component.bounds.maxY),
+                InkPoint(x: component.bounds.minX, y: component.bounds.maxY),
+                InkPoint(x: component.bounds.minX, y: component.bounds.minY)
+            ])
+        }
+        return formsCompactChordRepeat(slash: slash, dots: dots)
+    }
+
+    private static func formsCompactChordRepeat(slash: InkStroke, dots: [InkStroke]) -> Bool {
+        let slashCenter = (slash.bounds.minX + slash.bounds.maxX) / 2
+        let centers = dots.map { ($0.bounds.minX + $0.bounds.maxX) / 2 }
+        let maximumDotSize = min(22, max(4, slash.bounds.height * 0.25))
+        guard dots.count == 2, let left = centers.min(), let right = centers.max(),
+              left < slashCenter, right > slashCenter,
+              dots.allSatisfy({ dot in
+                  guard let first = dot.points.first, let last = dot.points.last else { return false }
+                  let span = max(dot.bounds.width, dot.bounds.height)
+                  return span <= maximumDotSize
+                      && hypot(first.x - last.x, first.y - last.y) <= max(3, span * 0.45)
+              }) else { return false }
+        // Detector dot-size bounds are calibrated in corpus coordinates.
+        // Normalize this temporary hypothesis for enlarged writing lanes;
+        // the original source paths and recognition inputs remain unchanged.
+        let hypothesis = ChordInkRecognitionScaleNormalizer.strokes(from: [dots[0], slash, dots[1]])
+        return ChordRepeatInkDetector.candidate(from: hypothesis, requiresCompactDots: true) != nil
     }
 
     /// A brief Pencil contact at the end of a line belongs to that line.
@@ -1416,9 +1533,18 @@ enum ChordDraftBarlineRecognizer {
             return false
         }
 
-        let isLaneSpanningDivider = candidate.barline.metrics.laneCoverage >= 0.80
-            && candidate.barline.metrics.straightness >= 0.90
-            && candidate.barline.metrics.angleDegreesFromVertical <= 14
+        // A modest wave does not turn a lane-spanning divider into the stem
+        // of a later neighboring root. Shape acceptance has already checked
+        // straightness; clear paper and overhang are checked per neighbor.
+        let isLaneSpanningDivider = (
+            candidate.barline.metrics.laneCoverage >= 0.80
+                && candidate.barline.metrics.straightness >= AcceptanceThresholds.minimumStraightness
+                && candidate.barline.metrics.angleDegreesFromVertical <= 14
+        ) || (
+            candidate.barline.metrics.laneCoverage >= AcceptanceThresholds.fullLaneMinimumCoverage
+                && candidate.barline.metrics.straightness >= AcceptanceThresholds.gapMinimumStraightness
+                && candidate.barline.metrics.angleDegreesFromVertical <= AcceptanceThresholds.maximumAngleDegreesFromVertical
+        )
         var leftNeighbors: [(bounds: InkBounds, separated: Bool)] = []
         var rightNeighbors: [(bounds: InkBounds, separated: Bool)] = []
         for (index, neighbor) in strokes.enumerated() {
@@ -1577,7 +1703,15 @@ enum ChordDraftBarlineRecognizer {
             && angleDegrees <= AcceptanceThresholds.gapMaximumAngleDegreesFromVertical
             && straightness >= AcceptanceThresholds.gapMinimumStraightness
             && widthRatio <= AcceptanceThresholds.gapMaximumWidthRatio
-        guard hasStandardBarlineShape || hasSlantedBarlineShape else { return nil }
+        // Preserve the ordinary angle limit while allowing a deliberate
+        // full-lane stroke to use the existing wider geometry allowance.
+        // Otherwise its width ratio effectively tightens 18 degrees to about
+        // 13.5 degrees and sends a visibly separate divider to chord reading.
+        let hasFullLaneBarlineShape = allowsSlantInRenderedChordGap
+            && angleDegrees <= AcceptanceThresholds.maximumAngleDegreesFromVertical
+            && straightness >= AcceptanceThresholds.gapMinimumStraightness
+            && widthRatio <= AcceptanceThresholds.gapMaximumWidthRatio
+        guard hasStandardBarlineShape || hasSlantedBarlineShape || hasFullLaneBarlineShape else { return nil }
 
         let center = CGPoint(x: bounds.midX, y: bounds.midY)
         guard let target = draftBarlineTargets(
@@ -1586,9 +1720,18 @@ enum ChordDraftBarlineRecognizer {
         ).first(where: { candidate in
             let coverage = Double(bounds.intersection(candidate.laneFrame).height / max(1, candidate.laneFrame.height))
             let heightRatio = bounds.height / max(1, candidate.laneFrame.height)
-            return coverage >= minimumLaneCoverage
+            let hasShortDividerContext = allowsSlantInRenderedChordGap
+                && hasStandardBarlineShape
+                && straightness >= AcceptanceThresholds.shortDividerMinimumStraightness
+                && coverage >= AcceptanceThresholds.shortDividerMinimumLaneCoverage
+                && !overlapsRenderedChord(for: bounds, in: candidate.system)
+            return (coverage >= minimumLaneCoverage || hasShortDividerContext)
                 && Double(heightRatio) <= maximumHeightToLaneRatio
                 && (hasStandardBarlineShape || (
+                    hasFullLaneBarlineShape
+                        && coverage >= AcceptanceThresholds.fullLaneMinimumCoverage
+                        && !overlapsRenderedChord(for: bounds, in: candidate.system)
+                ) || (
                     coverage >= AcceptanceThresholds.gapMinimumLaneCoverage
                         && candidate.system.layoutStyle != .leadSheet
                         && hasRenderedChordGap(for: bounds, in: candidate.measure)))
@@ -1599,15 +1742,23 @@ enum ChordDraftBarlineRecognizer {
         let laneFrame = target.laneFrame
         let laneCoverage = Double(bounds.intersection(laneFrame).height / max(1, laneFrame.height))
         let heightToLaneRatio = bounds.height / max(1, laneFrame.height)
-        guard laneCoverage >= minimumLaneCoverage,
+        let hasShortDividerContext = allowsSlantInRenderedChordGap
+            && hasStandardBarlineShape
+            && straightness >= AcceptanceThresholds.shortDividerMinimumStraightness
+            && laneCoverage >= AcceptanceThresholds.shortDividerMinimumLaneCoverage
+            && !overlapsRenderedChord(for: bounds, in: target.system)
+        guard laneCoverage >= minimumLaneCoverage || hasShortDividerContext,
               Double(heightToLaneRatio) <= maximumHeightToLaneRatio else {
             return nil
         }
-        // A mostly vertical mark can span the lane and still be wide enough
-        // to reach chord recognition. Accept that shape only as a plain
-        // separator between engraved chords in one measure. Neighboring live
-        // ink can still claim the stroke before it becomes a barline.
+        // A wide mark needs either full-lane separation without engraved
+        // overlap, or the existing rendered-chord-gap context. Neighboring
+        // live ink still claims genuine chord stems before acceptance.
         guard hasStandardBarlineShape || (
+            hasFullLaneBarlineShape
+                && laneCoverage >= AcceptanceThresholds.fullLaneMinimumCoverage
+                && !overlapsRenderedChord(for: bounds, in: target.system)
+        ) || (
             laneCoverage >= AcceptanceThresholds.gapMinimumLaneCoverage
                 && target.system.layoutStyle != .leadSheet
                 && hasRenderedChordGap(for: bounds, in: target.measure)
@@ -1623,6 +1774,10 @@ enum ChordDraftBarlineRecognizer {
             straightness: straightness,
             laneCoverage: laneCoverage
         )
+        let usesExistingRenderedGapAllowance = hasSlantedBarlineShape
+            && laneCoverage >= AcceptanceThresholds.gapMinimumLaneCoverage
+            && target.system.layoutStyle != .leadSheet
+            && hasRenderedChordGap(for: bounds, in: target.measure)
         return DraftBarline(
             measureID: target.measureID,
             measureIndex: target.measure.index,
@@ -1632,7 +1787,9 @@ enum ChordDraftBarlineRecognizer {
                 fraction: Double(rawFraction)
             ),
             layoutPageSize: pageLayout.pageBounds.size,
-            metrics: metrics
+            metrics: metrics,
+            requiresCompleteUnmaskedSource: laneCoverage < minimumLaneCoverage
+                || (!hasStandardBarlineShape && !usesExistingRenderedGapAllowance)
         )
     }
 
@@ -1651,6 +1808,14 @@ enum ChordDraftBarlineRecognizer {
             }
         }
         return hasChordOnLeft && hasChordOnRight
+    }
+
+    private static func overlapsRenderedChord(for bounds: CGRect, in system: LeadSheetSystemLayout) -> Bool {
+        system.measures.contains { measure in
+            measure.chordLayouts.contains { chord in
+                chord.frame.union(chord.naturalFrame).intersects(bounds)
+            }
+        }
     }
 
     private static func draftBarlineTarget(
@@ -1719,18 +1884,39 @@ enum ChordDraftBarlineRecognizer {
                isImmediateEndpointTap(strokes[nextIndex], after: strokes[pair.strokeIndex]) {
                 owned.insert(nextIndex)
             }
-            if let index = retained.firstIndex(where: { existing in
-                existing.measureID == barline.measureID
-                    && existing.laneLocation?.systemIndex == barline.laneLocation?.systemIndex
-                    && abs(existing.laneFraction - barline.laneFraction) < 0.035
+            if let index = retained.lastIndex(where: { existing in
+                existing.laneLocation?.systemIndex == barline.laneLocation?.systemIndex
+                    && existing.ownedSourceStrokeIndices.contains { sourceIndex in
+                        strokes.indices.contains(sourceIndex)
+                            && retracesDivider(strokes[pair.strokeIndex], strokes[sourceIndex])
+                    }
             }) {
-                // Preserve existing duplicate-divider spacing. Claim a
-                // secondary stroke only when it physically retraces the line.
-                guard let anchor = retained[index].sourceStrokeIndex,
-                      retracesDivider(strokes[pair.strokeIndex], strokes[anchor]) else { continue }
                 owned.formUnion(retained[index].ownedSourceStrokeIndices)
                 retained[index].sourceStrokeIndices = owned
                 retained[index].sourceStrokeGeometry = owned.sorted().map { strokes[$0] }
+                retained[index].requiresCompleteUnmaskedSource = retained[index].requiresCompleteUnmaskedSource
+                    || barline.requiresCompleteUnmaskedSource
+                continue
+            }
+            if let index = retained.lastIndex(where: { existing in
+                guard existing.kind == .single,
+                      existing.laneLocation?.systemIndex == barline.laneLocation?.systemIndex,
+                      let anchor = existing.sourceStrokeIndex else { return false }
+                return formsDoubleDivider(strokes[anchor], strokes[pair.strokeIndex])
+            }), let anchor = retained[index].sourceStrokeIndex {
+                owned.formUnion(retained[index].ownedSourceStrokeIndices)
+                retained[index].kind = .double
+                retained[index].fraction = (retained[index].fraction + barline.fraction) / 2
+                if let first = retained[index].laneLocation, let second = barline.laneLocation {
+                    retained[index].laneLocation = ChordInkDraftLaneLocation(
+                        systemIndex: first.systemIndex, fraction: (first.fraction + second.fraction) / 2)
+                }
+                retained[index].sourceStrokeIndices = owned
+                retained[index].sourceStrokeGeometry = owned.sorted().map { strokes[$0] }
+                retained[index].requiresCompleteUnmaskedSource = retained[index].requiresCompleteUnmaskedSource
+                    || barline.requiresCompleteUnmaskedSource
+                let bounds = strokes[anchor].bounds.union(strokes[pair.strokeIndex].bounds)
+                retained[index].metrics.width = bounds.width
                 continue
             }
             if owned.count > 1 {
@@ -1740,6 +1926,16 @@ enum ChordDraftBarlineRecognizer {
             retained.append(barline)
         }
         return retained
+    }
+
+    private static func formsDoubleDivider(_ first: InkStroke, _ second: InkStroke) -> Bool {
+        let height = min(first.bounds.height, second.bounds.height)
+        guard height > 0, max(first.bounds.height, second.bounds.height) <= height * 1.4 else { return false }
+        let overlap = min(first.bounds.maxY, second.bounds.maxY) - max(first.bounds.minY, second.bounds.minY)
+        let separation = abs((first.bounds.minX + first.bounds.maxX - second.bounds.minX - second.bounds.maxX) / 2)
+        return overlap >= height * 0.78
+            && separation > min(3, height * 0.06)
+            && separation <= min(18, max(6, height * 0.34))
     }
 
     private static func retracesDivider(_ stroke: InkStroke, _ original: InkStroke) -> Bool {
@@ -1784,9 +1980,11 @@ extension Chart {
         var boundaryFractionsByOriginalMeasureID: [UUID: [Double]]
         var sourceBoundaryFractionsByOriginalMeasureID: [UUID: [Double]] = [:]
         var unresolvedDraftIDs: [UUID]
+        var closedPaperMeasureIDs: Set<UUID> = []
 
         var splitMeasureIDs: Set<UUID> {
             Set(segmentMeasureIDsByOriginalMeasureID.values.filter { $0.count > 1 }.flatMap { $0 })
+                .union(closedPaperMeasureIDs)
         }
     }
 
@@ -1894,7 +2092,8 @@ extension Chart {
                 includesChordInkContinuationLanes: true
             )
         }
-        if barlineSpacingMode == .drawn, state.draftChords.isEmpty, state.draftEndings.isEmpty,
+        if !usesPaperMeasureLayout, barlineSpacingMode == .drawn,
+           state.draftChords.isEmpty, state.draftEndings.isEmpty,
            let sourceLayout,
            let tailResult = commitRhythmTailBarlines(renderableBarlines, sourceLayout: sourceLayout) {
             return tailResult
@@ -1920,7 +2119,8 @@ extension Chart {
             spacingMode: barlineSpacingMode,
             sourcePageLayout: sourceLayout,
             commitPageLayout: commitLayout,
-            requiresCompleteSplits: true
+            requiresCompleteSplits: true,
+            precedingChordLocations: state.draftChords.compactMap(\.laneLocation)
         )
         guard barlinePlan.unresolvedDraftIDs.isEmpty else {
             return ChordInkDraftBatchRenderResult(
@@ -1986,7 +2186,10 @@ extension Chart {
                 continue
             }
 
-            if layoutStyle == .simpleChordSheet,
+            if usesPaperMeasureLayout, let fraction = renderTarget.fraction {
+                _ = moveChordEventInCommittedChordLane(chordEventID, to: measureID, atFraction: nil,
+                    visualFraction: fraction, preserveMusicalPlacement: true)
+            } else if layoutStyle == .simpleChordSheet,
                measure(id: measureID)?.rhythmMap == nil,
                let fraction = renderTarget.fraction {
                 _ = setChordEventManualLaneFraction(fraction, for: chordEventID)
@@ -2005,7 +2208,7 @@ extension Chart {
                 previouslyOpenIDs.contains($0.id) && $0.authoringState == .committed
             }.map(\.id))
             anchorLoneChordsToMeasureStart(in: barlinePlan.splitMeasureIDs.union(closedIDs),
-                eligibleChordIDs: existingChordIDs)
+                eligibleChordIDs: usesPaperMeasureLayout ? nil : existingChordIDs)
         }
 
         if unresolvedDraftIDs.isEmpty,
@@ -2224,7 +2427,8 @@ extension Chart {
             includesChordInkContinuationLanes: true)
         let plan = staged.commitDraftBarlinesBeforeChordRender(state.renderableBarlines,
             spacingMode: .drawn, sourcePageLayout: sourceLayout,
-            commitPageLayout: materializedLayout, requiresCompleteSplits: true)
+            commitPageLayout: materializedLayout, requiresCompleteSplits: true,
+            precedingChordLocations: state.draftChords.compactMap(\.laneLocation))
         guard plan.unresolvedDraftIDs.isEmpty else { return .init(unresolvedBarlineIDs: plan.unresolvedDraftIDs) }
         return .init(mapping: .init(chart: staged, sourceLayout: sourceLayout,
             materializedLayout: materializedLayout, plan: plan))
@@ -2237,6 +2441,12 @@ extension Chart {
         endings: [DraftEnding] = [],
         automaticContinuationSourceLayout: LeadSheetPageLayout? = nil
     ) -> Bool {
+        if usesPaperMeasureLayout {
+            let rows = Set(drafts.compactMap { $0.laneLocation?.systemIndex }
+                + barlines.compactMap { $0.laneLocation?.systemIndex }
+                + endings.flatMap { [$0.start.laneLocation.systemIndex, $0.end.laneLocation.systemIndex] })
+            return rows.sorted().allSatisfy { ensurePaperWritingRow($0) != nil }
+        }
         guard layoutStyle == .simpleChordSheet,
               let targetSystemIndex = (
                 drafts.compactMap { $0.laneLocation?.systemIndex }
@@ -2467,8 +2677,13 @@ extension Chart {
         spacingMode: ChordDraftBarlineSpacingMode,
         sourcePageLayout: LeadSheetPageLayout?,
         commitPageLayout: LeadSheetPageLayout?,
-        requiresCompleteSplits: Bool = false
+        requiresCompleteSplits: Bool = false,
+        precedingChordLocations: [ChordInkDraftLaneLocation] = []
     ) -> ChordDraftBarlineCommitPlan {
+        if usesPaperMeasureLayout {
+            return commitPaperDraftBarlines(barlines, precedingChordLocations: precedingChordLocations,
+                                           sourcePageLayout: sourcePageLayout)
+        }
         var renderedBarlineIDs = [UUID]()
         var unresolvedDraftIDs = [UUID]()
         var segmentMeasureIDsByOriginalMeasureID = [UUID: [UUID]]()
@@ -2546,6 +2761,9 @@ extension Chart {
                     edgeTolerance: layoutStyle == .rhythmSectionSheet ? 9 : 6
                 )
                 if placement == .interior { return true }
+                if barline.kind == .double {
+                    setDraftDoubleBarlineAtExistingBoundary(measureID: measureID, placement: placement)
+                }
                 renderedBarlineIDs.append(barline.id)
                 return false
             }
@@ -2594,7 +2812,7 @@ extension Chart {
                       let newSegmentMeasureID = splitMeasureForDraftBarline(
                         currentSegmentMeasureID,
                         atFraction: localSplitFraction,
-                        barlineAfter: .single,
+                        barlineAfter: barline.kind.barlineType,
                         sourceGeometry: sourceGeometry,
                         sourcePageLayout: sourcePageLayout,
                         precedingBoundaryFraction: previousBoundaryFraction,
@@ -2657,6 +2875,83 @@ extension Chart {
             sourceBoundaryFractionsByOriginalMeasureID: sourceBoundaryFractionsByOriginalMeasureID,
             unresolvedDraftIDs: unresolvedDraftIDs.filter { seenUnresolved.insert($0).inserted }
         )
+    }
+
+    private mutating func setDraftDoubleBarlineAtExistingBoundary(
+        measureID: UUID, placement: ChordDraftBarlineBoundaryPlacement
+    ) {
+        for systemIndex in systems.indices {
+            guard let measureIndex = systems[systemIndex].measures.firstIndex(where: { $0.id == measureID }) else {
+                continue
+            }
+            let boundaryIndex = placement == .leading ? measureIndex - 1 : measureIndex
+            guard systems[systemIndex].measures.indices.contains(boundaryIndex) else { return }
+            systems[systemIndex].measures[boundaryIndex].barlineAfter = .double
+            updatedAt = .now
+            return
+        }
+    }
+
+    private mutating func commitPaperDraftBarlines(
+        _ barlines: [DraftBarline], precedingChordLocations: [ChordInkDraftLaneLocation],
+        sourcePageLayout: LeadSheetPageLayout?
+    ) -> ChordDraftBarlineCommitPlan {
+        var rendered: [UUID] = []
+        var unresolved: [UUID] = []
+        let priorPositions = Dictionary(uniqueKeysWithValues: measures.compactMap { measure in
+            measure.paperLayout.map { (measure.id, (position: $0, state: measure.authoringState)) }
+        })
+        for barline in barlines.sorted(by: { $0.visualOrder < $1.visualOrder }) {
+            guard let row = barline.laneLocation?.systemIndex ?? measure(id: barline.measureID)?.paperLayout?.rowIndex else {
+                unresolved.append(barline.id)
+                continue
+            }
+            let hasPrecedingChord = precedingChordLocations.contains {
+                $0.systemIndex == row && $0.fraction < barline.laneFraction
+            }
+            let boundary = existingPaperBoundary(near: barline, row: row, sourcePageLayout: sourcePageLayout)
+            if placePaperBarline(inRow: row, at: boundary?.fraction ?? barline.laneFraction,
+                                 kind: boundary?.kind ?? barline.kind.barlineType,
+                                 normalizeSingleChords: false, allowsOpeningBoundary: !hasPrecedingChord) != nil {
+                rendered.append(barline.id)
+            } else {
+                unresolved.append(barline.id)
+            }
+        }
+        let closed = Set(measures.compactMap { measure -> UUID? in
+            guard measure.authoringState == .committed, let position = measure.paperLayout else { return nil }
+            guard let previous = priorPositions[measure.id] else { return measure.id }
+            return previous.state != .committed || previous.position.startFraction != position.startFraction
+                || previous.position.endFraction != position.endFraction ? measure.id : nil
+        })
+        return ChordDraftBarlineCommitPlan(renderedBarlineIDs: rendered,
+            segmentMeasureIDsByOriginalMeasureID: [:], boundaryFractionsByOriginalMeasureID: [:],
+            unresolvedDraftIDs: unresolved, closedPaperMeasureIDs: closed)
+    }
+
+    private func existingPaperBoundary(
+        near barline: DraftBarline, row: Int, sourcePageLayout: LeadSheetPageLayout?
+    ) -> (fraction: Double, kind: BarlineType)? {
+        guard let frame = sourcePageLayout?.systems.first(where: { $0.index == row })?.paperWritingFrame,
+              frame.width > 0 else { return nil }
+        let boundaries = measures.flatMap { measure -> [(fraction: Double, kind: BarlineType)] in
+            guard let position = measure.paperLayout, position.rowIndex == row else { return [] }
+            var result: [(fraction: Double, kind: BarlineType)] = []
+            if let kind = position.leadingBarline { result.append((position.startFraction, kind)) }
+            if measure.authoringState == .committed { result.append((position.endFraction, measure.barlineAfter)) }
+            return result
+        }
+        guard let nearest = boundaries.min(by: {
+            abs($0.fraction - barline.laneFraction) < abs($1.fraction - barline.laneFraction)
+        }) else { return nil }
+        let distance = abs(nearest.fraction - barline.laneFraction) * Double(frame.width)
+        let retraceDistance = min(3, barline.metrics.height * 0.06)
+        let doubleDistance = min(18, max(6, barline.metrics.height * 0.34))
+        guard distance <= doubleDistance else { return nil }
+        if barline.kind == .double || nearest.kind == .double || distance > retraceDistance {
+            return (nearest.fraction, .double)
+        }
+        return nearest
     }
 
     private mutating func splitMeasureForDraftBarline(
@@ -2743,7 +3038,7 @@ extension Chart {
 
         var sourceGeometryByMeasureID = [UUID: ChordDraftBarlineSourceGeometry]()
         let resolvedBarlines = barlines.compactMap { barline -> DraftBarline? in
-            if isTerminalBoundaryLaneLocation(
+            if barline.kind == .single, isTerminalBoundaryLaneLocation(
                 barline.laneLocation,
                 in: sourcePageLayout
             ) {
@@ -3004,12 +3299,18 @@ extension Chart {
         return nil
     }
 
-    private func chordDraftRenderTarget(
+    private mutating func chordDraftRenderTarget(
         for draft: ChordInkDraft,
         sourcePageLayout: LeadSheetPageLayout?,
         renderPageLayout: LeadSheetPageLayout?,
         barlinePlan: ChordDraftBarlineCommitPlan
     ) -> (measureID: UUID, fraction: Double?)? {
+        if usesPaperMeasureLayout,
+           let row = draft.laneLocation?.systemIndex ?? measure(id: draft.measureID)?.paperLayout?.rowIndex {
+            let fraction = draft.laneLocation?.fraction ?? draft.targetFraction ?? 0
+            guard let target = ensurePaperChordTarget(inRow: row, at: fraction) else { return nil }
+            return (target.measureID, target.fraction)
+        }
         if layoutStyle == .rhythmSectionSheet,
            let segmentTarget = chordDraftSegmentTarget(
             for: draft,

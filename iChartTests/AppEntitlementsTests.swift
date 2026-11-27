@@ -219,8 +219,8 @@ final class AppEntitlementsTests: XCTestCase {
         XCTAssertTrue(IChartStoreKitProductCatalog.isProProductID("com.ichart.app.pro.monthly"))
         XCTAssertTrue(IChartStoreKitProductCatalog.isProProductID("com.ichart.app.pro.annual"))
         XCTAssertFalse(IChartStoreKitProductCatalog.isProProductID("com.ichart.app.basic"))
-        XCTAssertEqual(IChartStoreKitProductCatalog.targetMonthlyPriceCents, 799)
-        XCTAssertEqual(IChartStoreKitProductCatalog.targetAnnualPriceCents, 6_499)
+        XCTAssertEqual(IChartStoreKitProductCatalog.targetMonthlyPriceCents, 699)
+        XCTAssertEqual(IChartStoreKitProductCatalog.targetAnnualPriceCents, 6_000)
     }
 
     func testStoreKitEntitlementResolverOnlyActivatesProForActiveSubscription() {

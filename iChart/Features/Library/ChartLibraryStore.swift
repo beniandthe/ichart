@@ -24,7 +24,14 @@ final class ChartLibraryStore: ObservableObject {
         didSet { if selectedChartID != oldValue { persistIfNeeded() } }
     }
     @Published var entitlements: AppEntitlements {
-        didSet { if entitlements != oldValue { persistIfNeeded() } }
+        didSet {
+            // Runtime rollout policy is not encoded in chart snapshots. Still
+            // publish it to UI, but never save/upload identical chart data for
+            // a phase-only change. Real billing changes remain persistent.
+            if entitlements.subscription != oldValue.subscription || entitlements.activePlan != oldValue.activePlan {
+                persistIfNeeded()
+            }
+        }
     }
     @Published var deletionTombstones: [ChartDeletionTombstone] {
         didSet { persistIfNeeded() }
@@ -477,17 +484,20 @@ final class ChartLibraryStore: ObservableObject {
 
     func applySyncedSnapshot(_ snapshot: ChartLibrarySnapshot) {
         let accessPolicy = entitlements.accessPolicy
+        // Production coordinated billing is live, account-bound evidence.
+        // A chart backup (including a retained prior-account snapshot) cannot
+        // create or replace that evidence. Fixed-free/staging keep their
+        // historical snapshot billing behavior.
+        let subscription = IChartProductAccessPolicy.usesCoordinatedActivation
+            ? entitlements.subscription : snapshot.entitlements.subscription
         performPersistedBatch(notifyCloudSync: false) {
             charts = snapshot.charts
-            // Saved snapshots carry billing evidence, never account Beta mode.
-            if accessPolicy.isFreeBeta {
-                entitlements = AppEntitlements(
-                    subscription: snapshot.entitlements.subscription,
-                    accessPolicy: accessPolicy
-                )
-            } else {
-                entitlements = snapshot.entitlements
-            }
+            // A snapshot carries content and historical billing, never the
+            // current account's resolved rollout phase or beta membership.
+            entitlements = AppEntitlements(
+                subscription: subscription,
+                accessPolicy: accessPolicy
+            )
             deletionTombstones = Self.normalizedTombstones(snapshot.deletionTombstones)
             cloudMetadata = snapshot.cloudMetadata
             projects = Self.normalizedProjects(snapshot.projects, charts: snapshot.charts)

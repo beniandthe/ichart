@@ -157,12 +157,14 @@ extension Chart {
         }
 
         let transpositionSemitones = documentKey.semitoneDelta(to: key)
+        let sourceKeys = Self.effectiveKeysByMeasureID(in: systems,
+            documentKey: documentKey, keyChanges: keyChanges)
         documentKey = key
         if let firstMeasureID = measures.first?.id {
             keyChanges.removeAll { $0.measureID == firstMeasureID }
         }
         transposeKeyChanges(by: transpositionSemitones)
-        transposeChordEvents(by: transpositionSemitones, in: measures.indices)
+        transposeChordEvents(by: transpositionSemitones, in: measures.indices, sourceKeys: sourceKeys)
         updatedAt = .now
         return true
     }
@@ -172,30 +174,8 @@ extension Chart {
     }
 
     func effectiveKey(forMeasureID measureID: UUID) -> DocumentKey {
-        guard let targetIndex = measures.firstIndex(where: { $0.id == measureID }) else {
-            return documentKey
-        }
-
-        let indexByMeasureID = Dictionary(
-            uniqueKeysWithValues: measures.enumerated().map { ($0.element.id, $0.offset) }
-        )
-        let activeChange = keyChanges
-            .compactMap { change -> (index: Int, change: KeyChange)? in
-                guard let changeIndex = indexByMeasureID[change.measureID],
-                      changeIndex <= targetIndex else {
-                    return nil
-                }
-
-                return (changeIndex, change)
-            }
-            .sorted { lhs, rhs in
-                lhs.index == rhs.index
-                    ? lhs.change.id.uuidString < rhs.change.id.uuidString
-                    : lhs.index < rhs.index
-            }
-            .last
-
-        return activeChange?.change.key ?? documentKey
+        Self.effectiveKeysByMeasureID(in: systems, documentKey: documentKey,
+            keyChanges: keyChanges)[measureID] ?? documentKey
     }
 
     func keyChange(atStartOf measureID: UUID) -> KeyChange? {
@@ -221,7 +201,9 @@ extension Chart {
             return setDocumentKey(key)
         }
 
-        let previousKey = effectiveKey(forMeasureID: measureID)
+        let sourceKeys = Self.effectiveKeysByMeasureID(in: systems,
+            documentKey: documentKey, keyChanges: keyChanges)
+        let previousKey = sourceKeys[measureID] ?? documentKey
         let normalizedKey = DocumentKey.allStandardKeys.contains(key) ? key : documentKey
         if let existingIndex = keyChanges.firstIndex(where: { $0.measureID == measureID }) {
             guard keyChanges[existingIndex].key != normalizedKey else {
@@ -237,7 +219,7 @@ extension Chart {
         let transpositionRange = targetIndex..<(nextKeyChangeIndex ?? measures.count)
         transposeChordEvents(
             by: previousKey.semitoneDelta(to: normalizedKey),
-            in: transpositionRange
+            in: transpositionRange, sourceKeys: sourceKeys
         )
         var forcedBreakStartIDs = currentForcedSystemBreakStartIDs()
         if !forcedBreakStartIDs.contains(measureID) {
@@ -256,7 +238,9 @@ extension Chart {
             return false
         }
 
-        let previousKey = effectiveKey(forMeasureID: measureID)
+        let sourceKeys = Self.effectiveKeysByMeasureID(in: systems,
+            documentKey: documentKey, keyChanges: keyChanges)
+        let previousKey = sourceKeys[measureID] ?? documentKey
         let previousCount = keyChanges.count
         keyChanges.removeAll { $0.measureID == measureID }
         guard keyChanges.count != previousCount else {
@@ -268,7 +252,7 @@ extension Chart {
         let transpositionRange = targetIndex..<(nextKeyChangeIndex ?? measures.count)
         transposeChordEvents(
             by: previousKey.semitoneDelta(to: newKey),
-            in: transpositionRange
+            in: transpositionRange, sourceKeys: sourceKeys
         )
         var forcedBreakStartIDs = currentForcedSystemBreakStartIDs()
         if keyChangeSystemBreakMeasureIDs.remove(measureID) != nil {
@@ -289,7 +273,9 @@ extension Chart {
             return
         }
 
-        systems = Self.systemsApplyingChordTransposition(to: systems, by: normalizedSemitones)
+        systems = Self.systemsApplyingChordTransposition(to: systems, by: normalizedSemitones,
+            keysByMeasureID: Self.effectiveKeysByMeasureID(in: systems,
+                documentKey: documentKey, keyChanges: keyChanges))
         chordTranspositionSemitones = 0
         updatedAt = .now
     }
@@ -300,7 +286,9 @@ extension Chart {
             return
         }
 
-        systems = Self.systemsApplyingChordTransposition(to: systems, by: normalizedDelta)
+        systems = Self.systemsApplyingChordTransposition(to: systems, by: normalizedDelta,
+            keysByMeasureID: Self.effectiveKeysByMeasureID(in: systems,
+                documentKey: documentKey, keyChanges: keyChanges))
         chordTranspositionSemitones = 0
         updatedAt = .now
     }
@@ -409,7 +397,7 @@ extension Chart {
             return false
         }
 
-        guard layoutStyle == .simpleChordSheet else {
+        guard layoutStyle == .simpleChordSheet && !usesPaperMeasureLayout else {
             return true
         }
 
@@ -475,6 +463,9 @@ extension Chart {
         }
 
         var candidate = self
+        if usesPaperMeasureLayout {
+            return reflowPaperMeasureRows(originalRows, into: rows)
+        }
         candidate.rebuildSystems(using: flatMeasures, forcedBreakStartIDsOverride: breaks)
         if layoutStyle == .rhythmSectionSheet {
             let bodyWidths = zip(rows, equalizedWidthPerMeasure).map { CGFloat($0.count) * $1 }
@@ -496,6 +487,7 @@ extension Chart {
         guard canInsertSystemBreak(before: measureID) else {
             return false
         }
+        if usesPaperMeasureLayout { return insertPaperSystemBreak(before: measureID) }
 
         var forcedBreakStartIDs = currentForcedSystemBreakStartIDs()
         forcedBreakStartIDs.insert(measureID)
@@ -509,6 +501,7 @@ extension Chart {
         guard canRemoveSystemBreak(before: measureID) else {
             return false
         }
+        if usesPaperMeasureLayout { return removePaperSystemBreak(before: measureID) }
 
         var forcedBreakStartIDs = currentForcedSystemBreakStartIDs()
         forcedBreakStartIDs.remove(measureID)
@@ -714,6 +707,12 @@ extension Chart {
         authoringState: MeasureAuthoringState = .committed,
         barlineAfter: BarlineType = .single
     ) -> UUID {
+        if usesPaperMeasureLayout,
+           let target = measures.last(where: { $0.authoringState == .committed || !$0.chordEvents.isEmpty })
+                ?? measures.first,
+           let inserted = insertPaperMeasures(after: target.id, count: 1, barlineAfter: barlineAfter)?.first {
+            return inserted
+        }
         let newMeasure = Self.makeMeasure(
             index: measures.count + 1,
             authoringState: authoringState,
@@ -739,6 +738,9 @@ extension Chart {
         var candidate = self
         var row = measureIDs
         let insertedMeasureID: UUID
+        if usesPaperMeasureLayout, let measureID {
+            return insertPaperMeasures(after: measureID, count: 1, barlineAfter: barlineAfter)?.first
+        }
         if let measureID {
             guard let offset = row.firstIndex(of: measureID),
                   let target = candidate.measure(id: measureID) else { return nil }
@@ -768,7 +770,9 @@ extension Chart {
         guard let target = measure(id: measureID) else { return nil }
         var candidate = self
         let insertedID: UUID?
-        if let rhythmRow, layoutStyle == .rhythmSectionSheet {
+        if usesPaperMeasureLayout {
+            insertedID = candidate.insertPaperMeasures(after: measureID, count: 1, barlineAfter: barlineAfter)?.first
+        } else if let rhythmRow, layoutStyle == .rhythmSectionSheet {
             insertedID = candidate.insertMeasure(inRhythmRow: rhythmRow.measureIDs,
                 availableWidth: rhythmRow.availableWidth, after: measureID, barlineAfter: barlineAfter)
         } else if target.authoringState == .open {
@@ -793,6 +797,13 @@ extension Chart {
     ) -> [UUID]? {
         guard count > 0, let target = measure(id: measureID) else { return nil }
         var candidate = self
+        if usesPaperMeasureLayout {
+            guard let insertedIDs = candidate.insertPaperMeasures(after: measureID, count: count, barlineAfter: .single),
+                  let lastID = insertedIDs.last,
+                  candidate.extendClosingRepeat(repeatID, from: measureID, through: lastID) else { return nil }
+            self = candidate
+            return insertedIDs
+        }
         if target.authoringState == .open, candidate.commitOpenMeasure() == nil {
             return nil
         }
@@ -841,6 +852,9 @@ extension Chart {
         authoringState: MeasureAuthoringState = .committed,
         barlineAfter: BarlineType = .single
     ) -> UUID? {
+        if usesPaperMeasureLayout {
+            return insertPaperMeasures(after: measureID, count: 1, barlineAfter: barlineAfter)?.first
+        }
         guard let targetLocation = measureLocation(id: measureID) else {
             return nil
         }
@@ -863,6 +877,9 @@ extension Chart {
         authoringState: MeasureAuthoringState = .committed,
         barlineAfter: BarlineType = .single
     ) -> [UUID]? {
+        if usesPaperMeasureLayout {
+            return insertPaperMeasures(after: measureID, count: count, barlineAfter: barlineAfter)
+        }
         guard count > 0,
               let targetLocation = measureLocation(id: measureID) else {
             return nil
@@ -887,6 +904,7 @@ extension Chart {
         guard hasCompletedInitialSetup else {
             return nil
         }
+        if usesPaperMeasureLayout { return appendPaperWritingRows(count: 8) }
 
         let measureDefaults = layoutStyle.profile.measureDefaults
         let addedMeasureCount = measureDefaults.addedPageMeasureCount
@@ -1127,6 +1145,8 @@ extension Chart {
 
         let leftMeasure = flattenedMeasures[leftIndex]
         let rightMeasure = flattenedMeasures[leftIndex + 1]
+        if usesPaperMeasureLayout,
+           leftMeasure.paperLayout?.rowIndex != rightMeasure.paperLayout?.rowIndex { return false }
         guard leftMeasure.authoringState == .committed,
               leftMeasure.barlineAfter == .single,
               keyChange(atStartOf: rightMeasure.id) == nil,
@@ -1310,6 +1330,11 @@ extension Chart {
             leftMeasure.rhythmSectionSplitLayoutSource = nil
         }
         leftMeasure.barlineAfter = rightMeasure.barlineAfter
+        if let leftPlacement = leftMeasure.paperLayout, let rightPlacement = rightMeasure.paperLayout,
+           leftPlacement.rowIndex == rightPlacement.rowIndex {
+            leftMeasure.paperLayout?.endFraction = rightPlacement.endFraction
+            leftMeasure.paperLayout?.needsSystemFit = false
+        }
         leftMeasure.authoringState = rightMeasure.authoringState == .open ? .open : .committed
         leftMeasure.cueTextIDs.append(contentsOf: rightMeasure.cueTextIDs.filter { !leftMeasure.cueTextIDs.contains($0) })
         leftMeasure.roadmapObjectIDs.append(contentsOf: rightMeasure.roadmapObjectIDs.filter {
@@ -1423,6 +1448,8 @@ extension Chart {
         rightMeasure.handwrittenRhythmicNotationCoordinateSpace = nil
 
         leftMeasure.barlineAfter = barlineAfter
+        splitPaperLayout(originalMeasure.paperLayout, fraction: splitFraction,
+            barlineAfter: barlineAfter, left: &leftMeasure, right: &rightMeasure)
         if originalMeasure.authoringState == .open {
             leftMeasure.authoringState = .committed
             rightMeasure.authoringState = .open
@@ -1478,6 +1505,10 @@ extension Chart {
         }
         extendRangeEndpointsAcrossSplit(from: originalMeasure.id, through: rightMeasure.id)
         reanchorSimpleArticulationsToExistingChords()
+        if usesPaperMeasureLayout {
+            splitPersistentInkAnchors(from: originalMeasure.id, through: rightMeasure.id,
+                fraction: splitFraction, rightChordIDs: Set(rightMeasure.chordEvents.map(\.id)))
+        }
         updatedAt = .now
         return rightMeasure.id
     }
@@ -1812,6 +1843,10 @@ extension Chart {
             sourceCandidateSignature: sourceCandidateSignature,
             sourceRecognitionPipelineVersion: resolvedRecognitionPipelineVersion
         )
+        if resolvedSpellingIntent == .explicit,
+           let eventIndex = measure.chordEvents.firstIndex(where: { $0.id == chordEventID }) {
+            measure.chordEvents[eventIndex].spellingOverrideKey = effectiveKey(forMeasureID: measureID)
+        }
         systems[location.systemIndex].measures[location.measureIndex] = measure
         updatedAt = .now
         return chordEventID
@@ -1846,6 +1881,25 @@ extension Chart {
     }
 
     @discardableResult
+    mutating func replaceDisplayedChordEvent(
+        _ chordEventID: UUID,
+        with symbol: ChordSymbol,
+        rawInput: String?,
+        spellingIntent: ChordSpellingIntent = .explicit
+    ) -> Bool {
+        guard let location = chordEventLocation(id: chordEventID) else { return false }
+        let measureID = systems[location.systemIndex].measures[location.measureIndex].id
+        let concertKey = effectiveKey(forMeasureID: measureID)
+        let displayedKey = concertKey.transposed(for: defaultTranspositionView)
+        let semitones = defaultTranspositionView.semitoneOffsetFromConcert + chordTranspositionSemitones
+        let concertSymbol = symbol.transposedForChartDisplay(by: -semitones,
+            from: displayedKey, to: concertKey, preservingSpelling: true)
+        return replaceChordEvent(chordEventID, with: concertSymbol,
+            rawInput: semitones == 0 ? rawInput : concertSymbol.displayText,
+            spellingIntent: spellingIntent)
+    }
+
+    @discardableResult
     mutating func replaceChordEvent(
         _ chordEventID: UUID,
         with symbol: ChordSymbol,
@@ -1856,6 +1910,8 @@ extension Chart {
             return false
         }
 
+        let overrideKey = spellingIntent == .explicit
+            ? effectiveKey(forMeasureID: systems[location.systemIndex].measures[location.measureIndex].id) : nil
         systems[location.systemIndex]
             .measures[location.measureIndex]
             .chordEvents[location.chordIndex]
@@ -1868,6 +1924,10 @@ extension Chart {
             .measures[location.measureIndex]
             .chordEvents[location.chordIndex]
             .spellingOverrideSource = spellingIntent == .explicit ? .userSelection : nil
+        systems[location.systemIndex]
+            .measures[location.measureIndex]
+            .chordEvents[location.chordIndex]
+            .spellingOverrideKey = overrideKey
         systems[location.systemIndex]
             .measures[location.measureIndex]
             .chordEvents[location.chordIndex]
@@ -2662,6 +2722,8 @@ extension Chart {
             timeSignatureChanges[index].afterMeasureID = right.id
         }
         let rightChordIDs = Set(right.chordEvents.map(\.id))
+        splitPaperLayout(original.paperLayout, fraction: fraction,
+            barlineAfter: barlineAfter, left: &left, right: &right)
         for index in freeInkArticulations.indices where freeInkArticulations[index].measureID == measureID {
             switch freeInkArticulations[index].attachment {
             case .chord(let id):
@@ -2821,6 +2883,8 @@ extension Chart {
         leftMeasure.barlineAfter = barlineAfter
         rightMeasure.authoringState = .open
         rightMeasure.barlineAfter = .single
+        splitPaperLayout(originalMeasure.paperLayout, fraction: splitFraction,
+            barlineAfter: barlineAfter, left: &leftMeasure, right: &rightMeasure)
 
         let meter = originalMeasure.resolvedMeter(defaultMeter: defaultMeter)
         leftMeasure.chordEvents = []
@@ -2858,6 +2922,10 @@ extension Chart {
             anchorLoneChordsToMeasureStart(in: [originalMeasure.id, rightMeasure.id])
         }
         extendRangeEndpointsAcrossSplit(from: originalMeasure.id, through: rightMeasure.id)
+        if usesPaperMeasureLayout {
+            splitPersistentInkAnchors(from: originalMeasure.id, through: rightMeasure.id,
+                fraction: splitFraction, rightChordIDs: Set(rightMeasure.chordEvents.map(\.id)))
+        }
         updatedAt = .now
         return rightMeasure.id
     }
@@ -3779,7 +3847,7 @@ extension Chart {
         measureLocation(id: id).map { systems[$0.systemIndex].measures[$0.measureIndex] }
     }
 
-    private func measureLocation(id: UUID) -> (systemIndex: Int, measureIndex: Int)? {
+    func measureLocation(id: UUID) -> (systemIndex: Int, measureIndex: Int)? {
         for (systemIndex, system) in systems.enumerated() {
             if let measureIndex = system.measures.firstIndex(where: { $0.id == id }) {
                 return (systemIndex, measureIndex)
@@ -4195,13 +4263,16 @@ extension Chart {
 
     private mutating func transposeChordEvents(
         by semitones: Int,
-        in measureIndices: Range<Int>
+        in measureIndices: Range<Int>,
+        sourceKeys: [UUID: DocumentKey]
     ) {
         let normalizedSemitones = Self.normalizedChordTranspositionSemitones(semitones)
-        guard normalizedSemitones != 0,
-              !measureIndices.isEmpty else {
+        guard !measureIndices.isEmpty else {
             return
         }
+
+        let targetKeys = Self.effectiveKeysByMeasureID(in: systems,
+            documentKey: documentKey, keyChanges: keyChanges)
 
         var flattenedMeasureIndex = 0
         for systemIndex in systems.indices {
@@ -4214,12 +4285,16 @@ extension Chart {
                     continue
                 }
 
+                let measureID = systems[systemIndex].measures[measureIndex].id
+                let targetKey = targetKeys[measureID] ?? documentKey
+                let sourceKey = sourceKeys[measureID] ?? targetKey
+                guard normalizedSemitones != 0 || sourceKey != targetKey else { continue }
                 for chordIndex in systems[systemIndex].measures[measureIndex].chordEvents.indices {
                     let transposedSymbol = systems[systemIndex]
                         .measures[measureIndex]
                         .chordEvents[chordIndex]
                         .symbol
-                        .transposedForChartDisplay(by: normalizedSemitones)
+                        .transposedForChartDisplay(by: normalizedSemitones, from: sourceKey, to: targetKey)
                     systems[systemIndex]
                         .measures[measureIndex]
                         .chordEvents[chordIndex]
@@ -4228,6 +4303,10 @@ extension Chart {
                         .measures[measureIndex]
                         .chordEvents[chordIndex]
                         .rawInput = transposedSymbol.displayText
+                    systems[systemIndex]
+                        .measures[measureIndex]
+                        .chordEvents[chordIndex]
+                        .spellingOverrideKey = nil
                 }
             }
         }
@@ -4266,6 +4345,11 @@ extension Chart {
         var normalizedMeasures = synchronizedMeterOverrides(in: flattenedMeasures)
         for measureIndex in normalizedMeasures.indices {
             normalizedMeasures[measureIndex].index = measureIndex + 1
+        }
+        if usesPaperMeasureLayout {
+            rebuildPaperMeasureSystems(using: normalizedMeasures)
+            normalizeAnchorsToSystems()
+            return
         }
         if supportsManualSystemBreaks {
             let pageBreakStartIDs = pageBreakStartIDsOverride
@@ -4579,7 +4663,7 @@ extension Chart {
         }
     }
 
-    private mutating func normalizeAnchorsToSystems() {
+    mutating func normalizeAnchorsToSystems() {
         let systemIDByMeasureID = systems.reduce(into: [UUID: UUID]()) { partialResult, system in
             for measure in system.measures {
                 partialResult[measure.id] = system.id

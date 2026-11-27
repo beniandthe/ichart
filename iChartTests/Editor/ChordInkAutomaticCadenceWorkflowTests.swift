@@ -86,6 +86,7 @@ final class ChordInkAutomaticCadenceWorkflowTests: XCTestCase {
                 "clock", host.view.chordDraftRenderCoordinator?.structuralMaturity.nextDeadline?.timeIntervalSinceNow ?? -1)
             assertTrue(await eventually(until: nextChordUp.addingTimeInterval(0.85)) {
                 host.model.chart.measures.count == 2 && self.texts(host.model.chart).contains("F")
+                    && host.reader.hasStarted(.g)
             }, "An aged barline and the earlier chord must not restart a shared two-second wait after the later stroke")
             print("CADENCE_PROGRESS", style.rawValue, "measures", host.model.chart.measures.count,
                 "rendered", events(host.model.chart).count, "census", host.view.hasCurrentAutomaticChordCensus,
@@ -103,7 +104,7 @@ final class ChordInkAutomaticCadenceWorkflowTests: XCTestCase {
                 releasingG: true)
             let aUp = try XCTUnwrap(host.view.chordDraftRenderCoordinator?.lastInputAt)
             assertTrue(await eventually(until: aUp.addingTimeInterval(0.95)) {
-                self.texts(host.model.chart).contains("G")
+                self.texts(host.model.chart).contains("G") && host.reader.hasStarted(.a)
             }, "G should render while A's reader remains unfinished")
             XCTAssertTrue(host.reader.isHeld(.a))
             assertSameInk(PKDrawing(strokes: [a]), host.ink.drawing)
@@ -175,7 +176,22 @@ final class ChordInkAutomaticCadenceWorkflowTests: XCTestCase {
             XCTAssertTrue(host.reader.isHeld(.g))
             XCTAssertEqual(host.model.chart.measures.count, 1,
                 "The structure cannot render before its full existing grace")
-            assertSameInk(PKDrawing(strokes: [f, bar, g]), host.ink.drawing)
+            // The unchanged F may finish independently before the boundary's
+            // own grace. Whichever transaction has run, every source stroke
+            // must belong exactly once to either its event or resident ink.
+            let renderedBeforeBoundary = events(host.model.chart)
+            XCTAssertTrue(renderedBeforeBoundary.isEmpty || texts(host.model.chart) == ["F"])
+            let expectedBeforeBoundary: [PKStroke]
+            if let event = renderedBeforeBoundary.first {
+                assertSameInk(PKDrawing(strokes: [f]),
+                    try PKDrawing(data: XCTUnwrap(event.sourceInkData)))
+                expectedBeforeBoundary = [bar, g]
+            } else {
+                expectedBeforeBoundary = [f, bar, g]
+            }
+            assertSameInk(PKDrawing(strokes: expectedBeforeBoundary), host.ink.drawing)
+            assertSameInk(PKDrawing(strokes: expectedBeforeBoundary),
+                try PKDrawing(data: XCTUnwrap(host.model.chart.pageHandwrittenChordData)))
 
             // No new Pencil callback, recognition completion, or manual
             // render follows G's pen-up. The scheduled structural deadline

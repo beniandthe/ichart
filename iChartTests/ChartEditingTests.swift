@@ -1278,6 +1278,8 @@ final class ChartEditingTests: XCTestCase {
                 spellingIntent: .explicit
             )
         )
+        XCTAssertTrue(chart.replaceChordEvent(explicitFlatID,
+            with: try ChordSymbolParser.parse("Db7/F"), rawInput: "Db7/F"))
 
         XCTAssertTrue(chart.setKeyChange(.eFlatMajor, atStartOf: measureIDs[1]))
         let automaticFlatID = try XCTUnwrap(
@@ -1295,7 +1297,7 @@ final class ChartEditingTests: XCTestCase {
                 for: try XCTUnwrap(chart.chordEvent(id: automaticSharpID)),
                 in: measureIDs[0]
             ).displayText,
-            "C#7/F"
+            "C#7/E#"
         )
         XCTAssertEqual(
             chart.displayedChordSymbol(
@@ -1309,14 +1311,14 @@ final class ChartEditingTests: XCTestCase {
                 for: try XCTUnwrap(chart.chordEvent(id: automaticFlatID)),
                 in: measureIDs[1]
             ).displayText,
-            "Gb7/Db"
+            "F#7/C#"
         )
         XCTAssertEqual(
             chart.enharmonicChordSpellingTexts(
                 for: try XCTUnwrap(chart.chordEvent(id: automaticSharpID)),
                 in: measureIDs[0]
             ),
-            ["Db7/F", "C#7/F"]
+            ["Db7/F", "C#7/E#"]
         )
 
         var neutralChart = Chart.blank(title: "Neutral", key: .cMajor, measureCount: 1, layoutStyle: .simpleChordSheet)
@@ -1353,14 +1355,14 @@ final class ChartEditingTests: XCTestCase {
 
         var chord = try XCTUnwrap(chart.chordEvent(id: chordID))
         XCTAssertEqual(chord.spellingIntent, .automatic)
-        XCTAssertEqual(chart.displayedChordSymbol(for: chord, in: measureID).displayText, "C#7/F")
+        XCTAssertEqual(chart.displayedChordSymbol(for: chord, in: measureID).displayText, "C#7/E#")
 
         XCTAssertTrue(chart.setDisplayedDocumentKey(.eFlatMajor))
 
         chord = try XCTUnwrap(chart.chordEvent(id: chordID))
         XCTAssertEqual(chord.spellingIntent, .automatic)
         XCTAssertEqual(chord.symbol.displayText, "D7/F#")
-        XCTAssertEqual(chart.displayedChordSymbol(for: chord, in: measureID).displayText, "D7/Gb")
+        XCTAssertEqual(chart.displayedChordSymbol(for: chord, in: measureID).displayText, "D7/F#")
     }
 
     func testInstrumentTranspositionRespellsAutomaticChordDisplay() throws {
@@ -1382,7 +1384,7 @@ final class ChartEditingTests: XCTestCase {
 
         let transposedChord = try XCTUnwrap(chart.chordEvent(id: chordID))
         XCTAssertEqual(chart.displayedDocumentKey, .dMajor)
-        XCTAssertEqual(chart.displayedChordSymbol(for: transposedChord, in: measureID).displayText, "D#7/G")
+        XCTAssertEqual(chart.displayedChordSymbol(for: transposedChord, in: measureID).displayText, "Eb7/G")
     }
 
     func testLegacyChartAndChordEventDecodingDefaultsV11Fields() throws {
@@ -1515,11 +1517,11 @@ final class ChartEditingTests: XCTestCase {
         )
 
         let storedChord = try XCTUnwrap(chart.chordEvent(id: chordID))
-        XCTAssertEqual(storedChord.symbol.displayText, "G#/C")
-        XCTAssertEqual(storedChord.rawInput, "G#/C")
-        XCTAssertEqual(chart.displayedChordSymbol(for: storedChord).displayText, "G#/C")
+        XCTAssertEqual(storedChord.symbol.displayText, "G#/B#")
+        XCTAssertEqual(storedChord.rawInput, "G#/B#")
+        XCTAssertEqual(chart.displayedChordSymbol(for: storedChord).displayText, "G#/B#")
         XCTAssertEqual(chart.chordTranspositionSemitones, 0)
-        XCTAssertEqual(chart.measures.first?.chordEvents.map(\.symbol.displayText), ["G#/C", "D"])
+        XCTAssertEqual(chart.measures.first?.chordEvents.map(\.symbol.displayText), ["G#/B#", "D"])
     }
 
     func testAppliedChordTranspositionPreservesAccidentalFamilyForFlatChords() throws {
@@ -1580,8 +1582,8 @@ final class ChartEditingTests: XCTestCase {
 
         XCTAssertEqual(decodedChart.chordTranspositionSemitones, 0)
         XCTAssertEqual(decodedChart.chordTranspositionDisplayText, "Written")
-        XCTAssertEqual(decodedChord.symbol.displayText, "G#/C")
-        XCTAssertEqual(decodedChord.rawInput, "G#/C")
+        XCTAssertEqual(decodedChord.symbol.displayText, "G#/B#")
+        XCTAssertEqual(decodedChord.rawInput, "G#/B#")
     }
 
     func testLegacyChartDecodingDefaultsHeaderInputModeToTyped() throws {

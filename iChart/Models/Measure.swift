@@ -97,6 +97,7 @@ struct Measure: Identifiable, Codable, Hashable {
     var rhythmFittedRowID: UUID? = nil
     var usesDrawnRhythmTailWidth = false
     var rhythmSectionSplitLayoutSource: RhythmSectionSplitLayoutSource? = nil
+    var paperLayout: PaperMeasureLayout? = nil
     var handwrittenRhythmicNotationData: Data? = nil
     var handwrittenRhythmicNotationCoordinateSpace: PersistentInkCoordinateSpace? = nil
     var barlineAfter: BarlineType
@@ -158,6 +159,7 @@ struct Measure: Identifiable, Codable, Hashable {
         case rhythmFittedRowID
         case usesDrawnRhythmTailWidth
         case rhythmSectionSplitLayoutSource
+        case paperLayout
         case handwrittenRhythmicNotationData
         case handwrittenRhythmicNotationCoordinateSpace
         case barlineAfter
@@ -181,6 +183,8 @@ struct Measure: Identifiable, Codable, Hashable {
         usesDrawnRhythmTailWidth = try container.decodeIfPresent(Bool.self, forKey: .usesDrawnRhythmTailWidth) ?? false
         rhythmSectionSplitLayoutSource = try container.decodeIfPresent(RhythmSectionSplitLayoutSource.self,
             forKey: .rhythmSectionSplitLayoutSource)
+        paperLayout = try container.decodeIfPresent(PaperMeasureLayout.self, forKey: .paperLayout)
+        if paperLayout?.isValid == false { paperLayout = nil }
         handwrittenRhythmicNotationData = normalizedPersistentInkDrawingData(
             try container.decodeIfPresent(Data.self, forKey: .handwrittenRhythmicNotationData)
         )
@@ -218,6 +222,7 @@ struct Measure: Identifiable, Codable, Hashable {
             try container.encode(true, forKey: .usesDrawnRhythmTailWidth)
         }
         try container.encodeIfPresent(rhythmSectionSplitLayoutSource, forKey: .rhythmSectionSplitLayoutSource)
+        try container.encodeIfPresent(paperLayout, forKey: .paperLayout)
         try container.encodeIfPresent(handwrittenRhythmicNotationData, forKey: .handwrittenRhythmicNotationData)
         try container.encodeIfPresent(
             handwrittenRhythmicNotationCoordinateSpace,

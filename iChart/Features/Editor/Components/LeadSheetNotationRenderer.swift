@@ -1022,7 +1022,8 @@ struct LeadSheetNotationRenderer {
         for paperPage: LeadSheetPaperPageLayout,
         pageLayout: LeadSheetPageLayout,
         in context: CGContext,
-        excludingMarkID: UUID? = nil
+        excludingMarkID: UUID? = nil,
+        excludingMeasureID: UUID? = nil
     ) {
         guard !chart.freeInkArticulations.isEmpty else { return }
         context.saveGState()
@@ -1030,6 +1031,7 @@ struct LeadSheetNotationRenderer {
         defer { context.restoreGState() }
         for mark in chart.freeInkArticulations where mark.id != excludingMarkID {
             guard let target = FreeInkArticulationPlacement.target(for: mark, chart: chart, pageLayout: pageLayout),
+                  excludingMeasureID == nil || target.measureID != excludingMeasureID,
                   paperPage.frame.contains(target.center) else { continue }
             drawFreeInkArticulation(mark.kind, at: target)
         }

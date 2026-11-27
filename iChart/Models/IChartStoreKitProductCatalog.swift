@@ -34,8 +34,8 @@ enum IChartStoreKitProductCatalog {
     #else
     static let proMonthlyProductID = "com.ichart.app.pro.monthly"
     static let proAnnualProductID = "com.ichart.app.pro.annual"
-    static let targetMonthlyPriceCents = 799
-    static let targetAnnualPriceCents = 6_499
+    static let targetMonthlyPriceCents = 699
+    static let targetAnnualPriceCents = 6_000
     #endif
 
     static let proProductIDs: [String] = [
@@ -92,14 +92,14 @@ enum IChartStoreKitProductCatalog {
             id: proMonthlyProductID,
             displayName: "iChart Pro Monthly",
             description: "Monthly Pro access for iChart.",
-            displayPrice: "$7.99",
+            displayPrice: "$6.99",
             valueBadge: valueBadge(for: proMonthlyProductID, recurringPrices: localPreviewRecurringPrices)
         ),
         IChartStoreKitProductOption(
             id: proAnnualProductID,
             displayName: "iChart Pro Annual",
             description: "Annual Pro access for iChart.",
-            displayPrice: "$64.99",
+            displayPrice: "$60.00",
             valueBadge: valueBadge(for: proAnnualProductID, recurringPrices: localPreviewRecurringPrices)
         )
     ]

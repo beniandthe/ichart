@@ -431,6 +431,86 @@ test("webhook refuses to process signedPayload without verifier", async () => {
   assert.equal(wroteSubscription, false);
 });
 
+test("webhook acknowledges only verified TEST probes without resolving owners or writing authority", async () => {
+  // The real staging verifier only accepts Sandbox; scope rejection is also
+  // exercised through the real verifier in the offline crypto tests.
+  for (const [stagingStoreKitProducts, environment] of [[false, "Sandbox"], [false, "Production"], [true, "Sandbox"]]) {
+      let outerVerifications = 0;
+      let authorityCalls = 0;
+      const forbidden = () => { authorityCalls++; assert.fail("TEST must not enter transaction, owner or authority paths"); };
+      const response = await handleAppStoreServerNotificationRequest(new Request("https://example.test/notification", {
+        method: "POST", body: JSON.stringify({ signedPayload: "verified-test-envelope" }),
+      }), {
+        stagingStoreKitProducts,
+        verifyAndDecodeNotification: async (value) => {
+          assert.equal(value, "verified-test-envelope"); outerVerifications++;
+          return { notificationType: "TEST", version: "2.0", notificationUUID: "synthetic-test-uuid",
+            data: { bundleId: "com.ichart.app", environment } };
+        },
+        verifyAndDecodeTransaction: forbidden,
+        verifyAndDecodeRenewalInfo: forbidden,
+        authenticatedUserID: forbidden,
+        writeSubscriptionAuthority: forbidden,
+        writeSubscriptionAuthorityClaim: forbidden,
+      });
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), { accepted: true, test_notification: true, stored: false });
+      assert.equal(outerVerifications, 1);
+      assert.equal(authorityCalls, 0);
+  }
+});
+
+test("verified TEST never consumes nested purchase fields or writes a replay ledger", async () => {
+  let writes = 0;
+  const response = await handleAppStoreServerNotificationRequest(new Request("https://example.test/notification", {
+    method: "POST", body: JSON.stringify({ signedPayload: "verified-test-envelope" }),
+  }), {
+    verifyAndDecodeNotification: async () => ({ notificationType: "TEST", data: {
+      bundleId: "com.ichart.app", environment: "Sandbox", signedTransactionInfo: "must-not-consume",
+      signedRenewalInfo: "must-not-consume",
+    } }),
+    verifyAndDecodeTransaction: async () => { assert.fail("TEST must not decode nested transactions"); },
+    verifyAndDecodeRenewalInfo: async () => { assert.fail("TEST must not decode nested renewals"); },
+    writeSubscriptionAuthority: async () => { writes++; },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(writes, 0);
+  assert.equal((await response.json()).stored, false);
+});
+
+test("an unsigned TEST hint or rejected signature/app/environment cannot bypass notification verification", async () => {
+  for (const status of [24, 25, 26]) {
+    let writes = 0;
+    const response = await handleAppStoreServerNotificationRequest(new Request("https://example.test/notification", {
+      method: "POST", body: JSON.stringify({ notificationType: "TEST", signedPayload: "rejected-envelope" }),
+    }), {
+      verifyAndDecodeNotification: async () => { throw Object.assign(new Error("scope/signature rejected"), { status }); },
+      writeSubscriptionAuthority: async () => { writes++; },
+    });
+    assert.equal(response.status, 401);
+    assert.equal((await response.json()).accepted, false);
+    assert.equal(writes, 0);
+  }
+  const response = await handleAppStoreServerNotificationRequest(new Request("https://example.test/notification", {
+    method: "POST", body: JSON.stringify({ notificationType: "TEST" }),
+  }), { verifyAndDecodeNotification: async () => { assert.fail("unsigned TEST is not a payload"); } });
+  assert.equal(response.status, 400);
+});
+
+test("only the exact verified TEST type gets transport acknowledgement", async () => {
+  for (const notificationType of ["test", "TEST ", "DID_RENEW", "UNKNOWN"]) {
+    let writes = 0;
+    const response = await handleAppStoreServerNotificationRequest(new Request("https://example.test/notification", {
+      method: "POST", body: JSON.stringify({ signedPayload: "verified-envelope" }),
+    }), {
+      verifyAndDecodeNotification: async () => ({ notificationType, data: { bundleId: "com.ichart.app", environment: "Sandbox" } }),
+      writeSubscriptionAuthority: async () => { writes++; },
+    });
+    assert.equal(response.status, 422);
+    assert.equal(writes, 0);
+  }
+});
+
 test("webhook refuses nested signed payloads until nested verifiers are configured", async () => {
   let wroteSubscription = false;
   const response = await handleAppStoreServerNotificationRequest(

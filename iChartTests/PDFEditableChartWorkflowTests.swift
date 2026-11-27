@@ -104,12 +104,65 @@ final class PDFEditableChartWorkflowTests: XCTestCase {
         XCTAssertNotNil(PDFDocument(url: retained.url)?.page(at: 0))
     }
 
-    private func textPDF(lines: [String]) -> Data {
-        UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 612, height: 792)).pdfData { context in
+    func testMultipageTextGridKeepsPageOrderAndChordPlacement() async throws {
+        let source = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID()).pdf")
+        defer { try? FileManager.default.removeItem(at: source) }
+        let original = textPDF(pages: [
+            ["Concert grid", "| Bbmaj7 | Dm7 | G7 Cmaj7 | F/G |"],
+            ["| Am7 | C7 | D7 | Gmaj7 |"]
+        ])
+        try original.write(to: source)
+
+        let draft = try await PDFEditableChartReader.read(from: source, title: "Concert grid")
+        XCTAssertEqual(draft.rows, [
+            ["Bbmaj7", "Dm7", "G7 Cmaj7", "F/G"],
+            ["Am7", "C7", "D7", "Gmaj7"]
+        ])
+        XCTAssertEqual(draft.sourcePageNumber(forRow: 0), 1)
+        XCTAssertEqual(draft.sourcePageNumber(forRow: 1), 2)
+        let chart = try draft.makeChart(sourcePDFLibraryItemID: UUID())
+        XCTAssertEqual(chart.systems.map { $0.measures.count }, [4, 4])
+        XCTAssertEqual(chart.measures.map { $0.chordEvents.count }, [1, 1, 2, 1, 1, 1, 1, 1])
+        XCTAssertEqual(try Data(contentsOf: source), original)
+    }
+
+    func testAccessibleGridKeepsStackedBassAndOffsetEndingInVisualOrder() async throws {
+        let source = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID()).pdf")
+        defer { try? FileManager.default.removeItem(at: source) }
+        let original = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 612, height: 792)).pdfData { context in
             context.beginPage()
-            for (index, line) in lines.enumerated() {
-                NSString(string: line).draw(at: CGPoint(x: 40, y: CGFloat(40 + index * 40)),
-                    withAttributes: [.font: UIFont.monospacedSystemFont(ofSize: 18, weight: .regular)])
+            let labels: [(String, CGPoint)] = [
+                ("Bar 1, g Minor Bar LineBar 2, e Flat Over g Bar Line", CGPoint(x: 40, y: 80)),
+                ("Bar 6, b Flat Bar Line", CGPoint(x: 310, y: 130)),
+                ("Made with iReal Pro", CGPoint(x: 175, y: 720))
+            ]
+            for (label, point) in labels {
+                NSString(string: label).draw(at: point,
+                    withAttributes: [.font: UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)])
+            }
+        }
+        try original.write(to: source)
+
+        let draft = try await PDFEditableChartReader.read(from: source, title: "Accessible grid")
+        XCTAssertEqual(draft.rows, [["Gm", "Eb/G"], ["Bb"]])
+        XCTAssertEqual(draft.sourcePageNumber(forRow: 1), 1)
+        let chart = try draft.makeChart(sourcePDFLibraryItemID: UUID())
+        XCTAssertEqual(chart.systems.map { $0.measures.count }, [2, 1])
+        XCTAssertEqual(try Data(contentsOf: source), original)
+    }
+
+    private func textPDF(lines: [String]) -> Data {
+        textPDF(pages: [lines])
+    }
+
+    private func textPDF(pages: [[String]]) -> Data {
+        UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 612, height: 792)).pdfData { context in
+            for lines in pages {
+                context.beginPage()
+                for (index, line) in lines.enumerated() {
+                    NSString(string: line).draw(at: CGPoint(x: 40, y: CGFloat(40 + index * 40)),
+                        withAttributes: [.font: UIFont.monospacedSystemFont(ofSize: 18, weight: .regular)])
+                }
             }
         }
     }

@@ -16,6 +16,19 @@ struct ChordInkAutomaticFeedbackPresentation: Equatable {
 enum ChordInkAutomaticFeedbackPresentationPolicy {
     static let progressDelay: TimeInterval = 0.18
 
+    /// A page-level source or placement refusal must remain visible even when
+    /// the same source also contains recognized chord drafts.
+    static func prefersGlobalStatus(for reason: ChordInkAutomaticRenderReason?) -> Bool {
+        guard let reason else { return false }
+        switch reason {
+        case .needsSpace, .needsSourceRefresh, .placementUnavailable, .barlinePlacementUnavailable,
+             .endingReview, .adjacentWriting, .unrepresentedInk, .restoredInk:
+            return true
+        default:
+            return false
+        }
+    }
+
     static func status(
         for draft: ChordInkDraft, activity: ChordInkAutomaticActivity?,
         feedback: ChordInkAutomaticRenderFeedback, now: Date,
@@ -79,10 +92,16 @@ enum ChordInkAutomaticFeedbackPresentationPolicy {
             $0 == .needsSpace || $0 == .needsSourceRefresh || $0 == .placementUnavailable || $0 == .barlinePlacementUnavailable
                 || $0 == .endingReview || $0 == .adjacentWriting || $0 == .unrepresentedInk
         } ?? false
-        if !hasSafetyRefusal, activity?.phase == .reading || restored || activity == nil {
-            return reading(restored ? "Reading saved writing…" : "Reading ink…")
+        if !hasSafetyRefusal,
+           (activity?.phase == .reading || (activity == nil && providedReason != .restoredInk)) {
+            return reading("Reading ink…")
         }
-        if !restored, elapsed < requiredIdleDelay {
+        if (restored && providedReason == nil) || providedReason == .restoredInk {
+            let detail = "Your handwriting is saved. Keep writing, or tap Fix Writing to check it."
+            return .init(title: "Saved handwriting", detail: detail,
+                accessibilityLabel: "Saved handwriting. \(detail)", canReview: true, isReading: false)
+        }
+        if !restored, !hasSafetyRefusal, elapsed < requiredIdleDelay {
             return reading("Finishing ink…")
         }
         let reason = providedReason ?? (restored ? .restoredInk : .unrepresentedInk)
@@ -405,9 +424,9 @@ enum IChartEditorGuidedTourStep: String, Identifiable {
     var message: String {
         switch self {
         case .setup:
-            "Four measures are ready. Change the setup if you want, then create the page."
+            "Choose the page settings, then create a blank page. You can write your own measure boundaries."
         case .writeChords:
-            "Tap Write & Render and use Apple Pencil to write C, F, G, C in the first four measures. Leave space between chords; completed chords render as you move on. Pause to finish the last chord."
+            "Tap Write & Render and use Apple Pencil to write C, F, G, C in a blue lane. Draw single or double barlines between measures. Leave space between chords; completed chords render as you move on. Pause to finish the last mark."
         case .renderChords:
             "Double-tap a rendered chord with Apple Pencil to edit it. Use Fix Writing if handwriting needs attention. Choose Manual in Rendering to check previews, then use Render Chords or Review & Render. In Review Chords, check each recognition guess."
         case .shapeForm:
@@ -1017,6 +1036,10 @@ struct EditorView: View {
             }
         }
         .onChange(of: canvasMode) { previousMode, mode in
+            if previousMode == .chordEntry, mode != .chordEntry,
+               chart.usesPaperMeasureLayout {
+                _ = chart.finishPaperWritingRows()
+            }
             if mode != .chordEntry { draftEndingBlockerFocus = nil }
             cancelAutomaticChordRendering()
             if previousMode != mode {
@@ -1618,7 +1641,7 @@ struct EditorView: View {
         }
         Section("Key & Transposition") {
         Menu {
-            Text("Changes the key signature and transposes the chart's chords.")
+            Text("Changes the key and chord pitches. Spellings follow the new key and harmony.")
             Menu {
                 keySelectionMenuItems(selectedKey: chart.displayedDocumentKey) { key in
                     activateSelectTool(clearsMeasureSelection: true)
@@ -2143,7 +2166,8 @@ struct EditorView: View {
             manualRenderWithPreview: manualRenderWithPreview,
             hasFreeInkArticulations: !chart.freeInkArticulations.isEmpty,
             isClosingRepeatSelected: canvasMode == .measureEdit && closingRepeatForMeasureInsertion != nil,
-            isLayoutMeasureSelected: isQuickActionsOpen && canvasMode == .browse && measureLayoutTargetID != nil)
+            isLayoutMeasureSelected: isQuickActionsOpen && canvasMode == .browse && measureLayoutTargetID != nil,
+            usesPaperMeasureLayout: chart.usesPaperMeasureLayout)
     }
 
     private func handleToolGuidePresentationChanged(_ isPresented: Bool) {
@@ -2983,8 +3007,7 @@ struct EditorView: View {
     private var primaryAutomaticChordFeedback: (draftID: UUID?, status: ChordInkAutomaticFeedbackPresentation, globalReason: ChordInkAutomaticRenderReason?)? {
         let global = automaticChordFeedback.globalReason ?? automaticChordActivity?.feedback.globalReason
         let usesGlobal = chordPreviewState.draftChords.isEmpty || automaticChordActivity?.phase == .waiting
-            || global == .unrepresentedInk || global == .needsSourceRefresh || global == .endingReview
-            || global == .barlinePlacementUnavailable
+            || ChordInkAutomaticFeedbackPresentationPolicy.prefersGlobalStatus(for: global)
         if usesGlobal, let status = ChordInkAutomaticFeedbackPresentationPolicy.globalStatus(
             activity: automaticChordActivity, feedback: automaticChordFeedback,
             hasSourceInk: hasAutomaticSourceInk, now: automaticChordFeedbackNow,
@@ -3048,6 +3071,9 @@ struct EditorView: View {
     private var barlineRecoveryMessage: String {
         // The presence of a converted mark does not identify the failed guard.
         // Committed Rhythm splits preserve marks and their source anchors.
+        if chart.usesPaperMeasureLayout {
+            return "Your barline is still on the page. Keep writing in the lane, or use Erase to change just that mark."
+        }
         if chart.layoutStyle == .rhythmSectionSheet {
             return "Draw barlines on their own at the empty end of a row, or at a rhythmic boundary inside a measure. A note cannot sustain across the split. Use Measures for other form edits."
         }
@@ -3957,6 +3983,10 @@ struct EditorView: View {
     }
 
     private func equalizeMeasureWidths(containing measureID: UUID, pageLayout: LeadSheetPageLayout) {
+        if chart.usesPaperMeasureLayout {
+            _ = chart.equalizePaperRow(containing: measureID)
+            return
+        }
         if chart.measure(id: measureID)?.rhythmFittedRowID != nil,
            let row = rhythmRowLayout(containing: measureID),
            chart.fitRhythmMeasureRows([row.measureIDs], availableWidths: [row.availableWidth]) {
@@ -6413,7 +6443,7 @@ struct EditorView: View {
         }
 
         var updatedChart = chart
-        guard updatedChart.replaceChordEvent(
+        guard updatedChart.replaceDisplayedChordEvent(
             correction.chordEventID,
             with: match.symbol,
             rawInput: trimmedCandidateText
@@ -7045,7 +7075,7 @@ enum ChordDiagnosticBarlineSymbolGeometry {
     }
 
     static func width(for kind: DraftBarlineKind) -> CGFloat {
-        16
+        kind == .double ? 20 : 16
     }
 
     static func geometry(for kind: DraftBarlineKind, in bounds: CGRect) -> Geometry {
@@ -7053,6 +7083,9 @@ enum ChordDiagnosticBarlineSymbolGeometry {
         let top = bounds.minY + 5
         let height = max(1, bounds.height - 10)
         let bar = CGRect(x: centerX - 1, y: top, width: 2, height: height)
+        if kind == .double {
+            return Geometry(barSegments: [bar.offsetBy(dx: -3, dy: 0), bar.offsetBy(dx: 3, dy: 0)])
+        }
         return Geometry(barSegments: [bar])
     }
 }

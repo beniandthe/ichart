@@ -18,6 +18,11 @@ struct IChartApp: App {
         let appInitSpan = IChartPerformanceTrace.start("app.init")
         let supabaseClients = IChartSupabaseClientFactory.liveClients()
         let libraryStore = ChartLibraryStore.live()
+        if IChartProductAccessPolicy.usesCoordinatedActivation {
+            // Archived billing has no current account owner yet. Start with a
+            // safe local policy before the first frame; phase resolves later.
+            libraryStore.applyAccessPolicy(.betaBasic)
+        }
         let pdfLibraryStore = IChartPDFLibraryStore.live()
         let setlistStore = IChartPDFSetlistStore.live()
         let setlistCloudSyncStore = IChartPDFSetlistCloudSyncStore.live(clients: supabaseClients)
@@ -26,8 +31,10 @@ struct IChartApp: App {
         _store = StateObject(wrappedValue: libraryStore)
         _authStore = StateObject(wrappedValue: IChartAuthStore.live(clients: supabaseClients))
         _cloudSyncStore = StateObject(wrappedValue: ChartCloudSyncStore.live(clients: supabaseClients))
-        _subscriptionStore = StateObject(wrappedValue: IChartStoreKitSubscriptionStore.live(clients: supabaseClients))
-        _betaProStore = StateObject(wrappedValue: IChartBetaProStore.live(clients: supabaseClients))
+        let productAccessStore = IChartBetaProStore.live(clients: supabaseClients)
+        _betaProStore = StateObject(wrappedValue: productAccessStore)
+        _subscriptionStore = StateObject(wrappedValue: IChartStoreKitSubscriptionStore.live(
+            clients: supabaseClients, productAccessStore: productAccessStore))
         _forumStore = StateObject(wrappedValue: IChartForumStore.live(clients: supabaseClients))
         _pdfLibraryStore = StateObject(wrappedValue: pdfLibraryStore)
         _setlistStore = StateObject(wrappedValue: setlistStore)
@@ -65,7 +72,7 @@ struct IChartApp: App {
                         if store.retryLoadingSavedSnapshot() {
                             synchronizeBetaAccess(authStore.state)
                             applySubscriptionState(subscriptionStore.entitlement)
-                            cloudSyncStore.authStateChanged(authStore.state)
+                            cloudSyncStore.authStateChanged(cloudAuthState(authStore.state))
                         }
                     }
                 } else {
@@ -75,11 +82,19 @@ struct IChartApp: App {
                 #if ICHART_STAGING_STOREKIT_PRODUCTS
                 .safeAreaInset(edge: .top, spacing: 0) {
                     VStack(alignment: .leading, spacing: 2) {
+                        #if ICHART_COORDINATED_STAGING_QA
+                        Text("Internal coordinated QA")
+                            .font(.caption.weight(.semibold))
+                        Text("Isolated Sandbox billing and phase testing. Separate QA charts, PDFs and account; public free Pro is unchanged.")
+                            .font(.caption2)
+                            .fixedSize(horizontal: false, vertical: true)
+                        #else
                         Text("Internal staging")
                             .font(.caption.weight(.semibold))
                         Text("Separate QA charts, PDFs and account. Your public app data stays separate.")
                             .font(.caption2)
                             .fixedSize(horizontal: false, vertical: true)
+                        #endif
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal)
@@ -110,7 +125,7 @@ struct IChartApp: App {
                     await subscriptionStore.bootstrap()
                     IChartPerformanceTrace.record("app.bootstrap.subscriptionStore.complete")
                     applySubscriptionState(subscriptionStore.entitlement)
-                    cloudSyncStore.authStateChanged(authStore.state)
+                    cloudSyncStore.authStateChanged(cloudAuthState(authStore.state))
                     IChartPerformanceTrace.end(bootstrapSpan)
                     IChartTelemetry.record(
                         "app.bootstrap_completed",
@@ -122,14 +137,31 @@ struct IChartApp: App {
                 }
                 .onChange(of: subscriptionStore.entitlement) { _, entitlement in
                     applySubscriptionState(entitlement)
-                    cloudSyncStore.authStateChanged(authStore.state)
+                    cloudSyncStore.authStateChanged(cloudAuthState(authStore.state))
+                }
+                .onChange(of: subscriptionStore.billingObservationOwnerID) { _, _ in
+                    applySubscriptionState(subscriptionStore.entitlement)
                 }
                 .onChange(of: subscriptionStore.verifiedSubscriptionOwnerID) { _, _ in
+                    applySubscriptionState(subscriptionStore.entitlement)
                     synchronizeSetlistCloudAccess()
                 }
                 .onChange(of: betaProStore.freeProAccess) { _, _ in
                     applyBetaAccessPolicy()
-                    cloudSyncStore.authStateChanged(authStore.state)
+                    cloudSyncStore.authStateChanged(cloudAuthState(authStore.state))
+                }
+                .onChange(of: betaProStore.resolvedAccessPolicy) { _, _ in
+                    applyBetaAccessPolicy()
+                    cloudSyncStore.authStateChanged(cloudAuthState(authStore.state))
+                    synchronizeSetlistCloudAccess()
+                }
+                .onChange(of: betaProStore.hasFreshProductAccess) { _, _ in
+                    applyBetaAccessPolicy()
+                    cloudSyncStore.authStateChanged(cloudAuthState(authStore.state))
+                    synchronizeSetlistCloudAccess()
+                }
+                .onChange(of: betaProStore.canOfferPaidPurchases) { _, _ in
+                    Task { await subscriptionStore.refreshPurchaseAvailability() }
                 }
                 .task(id: scenePhase) {
                     guard scenePhase == .active else {
@@ -145,6 +177,16 @@ struct IChartApp: App {
                     // One best-effort request; optional delivery is never an
                     // awaited foreground loop or an app-readiness condition.
                     IChartTelemetry.flush()
+                    guard betaProStore.isCoordinatedActivation else { return }
+                    // A bounded foreground observation follows the server phase;
+                    // it never activates by local date or blocks Pencil input.
+                    while !Task.isCancelled {
+                        do { try await Task.sleep(nanoseconds: 60_000_000_000) }
+                        catch { return }
+                        guard !Task.isCancelled else { return }
+                        await retryBetaAccess()
+                        await subscriptionStore.refreshPurchaseAvailability()
+                    }
                 }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .background {
@@ -156,7 +198,7 @@ struct IChartApp: App {
                 .onChange(of: authStore.state) { _, state in
                     // Apply the new account's choice before scheduling cloud work.
                     synchronizeBetaAccess(state)
-                    cloudSyncStore.authStateChanged(state)
+                    cloudSyncStore.authStateChanged(cloudAuthState(state))
                     synchronizeSetlistCloudAccess()
                     Task {
                         await retryBetaAccess()
@@ -169,7 +211,7 @@ struct IChartApp: App {
                     Task {
                         await authStore.handleAuthCallback(url: url)
                         synchronizeBetaAccess(authStore.state)
-                        cloudSyncStore.authStateChanged(authStore.state)
+                        cloudSyncStore.authStateChanged(cloudAuthState(authStore.state))
                         await retryBetaAccess()
                         await subscriptionStore.refreshEntitlements()
                         applySubscriptionState(subscriptionStore.entitlement)
@@ -180,14 +222,19 @@ struct IChartApp: App {
     }
 
     private func synchronizeBetaAccess(_ state: IChartAuthState) {
-        guard IChartProductAccessPolicy.current.isFreeBeta else { return }
+        guard IChartProductAccessPolicy.current.isFreeBeta || betaProStore.isCoordinatedActivation else { return }
         betaProStore.authStateChanged(state)
+        // Mask prior-account billing synchronously, before this account's cached
+        // or freshly read paid phase can expose any paid library gates.
+        if betaProStore.isCoordinatedActivation {
+            applySubscriptionState(subscriptionStore.entitlement)
+        }
         applyBetaAccessPolicy()
     }
 
     @MainActor
     private func retryBetaAccess() async {
-        guard IChartProductAccessPolicy.current.isFreeBeta else { return }
+        guard IChartProductAccessPolicy.current.isFreeBeta || betaProStore.isCoordinatedActivation else { return }
         await betaProStore.retryAfterSessionRecovery {
             if case .temporarilyOffline = authStore.state, !authStore.isWorking {
                 await authStore.refreshSession()
@@ -195,22 +242,38 @@ struct IChartApp: App {
             // A real recovered session must select its own cached access policy
             // before cloud observes the account. Failed reconnects remain offline.
             synchronizeBetaAccess(authStore.state)
-            cloudSyncStore.authStateChanged(authStore.state)
+            cloudSyncStore.authStateChanged(cloudAuthState(authStore.state))
         }
     }
 
     private func applyBetaAccessPolicy() {
-        guard IChartProductAccessPolicy.current.isFreeBeta else { return }
-        store.applyAccessPolicy(betaProStore.freeProAccess ? .freeAllFeatures : .betaBasic)
+        guard IChartProductAccessPolicy.current.isFreeBeta || betaProStore.isCoordinatedActivation else { return }
+        store.applyAccessPolicy(betaProStore.resolvedAccessPolicy)
     }
 
     private func applySubscriptionState(_ entitlement: IChartSubscriptionEntitlement) {
         guard !store.hasUnresolvedLoadFailure else { return }
-        let resolvedEntitlement = entitlement.resolvedForLibraryApplication(
-            currentLibraryEntitlement: store.entitlements.subscription
-        )
+        let resolvedEntitlement: IChartSubscriptionEntitlement
+        if betaProStore.isCoordinatedActivation {
+            resolvedEntitlement = IChartProductAccessResolver.billingForLibrary(subscription: entitlement,
+                verifiedOwnerID: subscriptionStore.billingObservationOwnerID,
+                currentOwnerID: betaProStore.ownerID,
+                currentLibraryEntitlement: store.entitlements.subscription)
+        } else {
+            resolvedEntitlement = entitlement.resolvedForLibraryApplication(
+                currentLibraryEntitlement: store.entitlements.subscription)
+        }
         store.applySubscriptionState(resolvedEntitlement)
         synchronizeSetlistCloudAccess()
+    }
+
+    private func cloudAuthState(_ state: IChartAuthState) -> IChartAuthState {
+        guard betaProStore.isCoordinatedActivation,
+              !betaProStore.hasFreshProductAccess || betaProStore.productAccessStatus?.eligible != true else { return state }
+        // Retained local rights from an offline cache are not a new hosted grant.
+        // Only the cloud observer pauses; the real signed-in account is unchanged.
+        if case .signedIn(let account) = state { return .temporarilyOffline(account) }
+        return state
     }
 
     private func synchronizeSetlistCloudAccess() {
@@ -229,7 +292,9 @@ struct IChartApp: App {
         }
 
         let ownerID = session?.isEmailVerified == true ? session?.id : nil
-        let canSync = ownerID != nil
+        let phaseConfirmed = !betaProStore.isCoordinatedActivation
+            || (betaProStore.hasFreshProductAccess && betaProStore.productAccessStatus?.eligible == true)
+        let canSync = phaseConfirmed && ownerID != nil
             && ownerID == subscriptionStore.verifiedSubscriptionOwnerID
             && subscriptionStore.entitlement.status == .proActive
             && store.entitlements.canSyncPDFSetlists

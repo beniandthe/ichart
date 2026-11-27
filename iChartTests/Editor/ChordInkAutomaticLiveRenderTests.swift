@@ -118,7 +118,7 @@ final class ChordInkAutomaticLiveRenderTests: XCTestCase {
         XCTAssertEqual(host.view.chart.measures.flatMap(\.chordEvents).count, 1)
     }
 
-    func testMissingAndStaleCensusRefuseBothSpatialAndIdleCompletion() async throws {
+    func testMissingCensusRefusesButUnchangedPrefixCommitsOnlyItsExactSource() async throws {
         let host = try makeHost(chart())
         defer { host.window.isHidden = true }
         installDrawing(on: host)
@@ -135,26 +135,53 @@ final class ChordInkAutomaticLiveRenderTests: XCTestCase {
 
         host.canvas.drawing = PKDrawing(strokes: host.canvas.drawing.strokes + [stroke(210)])
         host.view.canvasViewDrawingDidChange(host.canvas)
-        let changedState = state(host.view.chart, drawing: host.canvas.drawing)
+        let expectedTail = PKDrawing(strokes: [host.canvas.drawing.strokes[2]])
         host.coordinator.lastInputAt = inputAt
         XCTAssertNotEqual(host.view.automaticChordInputRevision, previousRevision)
         XCTAssertFalse(host.view.hasCurrentAutomaticChordCensus)
-        let sourceBytes = host.canvas.drawing.dataRepresentation()
-        for delay in [0.05, 2.0] {
-            XCTAssertNil(host.view.renderChordDraftAutomatically(chart: host.view.chart,
-                state: changedState, now: inputAt.addingTimeInterval(delay), lastInputAt: inputAt))
-        }
-        XCTAssertFalse(host.view.installAutomaticChordCensus(requests(for: changedState),
+        XCTAssertFalse(host.view.installAutomaticChordCensus(requests(for: firstState),
             forInkRevision: previousRevision))
         XCTAssertFalse(host.view.hasCurrentAutomaticChordCensus)
-        XCTAssertEqual(host.canvas.drawing.dataRepresentation(), sourceBytes)
-        XCTAssertTrue(host.view.chart.measures.allSatisfy(\.chordEvents.isEmpty))
 
-        installCensus(changedState, on: host)
+        let prefix = try XCTUnwrap(host.view.renderChordDraftAutomatically(chart: host.view.chart,
+            state: firstState, now: inputAt.addingTimeInterval(0.05), lastInputAt: inputAt))
+        XCTAssertEqual(prefix.result.renderedChordCount, 2)
+        XCTAssertEqual(Set(prefix.consumedDraftIDs), Set(firstState.draftChords.map(\.id)))
+        XCTAssertTrue(prefix.remainingState.isEmpty,
+            "The newly appended source has no claim in the older prefix census")
+        let prefixEvents = host.view.chart.measures.flatMap(\.chordEvents)
+        XCTAssertEqual(prefixEvents.map(\.rawInput), ["C", "C"])
+        for (event, draft) in zip(prefixEvents, firstState.draftChords) {
+            XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+                expected: try PKDrawing(data: draft.drawingData),
+                current: try PKDrawing(data: XCTUnwrap(event.sourceInkData))))
+        }
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+            expected: expectedTail, current: host.canvas.drawing))
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+            expected: expectedTail,
+            current: try PKDrawing(data: XCTUnwrap(host.view.chart.pageHandwrittenChordData))))
+        let afterPrefix = host.view.chart
+        let tailBytes = host.canvas.drawing.dataRepresentation()
+        XCTAssertNil(host.view.renderChordDraftAutomatically(chart: afterPrefix,
+            state: firstState, now: inputAt.addingTimeInterval(2), lastInputAt: inputAt))
+        XCTAssertEqual(host.view.chart, afterPrefix)
+        XCTAssertEqual(host.canvas.drawing.dataRepresentation(), tailBytes)
+
+        let tailState = state(host.view.chart, drawing: host.canvas.drawing)
+        installCensus(tailState, on: host)
         let complete = try XCTUnwrap(host.view.renderChordDraftAutomatically(chart: host.view.chart,
-            state: changedState, now: inputAt.addingTimeInterval(2), lastInputAt: inputAt))
-        XCTAssertEqual(complete.result.renderedChordCount, 3)
+            state: tailState, now: inputAt.addingTimeInterval(2), lastInputAt: inputAt))
+        XCTAssertEqual(complete.result.renderedChordCount, 1)
         XCTAssertTrue(host.canvas.drawing.strokes.isEmpty)
+        let finalEvents = host.view.chart.measures.flatMap(\.chordEvents)
+        XCTAssertEqual(finalEvents.count, 3)
+        XCTAssertEqual(Set(finalEvents.map(\.id)).count, 3)
+        XCTAssertEqual(Array(finalEvents.prefix(2)).map(\.id), prefixEvents.map(\.id),
+            "Installing the tail census must not create duplicate earlier events")
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+            expected: expectedTail,
+            current: try PKDrawing(data: XCTUnwrap(finalEvents.last?.sourceInkData))))
     }
 
     func testCurrentCensusLetsTrustedFRenderImmediatelyWhileGIsStillCollecting() async throws {
@@ -192,7 +219,31 @@ final class ChordInkAutomaticLiveRenderTests: XCTestCase {
             expected: expectedG, current: host.canvas.drawing))
     }
 
-    func testOldFCompletionCannotConsumeWhileNewGSourceAwaitsCurrentCensus() async throws {
+    func testEditingEarlierSourceInvalidatesPrefixPermissionAtBothCompletionTimes() async throws {
+        let host = try makeHost(chart())
+        defer { host.window.isHidden = true }
+        installDrawing(on: host)
+        let before = state(host.view.chart, drawing: host.canvas.drawing, texts: ["F", "G"])
+        installCensus(before, on: host)
+        let prior = host.canvas.drawing.strokes
+        let changedRoot = PKDrawing(strokes: [prior[0]])
+            .transformed(using: CGAffineTransform(translationX: 0.25, y: 0)).strokes[0]
+        host.canvas.drawing = PKDrawing(strokes: [changedRoot, prior[1], stroke(210)])
+        host.view.canvasViewDrawingDidChange(host.canvas)
+        host.coordinator.lastInputAt = inputAt
+        let expectedChart = host.view.chart
+        let expectedSource = host.canvas.drawing.dataRepresentation()
+        XCTAssertFalse(host.view.hasCurrentAutomaticChordCensus)
+        for delay in [0.05, 2.0] {
+            XCTAssertNil(host.view.renderChordDraftAutomatically(chart: host.view.chart,
+                state: before, now: inputAt.addingTimeInterval(delay), lastInputAt: inputAt))
+        }
+        XCTAssertEqual(host.view.chart, expectedChart)
+        XCTAssertEqual(host.canvas.drawing.dataRepresentation(), expectedSource)
+        XCTAssertTrue(host.view.chart.measures.flatMap(\.chordEvents).isEmpty)
+    }
+
+    func testUnchangedFPrefixConsumesOnlyFWhileNewGSourceAwaitsCurrentCensus() async throws {
         let host = try makeHost(chart())
         defer { host.window.isHidden = true }
         installDrawing(on: host)
@@ -202,28 +253,45 @@ final class ChordInkAutomaticLiveRenderTests: XCTestCase {
 
         host.canvas.drawing = PKDrawing(strokes: host.canvas.drawing.strokes + [stroke(140)])
         host.view.canvasViewDrawingDidChange(host.canvas)
-        var latest = state(host.view.chart, drawing: host.canvas.drawing, texts: ["F", "G", "G"])
-        latest.draftChords[0] = before.draftChords[0]
-        makeCollecting(&latest.draftChords[1])
-        makeCollecting(&latest.draftChords[2])
+        let expectedRemaining = PKDrawing(strokes: Array(host.canvas.drawing.strokes.dropFirst()))
         host.coordinator.lastInputAt = inputAt
         XCTAssertFalse(host.view.hasCurrentAutomaticChordCensus)
-        let original = host.canvas.drawing.dataRepresentation()
-        // Model a completed F result alongside current collecting ownership.
-        // Even complete source coverage cannot authorize a pending census.
-        for delay in [0.05, 2.0] {
-            XCTAssertNil(host.view.renderChordDraftAutomatically(chart: host.view.chart,
-                state: latest, now: inputAt.addingTimeInterval(delay), lastInputAt: inputAt))
-        }
-        XCTAssertEqual(host.canvas.drawing.dataRepresentation(), original)
-
-        installCensus(latest, on: host)
+        // The exact older F is independent of both the collecting old G and
+        // its new nearby stroke. The pending full census cannot starve F or
+        // grant either newer source any permission to clear.
         let outcome = try XCTUnwrap(host.view.renderChordDraftAutomatically(chart: host.view.chart,
-            state: latest, now: inputAt.addingTimeInterval(0.05), lastInputAt: inputAt))
+            state: before, now: inputAt.addingTimeInterval(0.05), lastInputAt: inputAt))
         XCTAssertEqual(outcome.result.renderedChordCount, 1)
         XCTAssertEqual(host.view.chart.measures.flatMap(\.chordEvents).map(\.rawInput), ["F"])
         XCTAssertEqual(host.canvas.drawing.strokes.count, 2)
-        XCTAssertEqual(outcome.remainingState.draftChords.count, 2)
+        XCTAssertEqual(outcome.remainingState.draftChords.map(\.id), [before.draftChords[1].id])
+        XCTAssertEqual(outcome.remainingState.draftChords.first?.targetLifecycle?.stage, .collecting)
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+            expected: expectedRemaining, current: host.canvas.drawing))
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+            expected: expectedRemaining,
+            current: try PKDrawing(data: XCTUnwrap(host.view.chart.pageHandwrittenChordData))))
+        let event = try XCTUnwrap(host.view.chart.measures.flatMap(\.chordEvents).first)
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+            expected: try PKDrawing(data: before.draftChords[0].drawingData),
+            current: try PKDrawing(data: XCTUnwrap(event.sourceInkData))))
+        let afterPrefix = host.view.chart
+        let retainedBytes = host.canvas.drawing.dataRepresentation()
+        for delay in [0.05, 2.0] {
+            XCTAssertNil(host.view.renderChordDraftAutomatically(chart: afterPrefix,
+                state: before, now: inputAt.addingTimeInterval(delay), lastInputAt: inputAt))
+        }
+        XCTAssertEqual(host.view.chart, afterPrefix)
+        XCTAssertEqual(host.canvas.drawing.dataRepresentation(), retainedBytes)
+
+        var latest = state(host.view.chart, drawing: host.canvas.drawing, texts: ["G", "G"])
+        for index in latest.draftChords.indices { makeCollecting(&latest.draftChords[index]) }
+        installCensus(latest, on: host)
+        XCTAssertNil(host.view.renderChordDraftAutomatically(chart: host.view.chart,
+            state: latest, now: inputAt.addingTimeInterval(2), lastInputAt: inputAt))
+        XCTAssertEqual(host.view.chart, afterPrefix)
+        XCTAssertTrue(ChordInkDraftSourceCoveragePolicy.hasIdenticalVisibleInk(
+            expected: expectedRemaining, current: host.canvas.drawing))
     }
 
     func testSyntheticWritingAndSelectiveRenderingStayIndependentOfOptionalDiagnosticsAndPendingTransport() async throws {

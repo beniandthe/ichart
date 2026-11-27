@@ -15,6 +15,18 @@ struct ActiveMeasureResizeDrag {
     var currentFrame: CGRect
     var transaction: LeadSheetMeasureResizeTransaction? = nil
     var currentPreview: LeadSheetMeasureResizePreview? = nil
+    var paperRowFrame: CGRect? = nil
+}
+
+struct ActivePaperMeasureMove {
+    var measureID: UUID
+    var originalChart: Chart
+    var paperChart: Chart
+    var rowFrame: CGRect
+    var initialFrame: CGRect
+    var startLocation: CGPoint
+    var currentFrame: CGRect
+    var snapshotFrame: CGRect
 }
 
 struct LeadSheetMeasureResizeHandleFrames {
@@ -394,6 +406,7 @@ enum LeadSheetSimpleChordTerminalBarlineGeometry {
         layoutStyle: ChartLayoutStyle
     ) -> CGRect? {
         guard layoutStyle == .simpleChordSheet,
+              !system.usesPaperMeasureLayout,
               let referenceMeasure = system.measures.last,
               let laneFrame = LeadSheetActiveInkScope.chordWritingSystemLaneFrame(
                 for: system,
@@ -414,7 +427,8 @@ enum LeadSheetSimpleChordTerminalBarlineGeometry {
         paperFrame: CGRect,
         layoutStyle: ChartLayoutStyle
     ) -> LeadSheetMeasureLayout {
-        guard system.measures.last?.id == measure.id,
+        guard !system.usesPaperMeasureLayout,
+              system.measures.last?.id == measure.id,
               (measure.isOpen || usesTerminalBarlineAsTrailingBoundary(
                 for: system,
                 paperFrame: paperFrame,
@@ -498,7 +512,7 @@ enum LeadSheetSimpleChordTerminalBarlineGeometry {
         paperFrame: CGRect,
         layoutStyle: ChartLayoutStyle
     ) -> Bool {
-        !usesTerminalBarlineAsTrailingBoundary(
+        !system.usesPaperMeasureLayout && !usesTerminalBarlineAsTrailingBoundary(
             for: system,
             paperFrame: paperFrame,
             layoutStyle: layoutStyle
@@ -514,7 +528,8 @@ enum LeadSheetSimpleChordTerminalBarlineGeometry {
         paperFrame: CGRect,
         layoutStyle: ChartLayoutStyle
     ) -> Bool {
-        guard layoutStyle == .simpleChordSheet,
+        guard !system.usesPaperMeasureLayout,
+              layoutStyle == .simpleChordSheet,
               let referenceMeasure = system.measures.last,
               referenceMeasure.sourceMeasureID != nil,
               LeadSheetRepeatBoundaryPolicy.shouldDrawNormalTrailingBarline(
@@ -905,6 +920,10 @@ enum LeadSheetMeasureResizeGeometry {
                 height: handleSize.height
             )
         )
+    }
+
+    static func moveHandleFrame(for measure: LeadSheetMeasureLayout) -> CGRect {
+        CGRect(x: measure.frame.midX - 16, y: measure.frame.maxY - 15, width: 32, height: 10)
     }
 
     static func hitTarget(at location: CGPoint, in measure: LeadSheetMeasureLayout) -> ActiveMeasureResizeDrag? {

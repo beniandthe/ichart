@@ -59,12 +59,16 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
     @Published private(set) var productOptions: [IChartStoreKitProductOption] = []
     @Published private(set) var entitlement: IChartSubscriptionEntitlement
     @Published private(set) var verifiedSubscriptionOwnerID: UUID?
+    // A successful owner-bound read can also confirm Basic/no subscription.
+    // This presentation association never grants paid server access.
+    @Published private(set) var billingObservationOwnerID: UUID?
     @Published private(set) var state: IChartStoreKitSubscriptionState = .idle
     @Published private(set) var complimentaryOffers: [IChartComplimentaryOffer] = []
     @Published private(set) var complimentaryOfferStatuses: [IChartComplimentaryOfferStatus] = []
 
     private let productIDs: [String]
     private let subscriptionClaimService: IChartStoreKitSubscriptionClaiming?
+    private weak var productAccessStore: IChartBetaProStore?
     private var productsByID: [String: Product] = [:]
     private var transactionUpdatesTask: Task<Void, Never>?
     private var complimentaryAttemptIDsByProduct: [String: UUID] = [:]
@@ -73,18 +77,36 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
     private init(
         productIDs: [String] = IChartStoreKitProductCatalog.proProductIDs,
         entitlement: IChartSubscriptionEntitlement = .basic,
-        subscriptionClaimService: IChartStoreKitSubscriptionClaiming? = nil
+        subscriptionClaimService: IChartStoreKitSubscriptionClaiming? = nil,
+        productAccessStore: IChartBetaProStore? = nil
     ) {
         self.productIDs = productIDs
         self.entitlement = entitlement
         self.subscriptionClaimService = subscriptionClaimService
+        self.productAccessStore = productAccessStore
+    }
+
+    /// Narrow injection point for owner-bound access tests without constructing
+    /// a backend client or Apple Product. Production uses live(clients:).
+    convenience init(entitlement: IChartSubscriptionEntitlement = .basic,
+                     productAccessStore: IChartBetaProStore,
+                     initialProductOptions: [IChartStoreKitProductOption] = []) {
+        self.init(productIDs: IChartStoreKitProductCatalog.proProductIDs,
+                  entitlement: entitlement, subscriptionClaimService: nil,
+                  productAccessStore: productAccessStore)
+        // Display metadata injection cannot create an Apple Product, billing
+        // entitlement or checkout admission. The live initializer never uses it.
+        if productAccessStore.canOfferPaidPurchases {
+            productOptions = initialProductOptions.filter { productIDs.contains($0.id) }
+        }
     }
 
     deinit {
         transactionUpdatesTask?.cancel()
     }
 
-    static func live(clients: IChartSupabaseClients? = nil) -> IChartStoreKitSubscriptionStore {
+    static func live(clients: IChartSupabaseClients? = nil,
+                     productAccessStore: IChartBetaProStore? = nil) -> IChartStoreKitSubscriptionStore {
         let claimService = clients.map {
             IChartSupabaseStoreKitSubscriptionClaimService(
                 authClient: $0.authClient,
@@ -92,7 +114,8 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
                 sessionStore: $0.sessionStore
             )
         }
-        return IChartStoreKitSubscriptionStore(subscriptionClaimService: claimService)
+        return IChartStoreKitSubscriptionStore(subscriptionClaimService: claimService,
+                                              productAccessStore: productAccessStore)
     }
 
     func bootstrap() async {
@@ -104,7 +127,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
             return
         }
 
-        if IChartProductAccessPolicy.current.offersPaidPurchases {
+        if canOfferPaidPurchases {
             await loadProducts()
         }
         await recoverUnfinishedTransactions()
@@ -138,9 +161,11 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
             case .verified(let verifiedEntitlement, _):
                 entitlement = verifiedEntitlement
                 verifiedSubscriptionOwnerID = expectedOwnerID
+                billingObservationOwnerID = expectedOwnerID
                 state = .ready
             case .noRemoteSubscription:
                 verifiedSubscriptionOwnerID = nil
+                billingObservationOwnerID = expectedOwnerID
                 entitlement = IChartStoreKitEntitlementResolver.serverBackedEntitlement(
                     remoteEntitlement: nil,
                     localEntitlement: localEvaluation.entitlement
@@ -148,6 +173,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
                 state = .ready
             case .unavailable(let claimFailed):
                 verifiedSubscriptionOwnerID = nil
+                billingObservationOwnerID = nil
                 if !claimFailed,
                    let fallbackEntitlement = IChartStoreKitEntitlementResolver.serverBackedFallbackForRemoteFailure(
                        localEntitlement: localEvaluation.entitlement
@@ -215,7 +241,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
     }
 
     func purchase(_ product: Product) async {
-        guard IChartProductAccessPolicy.current.offersPaidPurchases else {
+        guard canOfferPaidPurchases else {
             state = .ready
             return
         }
@@ -227,8 +253,10 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
         )
 
         do {
-            let purchaseOptions = try await storeKitPurchaseOptions()
-            let result = try await product.purchase(options: purchaseOptions)
+            let purchaseContext = try await storeKitPurchaseOptions()
+            guard let result = try await performAdmittedPaidCheckout(expectedOwnerID: purchaseContext.ownerID, operation: {
+                try await product.purchase(options: purchaseContext.options)
+            }) else { return }
 
             switch result {
             case .success(let verification):
@@ -305,7 +333,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
     }
 
     func purchase(_ option: IChartStoreKitProductOption) async {
-        guard IChartProductAccessPolicy.current.offersPaidPurchases else {
+        guard canOfferPaidPurchases else {
             state = .ready
             return
         }
@@ -314,6 +342,10 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
             return
         }
 
+        if usesCoordinatedProductAccess {
+            state = .unavailable("Pro subscriptions could not be loaded.")
+            return
+        }
         #if DEBUG && targetEnvironment(simulator)
         state = .purchasing
         applyLocalPreview(.activePro(verifiedAt: Date()))
@@ -325,7 +357,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
 
     @discardableResult
     func purchaseComplimentaryOffer(_ displayedOffer: IChartComplimentaryOffer) async -> Bool {
-        guard IChartProductAccessPolicy.current.offersPaidPurchases else {
+        guard canOfferPaidPurchases else {
             state = .ready
             return false
         }
@@ -426,18 +458,19 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
                 ))
             }
 
-            guard savePendingComplimentaryPurchase(IChartPendingComplimentaryPurchase(
-                accountID: accountID,
-                productID: product.id,
-                attemptID: attemptID,
-                decision: displayedOffer.decision,
-                offerID: displayedOffer.offerID
-            )) else {
-                throw ComplimentaryPurchaseError.pendingContextUnavailable
-            }
-
-            applePurchaseAttempted = true
-            let result = try await product.purchase(options: purchaseOptions)
+            guard let result = try await performAdmittedPaidCheckout(expectedOwnerID: accountID, operation: {
+                guard savePendingComplimentaryPurchase(IChartPendingComplimentaryPurchase(
+                    accountID: accountID,
+                    productID: product.id,
+                    attemptID: attemptID,
+                    decision: displayedOffer.decision,
+                    offerID: displayedOffer.offerID
+                )) else {
+                    throw ComplimentaryPurchaseError.pendingContextUnavailable
+                }
+                applePurchaseAttempted = true
+                return try await product.purchase(options: purchaseOptions)
+            }) else { return false }
             switch result {
             case .success(let verification):
                 guard case .verified(let transaction) = verification,
@@ -466,6 +499,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
                 // if campaign confirmation is pending. It does not finish the gift.
                 entitlement = claimedEntitlement
                 verifiedSubscriptionOwnerID = accountID
+                billingObservationOwnerID = accountID
                 let confirmedResponse = try await subscriptionClaimService.complimentaryOffer(
                     request: IChartComplimentaryOfferServerRequest(
                         action: .confirm,
@@ -624,7 +658,10 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
         complimentaryOfferStatuses = []
         complimentaryAttemptIDsByProduct = [:]
 
-        guard IChartProductAccessPolicy.current.offersPaidPurchases,
+        // Reconcile an accepted benefit independently of whether new checkout
+        // is currently offered. Rollback must not strand its pending marker.
+        await reconcileAcceptedComplimentaryPurchase()
+        guard canOfferPaidPurchases,
               let subscriptionClaimService, !products.isEmpty else {
             return
         }
@@ -717,6 +754,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
                 removePendingComplimentaryPurchase(attemptID: pending.attemptID)
             }
 
+            guard canOfferPaidPurchases else { return }
             complimentaryOffers = refreshedOffers.sorted { lhs, rhs in
                 (productIDs.firstIndex(of: lhs.productID) ?? Int.max)
                     < (productIDs.firstIndex(of: rhs.productID) ?? Int.max)
@@ -729,6 +767,26 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
             complimentaryOffers = []
             complimentaryOfferStatuses = []
             complimentaryAttemptIDsByProduct = [:]
+        }
+    }
+
+    private func reconcileAcceptedComplimentaryPurchase() async {
+        guard IChartProductAccessPolicy.current.offersPaidPurchases,
+              let pending = pendingComplimentaryPurchase(), let subscriptionClaimService else { return }
+        do {
+            guard try await subscriptionClaimService.appAccountToken() == pending.accountID else { return }
+            let signedHistory = await latestVerifiedSignedTransactionInfo(for: pending.productID)
+            let response = try await subscriptionClaimService.complimentaryOffer(request:
+                IChartComplimentaryOfferServerRequest(action: .status, productID: pending.productID,
+                                                      signedTransactionInfo: signedHistory))
+            guard response.recoveryOnly == true,
+                  IChartComplimentaryOfferPolicy.matchesConfirmedPurchase(response, pending: pending,
+                    accountID: pending.accountID, productID: pending.productID),
+                  try await subscriptionClaimService.appAccountToken() == pending.accountID,
+                  pendingComplimentaryPurchase() == pending else { return }
+            removePendingComplimentaryPurchase(attemptID: pending.attemptID)
+        } catch {
+            // Keep accepted pending context for retry; no new purchase is made.
         }
     }
 
@@ -946,6 +1004,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
                 }
                 entitlement = claimedEntitlement
                 verifiedSubscriptionOwnerID = accountID
+                billingObservationOwnerID = accountID
                 let confirmed = try await subscriptionClaimService.complimentaryOffer(
                     request: IChartComplimentaryOfferServerRequest(
                         action: .confirm,
@@ -1019,8 +1078,63 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
         IChartStorageNamespace.defaults.removeObject(forKey: Self.pendingComplimentaryPurchaseKey)
     }
 
+    func entitlementForLibrary(ownerID: UUID?, currentLibraryEntitlement: IChartSubscriptionEntitlement) -> IChartSubscriptionEntitlement {
+        guard usesCoordinatedProductAccess else {
+            return entitlement.resolvedForLibraryApplication(currentLibraryEntitlement: currentLibraryEntitlement)
+        }
+        return IChartProductAccessResolver.billingForLibrary(subscription: entitlement,
+            verifiedOwnerID: billingObservationOwnerID, currentOwnerID: ownerID,
+            currentLibraryEntitlement: currentLibraryEntitlement)
+    }
+
+    private var usesCoordinatedProductAccess: Bool {
+        productAccessStore?.isCoordinatedActivation ?? IChartProductAccessPolicy.usesCoordinatedActivation
+    }
+
+    private var canOfferPaidPurchases: Bool {
+        guard usesCoordinatedProductAccess else { return IChartProductAccessPolicy.current.offersPaidPurchases }
+        return productAccessStore?.canOfferPaidPurchases == true
+    }
+
+    /// The same boundary wraps ordinary and complimentary Apple invocations.
+    /// Tests can supply a harmless operation; production supplies Product.purchase.
+    func performAdmittedPaidCheckout<Value>(expectedOwnerID: UUID?,
+        operation: @MainActor () async throws -> Value) async throws -> Value? {
+        guard canOfferPaidPurchases else {
+            state = .ready
+            return nil
+        }
+        if usesCoordinatedProductAccess {
+            guard let expectedOwnerID, let productAccessStore,
+                  await productAccessStore.authorizePaidCheckout(expectedOwnerID: expectedOwnerID),
+                  productAccessStore.ownerID == expectedOwnerID,
+                  productAccessStore.canOfferPaidPurchases, !Task.isCancelled else {
+                state = .ready
+                return nil
+            }
+        }
+        return try await operation()
+    }
+
+    func refreshPurchaseAvailability() async {
+        if canOfferPaidPurchases {
+            if products.isEmpty { await loadProducts() }
+            await refreshComplimentaryOffers()
+        } else {
+            products = []
+            productsByID = [:]
+            productOptions = []
+            complimentaryOffers = []
+            complimentaryOfferStatuses = []
+            complimentaryAttemptIDsByProduct = [:]
+            await reconcileAcceptedComplimentaryPurchase()
+            // Pending transactions/accepted offer context and entitlement are
+            // untouched; transaction recovery continues through rollback.
+        }
+    }
+
     private func loadProducts() async {
-        guard IChartProductAccessPolicy.current.offersPaidPurchases else {
+        guard canOfferPaidPurchases else {
             products = []
             productsByID = [:]
             productOptions = []
@@ -1028,6 +1142,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
         }
         do {
             let fetchedProducts = try await Product.products(for: productIDs)
+            guard canOfferPaidPurchases else { return }
             products = fetchedProducts.sorted { lhs, rhs in
                 (productIDs.firstIndex(of: lhs.id) ?? Int.max) < (productIDs.firstIndex(of: rhs.id) ?? Int.max)
             }
@@ -1166,13 +1281,13 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
         }
     }
 
-    private func storeKitPurchaseOptions() async throws -> Set<Product.PurchaseOption> {
+    private func storeKitPurchaseOptions() async throws -> (ownerID: UUID, options: Set<Product.PurchaseOption>) {
         guard let subscriptionClaimService,
               let appAccountToken = try await subscriptionClaimService.appAccountToken() else {
             throw ComplimentaryPurchaseError.missingAccount
         }
 
-        return [.appAccountToken(appAccountToken)]
+        return (appAccountToken, [.appAccountToken(appAccountToken)])
     }
 }
 

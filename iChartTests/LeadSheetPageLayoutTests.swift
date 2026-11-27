@@ -4180,8 +4180,8 @@ final class LeadSheetPageLayoutTests: XCTestCase {
         )
         let transposedMeasure = try XCTUnwrap(transposedLayout.systems.first?.measures.first)
 
-        XCTAssertEqual(transposedMeasure.chordLayouts.map(\.text), ["C#", "G#/C"])
-        XCTAssertEqual(chart.measure(id: measureID)?.chordEvents.map(\.symbol.displayText), ["C#", "G#/C"])
+        XCTAssertEqual(transposedMeasure.chordLayouts.map(\.text), ["C#", "G#/B#"])
+        XCTAssertEqual(chart.measure(id: measureID)?.chordEvents.map(\.symbol.displayText), ["C#", "G#/B#"])
         XCTAssertEqual(chart.chordTranspositionSemitones, 0)
         for (transposedTarget, writtenTarget) in zip(
             transposedMeasure.chordLayouts.map(\.snapGuideTarget.x),
@@ -4363,14 +4363,14 @@ final class LeadSheetPageLayoutTests: XCTestCase {
             for: chart,
             pageSize: CGSize(width: 900, height: 1400)
         )
-        XCTAssertEqual(layout.systems.first?.measures.first?.chordLayouts.map(\.text), ["C#7/F"])
+        XCTAssertEqual(layout.systems.first?.measures.first?.chordLayouts.map(\.text), ["C#7/E#"])
 
         XCTAssertTrue(chart.setDisplayedDocumentKey(.eFlatMajor))
         layout = LeadSheetPageLayoutEngine.pageLayout(
             for: chart,
             pageSize: CGSize(width: 900, height: 1400)
         )
-        XCTAssertEqual(layout.systems.first?.measures.first?.chordLayouts.map(\.text), ["D7/Gb"])
+        XCTAssertEqual(layout.systems.first?.measures.first?.chordLayouts.map(\.text), ["D7/F#"])
 
         chart.setInstrumentTranspositionView(.bb)
         layout = LeadSheetPageLayoutEngine.pageLayout(
@@ -4378,7 +4378,7 @@ final class LeadSheetPageLayoutTests: XCTestCase {
             pageSize: CGSize(width: 900, height: 1400)
         )
         XCTAssertEqual(chart.displayedDocumentKey, .fMajor)
-        XCTAssertEqual(layout.systems.first?.measures.first?.chordLayouts.map(\.text), ["E7/Ab"])
+        XCTAssertEqual(layout.systems.first?.measures.first?.chordLayouts.map(\.text), ["E7/G#"])
     }
 
     func testSimpleChordSheetKeyAndChordTranspositionKeepDenseMeasureGeometryStable() throws {

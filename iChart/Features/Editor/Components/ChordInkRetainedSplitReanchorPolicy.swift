@@ -2,9 +2,10 @@
 import Foundation
 import PencilKit
 
-/// Rebuilds retained chord anchors after an ordinary divider partitions an
+/// Rebuilds retained source anchors after an ordinary divider partitions an
 /// open measure. This is source verification, not permission to consume ink:
 /// the caller still owns the pen-up, transaction, and glyph collision checks.
+@MainActor
 enum ChordInkRetainedSplitReanchorPolicy {
     static func reanchored(
         state: ChordPreviewState,
@@ -12,7 +13,9 @@ enum ChordInkRetainedSplitReanchorPolicy {
         originalLayout: LeadSheetPageLayout,
         destinationLayout: LeadSheetPageLayout,
         sourceFrame: CGRect,
-        layoutStyle: ChartLayoutStyle
+        layoutStyle: ChartLayoutStyle,
+        originalDrawing: PKDrawing? = nil,
+        removingSourceIndices: Set<Int> = []
     ) -> ChordPreviewState? {
         let originalRegion = LeadSheetActiveInkScope.chordWritingRegion(for: originalLayout)
         let destinationRegion = LeadSheetActiveInkScope.chordWritingRegion(for: destinationLayout)
@@ -20,17 +23,41 @@ enum ChordInkRetainedSplitReanchorPolicy {
               originalRegion == destinationRegion,
               originalRegion.frame == sourceFrame,
               originalLayout.pageBounds == destinationLayout.pageBounds,
-              state.draftBarlines.isEmpty, state.draftEndings.isEmpty,
-              !state.draftChords.isEmpty else { return nil }
+              state.draftEndings.isEmpty,
+              !state.draftChords.isEmpty || !state.draftBarlines.isEmpty else { return nil }
+
+        let remappedBarlines = ChordDraftBarlineDeletionPolicy.remappingSourceIndices(
+            state.draftBarlines, afterRemoving: removingSourceIndices)
+        guard remappedBarlines.count == state.draftBarlines.count else { return nil }
+        if !state.draftBarlines.isEmpty {
+            // Structural claims use indices into the whole original source.
+            // Prove that rebasing them refers to those very same raw strokes,
+            // rather than a nearby line at the new canonical fraction.
+            guard let originalDrawing,
+                  removingSourceIndices.allSatisfy(originalDrawing.strokes.indices.contains) else { return nil }
+            let retainedSource = PKDrawing(strokes: originalDrawing.strokes.enumerated().compactMap {
+                removingSourceIndices.contains($0.offset) ? nil : $0.element
+            })
+            guard ChordInkAutomaticSourcePrefixPolicy.hasIdenticalOrderedSource(
+                snapshot: retainedSource, current: drawing) else { return nil }
+        }
 
         // Match whole, uniquely owned live strokes, including chronology and
         // transforms. Neither a nearby mark nor a bitmap fragment shared with
         // another target may inherit a correction or a new measure anchor.
+        var remappedState = state
+        remappedState.draftBarlines = remappedBarlines
         var ownedIndices = Set<Int>()
         for draft in state.draftChords {
-            guard let plan = ChordInkDraftLocalRewritePolicy.plan(for: draft, in: state, source: drawing),
+            guard let plan = ChordInkDraftLocalRewritePolicy.plan(for: draft, in: remappedState, source: drawing),
                   ownedIndices.isDisjoint(with: plan.originalStrokeIndices) else { return nil }
             ownedIndices.formUnion(plan.originalStrokeIndices)
+        }
+        for barline in remappedBarlines {
+            let indices = barline.ownedSourceStrokeIndices
+            guard !indices.isEmpty, indices.allSatisfy(drawing.strokes.indices.contains),
+                  ownedIndices.isDisjoint(with: indices) else { return nil }
+            ownedIndices.formUnion(indices)
         }
 
         // Run the shipping full-source partitioner on the destination layout.
@@ -43,9 +70,17 @@ enum ChordInkRetainedSplitReanchorPolicy {
             chordFrame: sourceFrame, pageLayout: destinationLayout,
             flow: .draftPreview, options: .live, layoutStyle: layoutStyle
         ))
-        guard preparation.barlines.isEmpty, preparation.endings.isEmpty,
-              case .ready(let requests, _) = preparation.outcome,
-              requests.count == state.draftChords.count else { return nil }
+        guard preparation.barlines.count == remappedBarlines.count, preparation.endings.isEmpty else { return nil }
+        let requests: [ChordInkRecognitionSessionRequest]
+        switch preparation.outcome {
+        case .ready(let preparedRequests, _): requests = preparedRequests
+        case .noRecognitionData where state.draftChords.isEmpty:
+            // A retained boundary alone has no chord reader work. Its exact
+            // structural source and canonical destination are still verified.
+            requests = []
+        default: return nil
+        }
+        guard requests.count == state.draftChords.count else { return nil }
 
         var result = state
         var claimedRequests = Set<Int>()
@@ -82,6 +117,26 @@ enum ChordInkRetainedSplitReanchorPolicy {
             result.draftChords[index].requiresManualReviewOnly = original.requiresManualReviewOnly
                 || request.requiresManualReviewOnly
         }
+        var claimedBarlines = Set<Int>()
+        var canonicalBarlines: [DraftBarline] = []
+        for prior in remappedBarlines {
+            let matches = preparation.barlines.indices.filter { index in
+                let fresh = preparation.barlines[index]
+                return fresh.ownedSourceStrokeIndices == prior.ownedSourceStrokeIndices
+                    && fresh.kind == prior.kind && fresh.ambiguity == prior.ambiguity
+                    && fresh.metrics == prior.metrics
+            }
+            guard matches.count == 1, let index = matches.first,
+                  claimedBarlines.insert(index).inserted,
+                  let originalLane = prior.laneLocation,
+                  let destinationLane = preparation.barlines[index].laneLocation,
+                  samePhysicalRow(originalLane: originalLane, destinationLane: destinationLane,
+                    originalLayout: originalLayout, destinationLayout: destinationLayout) else { return nil }
+            var canonical = preparation.barlines[index]
+            canonical.id = prior.id
+            canonicalBarlines.append(canonical)
+        }
+        result.draftBarlines = canonicalBarlines
         result.layoutPageSize = destinationLayout.pageBounds.size
         return result
     }

@@ -13,13 +13,23 @@ final class IChartStagingConfigurationIsolationTests: XCTestCase {
             "SUPABASE_URL": stagingURL,
             "SUPABASE_PUBLISHABLE_KEY": publicKey
         ])
+        #if ICHART_COORDINATED_STAGING_QA
+        XCTAssertEqual(configured?.url.absoluteString, "https://yiuxduqhhbucsmooevxz.supabase.co")
+        XCTAssertEqual(configured?.publishableKey, Bundle.main.object(forInfoDictionaryKey: "SupabasePublishableKey") as? String)
+        #elseif ICHART_PAID_SUBSCRIPTION && !ICHART_STAGING_STOREKIT_PRODUCTS
+        XCTAssertEqual(configured?.url.absoluteString, publicURL)
+        XCTAssertEqual(configured?.publishableKey, Bundle.main.object(forInfoDictionaryKey: "SupabasePublishableKey") as? String)
+        #else
         XCTAssertEqual(configured?.url.absoluteString, stagingURL)
         XCTAssertEqual(configured?.publishableKey, publicKey)
+        #endif
         let ordinary = IChartSupabaseConfiguration.current(environment: [
             "SUPABASE_URL": publicURL,
             "SUPABASE_PUBLISHABLE_KEY": publicKey
         ])
-        #if ICHART_STAGING_STOREKIT_PRODUCTS
+        #if ICHART_COORDINATED_STAGING_QA
+        XCTAssertEqual(ordinary?.url.absoluteString, "https://yiuxduqhhbucsmooevxz.supabase.co")
+        #elseif ICHART_STAGING_STOREKIT_PRODUCTS
         XCTAssertNil(ordinary, "Staging must fail closed when a launch override selects production")
         #else
         XCTAssertEqual(ordinary?.url.absoluteString, publicURL)
@@ -27,7 +37,7 @@ final class IChartStagingConfigurationIsolationTests: XCTestCase {
     }
 
     func testStagingRejectsInsecureAlternateOriginsAndNonClientKeys() {
-        #if ICHART_STAGING_STOREKIT_PRODUCTS
+        #if ICHART_STAGING_STOREKIT_PRODUCTS && !ICHART_COORDINATED_STAGING_QA
         for url in ["http://gfqpbikqvdgtjjgxrkgo.supabase.co", "https://wrong.invalid", stagingURL + "/path", publicURL] {
             XCTAssertNil(IChartSupabaseConfiguration.current(environment: ["SUPABASE_URL": url, "SUPABASE_PUBLISHABLE_KEY": publicKey]))
         }

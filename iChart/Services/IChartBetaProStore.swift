@@ -12,6 +12,18 @@ final class IChartBetaProStore: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var pendingNotice: IChartBetaProNotice?
     @Published private(set) var status: IChartBetaProStatus?
+    @Published private(set) var productAccessStatus: IChartProductAccessStatus?
+    @Published private(set) var resolvedAccessPolicy: IChartProductAccessPolicy
+    @Published private(set) var isAccessChecking: Bool
+    @Published private(set) var hasFreshProductAccess = false
+    @Published private(set) var accessStatusMessage: String?
+    let isCoordinatedActivation: Bool
+
+    var canOfferPaidPurchases: Bool {
+        guard isCoordinatedActivation else { return IChartProductAccessPolicy.current.offersPaidPurchases }
+        return !isOffline && ownerID != nil && hasFreshProductAccess
+            && productAccessStatus?.eligible == true && productAccessStatus?.phase == .paid
+    }
 
     private let service: (any IChartBetaProService)?
     private let defaults: UserDefaults
@@ -21,16 +33,33 @@ final class IChartBetaProStore: ObservableObject {
     private var refreshTaskID: UUID?
     private var sessionRecoveryTask: Task<Void, Never>?
     private var sessionRecoveryTaskID: UUID?
+    // Only authenticated responses observed in this process establish a floor.
+    // A corrupt persisted revision must not suppress a fresh server response.
+    private var lastServerRevision: Int64?
+    private var lastServerNow: Date?
+    private var acceptedProductResponseCounter: UInt64 = 0
 
-    init(service: (any IChartBetaProService)?, defaults: UserDefaults = IChartStorageNamespace.defaults) {
+    init(service: (any IChartBetaProService)?, defaults: UserDefaults = IChartStorageNamespace.defaults,
+         isCoordinatedActivation: Bool = IChartProductAccessPolicy.usesCoordinatedActivation) {
         self.service = service
         self.defaults = defaults
+        self.isCoordinatedActivation = isCoordinatedActivation
+        resolvedAccessPolicy = isCoordinatedActivation || IChartProductAccessPolicy.current.isFreeBeta
+            ? .betaBasic : .current
+        isAccessChecking = isCoordinatedActivation
+        accessStatusMessage = isCoordinatedActivation ? "Checking plan access. Your saved work is available." : nil
     }
 
     /// Apply synchronously before other services observe a new account.
     /// Refresh is explicit so callers can update feature gates before awaiting.
     func authStateChanged(ownerID nextOwnerID: UUID?, isOffline nextOffline: Bool = false) {
         guard ownerID != nextOwnerID || isOffline != nextOffline else { return }
+        let previousOwner = ownerID
+        let previousProductStatus = productAccessStatus
+        if previousOwner != nextOwnerID {
+            lastServerRevision = nil
+            lastServerNow = nil
+        }
         generation &+= 1
         refreshTask?.cancel()
         refreshTask = nil
@@ -46,13 +75,42 @@ final class IChartBetaProStore: ObservableObject {
         errorMessage = nil
         status = nil
         pendingNotice = nil
+        if isCoordinatedActivation {
+            hasFreshProductAccess = false
+            isAccessChecking = true
+            accessStatusMessage = nextOffline
+                ? "Connect to refresh plan access. Your saved work is available."
+                : "Checking plan access. Your saved work is available."
+            let retained = previousOwner == nextOwnerID ? previousProductStatus : nil
+            productAccessStatus = nextOwnerID.flatMap { owner in retained ?? cachedProductStatus(ownerID: owner) }
+            // A same-owner legacy beta choice can retain local tools during an
+            // offline upgrade. It is not a v2 phase, fresh service grant or sale.
+            let legacyLocalPolicy: IChartProductAccessPolicy = nextOwnerID.flatMap { owner in
+                cachedBool("access", ownerID: owner)
+            } == true ? .freeAllFeatures : .betaBasic
+            resolvedAccessPolicy = IChartProductAccessResolver.resolve(status: productAccessStatus, fallback: legacyLocalPolicy)
+            status = productAccessStatus?.betaStatus
+            isEnrolled = productAccessStatus?.participating ?? true
+            freeProAccess = productAccessStatus?.freeProAccess ?? false
+            if nextOwnerID == nil {
+                productAccessStatus = nil
+                resolvedAccessPolicy = .betaBasic
+                status = nil
+                isEnrolled = false
+                freeProAccess = false
+            }
+            return
+        }
         guard let nextOwnerID else {
             isEnrolled = false
             freeProAccess = false
+            resolvedAccessPolicy = IChartProductAccessPolicy.current.isFreeBeta ? .betaBasic : .current
             return
         }
         isEnrolled = cachedBool("participating", ownerID: nextOwnerID) ?? true
         freeProAccess = cachedBool("access", ownerID: nextOwnerID) ?? isEnrolled
+        resolvedAccessPolicy = IChartProductAccessPolicy.current.isFreeBeta
+            ? (freeProAccess ? .freeAllFeatures : .betaBasic) : .current
     }
 
     func refresh() async {
@@ -63,6 +121,7 @@ final class IChartBetaProStore: ObservableObject {
         guard let requestOwner = ownerID, !isOffline, let service, !isWorking else { return }
         generation &+= 1
         let requestGeneration = generation
+        let acceptedResponseAtStart = acceptedProductResponseCounter
         let requestID = UUID()
         isWorking = true
         errorMessage = nil
@@ -78,12 +137,25 @@ final class IChartBetaProStore: ObservableObject {
                 if self.isCurrent(requestOwner, requestGeneration) { self.isWorking = false }
             }
             do {
-                let response = try await service.fetchStatus(for: requestOwner)
-                guard self.isCurrent(requestOwner, requestGeneration), !Task.isCancelled else { return }
-                try self.apply(response, expectedOwner: requestOwner)
+                if self.isCoordinatedActivation {
+                    let response = try await service.fetchProductAccessStatus(for: requestOwner)
+                    guard self.isCurrent(requestOwner, requestGeneration), !Task.isCancelled else { return }
+                    try self.applyProductAccess(response, expectedOwner: requestOwner)
+                } else {
+                    let response = try await service.fetchStatus(for: requestOwner)
+                    guard self.isCurrent(requestOwner, requestGeneration), !Task.isCancelled else { return }
+                    try self.apply(response, expectedOwner: requestOwner)
+                }
             } catch {
                 guard self.isCurrent(requestOwner, requestGeneration), !Task.isCancelled else { return }
-                self.errorMessage = "Could not refresh your free Pro settings. This iPad is still using your last confirmed setting. Try again when connected."
+                if self.isCoordinatedActivation {
+                    if self.acceptedProductResponseCounter == acceptedResponseAtStart,
+                       (error as? IChartBetaProServiceError) != .staleProductAccess {
+                        self.markProductAccessUnavailable()
+                    }
+                } else {
+                    self.errorMessage = "Could not refresh your free Pro settings. This iPad is still using your last confirmed setting. Try again when connected."
+                }
             }
         }
         refreshTaskID = requestID
@@ -138,6 +210,10 @@ final class IChartBetaProStore: ObservableObject {
     @discardableResult
     func setParticipating(_ participating: Bool, for requestOwner: UUID) async -> Bool {
         guard ownerID == requestOwner else { return false }
+        if isCoordinatedActivation && (!hasFreshProductAccess || productAccessStatus?.phase != .freeBeta) {
+            errorMessage = "Refresh plan access before changing free Pro participation. Your saved work is kept."
+            return false
+        }
         guard !isOffline, let service else {
             errorMessage = "Connect to the internet to save this choice. Your last saved choice is unchanged."
             return false
@@ -145,6 +221,7 @@ final class IChartBetaProStore: ObservableObject {
         guard !isWorking else { return false }
         generation &+= 1
         let requestGeneration = generation
+        let acceptedResponseAtStart = acceptedProductResponseCounter
         isWorking = true
         errorMessage = nil
         defer { if isCurrent(requestOwner, requestGeneration) { isWorking = false } }
@@ -154,10 +231,22 @@ final class IChartBetaProStore: ObservableObject {
             guard response.participating == participating else {
                 throw IChartBetaProServiceError.participationNotConfirmed
             }
-            try apply(response, expectedOwner: requestOwner)
+            if isCoordinatedActivation {
+                let productResponse = try await service.fetchProductAccessStatus(for: requestOwner)
+                guard isCurrent(requestOwner, requestGeneration), !Task.isCancelled else { return false }
+                guard productResponse.participating == participating else {
+                    throw IChartBetaProServiceError.participationNotConfirmed
+                }
+                try applyProductAccess(productResponse, expectedOwner: requestOwner)
+            } else {
+                try apply(response, expectedOwner: requestOwner)
+            }
             return true
         } catch {
             guard isCurrent(requestOwner, requestGeneration), !Task.isCancelled else { return false }
+            if isCoordinatedActivation, acceptedProductResponseCounter == acceptedResponseAtStart {
+                markProductAccessUnavailable()
+            }
             errorMessage = "Could not confirm your Pro choice. This iPad is still using your last confirmed setting. Reconnect to check your account."
             return false
         }
@@ -186,10 +275,81 @@ final class IChartBetaProStore: ObservableObject {
         status = response
         isEnrolled = response.participating
         freeProAccess = response.freeProAccess
+        resolvedAccessPolicy = IChartProductAccessPolicy.current.isFreeBeta
+            ? (freeProAccess ? .freeAllFeatures : .betaBasic) : .current
         defaults.set(response.participating, forKey: cacheKey("participating", ownerID: expectedOwner))
         defaults.set(response.freeProAccess, forKey: cacheKey("access", ownerID: expectedOwner))
         let seenNotice = defaults.string(forKey: cacheKey("seenNotice", ownerID: expectedOwner))
         pendingNotice = response.notice.flatMap { $0.id == seenNotice ? nil : $0 }
+    }
+
+    /// A checkout never reuses a cached or coalesced foreground read. The owner
+    /// and generation are checked again after this independent authenticated RPC.
+    func authorizePaidCheckout(expectedOwnerID: UUID) async -> Bool {
+        guard isCoordinatedActivation else { return IChartProductAccessPolicy.current.offersPaidPurchases }
+        guard ownerID == expectedOwnerID, !isOffline, let service else { return false }
+        let requestGeneration = generation
+        let acceptedResponseAtStart = acceptedProductResponseCounter
+        do {
+            let response = try await service.fetchProductAccessStatus(for: expectedOwnerID)
+            guard isCurrent(expectedOwnerID, requestGeneration), !Task.isCancelled else { return false }
+            try applyProductAccess(response, expectedOwner: expectedOwnerID)
+            return canOfferPaidPurchases
+        } catch {
+            guard isCurrent(expectedOwnerID, requestGeneration) else { return false }
+            // An older in-flight read cannot revoke freshness established by a
+            // newer response, but it can never authorize this checkout.
+            if acceptedProductResponseCounter == acceptedResponseAtStart,
+               (error as? IChartBetaProServiceError) != .staleProductAccess {
+                markProductAccessUnavailable()
+            }
+            return false
+        }
+    }
+
+    private func applyProductAccess(_ response: IChartProductAccessStatus, expectedOwner: UUID) throws {
+        guard response.ownerID == expectedOwner else { throw IChartBetaProServiceError.accountChanged }
+        guard response.isRecognizedAndConsistent else { throw IChartBetaProServiceError.inconsistentStatus }
+        if let revision = lastServerRevision {
+            guard response.policyRevision >= revision else { throw IChartBetaProServiceError.staleProductAccess }
+            if response.policyRevision == revision, let serverNow = lastServerNow,
+               response.serverNow < serverNow { throw IChartBetaProServiceError.staleProductAccess }
+        }
+        acceptedProductResponseCounter &+= 1
+        lastServerRevision = response.policyRevision
+        lastServerNow = response.serverNow
+        productAccessStatus = response
+        status = response.betaStatus
+        isEnrolled = response.participating
+        freeProAccess = response.freeProAccess
+        resolvedAccessPolicy = IChartProductAccessResolver.resolve(status: response, fallback: resolvedAccessPolicy)
+        hasFreshProductAccess = true
+        isAccessChecking = false
+        accessStatusMessage = nil
+        errorMessage = nil
+        if let data = try? JSONEncoder().encode(response) {
+            defaults.set(data, forKey: productCacheKey(ownerID: expectedOwner))
+        }
+        let seenNotice = defaults.string(forKey: cacheKey("seenNotice", ownerID: expectedOwner))
+        pendingNotice = response.betaStatus.notice.flatMap { $0.id == seenNotice ? nil : $0 }
+    }
+
+    private func markProductAccessUnavailable() {
+        hasFreshProductAccess = false
+        isAccessChecking = true
+        accessStatusMessage = "Plan access could not be refreshed. Your saved work and last confirmed local access are kept. Try again when connected."
+        errorMessage = accessStatusMessage
+    }
+
+    private func cachedProductStatus(ownerID: UUID) -> IChartProductAccessStatus? {
+        guard let data = defaults.data(forKey: productCacheKey(ownerID: ownerID)), data.count <= 65_536,
+              let response = try? JSONDecoder().decode(IChartProductAccessStatus.self, from: data),
+              response.ownerID == ownerID, response.isRecognizedAndConsistent else { return nil }
+        return response
+    }
+
+    private func productCacheKey(ownerID: UUID) -> String {
+        "iChart.productAccess.v1.\(IChartStorageNamespace.productAccessCacheProjectRef).\(ownerID.uuidString.lowercased())"
     }
 
     private func isCurrent(_ requestOwner: UUID, _ requestGeneration: UInt64) -> Bool {

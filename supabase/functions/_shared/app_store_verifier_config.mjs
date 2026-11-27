@@ -8,6 +8,7 @@ export const appStoreVerifierEnvironmentKeys = Object.freeze({
   rootCertificatesPEM: "APP_STORE_ROOT_CERTIFICATES_PEM",
   enableOnlineChecks: "APP_STORE_ENABLE_ONLINE_CHECKS",
   stagingStoreKitProducts: "ICHART_STAGING_STOREKIT_PRODUCTS",
+  coordinatedStagingQA: "ICHART_COORDINATED_STAGING_QA",
 });
 
 export function appStoreVerifierConfigurationFromEnv(env) {
@@ -17,6 +18,7 @@ export function appStoreVerifierConfigurationFromEnv(env) {
   const appAppleIDValue = envString(env, appStoreVerifierEnvironmentKeys.appAppleID);
   const enableOnlineChecksValue = envString(env, appStoreVerifierEnvironmentKeys.enableOnlineChecks);
   const stagingProductsValue = envString(env, appStoreVerifierEnvironmentKeys.stagingStoreKitProducts);
+  const coordinatedStagingQAValue = envString(env, appStoreVerifierEnvironmentKeys.coordinatedStagingQA);
   const missing = [];
   const errors = [];
 
@@ -60,11 +62,33 @@ export function appStoreVerifierConfigurationFromEnv(env) {
   if (stagingProductsValue.length > 0 && stagingStoreKitProducts === null) {
     errors.push(`${appStoreVerifierEnvironmentKeys.stagingStoreKitProducts} must be true or false.`);
   }
+  const coordinatedStagingQA = parseOptionalBoolean(coordinatedStagingQAValue);
+  if (coordinatedStagingQAValue.length > 0 && coordinatedStagingQA === null) {
+    errors.push(`${appStoreVerifierEnvironmentKeys.coordinatedStagingQA} must be true or false.`);
+  }
+  const supabaseURL = envString(env, "SUPABASE_URL");
+  const coordinatedQAOrigin = "https://yiuxduqhhbucsmooevxz.supabase.co";
+  if (coordinatedStagingQA === true) {
+    // This is a trusted deployment input, never a client/account override.
+    // The coordinated QA branch shares only the isolated Sandbox product scope.
+    if (stagingStoreKitProducts !== true) {
+      errors.push(`${appStoreVerifierEnvironmentKeys.coordinatedStagingQA} requires ${appStoreVerifierEnvironmentKeys.stagingStoreKitProducts}=true.`);
+    }
+    if (environment !== appStoreVerifierEnvironmentSandbox) {
+      errors.push(`${appStoreVerifierEnvironmentKeys.coordinatedStagingQA} requires Sandbox.`);
+    }
+    if (supabaseURL !== coordinatedQAOrigin) {
+      errors.push(`${appStoreVerifierEnvironmentKeys.coordinatedStagingQA} requires the isolated coordinated QA Supabase project.`);
+    }
+  } else if (supabaseURL === coordinatedQAOrigin) {
+    // A missing/false flag on that branch must not select the public catalog.
+    errors.push(`The coordinated QA Supabase project requires ${appStoreVerifierEnvironmentKeys.coordinatedStagingQA}=true.`);
+  }
   if (stagingStoreKitProducts === true) {
     if (environment !== appStoreVerifierEnvironmentSandbox) {
       errors.push(`${appStoreVerifierEnvironmentKeys.stagingStoreKitProducts} requires Sandbox.`);
     }
-    if (envString(env, "SUPABASE_URL") !== "https://gfqpbikqvdgtjjgxrkgo.supabase.co") {
+    if (coordinatedStagingQA !== true && supabaseURL !== "https://gfqpbikqvdgtjjgxrkgo.supabase.co") {
       errors.push(`${appStoreVerifierEnvironmentKeys.stagingStoreKitProducts} requires the isolated FIX-036 Supabase project.`);
     }
   }
@@ -86,6 +110,7 @@ export function appStoreVerifierConfigurationFromEnv(env) {
       rootCertificateBase64Bodies,
       enableOnlineChecks: enableOnlineChecks ?? defaultOnlineChecksForEnvironment(environment),
       stagingStoreKitProducts: stagingStoreKitProducts === true,
+      coordinatedStagingQA: coordinatedStagingQA === true,
     },
   };
 }

@@ -3,6 +3,7 @@ import { Buffer } from "node:buffer";
 import { sign, X509Certificate } from "node:crypto";
 import { KJUR } from "npm:jsrsasign@11.1.5";
 import { createAppStoreSignedDataVerifiers, verifyCompactAppStoreJWS } from "./app_store_signed_data_verifier.mjs";
+import { handleAppStoreServerNotificationRequest } from "./app_store_subscription_authority.mjs";
 import fixture from "./testdata/app_store_signed_data_verifier.synthetic.json" with { type: "json" };
 
 // These public test keys and certificates were independently encoded by OpenSSL.
@@ -160,4 +161,58 @@ Deno.test("patched verifier rejects a tampered JWS signature", async () => {
   signature[0] ^= 1;
   parts[2] = signature.toString("base64url");
   await assert.rejects(() => verifyCompactAppStoreJWS(parts.join("."), roots, config, "transaction"), { status: 24 });
+});
+
+// TEST has app/environment metadata, but no transaction or subscription identity.
+// These use the unchanged real verifier/Apple SDK with the public synthetic root.
+function signedTestNotification(environment = "Sandbox", dataOverrides = {}) {
+  return signedTransaction({ bundleId: undefined, environment: undefined, transactionId: undefined,
+    notificationType: "TEST", notificationUUID: "synthetic-test-notification", version: "2.0",
+    data: { bundleId: config.bundleID, appAppleId: config.appAppleID, environment, ...dataOverrides } });
+}
+function testNotificationVerifier(environment = "Sandbox", staging = false) {
+  return createAppStoreSignedDataVerifiers({
+    APP_STORE_BUNDLE_ID: config.bundleID, APP_STORE_ENVIRONMENT: environment,
+    APP_STORE_APP_APPLE_ID: String(config.appAppleID),
+    APP_STORE_ROOT_CERTIFICATES_PEM: fixture.rootPEM, APP_STORE_ENABLE_ONLINE_CHECKS: "false",
+    ...(staging ? { ICHART_STAGING_STOREKIT_PRODUCTS: "true",
+      SUPABASE_URL: "https://gfqpbikqvdgtjjgxrkgo.supabase.co" } : {}),
+  });
+}
+async function submitTestNotification(token, verifier) {
+  let writes = 0;
+  const response = await handleAppStoreServerNotificationRequest(new Request("https://example.test/notification", {
+    method: "POST", body: JSON.stringify({ signedPayload: token }),
+  }), { ...verifier, writeSubscriptionAuthority: async () => { writes++; assert.fail("TEST must not write authority/ledger"); } });
+  assert.equal(writes, 0);
+  return response;
+}
+
+Deno.test("real verified TEST acknowledges Sandbox, Production and production's Sandbox fallback without authority writes", async () => {
+  for (const [configured, payloadEnvironment, staging] of [
+    ["Sandbox", "Sandbox", false], ["Sandbox", "Sandbox", true],
+    ["Production", "Production", false], ["Production", "Sandbox", false],
+  ]) {
+    const response = await submitTestNotification(signedTestNotification(payloadEnvironment),
+      testNotificationVerifier(configured, staging));
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { accepted: true, test_notification: true, stored: false });
+  }
+});
+
+Deno.test("real TEST verification still rejects wrong app, forbidden environment, app ID and signature", async () => {
+  const valid = signedTestNotification();
+  const parts = valid.split(".");
+  const signature = Buffer.from(parts[2], "base64url"); signature[0] ^= 1;
+  parts[2] = signature.toString("base64url");
+  for (const [token, verifier] of [
+    [signedTestNotification("Sandbox", { bundleId: "wrong.bundle" }), testNotificationVerifier()],
+    [signedTestNotification("Production"), testNotificationVerifier()],
+    [signedTestNotification("Production", { appAppleId: config.appAppleID + 1 }), testNotificationVerifier("Production")],
+    [parts.join("."), testNotificationVerifier()],
+  ]) {
+    const response = await submitTestNotification(token, verifier);
+    assert.equal(response.status, 401);
+    assert.equal((await response.json()).accepted, false);
+  }
 });

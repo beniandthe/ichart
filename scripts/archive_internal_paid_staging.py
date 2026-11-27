@@ -24,7 +24,8 @@ REQUIRED_FLAGS = {PAID_FLAG, STAGING_FLAG}
 XCODE_SWIFT_WRAPPERS = {
     "builtin-SwiftDriver", "builtin-Swift-Compilation-Requirements", "builtin-Swift-Compilation"
 }
-FORBIDDEN_FLAGS = {"DEBUG", "ICHART_LOCAL_PLAN_QA", "ICHART_LOCAL_QA_PLAN_PREVIEW"}
+FORBIDDEN_FLAGS = {"DEBUG", "ICHART_LOCAL_PLAN_QA", "ICHART_LOCAL_QA_PLAN_PREVIEW",
+                   "ICHART_COORDINATED_STAGING_QA"}
 PUBLIC_KEY = re.compile(r"sb_publishable_[A-Za-z0-9_-]{16,}\Z")
 
 

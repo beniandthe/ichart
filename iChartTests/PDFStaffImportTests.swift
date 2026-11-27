@@ -98,6 +98,51 @@ final class PDFStaffImportTests: XCTestCase {
         XCTAssertEqual(draft.rows, [["Cmaj7", "", "", ""]])
     }
 
+    func testOverprintedGlyphsAreNotExtraChordCharactersOrChanges() async throws {
+        let draft = try await readGeneratedPDF { context in
+            drawStaff(context, chords: [
+                ("Dm7", 90), ("Dm7", 90.2), ("Fmaj7", 210), ("Fmaj7", 210.2),
+                ("C11", 330), ("G7", 450), ("G7", 493)
+            ])
+        }
+
+        XCTAssertEqual(draft.rows, [["Dm7", "Fmaj7", "C11", "G7 G7"]])
+        let chart = try draft.makeChart(sourcePDFLibraryItemID: UUID())
+        XCTAssertEqual(chart.measures.map { $0.chordEvents.count }, [1, 1, 1, 2])
+    }
+
+    func testInaccessibleLaterPageReportsItsNumberWithoutReturningPartialDraft() async throws {
+        do {
+            _ = try await readGeneratedPDF { context in
+                drawStaff(context, chords: [("Cmaj7", 90)])
+                context.beginPage()
+                let drawing = context.cgContext
+                drawing.setFillColor(UIColor.black.cgColor)
+                drawing.fill(CGRect(x: 25, y: 50, width: 90, height: 30))
+            }
+            XCTFail("An unreadable second page must not produce a one-page draft")
+        } catch let error as PDFEditableChartReadError {
+            XCTAssertEqual(error, .noSelectableTextOnPage(2))
+        }
+    }
+
+    func testAccessibleChordLabelsCanWrapWithoutLosingChords() async throws {
+        let draft = try await readGeneratedPDF { _ in
+            let spans: [(String, CGFloat)] = [
+                ("Bar 1,", 120), ("g Minor Bar Line", 140),
+                ("Bar 2, e Flat", 220), ("Over g Bar Line", 240),
+                ("Bar 3, d Unknown Bar Line", 320), ("Made with iReal Pro", 700)
+            ]
+            for (text, y) in spans {
+                NSString(string: text).draw(at: CGPoint(x: 80, y: y),
+                    withAttributes: [.font: UIFont.systemFont(ofSize: 14)])
+            }
+        }
+
+        XCTAssertEqual(draft.rows, [["Gm"], ["Eb/G"], ["[d Unknown]"]])
+        XCTAssertNotNil(draft.reviewIssue(forMeasure: draft.rows[2][0], rowIndex: 2))
+    }
+
     private func assertUnsupportedPDF(
         draw: (UIGraphicsPDFRendererContext) -> Void,
         file: StaticString = #filePath, line: UInt = #line

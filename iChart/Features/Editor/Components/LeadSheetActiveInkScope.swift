@@ -273,8 +273,8 @@ enum LeadSheetActiveInkScope {
             .reduce(firstLane) { partialFrame, laneFrame in
                 partialFrame.union(laneFrame)
             }
-        let leadingX = max(paperBounds.minX, firstLane.minX - 4)
-        let trailingX = paperBounds.maxX
+        let leadingX = system.paperWritingFrame?.minX ?? max(paperBounds.minX, firstLane.minX - 4)
+        let trailingX = system.paperWritingFrame?.maxX ?? paperBounds.maxX
         guard trailingX > leadingX else {
             return nil
         }

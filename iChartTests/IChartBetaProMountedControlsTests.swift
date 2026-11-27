@@ -119,7 +119,8 @@ final class IChartBetaProMountedControlsTests: XCTestCase {
         XCTAssertTrue(rejoin.isEnabled)
         XCTAssertTrue(done.isEnabled)
         XCTAssertTrue(try NativeAccessibilityLookup.matching("Leave Pro — Use Basic", in: mounted.window).isEmpty)
-        try assertNoCheckout(in: mounted.window)
+        try await assertBillingRecoveryControls(in: mounted.window)
+        try assertNoCheckout(in: mounted.window, allowingBillingRecovery: true)
         XCTAssertEqual(library.entitlements.accessPolicy, .betaBasic)
         XCTAssertEqual(library.entitlements.subscription, .basic)
         XCTAssertEqual(subscriptions.entitlement, originalBilling)
@@ -170,10 +171,27 @@ final class IChartBetaProMountedControlsTests: XCTestCase {
         }
     }
 
-    private func assertNoCheckout(in window: UIWindow) throws {
+    private func assertBillingRecoveryControls(in window: UIWindow) async throws {
+        for (label, identifier) in [("Restore Purchases", "upgrade_restore"), ("Manage Subscription", "upgrade_manage")] {
+            try await waitUntil(in: window) {
+                try !NativeAccessibilityLookup.matching(label, in: window, buttonsOnly: true).isEmpty
+            }
+            let matches = try NativeAccessibilityLookup.matching(label, in: window, buttonsOnly: true)
+            XCTAssertEqual(matches.count, 1, "Expected one existing-billing recovery control: \(label)")
+            let recovery = try XCTUnwrap(matches.first)
+            XCTAssertEqual(recovery.identifier, identifier)
+            XCTAssertTrue(recovery.isEnabled)
+        }
+    }
+
+    private func assertNoCheckout(in window: UIWindow, allowingBillingRecovery: Bool = false) throws {
         let paidActions = ["monthly", "annual", "trial", "subscribe", "purchase", "claim", "unlock", "restore"]
+        let recoveryControls = ["restore purchases": "upgrade_restore", "manage subscription": "upgrade_manage"]
         for node in try NativeAccessibilityLookup.nodes(in: window).filter(\.isButton) {
             let label = node.element.accessibilityLabel?.lowercased() ?? ""
+            if allowingBillingRecovery, let identifier = recoveryControls[label], node.identifier == identifier {
+                continue
+            }
             XCTAssertFalse(paidActions.contains(where: label.contains), "Unexpected checkout control: \(label)")
         }
     }

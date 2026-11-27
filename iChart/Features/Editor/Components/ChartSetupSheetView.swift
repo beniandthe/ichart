@@ -148,7 +148,8 @@ struct ChartSetupSheetView: View {
                     if setupPolicy.includesTimeSignatureSelection {
                         meterSection
                     }
-                    if setupPolicy.includesStartingMeasureSelection, !chart.hasCompletedInitialSetup {
+                    if setupPolicy.includesStartingMeasureSelection, !chart.hasCompletedInitialSetup,
+                       !startsWithPaperWritingRows {
                         startingMeasuresSection
                     }
                     sheetStyleSection
@@ -221,7 +222,7 @@ struct ChartSetupSheetView: View {
                         .foregroundStyle(IChartTourStyle.navy)
                 }
 
-                Text("Four measures are ready. Change the setup if you want, then tap Create Blank Page.")
+                Text("Choose the page settings, then tap Create Blank Page. Write chords and barlines in the blue lanes.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -496,6 +497,7 @@ struct ChartSetupSheetView: View {
     }
 
     private func applySetup(to preparedChart: inout Chart) {
+        let createsPaperWritingRows = !preparedChart.hasCompletedInitialSetup && startsWithPaperWritingRows
         let resolvedMeter: Meter
         if setupPolicy.includesTimeSignatureSelection {
             resolvedMeter = Meter(numerator: numerator, denominator: denominator)
@@ -514,6 +516,13 @@ struct ChartSetupSheetView: View {
             clef: shouldShowClefSection ? selectedClef : chart.defaultClef,
             stylePreset: selectedStylePreset
         )
+        if createsPaperWritingRows {
+            preparedChart.initializePaperWritingRows()
+        }
+    }
+
+    private var startsWithPaperWritingRows: Bool {
+        chart.layoutStyle == .simpleChordSheet || chart.layoutStyle == .rhythmSectionSheet
     }
 
 }

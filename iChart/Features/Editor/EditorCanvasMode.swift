@@ -205,12 +205,14 @@ enum EditorCanvasMode: Hashable {
     func activeToolInstruction(
         layoutStyle: ChartLayoutStyle,
         manualRenderWithPreview: Bool,
-        hasFreeInkArticulations: Bool = false
+        hasFreeInkArticulations: Bool = false,
+        usesPaperMeasureLayout: Bool = false
     ) -> String {
         toolGuidance(
             layoutStyle: layoutStyle,
             manualRenderWithPreview: manualRenderWithPreview,
-            hasFreeInkArticulations: hasFreeInkArticulations
+            hasFreeInkArticulations: hasFreeInkArticulations,
+            usesPaperMeasureLayout: usesPaperMeasureLayout
         ).referenceText
     }
 
@@ -219,8 +221,12 @@ enum EditorCanvasMode: Hashable {
         manualRenderWithPreview: Bool,
         hasFreeInkArticulations: Bool = false,
         isClosingRepeatSelected: Bool = false,
-        isLayoutMeasureSelected: Bool = false
+        isLayoutMeasureSelected: Bool = false,
+        usesPaperMeasureLayout: Bool = false
     ) -> EditorToolGuidance {
+        if self == .chordEntry, usesPaperMeasureLayout {
+            return paperWritingGuidance(manualRenderWithPreview: manualRenderWithPreview)
+        }
         switch self {
         case .browse:
             var details = [EditorToolGuidanceSection(
@@ -239,6 +245,10 @@ enum EditorCanvasMode: Hashable {
                     title: "Merge measures",
                     text: "Tap an eligible divider, then its red X to merge the measures."
                 ))
+                details.append(.init(
+                    title: "Move a measure",
+                    text: "Tap a measure, then drag its grab handle or an empty part of the selected measure with Apple Pencil. Lift to place it within the system. Chords and attached ink follow. Drag an edge handle to resize. Moving across other measures changes their order. When measures reorder, the dashed outline shows where yours will land."
+                ))
                 if layoutStyle == .rhythmSectionSheet {
                     details.append(Self.rhythmMeasureResizeGuide)
                 }
@@ -253,7 +263,7 @@ enum EditorCanvasMode: Hashable {
                 title: "Edit items on the chart",
                 steps: ["Use Apple Pencil to select, move, or delete items on the chart. Scroll with a finger.",
                         isLayoutMeasureSelected
-                            ? "Use the Layout actions for the selected measure."
+                            ? "Drag the selected measure's grab handle to move it, or use its Layout actions."
                             : "Tap a chord for width handles. Drag its body to move it."],
                 detailsTitle: "Select guide",
                 details: details
@@ -437,12 +447,12 @@ enum EditorCanvasMode: Hashable {
         case .simpleChordSheet:
             details.append(.init(
                 title: "Barlines",
-                text: "Draw tall barlines between chords with a gap on both sides. A lone rendered chord moves to beat 1 when barlines form its measure."
+                text: "Draw single or double barlines between chords with a gap on both sides. They can be shorter than the lane and drawn in either direction. A lone rendered chord moves to beat 1 when barlines form its measure."
             ))
         case .rhythmSectionSheet:
             details.append(.init(
                 title: "Barlines and measures",
-                text: "The first chord in each measure renders on beat 1. Draw a tall barline to split at a rhythmic boundary. Leave a gap on both sides. A lone rendered chord moves to beat 1 when barlines form its measure. If a note crosses the cut, the line stays as ink. Draw barlines on their own at the empty row end to add measures. Use Measures for other form edits."
+                text: "The first chord in each measure renders on beat 1. Draw a barline to split at a rhythmic boundary. Leave a gap on both sides. It can be shorter than the lane and drawn in either direction. A lone rendered chord moves to beat 1 when barlines form its measure. If a note crosses the cut, the line stays as ink. Draw barlines on their own at the empty row end to add measures. Use Measures for other form edits."
             ))
         case .leadSheet:
             break
@@ -479,6 +489,35 @@ enum EditorCanvasMode: Hashable {
             detailsTitle: "Write & Render guide",
             details: details
         )
+    }
+
+    private func paperWritingGuidance(manualRenderWithPreview: Bool) -> EditorToolGuidance {
+        .init(
+            title: "Write your chart",
+            steps: [
+                "Write chords and single or double barlines in a blue lane. Barlines can be shorter than the lane.",
+                manualRenderWithPreview
+                    ? "Check the previews, then tap Render Chords or Review & Render. Tap Done to finish the row."
+                    : "Complete chords render as you continue writing. Pause to finish the last mark, then tap Done to finish the row."
+            ],
+            context: manualRenderWithPreview ? "Rendering: Manual" : "Rendering: Automatic",
+            detailsTitle: "Write & Render guide",
+            details: [
+                .init(title: "Start anywhere",
+                    text: "New charts have empty writing rows. A starting barline sets the left edge. Draw the next barline to close that measure. Two double barlines enclose one measure. Space enclosed between drawn boundaries is a measure you can select. Draw nearly vertical strokes upward or downward; they need not touch the lane edges. Leave a gap between chords and barlines."),
+                .init(title: "Finish the row",
+                    text: "Tap Done to size the measures across the system. A single measure written away from the left edge keeps its position. In Select, tap a measure and drag its grab handle to move it, or drag an edge handle to resize."),
+                .init(title: "Keep writing",
+                    text: manualRenderWithPreview
+                        ? "Write in any empty row, including its right end. Keep chord suffixes close to their roots. Check the previews before rendering. A lone chord in a newly formed measure sits on beat 1."
+                        : "Write chords and barlines in the same pass, including at the right end of a row. Keep suffixes close to their roots. Completed marks render while unfinished writing stays on the page. A lone chord in a newly formed measure sits on beat 1."),
+                .init(title: "Review writing",
+                    text: manualRenderWithPreview
+                        ? "Use Review & Render to check chord guesses, correct a chord, or choose an ending's label and measures."
+                        : "Use Review Chord or Review Ending when offered. Your unfinished handwriting stays on the page."),
+                .init(title: "Repeats",
+                    text: "Use Repeats for measure and range repeats. Chord-repeat symbols (%) can be handwritten in the lane.")
+            ])
     }
 
     var allowsNoteSelection: Bool {

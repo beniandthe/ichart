@@ -253,7 +253,12 @@ final class FreeBetaAccessPolicyTests: XCTestCase {
             entitlements: AppEntitlements(subscription: .basic)
         )
         store.applySyncedSnapshot(previousPaidSnapshotContract)
-        XCTAssertEqual(store.entitlements, previousPaidSnapshotContract.entitlements)
+        XCTAssertEqual(store.entitlements.accessPolicy, .paidSubscription,
+                       "Cloud billing/content cannot replace the current account's resolved runtime policy")
+        XCTAssertEqual(store.entitlements.subscription, IChartProductAccessPolicy.usesCoordinatedActivation
+            ? .activePro() : previousPaidSnapshotContract.entitlements.subscription)
+        XCTAssertEqual(store.charts, previousPaidSnapshotContract.charts)
+        XCTAssertEqual(store.selectedChartID, previousPaidSnapshotContract.selectedChartID)
     }
 
     private func billingEvidence(_ status: IChartSubscriptionStatus) -> IChartSubscriptionEntitlement {

@@ -86,6 +86,47 @@ final class PDFEditableChartDraftTests: XCTestCase {
         }
     }
 
+    func testPDFGlyphsAreReadyForReviewAndSaveWithTheirMusicalMeaning() throws {
+        let draft = try PDFEditableChartDraft.read(title: "Printed symbols", pages: [
+            "| B♭∆⁷ | C⁷⁽♯⁹⁾ | FŒ„Š⁷∕A |\n| G¨‹⁷ | EØ⁷ | A−⁷ C©⁷ |"
+        ])
+        let expected = try ["Bb∆7", "C7(#9)", "Fmaj7/A", "Gbm7", "Eø7", "A-7", "C#7"]
+            .map(ChordSymbolParser.parse)
+
+        XCTAssertEqual(draft.rows[0], ["B♭∆⁷", "C⁷⁽♯⁹⁾", "FŒ„Š⁷∕A"])
+        XCTAssertTrue(draft.rows.flatMap { $0 }.allSatisfy { draft.reviewIssue(forMeasure: $0) == nil })
+        XCTAssertEqual(draft.previewText(forMeasure: draft.rows[0][0]), "Bb△7")
+        XCTAssertEqual(draft.previewText(forMeasure: draft.rows[1][2]), "A-7   C#7")
+        let chart = try draft.makeChart(sourcePDFLibraryItemID: UUID())
+        XCTAssertEqual(chart.measures.flatMap(\.chordEvents).map(\.symbol), expected)
+    }
+
+    func testUnexpectedGlyphsStayAsSourceTextUntilCorrected() {
+        let draft = PDFEditableChartDraft(title: "Source", rows: [])
+        for source in ["DDmm77", "FFŒŒ„„ŠŠ77", "F�7", "C7??", "A/Bb/C", "•/•"] {
+            XCTAssertNotNil(draft.reviewIssue(forMeasure: source), source)
+            XCTAssertEqual(draft.previewText(forMeasure: source), source)
+        }
+    }
+
+    func testMixedPDFRowsUseTheirOwnBlankAndSpellingRules() throws {
+        var draft = PDFEditableChartDraft(title: "Mixed", rows: [["C#", ""], ["C#", ""], ["G"]],
+            pdfPageNumbers: [1, 2, 2], drawnBarlineRows: [1, 2])
+
+        XCTAssertEqual(draft.rowLabel(0), "PDF page 1 · Row 1")
+        XCTAssertEqual(draft.rowLabel(2), "PDF page 2 · Row 2")
+        XCTAssertEqual(draft.sourcePageNumber(forRow: 1), 2)
+        XCTAssertNotNil(draft.reviewIssue(forMeasure: "", rowIndex: 0))
+        XCTAssertNil(draft.reviewIssue(forMeasure: "", rowIndex: 1))
+        XCTAssertThrowsError(try draft.makeChart(sourcePDFLibraryItemID: UUID()))
+
+        draft.rows[0][1] = "D"
+        let chart = try draft.makeChart(sourcePDFLibraryItemID: UUID())
+        XCTAssertEqual(chart.measures.map { $0.chordEvents.count }, [1, 1, 1, 0, 1])
+        XCTAssertEqual(chart.measures[0].chordEvents[0].spellingIntent, .automatic)
+        XCTAssertEqual(chart.measures[2].chordEvents[0].spellingIntent, .explicit)
+    }
+
     func testDraftEditedToAnInvalidGridCannotCreateAnEmptyOrUnsupportedChart() throws {
         for rows in [[], [[]], [["C", "G", ""]]] as [[[String]]] {
             let draft = PDFEditableChartDraft(title: "Draft", rows: rows)
