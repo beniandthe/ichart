@@ -447,12 +447,12 @@ enum EditorCanvasMode: Hashable {
         case .simpleChordSheet:
             details.append(.init(
                 title: "Barlines",
-                text: "Draw tall barlines between chords with a gap on both sides. A lone rendered chord moves to beat 1 when barlines form its measure."
+                text: "Draw single or double barlines between chords with a gap on both sides. They can be shorter than the lane and drawn in either direction. A lone rendered chord moves to beat 1 when barlines form its measure."
             ))
         case .rhythmSectionSheet:
             details.append(.init(
                 title: "Barlines and measures",
-                text: "The first chord in each measure renders on beat 1. Draw a tall barline to split at a rhythmic boundary. Leave a gap on both sides. A lone rendered chord moves to beat 1 when barlines form its measure. If a note crosses the cut, the line stays as ink. Draw barlines on their own at the empty row end to add measures. Use Measures for other form edits."
+                text: "The first chord in each measure renders on beat 1. Draw a barline to split at a rhythmic boundary. Leave a gap on both sides. It can be shorter than the lane and drawn in either direction. A lone rendered chord moves to beat 1 when barlines form its measure. If a note crosses the cut, the line stays as ink. Draw barlines on their own at the empty row end to add measures. Use Measures for other form edits."
             ))
         case .leadSheet:
             break
@@ -495,7 +495,7 @@ enum EditorCanvasMode: Hashable {
         .init(
             title: "Write your chart",
             steps: [
-                "Write chords in a blue lane. Draw single or double barlines where you want the measure boundaries.",
+                "Write chords and single or double barlines in a blue lane. Barlines can be shorter than the lane.",
                 manualRenderWithPreview
                     ? "Check the previews, then tap Render Chords or Review & Render. Tap Done to finish the row."
                     : "Complete chords render as you continue writing. Pause to finish the last mark, then tap Done to finish the row."
@@ -504,7 +504,7 @@ enum EditorCanvasMode: Hashable {
             detailsTitle: "Write & Render guide",
             details: [
                 .init(title: "Start anywhere",
-                    text: "New charts have empty writing rows. A starting barline sets the left edge. Draw the next barline to close that measure. Two double barlines enclose one measure. Space enclosed between drawn boundaries is a measure you can select. Leave a gap between chords and barlines."),
+                    text: "New charts have empty writing rows. A starting barline sets the left edge. Draw the next barline to close that measure. Two double barlines enclose one measure. Space enclosed between drawn boundaries is a measure you can select. Draw nearly vertical strokes upward or downward; they need not touch the lane edges. Leave a gap between chords and barlines."),
                 .init(title: "Finish the row",
                     text: "Tap Done to size the measures across the system. A single measure written away from the left edge keeps its position. In Select, tap a measure and drag its grab handle to move it, or drag an edge handle to resize."),
                 .init(title: "Keep writing",

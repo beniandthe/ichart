@@ -2391,21 +2391,40 @@ final class ChordInkDraftPreviewTests: XCTestCase {
         XCTAssertLessThan(targets[0].visualOrder, targets[1].visualOrder)
     }
 
-    func testDraftBarlineRecognizerRejectsChordLikeVerticalStrokeInsideLane() {
-        let measureID = UUID()
-        let pageLayout = Self.pageLayout(measureID: measureID)
-        let chordStemStroke = InkStroke(points: [
+    func testShortIsolatedVerticalDividerUsesContextualCompleteSourceAllowance() {
+        let pageLayout = Self.pageLayout(measureID: UUID())
+        let stroke = InkStroke(points: [
             InkPoint(x: 150, y: 108, timeOffset: 0),
             InkPoint(x: 151, y: 122, timeOffset: 0.1),
             InkPoint(x: 150, y: 136, timeOffset: 0.2)
         ])
-
         let recognition = ChordDraftBarlineRecognizer.recognize(
-            strokes: [chordStemStroke],
-            chordFrame: .zero,
-            pageLayout: pageLayout
-        )
+            strokes: [stroke], chordFrame: .zero, pageLayout: pageLayout)
+        XCTAssertEqual(recognition.barlines.count, 1)
+        XCTAssertEqual(recognition.strokeIndices, [0])
+        XCTAssertEqual(recognition.barlines.first?.ownedSourceStrokeIndices, [0])
+        XCTAssertTrue(recognition.barlines.first?.requiresCompleteUnmaskedSource == true)
+        // Strict single-stroke ending hypotheses keep the old coverage rule.
+        XCTAssertNil(ChordDraftBarlineRecognizer.candidate(
+            for: stroke, chordFrame: .zero, pageLayout: pageLayout))
+    }
 
+    func testShortVerticalStemRemainsOwnedByItsCompletedChordBody() {
+        let pageLayout = Self.pageLayout(measureID: UUID())
+        let stem = InkStroke(points: [
+            InkPoint(x: 150, y: 108, timeOffset: 0),
+            InkPoint(x: 151, y: 122, timeOffset: 0.1),
+            InkPoint(x: 150, y: 136, timeOffset: 0.2)
+        ])
+        let body = InkStroke(points: [
+            InkPoint(x: 150, y: 108, timeOffset: 0),
+            InkPoint(x: 168, y: 112, timeOffset: 0.05),
+            InkPoint(x: 150, y: 122, timeOffset: 0.1),
+            InkPoint(x: 168, y: 128, timeOffset: 0.15),
+            InkPoint(x: 150, y: 136, timeOffset: 0.2)
+        ])
+        let recognition = ChordDraftBarlineRecognizer.recognize(
+            strokes: [stem, body], chordFrame: .zero, pageLayout: pageLayout)
         XCTAssertTrue(recognition.barlines.isEmpty)
         XCTAssertTrue(recognition.strokeIndices.isEmpty)
     }

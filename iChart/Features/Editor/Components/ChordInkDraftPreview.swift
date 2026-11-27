@@ -738,8 +738,9 @@ struct DraftBarline: Identifiable, Hashable {
     var sourceStrokeGeometry: [InkStroke]
     var metrics: DraftBarlineGestureMetrics
     var ambiguity: DraftBarlineAmbiguity
-    /// Only the new full-lane width allowance requires complete original
-    /// source. Old strict and rendered-gap mask behavior remains unchanged.
+    /// Contextual short dividers and the full-lane width allowance require
+    /// complete original source. Old strict and rendered-gap mask behavior
+    /// remains unchanged.
     var requiresCompleteUnmaskedSource: Bool
 
     init(
@@ -1372,6 +1373,8 @@ enum ChordDraftBarlineRecognizer {
         static let maximumWidthRatio = 0.24
         static let maximumAbsoluteWidth: CGFloat = 12
         static let minimumLaneCoverage = 0.62
+        static let shortDividerMinimumLaneCoverage = 0.45
+        static let shortDividerMinimumStraightness = 0.90
         static let gapMaximumAngleDegreesFromVertical = 24.0
         static let gapMaximumWidthRatio = 0.45
         static let gapMinimumStraightness = 0.90
@@ -1717,7 +1720,12 @@ enum ChordDraftBarlineRecognizer {
         ).first(where: { candidate in
             let coverage = Double(bounds.intersection(candidate.laneFrame).height / max(1, candidate.laneFrame.height))
             let heightRatio = bounds.height / max(1, candidate.laneFrame.height)
-            return coverage >= minimumLaneCoverage
+            let hasShortDividerContext = allowsSlantInRenderedChordGap
+                && hasStandardBarlineShape
+                && straightness >= AcceptanceThresholds.shortDividerMinimumStraightness
+                && coverage >= AcceptanceThresholds.shortDividerMinimumLaneCoverage
+                && !overlapsRenderedChord(for: bounds, in: candidate.system)
+            return (coverage >= minimumLaneCoverage || hasShortDividerContext)
                 && Double(heightRatio) <= maximumHeightToLaneRatio
                 && (hasStandardBarlineShape || (
                     hasFullLaneBarlineShape
@@ -1734,7 +1742,12 @@ enum ChordDraftBarlineRecognizer {
         let laneFrame = target.laneFrame
         let laneCoverage = Double(bounds.intersection(laneFrame).height / max(1, laneFrame.height))
         let heightToLaneRatio = bounds.height / max(1, laneFrame.height)
-        guard laneCoverage >= minimumLaneCoverage,
+        let hasShortDividerContext = allowsSlantInRenderedChordGap
+            && hasStandardBarlineShape
+            && straightness >= AcceptanceThresholds.shortDividerMinimumStraightness
+            && laneCoverage >= AcceptanceThresholds.shortDividerMinimumLaneCoverage
+            && !overlapsRenderedChord(for: bounds, in: target.system)
+        guard laneCoverage >= minimumLaneCoverage || hasShortDividerContext,
               Double(heightToLaneRatio) <= maximumHeightToLaneRatio else {
             return nil
         }
@@ -1775,7 +1788,8 @@ enum ChordDraftBarlineRecognizer {
             ),
             layoutPageSize: pageLayout.pageBounds.size,
             metrics: metrics,
-            requiresCompleteUnmaskedSource: !hasStandardBarlineShape && !usesExistingRenderedGapAllowance
+            requiresCompleteUnmaskedSource: laneCoverage < minimumLaneCoverage
+                || (!hasStandardBarlineShape && !usesExistingRenderedGapAllowance)
         )
     }
 

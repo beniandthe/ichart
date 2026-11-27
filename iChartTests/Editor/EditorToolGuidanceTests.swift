@@ -9,6 +9,8 @@ final class EditorToolGuidanceTests: XCTestCase {
                 let guidance = EditorCanvasMode.chordEntry.toolGuidance(
                     layoutStyle: style, manualRenderWithPreview: manual,
                     usesPaperMeasureLayout: true)
+                XCTAssertTrue(guidance.referenceText.contains("shorter than the lane"))
+                XCTAssertTrue(guidance.referenceText.contains("upward or downward"))
                 XCTAssertTrue(guidance.referenceText.contains(
                     "Space enclosed between drawn boundaries is a measure you can select."))
                 XCTAssertTrue(guidance.referenceText.contains(
@@ -85,7 +87,7 @@ final class EditorToolGuidanceTests: XCTestCase {
                 layoutStyle: .rhythmSectionSheet, manualRenderWithPreview: manual)
             let legacy = EditorCanvasMode.chordEntry.toolGuidance(
                 layoutStyle: .leadSheet, manualRenderWithPreview: manual)
-            XCTAssertTrue(simple.referenceText.contains("Draw tall barlines between chords with a gap on both sides"))
+            XCTAssertTrue(simple.referenceText.contains("Draw single or double barlines between chords with a gap on both sides"))
             XCTAssertFalse(simple.referenceText.contains("rhythmic boundary"))
             XCTAssertTrue(rhythm.referenceText.contains("split at a rhythmic boundary"))
             XCTAssertTrue(rhythm.referenceText.contains("Leave a gap on both sides"))

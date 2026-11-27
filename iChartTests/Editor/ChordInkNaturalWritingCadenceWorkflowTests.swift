@@ -79,6 +79,14 @@ final class ChordInkNaturalWritingCadenceWorkflowTests: XCTestCase {
     }
 
     func testRapidMixedRealChordsAndSingleDoubleBoundariesClearInBothStylesAndModes() async throws {
+        try await driveRapidMixedWriting(heightRatio: 0.92)
+    }
+
+    func testRapidMixedRealChordsAndHalfHeightBoundariesClearInBothStylesAndModes() async throws {
+        try await driveRapidMixedWriting(heightRatio: 0.50)
+    }
+
+    private func driveRapidMixedWriting(heightRatio: CGFloat) async throws {
         for style in styles {
             for manual in [false, true] {
                 let host = try await mount(style: style, paper: true, manual: manual)
@@ -88,11 +96,11 @@ final class ChordInkNaturalWritingCadenceWorkflowTests: XCTestCase {
                 let g = try captured("GCaptured01", fraction: 0.43, in: geometry, seed: 401)
                 let repeatChord = try captured("ChordRepeatCaptured01", fraction: 0.73, in: geometry, seed: 501)
                 let gap = min(7, geometry.lane.width * 0.008)
-                let source = [divider(fraction: 0.04, in: geometry, seed: 310)] + c
-                    + [divider(fraction: 0.34, in: geometry, seed: 410)] + g
-                    + [divider(fraction: 0.64, in: geometry, seed: 510),
-                       divider(fraction: 0.64, xOffset: gap, in: geometry, seed: 511)]
-                    + repeatChord + [divider(fraction: 0.95, in: geometry, seed: 610)]
+                let source = [divider(fraction: 0.04, heightRatio: heightRatio, in: geometry, seed: 310)] + c
+                    + [divider(fraction: 0.34, heightRatio: heightRatio, in: geometry, seed: 410)] + g
+                    + [divider(fraction: 0.64, heightRatio: heightRatio, in: geometry, seed: 510),
+                       divider(fraction: 0.64, xOffset: gap, heightRatio: heightRatio, in: geometry, seed: 511)]
+                    + repeatChord + [divider(fraction: 0.95, heightRatio: heightRatio, in: geometry, seed: 610)]
                 for stroke in source {
                     append([stroke], to: host)
                     try await Task.sleep(nanoseconds: 55_000_000)
@@ -560,11 +568,13 @@ final class ChordInkNaturalWritingCadenceWorkflowTests: XCTestCase {
         }
     }
 
-    private func divider(fraction: CGFloat, xOffset: CGFloat = 0, in geometry: Geometry, seed: UInt32) -> PKStroke {
+    private func divider(fraction: CGFloat, xOffset: CGFloat = 0, heightRatio: CGFloat = 0.92,
+        in geometry: Geometry, seed: UInt32) -> PKStroke {
         let x = geometry.lane.minX + geometry.lane.width * fraction + xOffset - geometry.frame.minX
+        let inset = (1 - heightRatio) / 2
         return stroke([
-            CGPoint(x: x, y: geometry.lane.minY + geometry.lane.height * 0.04 - geometry.frame.minY),
-            CGPoint(x: x, y: geometry.lane.maxY - geometry.lane.height * 0.04 - geometry.frame.minY)
+            CGPoint(x: x, y: geometry.lane.minY + geometry.lane.height * inset - geometry.frame.minY),
+            CGPoint(x: x, y: geometry.lane.maxY - geometry.lane.height * inset - geometry.frame.minY)
         ], seed: seed)
     }
 
