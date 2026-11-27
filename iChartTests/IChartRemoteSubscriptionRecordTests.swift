@@ -88,7 +88,7 @@ final class IChartRemoteSubscriptionRecordTests: XCTestCase {
         plan: String = "free",
         status: String = "inactive",
         provider: String = "storekit",
-        productID: String? = "com.ichart.app.pro.annual",
+        productID: String? = IChartStoreKitProductCatalog.proAnnualProductID,
         appStoreStatus: String?,
         appStoreAutoRenewStatus: Bool? = nil,
         entitlementExpiresAt: String? = nil,
