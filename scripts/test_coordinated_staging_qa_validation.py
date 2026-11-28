@@ -76,7 +76,7 @@ class CoordinatedStagingQAValidationTests(unittest.TestCase):
     def original(self):
         return {
             "name": "iChart",
-            "settings": {"base": {"MARKETING_VERSION": "1.9.4", "CURRENT_PROJECT_VERSION": "208"},
+            "settings": {"base": {"MARKETING_VERSION": "1.9.4", "CURRENT_PROJECT_VERSION": "210"},
                          "configs": {"Debug": {"SWIFT_ACTIVE_COMPILATION_CONDITIONS": "DEBUG"}}},
             "packages": {"Supabase": {"url": "https://example.invalid/synthetic-package.git", "from": "2.0.0"}},
             "targets": {
@@ -154,7 +154,7 @@ class CoordinatedStagingQAValidationTests(unittest.TestCase):
         self.assertEqual(recipe.QA_REF, "yiuxduqhhbucsmooevxz")
         self.assertEqual(recipe.QA_URL, "https://yiuxduqhhbucsmooevxz.supabase.co")
         self.assertEqual(REVIEWED_KEY_HASH, "bfdf9049a7237013fea1b1f18d137e4d58daa34078fec4290b78a9676e9038e2")
-        self.assertEqual((recipe.QA_VERSION, recipe.QA_BUILD, recipe.SOURCE_BUILD), ("1.9.4", "207", "208"))
+        self.assertEqual((recipe.QA_VERSION, recipe.QA_BUILD, recipe.SOURCE_BUILD), ("1.9.4", "209", "210"))
         self.assertEqual(recipe.QA_PRODUCTS, {"monthly": "com.ichart.app.staging.fix036.monthly", "annual": "com.ichart.app.staging.fix036.annual"})
         self.assertEqual(recipe.QA_NAMESPACE, {"mode": "coordinatedStagingQA", "directory": "iChart Coordinated QA yiuxduqhhbucsmooevxz",
                          "defaults_suite": "com.ichart.app.coordinated-qa.yiuxduqhhbucsmooevxz", "auth_prefix": "coordinated-qa.yiuxduqhhbucsmooevxz."})
@@ -203,7 +203,8 @@ class CoordinatedStagingQAValidationTests(unittest.TestCase):
     def testQAOverrideCannotHideWrongOrMissingNormalSourceIdentity(self):
         with self.trusted_synthetic_key() as key:
             for field, value in (("MARKETING_VERSION", "1.9.3"), ("MARKETING_VERSION", "$(VERSION)"),
-                                 ("CURRENT_PROJECT_VERSION", "207"), ("CURRENT_PROJECT_VERSION", "209"),
+                                 ("CURRENT_PROJECT_VERSION", "207"), ("CURRENT_PROJECT_VERSION", "208"),
+                                 ("CURRENT_PROJECT_VERSION", "209"), ("CURRENT_PROJECT_VERSION", "211"),
                                  ("CURRENT_PROJECT_VERSION", "$(BUILD)"), ("CURRENT_PROJECT_VERSION", None)):
                 original = self.original()
                 if value is None: original["settings"]["base"].pop(field)
@@ -226,8 +227,8 @@ class CoordinatedStagingQAValidationTests(unittest.TestCase):
         self.assertEqual(app["info"]["properties"], {**before["targets"]["iChart"]["info"]["properties"],
                          "SupabaseURL": recipe.QA_URL, "SupabasePublishableKey": SYNTHETIC_KEY, "SupabaseAnonKey": "", "TFInternalTestingOnly": True})
         release = app["settings"]["configs"]["Release"]
-        self.assertEqual((release["MARKETING_VERSION"], release["CURRENT_PROJECT_VERSION"]), ("1.9.4", "207"))
-        self.assertEqual(before["settings"]["base"]["CURRENT_PROJECT_VERSION"], "208")
+        self.assertEqual((release["MARKETING_VERSION"], release["CURRENT_PROJECT_VERSION"]), ("1.9.4", "209"))
+        self.assertEqual(before["settings"]["base"]["CURRENT_PROJECT_VERSION"], "210")
         self.assertEqual(set(release["SWIFT_ACTIVE_COMPILATION_CONDITIONS"].split()), APP_FLAGS | {"$(inherited)"})
         self.assertEqual(app["info"]["path"], "/private/tmp/qa-unused-spec/iChart-Info.plist")
         self.assertIn("App/Info.plist", app["sources"][0]["excludes"])

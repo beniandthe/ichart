@@ -29,10 +29,15 @@ or global settings. Release testability permits native assertions; these
 Simulator hosts are not signed distribution artifacts. Do not replace the normal
 Debug project or weaken its full CI gates.
 
-The reviewed shared coordination inventory is 53 explicit methods: 39 core
-phase/billing/checkout methods and 14 library/presentation methods across
+The reviewed shared coordination inventory is 69 explicit methods: 39 core
+phase/billing/checkout methods, 14 library/presentation methods and 16 known-expiry
+methods across seven classes:
 `CoordinatedProductAccessStoreTests`, `CoordinatedPaidCheckoutAdmissionTests`,
-`CoordinatedLibraryPolicyPreservationTests` and `CoordinatedPlanPresentationTests`.
+`CoordinatedLibraryPolicyPreservationTests`, `CoordinatedPlanPresentationTests`,
+`IChartSubscriptionDeadlineTests`, `IChartSubscriptionEntitlementExpiryTests` and
+`IChartKnownExpiryExportContextTests`. The expiry cases cover publication at the
+known deadline, renewal and owner changes, task lifetime, retained saved content,
+and deadline checks at local admission and export.
 The mounted tests include `Support/NativeAccessibilityLookup.swift`. A synthetic
 guard compares the explicit inventory with every declared method so additions or
 renames cannot silently fall out of the native gate.

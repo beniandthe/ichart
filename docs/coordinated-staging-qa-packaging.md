@@ -5,7 +5,7 @@ coordinated phase/resolver, an isolated backend and isolated local/auth storage.
 It does not deploy, upload, install, change Apple metadata or activate production.
 The normal public and production verifiers remain byte-for-byte unchanged.
 
-## Ownership and source coordination
+## Original packaging ownership and source coordination
 
 Owner: `/root/archive_public_beta_199`. Checkout:
 `/private/tmp/ichart-dec1-coordinated-qa-20261127/source`, branch
@@ -22,6 +22,12 @@ this packaging owner owns only:
 - This document and `coordinated-staging-qa-catalog.json`
 - The explicit new-QA condition rejection and its regression in the historical
   `archive_internal_paid_staging.py` and its packaging test file.
+
+Those ownership coordinates describe the original November 27 packaging work.
+The current expiry follow-on uses `codex/dec1-client-entitlement-expiry` and the
+release owner's acknowledged full HEAD/tree. Its source identity is 210 and its
+separate QA override is 209. Retain the original 207/208 receipts as historical
+evidence; prepare new native and archive proofs for the current exact source.
 
 No production checkout, prior artifact, device backup or parked work is replaced.
 Source review, synthetic guards, actual native validation, artifact verification,
@@ -43,8 +49,8 @@ in the artifact. The native test target alone additionally uses the existing
 preservation assertions. That legacy marker name is not a production certificate.
 None of these conditions may leak to dependencies or global project settings.
 
-The normal source remains **1.9.4 (208)**. The reviewed QA transformation overrides
-**only the app Release target** to **1.9.4 (207)**. A different source identity is
+The normal source is **1.9.4 (210)**. The reviewed QA transformation overrides
+**only the app Release target** to **1.9.4 (209)**. A different source identity is
 rejected. These are release-owner choices after Apple readback, not an Apple build
 reservation.
 
@@ -90,9 +96,9 @@ schema-2 receipt with `nativeValidationPassed=true`, a complete raw compiler log
 generated project/spec/Info/lock evidence and the actual xcresult bundle.
 
 The focused selection retains relevant paid/default/downgrade, fonts,
-billing-recovery and PDF/setlist controls. It requires all **83 explicit methods**:
-53 shared coordinated cases, seven QA routing/configuration cases, five auth
-isolation cases, five storage cases and 13 catalog cases, across 18 selected
+billing-recovery and PDF/setlist controls. It requires all **99 explicit methods**:
+69 shared cases including the 16 expiry scenarios, seven QA routing/configuration
+cases, five auth isolation cases, five storage cases and 13 catalog cases, across 21 selected
 classes. The actual app-bundle test verifies the QA host/key despite hostile launch
 overrides. Missing/duplicate/unexpected methods, failures/skips, a different
 Simulator, ignored/unpinned Swift inputs, hidden flags or stale evidence fail.
@@ -115,8 +121,8 @@ python3 "$S/scripts/prepare_coordinated_staging_qa_project.py" \
 ```
 
 Only the generated app Release target/Info receives the QA endpoint, key,
-conditions, Build 207 and `TFInternalTestingOnly=true`. Normal source inputs,
-dependency settings, source Build 208 and signing settings remain intact.
+conditions, Build 209 and `TFInternalTestingOnly=true`. Normal source inputs,
+dependency settings, source Build 210 and signing settings remain intact.
 Testability is disabled for the archive app. The preparation receipt binds the
 authoritative source, transformed spec, generated project and Info; the verifier
 reconstructs the exact transformation rather than trusting supplied hashes alone.
@@ -131,9 +137,9 @@ Replace `FULL_HEAD` and `FULL_TREE`; no field clears a hold:
   "source_head": "FULL_HEAD",
   "source_tree": "FULL_TREE",
   "version": "1.9.4",
-  "build": "207",
+  "build": "209",
   "source_version": "1.9.4",
-  "source_build": "208",
+  "source_build": "210",
   "qa_origin": "https://yiuxduqhhbucsmooevxz.supabase.co",
   "qa_key_sha256": "bfdf9049a7237013fea1b1f18d137e4d58daa34078fec4290b78a9676e9038e2",
   "internal_qa_only": true,

@@ -35,10 +35,10 @@ class CoordinatedQADistributionTests(unittest.TestCase):
         self.map = self.derived / "map.json"
         self.map.write_text(json.dumps({str(self.source / p): {} for p in qa.REQUIRED_SOURCES}))
         self.snapshot = {"head": "a" * 40, "tree": "b" * 40, "files": {}, "runtime_inputs": self.inputs,
-                         "source_release": {"version": "1.9.4", "build": "208"}, "release": {"version": "1.9.4", "build": "207"}}
+                         "source_release": {"version": "1.9.4", "build": "210"}, "release": {"version": "1.9.4", "build": "209"}}
         self.policy = {"schema": 2, "package_mode": "coordinated_staging_qa", "source_head": self.snapshot["head"],
-                       "source_tree": self.snapshot["tree"], "version": "1.9.4", "build": "207",
-                       "source_version": "1.9.4", "source_build": "208", "qa_origin": qa.recipe.QA_URL,
+                       "source_tree": self.snapshot["tree"], "version": "1.9.4", "build": "209",
+                       "source_version": "1.9.4", "source_build": "210", "qa_origin": qa.recipe.QA_URL,
                        "qa_key_sha256": qa.recipe.QA_KEY_SHA256, "internal_qa_only": True, "distribution_held": True,
                        "apple_delivery_held": True, "automatic_activation": False, "production_activation_approved": False,
                        "public_beta_must_remain_on": True, "deploy_to_production_must_remain_off": True,
@@ -56,7 +56,7 @@ class CoordinatedQADistributionTests(unittest.TestCase):
 
     def info(self, **changes):
         value = {"CFBundleIdentifier": "com.ichart.app", "CFBundleExecutable": "iChart", "CFBundleShortVersionString": "1.9.4",
-                 "CFBundleVersion": "207", "SupabaseURL": qa.recipe.QA_URL, "SupabasePublishableKey": KEY,
+                 "CFBundleVersion": "209", "SupabaseURL": qa.recipe.QA_URL, "SupabasePublishableKey": KEY,
                  "SupabaseAnonKey": "", "UIDeviceFamily": [2], "CFBundleSupportedPlatforms": ["iPhoneOS"],
                  "ITSAppUsesNonExemptEncryption": False, "TFInternalTestingOnly": True}
         return dict(value, **changes)
@@ -88,15 +88,16 @@ class CoordinatedQADistributionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             qa.compiler_evidence(self.compiler() + " " + str(extra), self.derived, self.source, self.inputs)
 
-    def testOnlyExactQAOriginKey207AndInternalOnlyInfoCanPass(self):
-        receipt = qa.validate_info(self.info(), "1.9.4", "207")
+    def testOnlyExactQAOriginKey209AndInternalOnlyInfoCanPass(self):
+        receipt = qa.validate_info(self.info(), "1.9.4", "209")
         self.assertTrue(receipt["actual_internal_only"])
         self.assertNotIn(KEY, json.dumps(receipt))
         for change in ({"SupabaseURL": "https://pausvvwoazbvmzyrebwl.supabase.co"}, {"SupabaseURL": "https://gfqpbikqvdgtjjgxrkgo.supabase.co"},
                        {"SupabaseURL": qa.recipe.QA_URL + "/"}, {"SupabasePublishableKey": "sb_publishable_wrong_project_0123456789"},
                        {"SupabasePublishableKey": "_".join(('sb', 'secret', 'not_a_client_0123456789'))}, {"SupabaseAnonKey": "legacy"},
-                       {"CFBundleVersion": "208"}, {"TFInternalTestingOnly": False}, {"TFInternalTestingOnly": 1}, {"UIDeviceFamily": [1, 2]}):
-            with self.subTest(change=change), self.assertRaises(qa.GuardError): qa.validate_info(self.info(**change), "1.9.4", "207")
+                       {"CFBundleVersion": "207"}, {"CFBundleVersion": "208"}, {"CFBundleVersion": "210"},
+                       {"TFInternalTestingOnly": False}, {"TFInternalTestingOnly": 1}, {"UIDeviceFamily": [1, 2]}):
+            with self.subTest(change=change), self.assertRaises(qa.GuardError): qa.validate_info(self.info(**change), "1.9.4", "209")
 
     def testInternalOnlyManualExportCannotUploadOrRenumber(self):
         self.assertTrue(qa.validate_export_options(self.options())["internal_only"])
@@ -107,19 +108,21 @@ class CoordinatedQADistributionTests(unittest.TestCase):
     def testTypedSourceBoundHoldCannotAuthorizeProductionOrDelivery(self):
         self.assertEqual(qa.release_policy(self.policy_path, self.snapshot), self.policy)
         for key, value in (("apple_delivery_held", False), ("production_activation_approved", True), ("distribution_held", False),
-                           ("automatic_activation", True), ("internal_qa_only", False), ("source_build", "207"),
+                           ("automatic_activation", True), ("internal_qa_only", False), ("source_build", "208"), ("source_build", "209"),
                            ("qa_origin", "https://gfqpbikqvdgtjjgxrkgo.supabase.co"), ("schema", True), ("source_head", "c" * 40)):
             self.policy_path.write_text(json.dumps(dict(self.policy, **{key: value})))
             with self.subTest(key=key), self.assertRaises(qa.GuardError): qa.release_policy(self.policy_path, self.snapshot)
         self.policy_path.write_text(json.dumps(dict(self.policy, deadline_activates=True)))
         with self.assertRaises(qa.GuardError): qa.release_policy(self.policy_path, self.snapshot)
 
-    def testNormalSourceIdentityMustStay208AndQAOverrideIs207(self):
+    def testNormalSourceIdentityMustStay210AndQAOverrideIs209(self):
         with patch.object(qa.base, "snapshot_source", return_value=dict(self.snapshot)), patch.object(qa, "source_contracts", return_value={}), patch.object(qa.native, "source_manifest", return_value=self.inputs):
-            for release in ({"version": "1.9.4", "build": "207"}, {"version": "2.0.0", "build": "208"}):
+            for release in ({"version": "1.9.4", "build": "207"}, {"version": "1.9.4", "build": "208"},
+                            {"version": "1.9.4", "build": "209"}, {"version": "1.9.4", "build": "211"},
+                            {"version": "2.0.0", "build": "210"}):
                 with patch.object(qa, "project_identity", return_value=release), self.assertRaises(qa.GuardError): qa.snapshot_source(self.source)
-            with patch.object(qa, "project_identity", return_value={"version": "1.9.4", "build": "208"}):
-                self.assertEqual(qa.snapshot_source(self.source)["release"], {"version": "1.9.4", "build": "207"})
+            with patch.object(qa, "project_identity", return_value={"version": "1.9.4", "build": "210"}):
+                self.assertEqual(qa.snapshot_source(self.source)["release"], {"version": "1.9.4", "build": "209"})
 
     def testActualSourceCatalogAndNamespacesMatchReviewedQAContract(self):
         root = Path(__file__).resolve().parents[1]
@@ -170,12 +173,12 @@ class CoordinatedQADistributionTests(unittest.TestCase):
             if args[0] == "/usr/bin/security": return argparse.Namespace(stdout=plistlib.dumps(profile), stderr=b"")
             return argparse.Namespace(stdout=b"", stderr=("Authority=Apple Distribution: Synthetic\nTeamIdentifier=" + qa.base.TEAM + "\n").encode())
         with patch.object(qa.base, "run", side_effect=command), patch.object(qa.base, "active_entitlements", return_value=qa.base.ACTIVE_ENTITLEMENTS), patch.object(qa.base, "uuid", return_value="SYNTHETIC-UUID"):
-            self.assertTrue(qa.verify_app(app, "1.9.4", "207")["strict_signature"])
+            self.assertTrue(qa.verify_app(app, "1.9.4", "209")["strict_signature"])
             profile["ProvisionedDevices"] = ["SYNTHETIC-DEVICE"]
-            with self.assertRaises(qa.GuardError): qa.verify_app(app, "1.9.4", "207")
+            with self.assertRaises(qa.GuardError): qa.verify_app(app, "1.9.4", "209")
             profile.pop("ProvisionedDevices")
             (app / "iChart").write_bytes((app / "iChart").read_bytes() + b" com.ichart.app.pro.monthly")
-            with self.assertRaises(qa.GuardError): qa.verify_app(app, "1.9.4", "207")
+            with self.assertRaises(qa.GuardError): qa.verify_app(app, "1.9.4", "209")
 
     def runtime_fixture(self):
         root = self.root / "native"; root.mkdir(); project = root / "iChart.xcodeproj"
@@ -216,11 +219,11 @@ class CoordinatedQADistributionTests(unittest.TestCase):
         def tool(*args): return argparse.Namespace(stdout=json.dumps(summary if args[4] == "summary" else tree).encode())
         return patch.multiple(qa.native, source_manifest=lambda source: self.snapshot["runtime_inputs"]), patch.object(qa.base, "run", side_effect=tool)
 
-    def testQARuntimeEvidencePinsOwnProducersAndActual83MethodResults(self):
+    def testQARuntimeEvidencePinsOwnProducersAndActual99MethodResults(self):
         path, value, summary, tree = self.runtime_fixture(); a, b = self.runtime_context(summary, tree)
         with a, b:
             proof = qa.runtime_evidence(path, self.source, self.snapshot, "coordinated-staging-qa")
-        self.assertEqual(len(proof["required_coordinated_tests"]), 83)
+        self.assertEqual(len(proof["required_coordinated_tests"]), 99)
         self.assertFalse(proof["hosted_backend_deployed"])
 
     def testProductionHistoricalPreparedOrForeignReceiptsCannotCertifyQA(self):
@@ -243,7 +246,7 @@ class CoordinatedQADistributionTests(unittest.TestCase):
 
     def project_fixture(self):
         root = self.root / "recipe"; root.mkdir()
-        original = {"settings": {"base": {"MARKETING_VERSION": "1.9.4", "CURRENT_PROJECT_VERSION": "208"}},
+        original = {"settings": {"base": {"MARKETING_VERSION": "1.9.4", "CURRENT_PROJECT_VERSION": "210"}},
                     "targets": {"iChart": {"sources": [{"path": "iChart"}], "info": {"path": "iChart/App/Info.plist", "properties": {}},
                                            "dependencies": [{"package": "Supabase"}]}}, "packages": {"Supabase": {"exactVersion": "synthetic"}}}
         spec = qa.recipe.make_archive_spec(original, root, KEY)
