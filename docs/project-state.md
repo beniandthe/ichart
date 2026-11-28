@@ -1,14 +1,17 @@
 # Project state and next Apple build
 
-## Current source consolidation — November 26, 2026
+## Historical source consolidation baseline — November 26, 2026
 
-The normal public-beta candidate is **1.9.4 (199)**. GitHub `main` is the
-accepted source authority; the integration pull request is
+At this checkpoint, the normal public-beta candidate was **1.9.4 (199)**.
+GitHub `main` remains the accepted source authority; that integration pull request was
 [Prepare iChart 1.9.4 (199) and reconcile editor CI](https://github.com/beniandthe/ichart/pull/113).
-Use its live checks and merge receipt for current readiness. The November 6 and
-older checkpoints below are historical, not the current build or deployment state.
+For current December 1 paid-rollout preparation, see the
+[release preparation record](production-paid-release.md) and
+[PR #115](https://github.com/beniandthe/ichart/pull/115). Preparation does not
+establish CI, signed-artifact, Apple delivery or activation readiness. The
+November 26 and older checkpoints here preserve historical build and deployment facts.
 
-The candidate includes the active editor feature chain, the later keyboard-focus
+That candidate included the active editor feature chain, the later keyboard-focus
 repair, test-fixture corrections, CI de-duplication, and the pending CodeQL action
 maintenance. See the [consolidation audit](repository-consolidation-2026-11-26.md)
 and [shared agent workflow](agent-coordination.md) before starting or handing off
