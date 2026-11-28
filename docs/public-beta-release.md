@@ -1,4 +1,4 @@
-# Normal public beta release: 1.9.4 (199) candidate
+# Normal free-Pro App Store release: 1.9.5 (205) candidate
 
 This is the ordinary production-backed free-beta candidate. Check the final
 merged source, current App Store Connect build availability, signing and CI
@@ -8,12 +8,21 @@ This is the ordinary production-backed free beta. Free Pro remains on. It uses
 `com.ichart.app`, the existing public library/preferences/auth namespace, and
 production project `pausvvwoazbvmzyrebwl`. It does not enable the paid subscription
 policy, isolated staging products, local plan previews, or personal ML comparison.
-The Internal QA group is the intended TestFlight audience for this release.
+This candidate is prepared for public App Store review. TestFlight audience
+assignment, submission and public release remain separate authorized actions.
 
 The separate FIX-036 Build 173 paid-staging archive and its internal-only export
 are historical evidence. Do not reuse that IPA, its xcconfig, or its ExportOptions.
 The staged FIX-036 backend was deleted after billing verification; it is not a
 release endpoint. Packaging does not change server policy or Apple product prices.
+
+The tested normal Build 205 feature work is retained with the current merged
+release hardening. This is a new optimized App Store archive, not the installed
+Debug/development-signed iPad app. The previously held paid/coordinated
+1.9.4 (210) artifact remains historical and must not be reused or relabeled for
+this release. A later paid App Store version needs its own reviewed identity,
+source pin, archive and approval. No backend deployment or paid activation is
+authorized by this free release.
 
 ## Build and pin
 
@@ -41,10 +50,10 @@ env -u XCODE_XCCONFIG_FILE -u SWIFT_ACTIVE_COMPILATION_CONDITIONS \
   -configuration Release -destination 'generic/platform=iOS' \
   -derivedDataPath "$R/DerivedData" \
   -clonedSourcePackagesDirPath "$R/SourcePackages" \
-  -archivePath "$R/iChart-1.9.4-199.xcarchive" \
+  -archivePath "$R/iChart-1.9.5-205.xcarchive" \
   -resultBundlePath "$R/archive.xcresult" \
   -onlyUsePackageVersionsFromResolvedFile \
-  MARKETING_VERSION=1.9.4 CURRENT_PROJECT_VERSION=199 \
+  MARKETING_VERSION=1.9.5 CURRENT_PROJECT_VERSION=205 \
   ICHART_INCLUDE_PERSONAL_ML_COMPARISON=NO > "$R/archive.log" 2>&1
 ```
 
@@ -83,13 +92,13 @@ Write a fresh `ExportOptions.plist` with these values:
 
 ```sh
 xcodebuild -exportArchive \
-  -archivePath "$R/iChart-1.9.4-199.xcarchive" \
+  -archivePath "$R/iChart-1.9.5-205.xcarchive" \
   -exportPath "$R/export" -exportOptionsPlist "$R/ExportOptions.plist" \
   > "$R/export.log" 2>&1
 
 python3 "$S/scripts/verify_public_beta_archive.py" verify \
   --source "$S" --source-pin "$R/public-source-pin.json" \
-  --archive "$R/iChart-1.9.4-199.xcarchive" \
+  --archive "$R/iChart-1.9.5-205.xcarchive" \
   --derived-data "$R/DerivedData" --build-log "$R/archive.log" \
   --export-options "$R/ExportOptions.plist" --ipa "$R/export/iChart.ipa" \
   --output "$R/public-distribution-verification.json"
@@ -110,8 +119,8 @@ use the declared Release settings and investigate signing discrepancies rather
 than weakening the exported-IPA checks. `get-task-allow` must be false and
 `beta-reports-active` true. `testFlightInternalTestingOnly=false` removes the
 internal-only package restriction. It does not publish the build, select testers,
-complete Apple processing, or establish external beta approval. Distribution to
-Internal QA remains a separate App Store Connect action.
+complete Apple processing, or establish external beta approval. App Store submission and
+release remain separate App Store Connect actions.
 
 ## Release evidence and installation
 
