@@ -93,7 +93,7 @@ def snapshot_source(source):
     current["contracts"] = source_contracts(source)
     current["source_release"] = project_identity(source)
     require(current["source_release"] == {"version": recipe.QA_VERSION, "build": recipe.SOURCE_BUILD},
-            "Normal authoritative source release differs from reviewed production208 inputs.")
+            "Normal authoritative source release differs from reviewed production210 inputs.")
     current["release"] = {"version": recipe.QA_VERSION, "build": recipe.QA_BUILD}
     current["runtime_inputs"] = native.source_manifest(source)
     current["files"]["docs/coordinated-staging-qa-catalog.json"] = sha((source / "docs/coordinated-staging-qa-catalog.json").read_bytes())

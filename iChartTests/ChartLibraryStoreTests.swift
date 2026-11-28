@@ -284,7 +284,7 @@ final class ChartLibraryStoreTests: XCTestCase {
 
         store.applySubscriptionState(
             .proGrace(
-                graceEndsAt: Date(timeIntervalSinceReferenceDate: 1_000),
+                graceEndsAt: .distantFuture,
                 verifiedAt: Date(timeIntervalSinceReferenceDate: 42)
             )
         )

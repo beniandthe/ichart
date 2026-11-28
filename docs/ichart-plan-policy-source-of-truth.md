@@ -170,7 +170,7 @@ action through the usual deletion controls.
 
 ## 7. Cloud Backup Retention Policy
 
-Pro cancellation should keep paid access through the current paid-through date. Pro expiration should hard-stop cloud service access, not silently delete local user work.
+Pro cancellation keeps paid access through the current paid-through date. Pro expiration stops app cloud operations and denies new origin-authorized cloud operations, without deleting local user work. A previously authorized request for the owner's own PDF may still be served by Supabase's authenticated CDN using the same access JWT until that JWT expires; the current production token lifetime is 3,600 seconds from issuance. This exception does not grant new cloud manifest or backup access, or access to another owner's PDFs.
 
 Recommended v1 retention behavior:
 

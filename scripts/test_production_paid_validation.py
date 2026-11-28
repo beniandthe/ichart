@@ -12,6 +12,12 @@ spec = importlib.util.spec_from_file_location("paid_validation", Path(__file__).
 paid = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(paid)
 
+EXPIRY_CLASSES = {
+    "IChartSubscriptionDeadlineTests": 6,
+    "IChartSubscriptionEntitlementExpiryTests": 9,
+    "IChartKnownExpiryExportContextTests": 1,
+}
+
 
 class ProductionPaidValidationTests(unittest.TestCase):
     def original(self):
@@ -33,8 +39,8 @@ class ProductionPaidValidationTests(unittest.TestCase):
                 (" " + paid.VALIDATION_FLAG if name == "iChartTests" else ""),
         }} for name in ("iChart", "iChartTests")]
 
-    def result(self):
-        identifiers = [name + "/testFixture" for name in paid.selected_classes() if name not in paid.COORDINATED_TEST_CLASSES]
+    def result(self, lane="production-paid"):
+        identifiers = [name + "/testFixture" for name in paid.selected_classes(lane) if name not in paid.COORDINATED_TEST_CLASSES]
         identifiers += list(paid.REQUIRED_COORDINATED_TESTS)
         summary = {"result": "Passed", "passedTests": len(identifiers), "failedTests": 0, "skippedTests": 0,
                    "devicesAndConfigurations": [{"passedTests": len(identifiers), "device": {"deviceId": "ABC"}}]}
@@ -72,6 +78,44 @@ class ProductionPaidValidationTests(unittest.TestCase):
         for lane in paid.LANES:
             self.assertTrue(set(paid.COORDINATED_TEST_CLASSES) <= set(paid.selected_classes(lane)))
             self.assertTrue(set(paid.COORDINATED_TEST_SOURCES) <= set(paid.selected_sources(lane)))
+
+    def testKnownExpiryMethodsAndRuntimeSourcesAreRequiredInEveryLane(self):
+        source = Path(__file__).resolve().parents[1]
+        self.assertTrue(set(EXPIRY_CLASSES) <= set(paid.COORDINATED_TEST_CLASSES))
+        methods = []
+        for name, count in EXPIRY_CLASSES.items():
+            path = "iChartTests/" + name + ".swift"
+            declared = [name + "/" + method for method in re.findall(
+                r"^    func (test\w+)\(", (source / path).read_text(), re.M)]
+            self.assertEqual(len(declared), count, name)
+            methods += declared
+            self.assertIn(path, paid.COORDINATED_TEST_SOURCES)
+            for lane in paid.LANES:
+                self.assertIn(name, paid.selected_classes(lane))
+                self.assertIn(path, paid.selected_sources(lane))
+                transformed = paid.make_spec(self.original(), Path("/private/tmp/expiry-proof"), lane)
+                self.assertIn({"path": path}, transformed["targets"]["iChartTests"]["sources"])
+        self.assertEqual(len(methods), 16)
+        self.assertTrue(set(methods) <= set(paid.REQUIRED_COORDINATED_TESTS))
+        for path in ("iChart/Models/IChartSubscriptionEntitlement.swift", "iChart/Models/AppEntitlements.swift",
+                     "iChart/App/StoreKit/IChartStoreKitSubscriptionStore.swift", "iChart/Services/ChartExporting.swift"):
+            self.assertIn(path, paid.REQUIRED_RUNTIME_APP_SOURCES)
+
+    def testEveryKnownExpiryMethodMustActuallyExecuteInBothLanes(self):
+        required = [method for method in paid.REQUIRED_COORDINATED_TESTS
+                    if method.split("/", 1)[0] in EXPIRY_CLASSES]
+        self.assertEqual(len(required), 16)
+        for lane in paid.LANES:
+            summary, tree = self.result(lane)
+            self.assertEqual(sum(paid.validate_results(summary, tree, "ABC", lane).values()), summary["passedTests"])
+            for method in required:
+                changed_summary, changed_tree = copy.deepcopy(summary), copy.deepcopy(tree)
+                changed_tree["testNodes"] = [node for node in changed_tree["testNodes"]
+                                             if node["nodeIdentifier"] != method + "()"]
+                changed_summary["passedTests"] -= 1
+                changed_summary["devicesAndConfigurations"][0]["passedTests"] -= 1
+                with self.subTest(lane=lane, missing=method), self.assertRaises(ValueError):
+                    paid.validate_results(changed_summary, changed_tree, "ABC", lane)
 
     def testGlobalPaidConditionsAreRejected(self):
         original = self.original()

@@ -209,7 +209,7 @@ final class IChartSubscriptionAccessRecoveryIntegrationTests: XCTestCase {
         let purchase = try section(store, from: "func purchaseComplimentaryOffer(", to: "func restorePurchases()")
         let claim = try XCTUnwrap(purchase.range(of: "guard let claimedEntitlement = try await subscriptionClaimService.claim("))
         let ownerCheck = try XCTUnwrap(purchase.range(of: "guard try await subscriptionClaimService.appAccountToken() == accountID", range: claim.upperBound..<purchase.endIndex))
-        let apply = try XCTUnwrap(purchase.range(of: "entitlement = claimedEntitlement", range: ownerCheck.upperBound..<purchase.endIndex))
+        let apply = try XCTUnwrap(purchase.range(of: "applyBillingObservation(claimedEntitlement,", range: ownerCheck.upperBound..<purchase.endIndex))
         let confirm = try XCTUnwrap(purchase.range(of: "action: .confirm", range: apply.upperBound..<purchase.endIndex))
         let confirmed = try XCTUnwrap(purchase.range(of: "matchesConfirmedCampaign", range: confirm.upperBound..<purchase.endIndex))
         let finish = try XCTUnwrap(purchase.range(of: "await transaction.finish()", range: confirmed.upperBound..<purchase.endIndex))
@@ -218,6 +218,7 @@ final class IChartSubscriptionAccessRecoveryIntegrationTests: XCTestCase {
         XCTAssertLessThan(apply.lowerBound, confirm.lowerBound)
         XCTAssertLessThan(confirmed.lowerBound, finish.lowerBound)
         XCTAssertTrue(purchase.contains("expectedOwnerID: accountID"))
+        XCTAssertTrue(purchase.contains("verifiedOwnerID: accountID, observationOwnerID: accountID"))
     }
 
     func testRefreshAndConcreteServiceUseFreshOwnerBoundAccessPath() throws {

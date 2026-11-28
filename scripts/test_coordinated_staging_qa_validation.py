@@ -32,6 +32,9 @@ SHARED_CLASSES = {
     "CoordinatedPaidCheckoutAdmissionTests": 14,
     "CoordinatedLibraryPolicyPreservationTests": 5,
     "CoordinatedPlanPresentationTests": 9,
+    "IChartSubscriptionDeadlineTests": 6,
+    "IChartSubscriptionEntitlementExpiryTests": 9,
+    "IChartKnownExpiryExportContextTests": 1,
 }
 EXTRA_CLASSES = {
     "CoordinatedQAConfigurationTests": 3,
@@ -73,7 +76,7 @@ class CoordinatedStagingQAValidationTests(unittest.TestCase):
     def original(self):
         return {
             "name": "iChart",
-            "settings": {"base": {"MARKETING_VERSION": "1.9.4", "CURRENT_PROJECT_VERSION": "208"},
+            "settings": {"base": {"MARKETING_VERSION": "1.9.4", "CURRENT_PROJECT_VERSION": "210"},
                          "configs": {"Debug": {"SWIFT_ACTIVE_COMPILATION_CONDITIONS": "DEBUG"}}},
             "packages": {"Supabase": {"url": "https://example.invalid/synthetic-package.git", "from": "2.0.0"}},
             "targets": {
@@ -151,7 +154,7 @@ class CoordinatedStagingQAValidationTests(unittest.TestCase):
         self.assertEqual(recipe.QA_REF, "yiuxduqhhbucsmooevxz")
         self.assertEqual(recipe.QA_URL, "https://yiuxduqhhbucsmooevxz.supabase.co")
         self.assertEqual(REVIEWED_KEY_HASH, "bfdf9049a7237013fea1b1f18d137e4d58daa34078fec4290b78a9676e9038e2")
-        self.assertEqual((recipe.QA_VERSION, recipe.QA_BUILD, recipe.SOURCE_BUILD), ("1.9.4", "207", "208"))
+        self.assertEqual((recipe.QA_VERSION, recipe.QA_BUILD, recipe.SOURCE_BUILD), ("1.9.4", "209", "210"))
         self.assertEqual(recipe.QA_PRODUCTS, {"monthly": "com.ichart.app.staging.fix036.monthly", "annual": "com.ichart.app.staging.fix036.annual"})
         self.assertEqual(recipe.QA_NAMESPACE, {"mode": "coordinatedStagingQA", "directory": "iChart Coordinated QA yiuxduqhhbucsmooevxz",
                          "defaults_suite": "com.ichart.app.coordinated-qa.yiuxduqhhbucsmooevxz", "auth_prefix": "coordinated-qa.yiuxduqhhbucsmooevxz."})
@@ -200,7 +203,8 @@ class CoordinatedStagingQAValidationTests(unittest.TestCase):
     def testQAOverrideCannotHideWrongOrMissingNormalSourceIdentity(self):
         with self.trusted_synthetic_key() as key:
             for field, value in (("MARKETING_VERSION", "1.9.3"), ("MARKETING_VERSION", "$(VERSION)"),
-                                 ("CURRENT_PROJECT_VERSION", "207"), ("CURRENT_PROJECT_VERSION", "209"),
+                                 ("CURRENT_PROJECT_VERSION", "207"), ("CURRENT_PROJECT_VERSION", "208"),
+                                 ("CURRENT_PROJECT_VERSION", "209"), ("CURRENT_PROJECT_VERSION", "211"),
                                  ("CURRENT_PROJECT_VERSION", "$(BUILD)"), ("CURRENT_PROJECT_VERSION", None)):
                 original = self.original()
                 if value is None: original["settings"]["base"].pop(field)
@@ -223,8 +227,8 @@ class CoordinatedStagingQAValidationTests(unittest.TestCase):
         self.assertEqual(app["info"]["properties"], {**before["targets"]["iChart"]["info"]["properties"],
                          "SupabaseURL": recipe.QA_URL, "SupabasePublishableKey": SYNTHETIC_KEY, "SupabaseAnonKey": "", "TFInternalTestingOnly": True})
         release = app["settings"]["configs"]["Release"]
-        self.assertEqual((release["MARKETING_VERSION"], release["CURRENT_PROJECT_VERSION"]), ("1.9.4", "207"))
-        self.assertEqual(before["settings"]["base"]["CURRENT_PROJECT_VERSION"], "208")
+        self.assertEqual((release["MARKETING_VERSION"], release["CURRENT_PROJECT_VERSION"]), ("1.9.4", "209"))
+        self.assertEqual(before["settings"]["base"]["CURRENT_PROJECT_VERSION"], "210")
         self.assertEqual(set(release["SWIFT_ACTIVE_COMPILATION_CONDITIONS"].split()), APP_FLAGS | {"$(inherited)"})
         self.assertEqual(app["info"]["path"], "/private/tmp/qa-unused-spec/iChart-Info.plist")
         self.assertIn("App/Info.plist", app["sources"][0]["excludes"])
@@ -293,14 +297,14 @@ class CoordinatedStagingQAValidationTests(unittest.TestCase):
         self.assertEqual(set(qa.COORDINATED_TEST_CLASSES), set(expected_classes))
         for name, count in expected_classes.items(): self.assertEqual(len(declared[name]), count, name)
         actual = [method for name in expected_classes for method in declared[name]]
-        self.assertEqual(len(actual), 83)
-        self.assertEqual(len(qa.REQUIRED_COORDINATED_TESTS), 83)
-        self.assertEqual(len(set(qa.REQUIRED_COORDINATED_TESTS)), 83)
+        self.assertEqual(len(actual), 99)
+        self.assertEqual(len(qa.REQUIRED_COORDINATED_TESTS), 99)
+        self.assertEqual(len(set(qa.REQUIRED_COORDINATED_TESTS)), 99)
         self.assertEqual(set(actual), set(qa.REQUIRED_COORDINATED_TESTS))
         source_ast = ast.parse(PRODUCTION.read_text())
         assignments = {node.targets[0].id: node.value for node in source_ast.body if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name)}
         shared = ast.literal_eval(assignments["REQUIRED_COORDINATED_TESTS"])
-        self.assertEqual(len(shared), 53)
+        self.assertEqual(len(shared), 69)
         self.assertTrue(set(shared) <= set(actual))
         self.assertTrue(qa.COORDINATION_CONTRACT_FINALIZED)
         self.assertIn("iChartTests/Support/NativeAccessibilityLookup.swift", qa.selected_sources())
@@ -313,7 +317,9 @@ class CoordinatedStagingQAValidationTests(unittest.TestCase):
         self.assertTrue(set(qa.selected_classes()) <= set(declared))
         self.assertEqual(len(qa.selected_sources()), len(set(qa.selected_sources())))
         for path in ("iChart/Persistence/IChartStorageNamespace.swift", "iChart/App/Supabase/IChartSupabaseConfiguration.swift",
-                     "iChart/Models/IChartStoreKitProductCatalog.swift", "iChart/Models/IChartProductAccessStatus.swift"):
+                     "iChart/Models/IChartStoreKitProductCatalog.swift", "iChart/Models/IChartProductAccessStatus.swift",
+                     "iChart/Models/IChartSubscriptionEntitlement.swift", "iChart/Models/AppEntitlements.swift",
+                     "iChart/App/StoreKit/IChartStoreKitSubscriptionStore.swift", "iChart/Services/ChartExporting.swift"):
             self.assertIn(path, qa.REQUIRED_RUNTIME_APP_SOURCES)
 
     def testCompletePassingNativeInventoryIsCountedOnConfiguredSimulator(self):
@@ -333,6 +339,20 @@ class CoordinatedStagingQAValidationTests(unittest.TestCase):
         for key in ("passedTests", "totalTestCount"): summary[key] -= 1
         summary["devicesAndConfigurations"][0]["passedTests"] -= 1
         with self.assertRaisesRegex(ValueError, "Missing required"): qa.validate_results(summary, tree, DEVICE)
+
+    def testEveryKnownExpiryMethodMustActuallyExecuteWithConsistentTotals(self):
+        classes = {"IChartSubscriptionDeadlineTests", "IChartSubscriptionEntitlementExpiryTests",
+                   "IChartKnownExpiryExportContextTests"}
+        required = [method for method in qa.REQUIRED_COORDINATED_TESTS if method.split("/", 1)[0] in classes]
+        self.assertEqual(len(required), 16)
+        for method in required:
+            summary, tree = self.results()
+            tree["testNodes"][0]["children"] = [node for node in tree["testNodes"][0]["children"]
+                                               if node["nodeIdentifier"] != method + "()"]
+            for key in ("passedTests", "totalTestCount"): summary[key] -= 1
+            summary["devicesAndConfigurations"][0]["passedTests"] -= 1
+            with self.subTest(missing=method), self.assertRaises(ValueError):
+                qa.validate_results(summary, tree, DEVICE)
 
     def testDuplicateUnexpectedAndNonpassingMethodsFail(self):
         summary, tree = self.results(); children = tree["testNodes"][0]["children"]

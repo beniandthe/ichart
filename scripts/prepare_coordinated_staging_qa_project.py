@@ -17,7 +17,7 @@ QA_FLAG = "ICHART_COORDINATED_STAGING_QA"
 PAID_FLAG = "ICHART_PAID_SUBSCRIPTION"
 STAGING_FLAG = "ICHART_STAGING_STOREKIT_PRODUCTS"
 APP_FLAGS = {QA_FLAG, PAID_FLAG, STAGING_FLAG}
-QA_VERSION, QA_BUILD, SOURCE_BUILD = "1.9.4", "207", "208"
+QA_VERSION, QA_BUILD, SOURCE_BUILD = "1.9.4", "209", "210"
 QA_PRODUCTS = {"monthly": "com.ichart.app.staging.fix036.monthly", "annual": "com.ichart.app.staging.fix036.annual"}
 QA_NAMESPACE = {"mode": "coordinatedStagingQA",
                 "directory": "iChart Coordinated QA " + QA_REF,
@@ -40,7 +40,7 @@ def configure_app(original, output, key):
         raise ValueError("Unreviewed QA client key")
     identity = original.get("settings", {}).get("base", {})
     if identity.get("MARKETING_VERSION") != QA_VERSION or str(identity.get("CURRENT_PROJECT_VERSION", "")) != SOURCE_BUILD:
-        raise ValueError("Authoritative normal source identity must be1.9.4(208); QA override is207 only")
+        raise ValueError("Authoritative normal source identity must be1.9.4(210); QA override is209 only")
     if any(flag in json.dumps(original.get("settings", {})) for flag in APP_FLAGS | {"ICHART_PRODUCTION_PAID_VALIDATION"}):
         raise ValueError("QA/validation conditions cannot be global")
     spec = copy.deepcopy(original)

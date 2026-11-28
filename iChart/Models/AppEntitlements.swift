@@ -101,6 +101,8 @@ struct AppEntitlements: Codable, Hashable {
     static let recommendedFreeChartLimit = recommendedBasicChartLimit
     static let free = AppEntitlements(activePlan: .free)
 
+    // Persist the last applied billing projection. Runtime admission below
+    // evaluates known paid-through bounds again instead of trusting this cache.
     private(set) var activePlan: IChartPlan
     private(set) var subscription: IChartSubscriptionEntitlement
     // Runtime product policy, deliberately excluded from persisted billing data.
@@ -135,20 +137,31 @@ struct AppEntitlements: Codable, Hashable {
         applySubscription(IChartSubscriptionEntitlement.legacyStatus(for: plan))
     }
 
+    /// A clock-explicit projection for presentation or publication. Reading
+    /// access decisions does not rewrite the saved billing evidence.
+    func evaluated(at now: Date) -> AppEntitlements {
+        AppEntitlements(subscription: subscription.evaluated(at: now), accessPolicy: accessPolicy)
+    }
+
     var localChartLimit: Int? {
+        localChartLimit(at: Date())
+    }
+
+    func localChartLimit(at now: Date) -> Int? {
         guard !accessPolicy.includesAllFeatures else { return nil }
         if accessPolicy == .betaBasic {
             return Self.recommendedBasicChartLimit
         }
 
-        switch subscription.status {
+        let currentSubscription = subscription.evaluated(at: now)
+        switch currentSubscription.status {
         case .proActive, .proGrace, .legacyLocalPro:
             return nil
         case .basic, .proExpired, .unavailable:
             break
         }
 
-        switch activePlan {
+        switch currentSubscription.effectivePlan {
         case .free:
             return Self.recommendedFreeChartLimit
         case .proLifetime, .studioSubscription:
@@ -156,27 +169,37 @@ struct AppEntitlements: Codable, Hashable {
         }
     }
 
-    var canConvertPDFToEditableChart: Bool { includesPremiumLocalTools }
+    var canConvertPDFToEditableChart: Bool { canConvertPDFToEditableChart(at: Date()) }
 
-    var canUsePremiumFonts: Bool { includesPremiumLocalTools }
+    func canConvertPDFToEditableChart(at now: Date) -> Bool { includesPremiumLocalTools(at: now) }
+
+    var canUsePremiumFonts: Bool { canUsePremiumFonts(at: Date()) }
+
+    func canUsePremiumFonts(at now: Date) -> Bool { includesPremiumLocalTools(at: now) }
 
     var canSyncPDFSetlists: Bool {
-        accessPolicy == .paidSubscription && subscription.status == .proActive
+        canSyncPDFSetlists(at: Date())
     }
 
-    private var includesPremiumLocalTools: Bool {
-        accessPolicy.includesAllFeatures
+    func canSyncPDFSetlists(at now: Date) -> Bool {
+        accessPolicy == .paidSubscription && subscription.evaluated(at: now).status == .proActive
+    }
+
+    private func includesPremiumLocalTools(at now: Date) -> Bool {
+        let status = subscription.evaluated(at: now).status
+        return accessPolicy.includesAllFeatures
             || (accessPolicy == .paidSubscription
-                && (subscription.status == .proActive || subscription.status == .proGrace))
+                && (status == .proActive || status == .proGrace))
     }
 
-    func includes(_ feature: EntitledFeature) -> Bool {
+    func includes(_ feature: EntitledFeature, at now: Date = Date()) -> Bool {
         guard !accessPolicy.includesAllFeatures else { return true }
         if accessPolicy == .betaBasic {
             return Self.basicIncludes(feature)
         }
 
-        if subscription.status == .proGrace {
+        let currentSubscription = subscription.evaluated(at: now)
+        if currentSubscription.status == .proGrace {
             switch feature {
             case .unlimitedLocalCharts,
                  .pdfExport,
@@ -196,7 +219,7 @@ struct AppEntitlements: Codable, Hashable {
             }
         }
 
-        switch activePlan {
+        switch currentSubscription.effectivePlan {
         case .free:
             return Self.basicIncludes(feature)
         case .proLifetime:
@@ -242,25 +265,25 @@ struct AppEntitlements: Codable, Hashable {
         }
     }
 
-    func canCreateChart(currentChartCount: Int) -> Bool {
-        guard let localChartLimit else {
+    func canCreateChart(currentChartCount: Int, at now: Date = Date()) -> Bool {
+        guard let localChartLimit = localChartLimit(at: now) else {
             return true
         }
 
         return currentChartCount < localChartLimit
     }
 
-    func remainingLocalChartSlots(currentChartCount: Int) -> Int? {
-        guard let localChartLimit else {
+    func remainingLocalChartSlots(currentChartCount: Int, at now: Date = Date()) -> Int? {
+        guard let localChartLimit = localChartLimit(at: now) else {
             return nil
         }
 
         return max(0, localChartLimit - currentChartCount)
     }
 
-    func chartCapacityText(currentChartCount: Int) -> String {
-        if let localChartLimit {
-            let remainingSlots = remainingLocalChartSlots(currentChartCount: currentChartCount) ?? 0
+    func chartCapacityText(currentChartCount: Int, at now: Date = Date()) -> String {
+        if let localChartLimit = localChartLimit(at: now) {
+            let remainingSlots = remainingLocalChartSlots(currentChartCount: currentChartCount, at: now) ?? 0
 
             if remainingSlots == 0 {
                 if accessPolicy == .betaBasic {

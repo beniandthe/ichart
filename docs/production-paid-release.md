@@ -16,14 +16,22 @@ The final release head will also include the reviewed pricing, packaging and
 production-backend routing changes. Feature receipts do not certify that later
 combined head; execute its hosted checks and paid validation separately.
 
-The selected production identity is **1.9.4 (208)**. A separate, internal-only
-isolated billing-QA artifact uses **1.9.4 (207)** through its reviewed build
-override. Apple’s TestFlight upload history on November 27 showed 199 as the
+The selected production identity is **1.9.4 (210)**. A separate, internal-only
+isolated billing-QA artifact uses **1.9.4 (209)** through its reviewed build
+override. This expiry follow-on supersedes the earlier production 208 / QA 207
+candidate pair; their receipts remain historical and do not certify the new head.
+At the earlier November 27 readback, Apple’s TestFlight upload history showed 199 as the
 newest uploaded build, with no newer or pending
 upload visible. The current App Store version remained 1.9.3 (161), Ready for
 Distribution. Build 206 belongs to retained prior held attempts; development
 Build 205 was an override. These source allocations are not Apple reservations.
 Recheck upload reservations before delivery.
+
+At the release owner's newer readback on **November 28 at about 01:58 UTC**,
+Build 207 was Internal / Testing in Internal QA. The descending Build Uploads
+list showed 207 Complete, with no 208-or-higher upload or processing row visible.
+That observation supersedes the earlier upload-list snapshot; the selected
+209/210 source identities still do not reserve either number with Apple.
 
 `project.yml` keeps the normal free-beta defaults. A separately generated and
 verified production-paid Release project enables `ICHART_PAID_SUBSCRIPTION`
