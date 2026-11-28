@@ -49,10 +49,11 @@ TEST_SOURCES = (
 )
 
 
-# Reviewed scope: 39 frozen core methods plus 14 frozen UI/library methods.
+# Reviewed scope: 39 frozen core + 14 UI/library + 16 known-expiry methods.
 # Runtime execution is still required; this constant finalizes scope only.
 REQUIRED_RUNTIME_APP_SOURCES = (
     "iChart/Models/IChartProductAccessPolicy.swift", "iChart/Models/AppEntitlements.swift",
+    "iChart/Models/IChartSubscriptionEntitlement.swift", "iChart/Services/ChartExporting.swift",
     "iChart/Models/IChartBetaProStatus.swift", "iChart/Models/IChartProductAccessStatus.swift",
     "iChart/Services/IChartBetaProStore.swift", "iChart/Features/Library/ChartLibraryStore.swift",
     "iChart/App/Supabase/IChartSupabaseBetaProService.swift", "iChart/App/IChartApp.swift",
@@ -67,12 +68,18 @@ COORDINATED_TEST_CLASSES = (
     'CoordinatedPaidCheckoutAdmissionTests',
     'CoordinatedLibraryPolicyPreservationTests',
     'CoordinatedPlanPresentationTests',
+    'IChartSubscriptionDeadlineTests',
+    'IChartSubscriptionEntitlementExpiryTests',
+    'IChartKnownExpiryExportContextTests',
 )
 COORDINATED_TEST_SOURCES = (
     'iChartTests/CoordinatedProductAccessStoreTests.swift',
     'iChartTests/CoordinatedPaidCheckoutAdmissionTests.swift',
     'iChartTests/CoordinatedLibraryPolicyPreservationTests.swift',
     'iChartTests/CoordinatedPlanPresentationTests.swift',
+    'iChartTests/IChartSubscriptionDeadlineTests.swift',
+    'iChartTests/IChartSubscriptionEntitlementExpiryTests.swift',
+    'iChartTests/IChartKnownExpiryExportContextTests.swift',
     'iChartTests/Support/NativeAccessibilityLookup.swift',
 )
 REQUIRED_COORDINATED_TESTS = (
@@ -129,6 +136,22 @@ REQUIRED_COORDINATED_TESTS = (
     'CoordinatedPlanPresentationTests/testMountedUnknownUpgradeKeepsRecoveryAndDoesNotShowBetaNoticeOrCheckout',
     'CoordinatedPlanPresentationTests/testCoordinatedNoticeDoesNotPresentAModalOrMoveTheWritingSurface',
     'CoordinatedPlanPresentationTests/testForumAuthTransitionCannotBorrowPreviousOwnersFreshGrant',
+    'IChartSubscriptionDeadlineTests/testKnownDeadlinePublishesBeforeRefreshWithoutNavigation',
+    'IChartSubscriptionDeadlineTests/testRenewalCancelsThePriorDeadlineAndUsesTheNewBound',
+    'IChartSubscriptionDeadlineTests/testPreviousOwnersDeadlineCannotPublishIntoTheNewAccount',
+    'IChartSubscriptionDeadlineTests/testDelayedObservationCannotRegrantAnEndedPeriod',
+    'IChartSubscriptionDeadlineTests/testDeadlineWaitDoesNotRetainTheSubscriptionStore',
+    'IChartSubscriptionDeadlineTests/testMountedPlanExpiresAndSavedLibraryRemainsEditableWithoutReplacingTheView',
+    'IChartSubscriptionEntitlementExpiryTests/testActivePaidThroughChangesOnlyAtKnownDeadlineAndPreservesEvidence',
+    'IChartSubscriptionEntitlementExpiryTests/testGraceUsesItsOwnKnownDeadlineWithoutCreatingAnotherPeriod',
+    'IChartSubscriptionEntitlementExpiryTests/testMissingBoundsAndLegacyStatusRetainExistingCompatibility',
+    'IChartSubscriptionEntitlementExpiryTests/testKnownExpiredActiveSnapshotCannotReplaceLegacyLocalRights',
+    'IChartSubscriptionEntitlementExpiryTests/testResidentPaidSnapshotLosesAdmissionsAtBoundaryWithoutBeingReapplied',
+    'IChartSubscriptionEntitlementExpiryTests/testRuntimeAdmissionPropertiesRejectEndedResidentSnapshot',
+    'IChartSubscriptionEntitlementExpiryTests/testGraceLocalAdmissionsEndAtKnownGraceBoundary',
+    'IChartSubscriptionEntitlementExpiryTests/testBetaFreeProAndBasicChoicesStayIndependentOfExpiredBilling',
+    'IChartSubscriptionEntitlementExpiryTests/testEvaluationAndSerializationKeepBillingEvidenceAndPolicyBoundaries',
+    'IChartKnownExpiryExportContextTests/testPersonalExportReevaluatesKnownActiveAndGraceBoundsWithoutChangingSavedBilling',
 )
 PUBLIC_FREE_TEST_CLASSES = (
     "ProductionPaidBuildScopeTests", "ProductionPaidBackendConfigurationTests",

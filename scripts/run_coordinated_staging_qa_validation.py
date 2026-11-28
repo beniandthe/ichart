@@ -51,10 +51,11 @@ TEST_SOURCES = (
 )
 
 
-# Exact required scope: shared53 + QA7 + auth5 + storage5 + catalog13 methods.
+# Exact required scope: shared69 (including expiry16) + QA7 + auth5 + storage5 + catalog13 methods.
 # Runtime execution is still required; this constant finalizes scope only.
 REQUIRED_RUNTIME_APP_SOURCES = (
     "iChart/Models/IChartProductAccessPolicy.swift", "iChart/Models/AppEntitlements.swift",
+    "iChart/Models/IChartSubscriptionEntitlement.swift", "iChart/Services/ChartExporting.swift",
     "iChart/Models/IChartBetaProStatus.swift", "iChart/Models/IChartProductAccessStatus.swift",
     "iChart/Services/IChartBetaProStore.swift", "iChart/Features/Library/ChartLibraryStore.swift",
     "iChart/App/Supabase/IChartSupabaseBetaProService.swift", "iChart/App/IChartApp.swift",
@@ -72,6 +73,9 @@ COORDINATED_TEST_CLASSES = (
     'CoordinatedPaidCheckoutAdmissionTests',
     'CoordinatedLibraryPolicyPreservationTests',
     'CoordinatedPlanPresentationTests',
+    'IChartSubscriptionDeadlineTests',
+    'IChartSubscriptionEntitlementExpiryTests',
+    'IChartKnownExpiryExportContextTests',
     'CoordinatedQAConfigurationTests',
     'CoordinatedQABackendRoutingTests',
     'IChartAuthStorageIsolationTests',
@@ -83,6 +87,9 @@ COORDINATED_TEST_SOURCES = (
     'iChartTests/CoordinatedPaidCheckoutAdmissionTests.swift',
     'iChartTests/CoordinatedLibraryPolicyPreservationTests.swift',
     'iChartTests/CoordinatedPlanPresentationTests.swift',
+    'iChartTests/IChartSubscriptionDeadlineTests.swift',
+    'iChartTests/IChartSubscriptionEntitlementExpiryTests.swift',
+    'iChartTests/IChartKnownExpiryExportContextTests.swift',
     'iChartTests/Support/NativeAccessibilityLookup.swift',
     'iChartTests/CoordinatedQAConfigurationTests.swift',
     'iChartTests/IChartAuthStorageIsolationTests.swift',
@@ -143,6 +150,22 @@ REQUIRED_COORDINATED_TESTS = (
     'CoordinatedPlanPresentationTests/testMountedUnknownUpgradeKeepsRecoveryAndDoesNotShowBetaNoticeOrCheckout',
     'CoordinatedPlanPresentationTests/testCoordinatedNoticeDoesNotPresentAModalOrMoveTheWritingSurface',
     'CoordinatedPlanPresentationTests/testForumAuthTransitionCannotBorrowPreviousOwnersFreshGrant',
+    'IChartSubscriptionDeadlineTests/testKnownDeadlinePublishesBeforeRefreshWithoutNavigation',
+    'IChartSubscriptionDeadlineTests/testRenewalCancelsThePriorDeadlineAndUsesTheNewBound',
+    'IChartSubscriptionDeadlineTests/testPreviousOwnersDeadlineCannotPublishIntoTheNewAccount',
+    'IChartSubscriptionDeadlineTests/testDelayedObservationCannotRegrantAnEndedPeriod',
+    'IChartSubscriptionDeadlineTests/testDeadlineWaitDoesNotRetainTheSubscriptionStore',
+    'IChartSubscriptionDeadlineTests/testMountedPlanExpiresAndSavedLibraryRemainsEditableWithoutReplacingTheView',
+    'IChartSubscriptionEntitlementExpiryTests/testActivePaidThroughChangesOnlyAtKnownDeadlineAndPreservesEvidence',
+    'IChartSubscriptionEntitlementExpiryTests/testGraceUsesItsOwnKnownDeadlineWithoutCreatingAnotherPeriod',
+    'IChartSubscriptionEntitlementExpiryTests/testMissingBoundsAndLegacyStatusRetainExistingCompatibility',
+    'IChartSubscriptionEntitlementExpiryTests/testKnownExpiredActiveSnapshotCannotReplaceLegacyLocalRights',
+    'IChartSubscriptionEntitlementExpiryTests/testResidentPaidSnapshotLosesAdmissionsAtBoundaryWithoutBeingReapplied',
+    'IChartSubscriptionEntitlementExpiryTests/testRuntimeAdmissionPropertiesRejectEndedResidentSnapshot',
+    'IChartSubscriptionEntitlementExpiryTests/testGraceLocalAdmissionsEndAtKnownGraceBoundary',
+    'IChartSubscriptionEntitlementExpiryTests/testBetaFreeProAndBasicChoicesStayIndependentOfExpiredBilling',
+    'IChartSubscriptionEntitlementExpiryTests/testEvaluationAndSerializationKeepBillingEvidenceAndPolicyBoundaries',
+    'IChartKnownExpiryExportContextTests/testPersonalExportReevaluatesKnownActiveAndGraceBoundsWithoutChangingSavedBilling',
     'CoordinatedQAConfigurationTests/testActualCompiledLaneSelectsItsOwnCoordinatorNamespaceAndProducts',
     'CoordinatedQAConfigurationTests/testAllThreeLocalAndAuthNamespacesStayDistinctWithoutFallback',
     'CoordinatedQAConfigurationTests/testPhaseCacheUsesOnlySelectedProjectAndOwnerWithoutCrossLaneHydration',

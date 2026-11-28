@@ -32,6 +32,9 @@ SHARED_CLASSES = {
     "CoordinatedPaidCheckoutAdmissionTests": 14,
     "CoordinatedLibraryPolicyPreservationTests": 5,
     "CoordinatedPlanPresentationTests": 9,
+    "IChartSubscriptionDeadlineTests": 6,
+    "IChartSubscriptionEntitlementExpiryTests": 9,
+    "IChartKnownExpiryExportContextTests": 1,
 }
 EXTRA_CLASSES = {
     "CoordinatedQAConfigurationTests": 3,
@@ -293,14 +296,14 @@ class CoordinatedStagingQAValidationTests(unittest.TestCase):
         self.assertEqual(set(qa.COORDINATED_TEST_CLASSES), set(expected_classes))
         for name, count in expected_classes.items(): self.assertEqual(len(declared[name]), count, name)
         actual = [method for name in expected_classes for method in declared[name]]
-        self.assertEqual(len(actual), 83)
-        self.assertEqual(len(qa.REQUIRED_COORDINATED_TESTS), 83)
-        self.assertEqual(len(set(qa.REQUIRED_COORDINATED_TESTS)), 83)
+        self.assertEqual(len(actual), 99)
+        self.assertEqual(len(qa.REQUIRED_COORDINATED_TESTS), 99)
+        self.assertEqual(len(set(qa.REQUIRED_COORDINATED_TESTS)), 99)
         self.assertEqual(set(actual), set(qa.REQUIRED_COORDINATED_TESTS))
         source_ast = ast.parse(PRODUCTION.read_text())
         assignments = {node.targets[0].id: node.value for node in source_ast.body if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name)}
         shared = ast.literal_eval(assignments["REQUIRED_COORDINATED_TESTS"])
-        self.assertEqual(len(shared), 53)
+        self.assertEqual(len(shared), 69)
         self.assertTrue(set(shared) <= set(actual))
         self.assertTrue(qa.COORDINATION_CONTRACT_FINALIZED)
         self.assertIn("iChartTests/Support/NativeAccessibilityLookup.swift", qa.selected_sources())
@@ -313,7 +316,9 @@ class CoordinatedStagingQAValidationTests(unittest.TestCase):
         self.assertTrue(set(qa.selected_classes()) <= set(declared))
         self.assertEqual(len(qa.selected_sources()), len(set(qa.selected_sources())))
         for path in ("iChart/Persistence/IChartStorageNamespace.swift", "iChart/App/Supabase/IChartSupabaseConfiguration.swift",
-                     "iChart/Models/IChartStoreKitProductCatalog.swift", "iChart/Models/IChartProductAccessStatus.swift"):
+                     "iChart/Models/IChartStoreKitProductCatalog.swift", "iChart/Models/IChartProductAccessStatus.swift",
+                     "iChart/Models/IChartSubscriptionEntitlement.swift", "iChart/Models/AppEntitlements.swift",
+                     "iChart/App/StoreKit/IChartStoreKitSubscriptionStore.swift", "iChart/Services/ChartExporting.swift"):
             self.assertIn(path, qa.REQUIRED_RUNTIME_APP_SOURCES)
 
     def testCompletePassingNativeInventoryIsCountedOnConfiguredSimulator(self):
@@ -333,6 +338,20 @@ class CoordinatedStagingQAValidationTests(unittest.TestCase):
         for key in ("passedTests", "totalTestCount"): summary[key] -= 1
         summary["devicesAndConfigurations"][0]["passedTests"] -= 1
         with self.assertRaisesRegex(ValueError, "Missing required"): qa.validate_results(summary, tree, DEVICE)
+
+    def testEveryKnownExpiryMethodMustActuallyExecuteWithConsistentTotals(self):
+        classes = {"IChartSubscriptionDeadlineTests", "IChartSubscriptionEntitlementExpiryTests",
+                   "IChartKnownExpiryExportContextTests"}
+        required = [method for method in qa.REQUIRED_COORDINATED_TESTS if method.split("/", 1)[0] in classes]
+        self.assertEqual(len(required), 16)
+        for method in required:
+            summary, tree = self.results()
+            tree["testNodes"][0]["children"] = [node for node in tree["testNodes"][0]["children"]
+                                               if node["nodeIdentifier"] != method + "()"]
+            for key in ("passedTests", "totalTestCount"): summary[key] -= 1
+            summary["devicesAndConfigurations"][0]["passedTests"] -= 1
+            with self.subTest(missing=method), self.assertRaises(ValueError):
+                qa.validate_results(summary, tree, DEVICE)
 
     def testDuplicateUnexpectedAndNonpassingMethodsFail(self):
         summary, tree = self.results(); children = tree["testNodes"][0]["children"]

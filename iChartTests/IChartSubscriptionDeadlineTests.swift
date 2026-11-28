@@ -127,9 +127,11 @@ final class IChartSubscriptionDeadlineTests: XCTestCase {
         let forum = IChartForumStore.live(clients: nil)
         let host = UIHostingController(rootView:
             ScrollView {
-                IChartPlanSettings(store: library, subscriptionStore: subscriptions, forumStore: forum,
-                    theme: IChartHomeTheme(mode: .light), onSelectSubscriptionState: { _ in },
-                    onForumQASampleDataChanged: { _ in })
+                IChartPlanAccessReader(fallbackPolicy: library.entitlements.accessPolicy) { _ in
+                    IChartPlanSettings(store: library, subscriptionStore: subscriptions, forumStore: forum,
+                        theme: IChartHomeTheme(mode: .light), onSelectSubscriptionState: { _ in },
+                        onForumQASampleDataChanged: { _ in })
+                }
             }
             .environment(\.betaProStore, fixture.beta).environment(\.accessibilityEnabled, true)
             .onReceive(subscriptions.$entitlement) { observed in
