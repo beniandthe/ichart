@@ -73,6 +73,28 @@ struct IChartSubscriptionEntitlement: Codable, Hashable {
         }
     }
 
+    /// A known paid-through boundary, independent of renewal intent or the local clock.
+    /// Nil retains the existing unbounded legacy/debug snapshot behavior.
+    var accessDeadline: Date? {
+        switch status {
+        case .proActive:
+            return accessEndsAt
+        case .proGrace:
+            return graceEndsAt
+        case .basic, .proExpired, .unavailable, .legacyLocalPro:
+            return nil
+        }
+    }
+
+    /// Re-evaluate cached authority at the point of use without inventing a new
+    /// verification time or changing the original paid-through evidence.
+    func evaluated(at now: Date) -> IChartSubscriptionEntitlement {
+        guard let accessDeadline, accessDeadline <= now else { return self }
+        var expired = self
+        expired.status = .proExpired
+        return expired
+    }
+
     var effectivePlan: IChartPlan {
         switch status {
         case .basic, .proGrace, .proExpired, .unavailable:
@@ -182,11 +204,13 @@ struct IChartSubscriptionEntitlement: Codable, Hashable {
     }
 
     func resolvedForLibraryApplication(
-        currentLibraryEntitlement: IChartSubscriptionEntitlement
+        currentLibraryEntitlement: IChartSubscriptionEntitlement,
+        at now: Date = Date()
     ) -> IChartSubscriptionEntitlement {
+        let current = evaluated(at: now)
         guard currentLibraryEntitlement.status == .legacyLocalPro,
-              status != .proActive else {
-            return self
+              current.status != .proActive else {
+            return current
         }
 
         return currentLibraryEntitlement

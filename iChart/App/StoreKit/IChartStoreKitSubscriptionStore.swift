@@ -71,6 +71,12 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
     private weak var productAccessStore: IChartBetaProStore?
     private var productsByID: [String: Product] = [:]
     private var transactionUpdatesTask: Task<Void, Never>?
+    private var entitlementExpiryTask: Task<Void, Never>?
+    private var entitlementExpiryGeneration = UUID()
+    private var entitlementRefreshGeneration = UUID()
+    private let entitlementNow: @MainActor () -> Date
+    private let entitlementSleep: @Sendable (UInt64) async throws -> Void
+    private let expiredEntitlementRefresh: (@MainActor () async -> Void)?
     private var complimentaryAttemptIDsByProduct: [String: UUID] = [:]
     private var complimentaryPurchaseInFlight = false
 
@@ -78,22 +84,41 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
         productIDs: [String] = IChartStoreKitProductCatalog.proProductIDs,
         entitlement: IChartSubscriptionEntitlement = .basic,
         subscriptionClaimService: IChartStoreKitSubscriptionClaiming? = nil,
-        productAccessStore: IChartBetaProStore? = nil
+        productAccessStore: IChartBetaProStore? = nil,
+        verifiedOwnerID: UUID? = nil,
+        observationOwnerID: UUID? = nil,
+        entitlementNow: @escaping @MainActor () -> Date = Date.init,
+        entitlementSleep: @escaping @Sendable (UInt64) async throws -> Void = { try await Task.sleep(nanoseconds: $0) },
+        expiredEntitlementRefresh: (@MainActor () async -> Void)? = nil
     ) {
         self.productIDs = productIDs
-        self.entitlement = entitlement
+        self.entitlementNow = entitlementNow
+        self.entitlementSleep = entitlementSleep
+        self.expiredEntitlementRefresh = expiredEntitlementRefresh
+        self.entitlement = entitlement.evaluated(at: entitlementNow())
+        self.verifiedSubscriptionOwnerID = verifiedOwnerID
+        self.billingObservationOwnerID = observationOwnerID
         self.subscriptionClaimService = subscriptionClaimService
         self.productAccessStore = productAccessStore
+        scheduleEntitlementExpiry()
     }
 
     /// Narrow injection point for owner-bound access tests without constructing
     /// a backend client or Apple Product. Production uses live(clients:).
     convenience init(entitlement: IChartSubscriptionEntitlement = .basic,
                      productAccessStore: IChartBetaProStore,
-                     initialProductOptions: [IChartStoreKitProductOption] = []) {
+                     initialProductOptions: [IChartStoreKitProductOption] = [],
+                     verifiedOwnerID: UUID? = nil,
+                     observationOwnerID: UUID? = nil,
+                     entitlementNow: @escaping @MainActor () -> Date = Date.init,
+                     entitlementSleep: @escaping @Sendable (UInt64) async throws -> Void = { try await Task.sleep(nanoseconds: $0) },
+                     expiredEntitlementRefresh: (@MainActor () async -> Void)? = nil) {
         self.init(productIDs: IChartStoreKitProductCatalog.proProductIDs,
                   entitlement: entitlement, subscriptionClaimService: nil,
-                  productAccessStore: productAccessStore)
+                  productAccessStore: productAccessStore,
+                  verifiedOwnerID: verifiedOwnerID, observationOwnerID: observationOwnerID,
+                  entitlementNow: entitlementNow, entitlementSleep: entitlementSleep,
+                  expiredEntitlementRefresh: expiredEntitlementRefresh)
         // Display metadata injection cannot create an Apple Product, billing
         // entitlement or checkout admission. The live initializer never uses it.
         if productAccessStore.canOfferPaidPurchases {
@@ -103,6 +128,58 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
 
     deinit {
         transactionUpdatesTask?.cancel()
+        entitlementExpiryTask?.cancel()
+    }
+
+    /// The caller has already validated the request/transaction's owner. Keep
+    /// that association and the observed period together when publishing it.
+    func applyBillingObservation(_ observed: IChartSubscriptionEntitlement,
+                                 verifiedOwnerID: UUID?, observationOwnerID: UUID?) {
+        verifiedSubscriptionOwnerID = verifiedOwnerID
+        billingObservationOwnerID = observationOwnerID
+        publishEntitlement(observed)
+    }
+
+    private func publishEntitlement(_ observed: IChartSubscriptionEntitlement) {
+        // An awaited claim/read may complete after its signed period ended.
+        // Publication cannot re-grant that ended period or a superseded refresh.
+        entitlementRefreshGeneration = UUID()
+        entitlement = observed.evaluated(at: entitlementNow())
+        scheduleEntitlementExpiry()
+    }
+
+    private func scheduleEntitlementExpiry() {
+        entitlementExpiryTask?.cancel()
+        entitlementExpiryTask = nil
+        entitlementExpiryGeneration = UUID()
+        guard let deadline = entitlement.accessDeadline else { return }
+        let expected = entitlement
+        let observedOwnerID = billingObservationOwnerID
+        let generation = entitlementExpiryGeneration
+        let sleep = entitlementSleep
+        // A long period uses bounded sleeps against the same absolute deadline;
+        // waking early never renews access or starts a network request.
+        let interval = min(max(deadline.timeIntervalSince(entitlementNow()), 0), 86_400)
+        let nanoseconds = UInt64(interval * 1_000_000_000)
+        entitlementExpiryTask = Task { [weak self] in
+            do { try await sleep(nanoseconds) } catch { return }
+            guard !Task.isCancelled, let self,
+                  self.entitlementExpiryGeneration == generation,
+                  self.entitlement == expected,
+                  self.billingObservationOwnerID == observedOwnerID,
+                  !self.usesCoordinatedProductAccess || self.productAccessStore?.ownerID == observedOwnerID else { return }
+            let now = self.entitlementNow()
+            guard deadline <= now else {
+                self.scheduleEntitlementExpiry()
+                return
+            }
+            // Publish the known deadline locally before the optional authority
+            // refresh. No writing, save or screen transition awaits the network.
+            self.entitlementExpiryTask = nil
+            self.publishEntitlement(expected.evaluated(at: now))
+            if let refresh = self.expiredEntitlementRefresh { await refresh() }
+            else { await self.refreshEntitlements() }
+        }
     }
 
     static func live(clients: IChartSupabaseClients? = nil,
@@ -122,7 +199,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
         removeLegacyDebugSignedTransactionCapture()
 
         guard !productIDs.isEmpty else {
-            entitlement = .unavailable
+            publishEntitlement(.unavailable)
             state = .unavailable("Pro subscriptions are temporarily unavailable.")
             return
         }
@@ -140,6 +217,9 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
     }
 
     private func refreshEntitlements(preferredSignedTransactionInfo: String?) async {
+        let generation = UUID()
+        entitlementRefreshGeneration = generation
+        let phaseOwnerID = productAccessStore?.ownerID
         complimentaryOffers = []
         complimentaryOfferStatuses = []
         complimentaryAttemptIDsByProduct = [:]
@@ -148,6 +228,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
         let localEvaluation = await evaluateLocalStoreKitEntitlements(
             preferredSignedTransactionInfo: preferredSignedTransactionInfo
         )
+        guard isCurrentEntitlementRefresh(generation, phaseOwnerID: phaseOwnerID) else { return }
 
         if let subscriptionClaimService {
             if localEvaluation.signedTransactionInfo != nil { state = .claiming }
@@ -155,21 +236,21 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
                 expectedOwnerID: expectedOwnerID,
                 signedTransactionInfo: localEvaluation.signedTransactionInfo,
                 service: subscriptionClaimService,
-                now: Date()
+                now: entitlementNow()
             )
+            guard isCurrentEntitlementRefresh(generation, phaseOwnerID: phaseOwnerID) else { return }
             switch resolution {
             case .verified(let verifiedEntitlement, _):
-                entitlement = verifiedEntitlement
-                verifiedSubscriptionOwnerID = expectedOwnerID
-                billingObservationOwnerID = expectedOwnerID
+                applyBillingObservation(verifiedEntitlement,
+                    verifiedOwnerID: expectedOwnerID, observationOwnerID: expectedOwnerID)
                 state = .ready
             case .noRemoteSubscription:
                 verifiedSubscriptionOwnerID = nil
                 billingObservationOwnerID = expectedOwnerID
-                entitlement = IChartStoreKitEntitlementResolver.serverBackedEntitlement(
+                publishEntitlement(IChartStoreKitEntitlementResolver.serverBackedEntitlement(
                     remoteEntitlement: nil,
                     localEntitlement: localEvaluation.entitlement
-                )
+                ))
                 state = .ready
             case .unavailable(let claimFailed):
                 verifiedSubscriptionOwnerID = nil
@@ -178,7 +259,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
                    let fallbackEntitlement = IChartStoreKitEntitlementResolver.serverBackedFallbackForRemoteFailure(
                        localEntitlement: localEvaluation.entitlement
                    ) {
-                    entitlement = fallbackEntitlement
+                    publishEntitlement(fallbackEntitlement)
                     state = .ready
                 } else {
                     applyClaimFailureFallback(localEvaluation.entitlement)
@@ -188,15 +269,25 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
             return
         }
 
-        entitlement = localEvaluation.entitlement
+        publishEntitlement(localEvaluation.entitlement)
         state = localEvaluation.state
         await refreshComplimentaryOffers()
+    }
+
+    private func isCurrentEntitlementRefresh(_ generation: UUID, phaseOwnerID: UUID?) -> Bool {
+        guard entitlementRefreshGeneration == generation else { return false }
+        guard !Task.isCancelled,
+              !usesCoordinatedProductAccess || productAccessStore?.ownerID == phaseOwnerID else {
+            state = .ready
+            return false
+        }
+        return true
     }
 
     private func evaluateLocalStoreKitEntitlements(
         preferredSignedTransactionInfo: String?
     ) async -> StoreKitEntitlementEvaluation {
-        let now = Date()
+        let now = entitlementNow()
 
         var activeProExpiration: Date?
         var sawExpiredProTransaction = false
@@ -214,7 +305,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
             }
 
             if let expirationDate = transaction.expirationDate {
-                if expirationDate > Date() {
+                if expirationDate > entitlementNow() {
                     activeProExpiration = max(activeProExpiration ?? expirationDate, expirationDate)
                     latestSignedTransactionInfo = result.jwsRepresentation
                 } else {
@@ -261,7 +352,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
             switch result {
             case .success(let verification):
                 guard case .verified(let transaction) = verification else {
-                    entitlement = .unavailable
+                    publishEntitlement(.unavailable)
                     state = .unavailable("Purchase could not be verified.")
                     IChartTelemetry.record(
                         "subscription.purchase_failed",
@@ -307,7 +398,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
                     ]
                 )
             @unknown default:
-                entitlement = .unavailable
+                publishEntitlement(.unavailable)
                 state = .unavailable("Purchase status is unavailable.")
                 IChartTelemetry.record(
                     "subscription.purchase_failed",
@@ -319,7 +410,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
                 )
             }
         } catch {
-            entitlement = .unavailable
+            publishEntitlement(.unavailable)
             state = .unavailable("Purchase failed. Try again from Settings.")
             IChartTelemetry.record(
                 "subscription.purchase_failed",
@@ -350,7 +441,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
         state = .purchasing
         applyLocalPreview(.activePro(verifiedAt: Date()))
         #else
-        entitlement = .unavailable
+        publishEntitlement(.unavailable)
         state = .unavailable("Pro subscriptions could not be loaded.")
         #endif
     }
@@ -497,9 +588,8 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
                 }
                 // An accepted, same-owner ordinary claim establishes access even
                 // if campaign confirmation is pending. It does not finish the gift.
-                entitlement = claimedEntitlement
-                verifiedSubscriptionOwnerID = accountID
-                billingObservationOwnerID = accountID
+                applyBillingObservation(claimedEntitlement,
+                    verifiedOwnerID: accountID, observationOwnerID: accountID)
                 let confirmedResponse = try await subscriptionClaimService.complimentaryOffer(
                     request: IChartComplimentaryOfferServerRequest(
                         action: .confirm,
@@ -612,7 +702,7 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
                 ]
             )
         } catch {
-            entitlement = .unavailable
+            publishEntitlement(.unavailable)
             state = .unavailable("Restore failed. Try again when you are online.")
             IChartTelemetry.record(
                 "subscription.restore_failed",
@@ -648,8 +738,8 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
 
     #if DEBUG && targetEnvironment(simulator)
     func applyLocalPreview(_ entitlement: IChartSubscriptionEntitlement) {
-        self.entitlement = entitlement
-        state = entitlement.status == .proActive ? .localPreviewActive : .ready
+        publishEntitlement(entitlement)
+        state = self.entitlement.status == .proActive ? .localPreviewActive : .ready
     }
     #endif
 
@@ -1002,9 +1092,8 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
                       try await subscriptionClaimService.appAccountToken() == accountID else {
                     return .retryLater
                 }
-                entitlement = claimedEntitlement
-                verifiedSubscriptionOwnerID = accountID
-                billingObservationOwnerID = accountID
+                applyBillingObservation(claimedEntitlement,
+                    verifiedOwnerID: accountID, observationOwnerID: accountID)
                 let confirmed = try await subscriptionClaimService.complimentaryOffer(
                     request: IChartComplimentaryOfferServerRequest(
                         action: .confirm,
@@ -1247,18 +1336,18 @@ final class IChartStoreKitSubscriptionStore: ObservableObject {
 
     private func applyClaimFailureFallback(_ localEntitlement: IChartSubscriptionEntitlement) {
         #if DEBUG && targetEnvironment(simulator)
-        entitlement = localEntitlement
-        state = localEntitlement.status == .proActive
+        publishEntitlement(localEntitlement)
+        state = entitlement.status == .proActive
             ? .localPreviewActive
             : .unavailable("Subscription could not be verified. Try again when you are online.")
         #else
-        entitlement = .unavailable
+        publishEntitlement(.unavailable)
         state = .unavailable("Subscription could not be verified with iChart. Try again when you are online.")
         #endif
     }
 
     private func markTransactionVerificationUnavailable() {
-        entitlement = .unavailable
+        publishEntitlement(.unavailable)
         state = .unavailable("Subscription transaction could not be verified.")
     }
 

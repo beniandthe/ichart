@@ -106,14 +106,15 @@ final class AppEntitlementsTests: XCTestCase {
 
     func testBillingGraceKeepsLocalChartAccessButPausesCloudServices() {
         let graceEndsAt = Date(timeIntervalSinceReferenceDate: 100)
+        let now = graceEndsAt.addingTimeInterval(-1)
         let entitlements = AppEntitlements(subscription: .proGrace(graceEndsAt: graceEndsAt), accessPolicy: .paidSubscription)
 
-        XCTAssertNil(entitlements.localChartLimit)
-        XCTAssertTrue(entitlements.includes(.unlimitedLocalCharts))
-        XCTAssertTrue(entitlements.includes(.projects))
-        XCTAssertTrue(entitlements.includes(.pdfExport))
-        XCTAssertFalse(entitlements.includes(.cloudBackup))
-        XCTAssertFalse(entitlements.includes(.forums))
+        XCTAssertNil(entitlements.localChartLimit(at: now))
+        XCTAssertTrue(entitlements.includes(.unlimitedLocalCharts, at: now))
+        XCTAssertTrue(entitlements.includes(.projects, at: now))
+        XCTAssertTrue(entitlements.includes(.pdfExport, at: now))
+        XCTAssertFalse(entitlements.includes(.cloudBackup, at: now))
+        XCTAssertFalse(entitlements.includes(.forums, at: now))
     }
 
     func testPremiumLocalToolsAndHostedSetlistSyncRespectProductPolicyAndBilling() {

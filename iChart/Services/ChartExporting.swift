@@ -71,7 +71,8 @@ struct ChartPDFExportContext: Hashable {
 
     static let standard = ChartPDFExportContext(forumCredit: nil)
 
-    static func personalChart(entitlements: AppEntitlements) -> Self {
+    static func personalChart(entitlements: AppEntitlements, now: Date = Date()) -> Self {
+        let entitlements = entitlements.evaluated(at: now)
         // Grace keeps local Pro benefits even though its effective plan is free.
         guard entitlements.accessPolicy.offersPaidPurchases,
               entitlements.activePlan == .free,
