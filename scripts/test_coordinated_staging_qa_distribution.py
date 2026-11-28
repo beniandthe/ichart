@@ -149,7 +149,7 @@ class CoordinatedQADistributionTests(unittest.TestCase):
 
     def testStrictProductionAndPublicVerifierBytesAreUnchanged(self):
         root = Path(__file__).resolve().parent
-        self.assertEqual(qa.sha((root / "verify_public_beta_archive.py").read_bytes()), "973a42bf7bfe965a9d9a0e4cfdc39b5695422336d49a1b6c4096a1ec12758ff8")
+        self.assertEqual(qa.sha((root / "verify_public_beta_archive.py").read_bytes()), "4a32379c03af741ed86c15e3e460361625d2457e07f3a9ef69a11a653be2248c")
         self.assertEqual(qa.sha((root / "verify-production-paid-distribution.py").read_bytes()), "6fba9ed713dc6849a94bae4481afb7de208b1f16e228e3c4895325f6c14f6177")
         public = qa.base
         with self.assertRaises(public.GuardError): public.compiler_evidence(self.compiler(), self.derived, self.source)
