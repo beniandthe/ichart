@@ -125,11 +125,12 @@ final class IChartSubscriptionDeadlineTests: XCTestCase {
         library.selectedChartID = chart.id
         let lifetime = Lifetime()
         let forum = IChartForumStore.live(clients: nil)
+        var previewSelections: [IChartSubscriptionEntitlement] = []
         let host = UIHostingController(rootView:
             ScrollView {
                 IChartPlanAccessReader(fallbackPolicy: library.entitlements.accessPolicy) { _ in
                     IChartPlanSettings(store: library, subscriptionStore: subscriptions, forumStore: forum,
-                        theme: IChartHomeTheme(mode: .light), onSelectSubscriptionState: { _ in },
+                        theme: IChartHomeTheme(mode: .light), onSelectSubscriptionState: { previewSelections.append($0) },
                         onForumQASampleDataChanged: { _ in })
                 }
             }
@@ -143,11 +144,19 @@ final class IChartSubscriptionDeadlineTests: XCTestCase {
         let window = try mount(host)
         defer { close(window) }
         try await eventually(in: window) { $0.contains("Pro Active") }
+        XCTAssertEqual(subscriptions.entitlement, billing)
+        XCTAssertEqual(subscriptions.entitlement.accessEndsAt, deadline)
+        XCTAssertEqual(subscriptions.entitlement.willAutoRenew, false)
+        XCTAssertTrue(previewSelections.isEmpty, "Mounting Plan must not issue a local preview command")
         let originalController = window.rootViewController
         let request = try await fixture.sleep.nextRequest()
         fixture.clock.now = deadline
         await fixture.sleep.release(request.id)
         try await eventually(in: window) { $0.contains("Pro Expired") && $0.contains("Restore Pro") }
+        XCTAssertEqual(subscriptions.entitlement.status, .proExpired)
+        XCTAssertEqual(subscriptions.entitlement.accessEndsAt, deadline)
+        XCTAssertEqual(subscriptions.entitlement.willAutoRenew, false)
+        XCTAssertTrue(previewSelections.isEmpty, "Billing reconciliation must not issue a local preview command")
 
         XCTAssertTrue(window.rootViewController === originalController)
         XCTAssertEqual(lifetime.appearances, 1)
@@ -166,7 +175,37 @@ final class IChartSubscriptionDeadlineTests: XCTestCase {
         binding.wrappedValue = edited
         XCTAssertEqual(library.charts.first?.pageHandwrittenNotationData, chart.pageHandwrittenNotationData)
         XCTAssertEqual(library.charts.first?.title, edited.title)
+
+        #if DEBUG
+        let picker = try XCTUnwrap(planPreviewPicker(in: host.view))
+        let proIndex = try XCTUnwrap((0..<picker.numberOfSegments).first { picker.titleForSegment(at: $0) == "Pro" })
+        picker.selectedSegmentIndex = proIndex
+        picker.sendActions(for: .valueChanged)
+        try await eventually(in: window) { _ in previewSelections.count == 1 && subscriptions.entitlement.status == .proActive }
+        XCTAssertNil(subscriptions.entitlement.accessEndsAt, "An explicit Debug Pro preview still creates its intended local preview")
+
+        let basicIndex = try XCTUnwrap((0..<picker.numberOfSegments).first { picker.titleForSegment(at: $0) == "Basic" })
+        picker.selectedSegmentIndex = basicIndex
+        picker.sendActions(for: .valueChanged)
+        try await eventually(in: window) { _ in previewSelections.count == 2 && subscriptions.entitlement.status == .basic }
+        XCTAssertEqual(previewSelections.map(\.status), [.proActive, .basic])
+        XCTAssertEqual(library.charts.first?.pageHandwrittenNotationData, chart.pageHandwrittenNotationData)
+        XCTAssertEqual(library.charts.first?.title, edited.title)
+        #endif
     }
+
+    #if DEBUG
+    private func planPreviewPicker(in view: UIView) -> UISegmentedControl? {
+        if let picker = view as? UISegmentedControl,
+           (0..<picker.numberOfSegments).compactMap({ picker.titleForSegment(at: $0) }) == ["Basic", "Pro", "Grace", "Expired", "Offline"] {
+            return picker
+        }
+        for child in view.subviews {
+            if let picker = planPreviewPicker(in: child) { return picker }
+        }
+        return nil
+    }
+    #endif
 
     private func eventually(_ condition: () -> Bool) async throws {
         for _ in 0..<200 {

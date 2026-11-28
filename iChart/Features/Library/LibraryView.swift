@@ -7302,6 +7302,22 @@ struct IChartPlanSettings: View {
     }
 
     #if DEBUG
+    private var debugPreviewSelection: Binding<IChartDebugPlanPreview> {
+        Binding(
+            get: { debugPreview },
+            set: { preview in
+                // Billing observations only mirror the selection. Replacing
+                // the local entitlement requires an explicit control action.
+                debugPreview = preview
+                let subscriptionState = preview.subscriptionState()
+                #if targetEnvironment(simulator)
+                subscriptionStore.applyLocalPreview(subscriptionState)
+                #endif
+                onSelectSubscriptionState(subscriptionState)
+            }
+        )
+    }
+
     private var debugControls: some View {
         VStack(alignment: .leading, spacing: 8) {
             Divider()
@@ -7311,19 +7327,12 @@ struct IChartPlanSettings: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(theme.panelTitle)
 
-            Picker("Plan Preview", selection: $debugPreview) {
+            Picker("Plan Preview", selection: debugPreviewSelection) {
                 ForEach(IChartDebugPlanPreview.allCases) { preview in
                     Text(preview.title).tag(preview)
                 }
             }
             .pickerStyle(.segmented)
-            .onChange(of: debugPreview) {
-                let subscriptionState = debugPreview.subscriptionState()
-                #if targetEnvironment(simulator)
-                subscriptionStore.applyLocalPreview(subscriptionState)
-                #endif
-                onSelectSubscriptionState(subscriptionState)
-            }
 
             Text("Use local preview controls on this device. Purchases and account backup still use their normal flows.")
                 .font(.caption)
